@@ -287,6 +287,21 @@ export function apply(ctx, config = {}) {
     }
   })
 
+  // DSH 在受理带图消息时校验当前模型的 inputModalities（MODEL_DOES_NOT_SUPPORT_IMAGES），
+  // 该校验发生在识图子代理介入之前：主模型若声明为纯文本（如 deepseek-v4-flash），
+  // 带图提问会被直接拒绝，vision 角色形同虚设。只要 vision 角色已配置（pre-step
+  // 会把图片转给识图子代理、主模型只收文本分析），就向内核声明主模型同样接受
+  // image 输入，让消息进入回合。
+  if (typeof ctx.llm.resolveModelInfo === 'function') {
+    const resolveModelInfo = ctx.llm.resolveModelInfo.bind(ctx.llm)
+    ctx.llm.resolveModelInfo = async (provider, model, signal) => {
+      const info = await resolveModelInfo(provider, model, signal)
+      if (!table.has('vision')) return info
+      if (info.inputModalities === undefined || info.inputModalities.includes('image')) return info
+      return { ...info, inputModalities: [...info.inputModalities, 'image'] }
+    }
+  }
+
   // DSH's generic browser settings API intentionally allowlists product and
   // configurable-provider namespaces. Keep this plugin editable through a
   // narrowly scoped Connection channel instead.

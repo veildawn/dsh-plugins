@@ -392,3 +392,61 @@ test('tiny role routes real DSH title and compaction LLM calls', async () => {
     { model: 'tiny-model', reasoningEffort: 'low', purpose: 'compaction' },
   ])
 })
+test('resolveModelInfo admits image input when a vision role is configured', async () => {
+  // 无 vision 角色：包装不改变模型信息（保持原样）。
+  const { ctx, adapter } = createRuntime([
+    { role: 'default', provider: 'e2e', model: 'text-model' },
+  ])
+  adapter.resolveModel = async (provider, model) => ({
+    provider,
+    id: model,
+    name: model,
+    inputModalities: ['text'],
+  })
+  let info = await ctx.llm.resolveModelInfo('e2e', 'text-model')
+  assert.deepEqual(info.inputModalities, ['text'])
+
+  // 配置 vision 角色后：纯文本主模型被声明为同时接受 image，
+  // 让 DSH 的受理校验放行（识图子代理会在 pre-step 接管图片）。
+  const { ctx: visionCtx, adapter: visionAdapter } = createRuntime([
+    { role: 'default', provider: 'e2e', model: 'text-model' },
+    { role: 'vision', provider: 'e2e', model: 'vision-model' },
+  ])
+  visionAdapter.resolveModel = async (provider, model) => ({
+    provider,
+    id: model,
+    name: model,
+    inputModalities: ['text'],
+  })
+  info = await visionCtx.llm.resolveModelInfo('e2e', 'text-model')
+  assert.deepEqual(info.inputModalities, ['text', 'image'])
+})
+test('resolveModelInfo admits image input when a vision role is configured', async () => {
+  // 无 vision 角色：包装不改变模型信息（保持原样）。
+  const { ctx, adapter } = createRuntime([
+    { role: 'default', provider: 'e2e', model: 'text-model' },
+  ])
+  adapter.resolveModel = async (provider, model) => ({
+    provider,
+    id: model,
+    name: model,
+    inputModalities: ['text'],
+  })
+  let info = await ctx.llm.resolveModelInfo('e2e', 'text-model')
+  assert.deepEqual(info.inputModalities, ['text'])
+
+  // 配置 vision 角色后：纯文本主模型被声明为同时接受 image，
+  // 让 DSH 的受理校验放行（识图子代理会在 pre-step 接管图片）。
+  const { ctx: visionCtx, adapter: visionAdapter } = createRuntime([
+    { role: 'default', provider: 'e2e', model: 'text-model' },
+    { role: 'vision', provider: 'e2e', model: 'vision-model' },
+  ])
+  visionAdapter.resolveModel = async (provider, model) => ({
+    provider,
+    id: model,
+    name: model,
+    inputModalities: ['text'],
+  })
+  info = await visionCtx.llm.resolveModelInfo('e2e', 'text-model')
+  assert.deepEqual(info.inputModalities, ['text', 'image'])
+})
