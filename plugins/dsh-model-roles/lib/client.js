@@ -44,11 +44,10 @@ window.__ModuleLoader__.load({
       task: { title: "任务", detail: "DSH 委派创建的子代理自动使用；未配置时回退到默认角色。" },
       advisor: { title: "顾问", detail: "顾问复核开启后，DSH 会启动独立子代理评审每个已完成回合，并将重要建议送回主会话。" },
     };
-    const INTRO_TEXT = "系统会自动为任务选择合适模型。图片由独立的识图子代理处理；计划模式、Preset 和子代理会自动使用对应模型，无需在输入框手动选择。";
-    const HELP_TEXT = "普通任务会自动选择合适模型；图片由识图子代理分析，结果会带回主会话。使用 /advisor on 或 /advisor off 可控制当前会话的顾问复核。";
+    const INTRO_TEXT = "系统会自动为任务选择合适模型。";
     const css = `
       .mr-page{display:flex;flex-direction:column;gap:14px;width:100%;max-width:780px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
-      .mr-page h2,.mr-page h3,.mr-page p{margin:0}.mr-page h2{font:var(--dsw-font-l-20)}.mr-intro,.mr-help{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14);line-height:20px}
+      .mr-page h2,.mr-page h3,.mr-page p{margin:0}.mr-page h2{font:var(--dsw-font-l-20)}.mr-intro{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14);line-height:20px}
       .mr-list{display:flex;flex-direction:column;gap:10px}.mr-card{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-l,12px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform))}
       .mr-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.mr-title{font:var(--dsw-font-m-16);font-weight:600}.mr-detail{margin-top:3px!important;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.mr-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(150px,1fr);gap:10px}
       .mr-field{display:flex;flex-direction:column;gap:5px}.mr-label{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500}.mr-select,.mr-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:8px;outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
@@ -285,7 +284,6 @@ window.__ModuleLoader__.load({
           react.createElement("div", { className: "mr-list" },
             ...BUILTIN.map((role) => react.createElement(RoleCard, { role, key: role })),
             ...custom.map((route) => react.createElement(RoleCard, { role: route.role, customRole: true, key: route.role }))),
-          react.createElement("p", { className: "mr-help" }, HELP_TEXT),
           react.createElement("div", { className: "mr-actions" },
             react.createElement("button", { className: "mr-button", type: "button", disabled: saving || !writable, onClick: addPreset }, "添加 Preset"),
             react.createElement("button", { className: "mr-button", type: "button", disabled: saving || !dirty, onClick: load }, "撤销"),
@@ -308,7 +306,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, HELP_TEXT, modelKey, parseModelKey, normalizeRole, rowsFromGroups, routeMap, validateRoles, statusMessage, css };
+    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, modelKey, parseModelKey, normalizeRole, rowsFromGroups, routeMap, validateRoles, statusMessage, css };
     return module.exports;
   }
 });

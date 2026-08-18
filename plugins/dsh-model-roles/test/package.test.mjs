@@ -45,8 +45,7 @@ test('browser bundle loads with the expected client services', async () => {
     default: '默认', smol: '快速', slow: '深度', vision: '识图', plan: '计划',
     designer: '设计', commit: '提交', tiny: '轻量后台', task: '任务', advisor: '顾问',
   })
-  assert.equal(client.internals.HELP_TEXT, '普通任务会自动选择合适模型；图片由识图子代理分析，结果会带回主会话。使用 /advisor on 或 /advisor off 可控制当前会话的顾问复核。')
-  assert.equal(client.internals.INTRO_TEXT, '系统会自动为任务选择合适模型。图片由独立的识图子代理处理；计划模式、Preset 和子代理会自动使用对应模型，无需在输入框手动选择。')
+  assert.equal(client.internals.INTRO_TEXT, '系统会自动为任务选择合适模型。')
   assert.equal(client.internals.statusMessage('ready', true, false), '')
   assert.equal(client.internals.statusMessage('loading', true, false), '正在读取模型与角色配置…')
   assert.equal(client.internals.statusMessage('ready', true, true), '有未保存的更改。')
@@ -95,7 +94,7 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
   const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
   assert.equal(manifest.name, 'dsh-model-roles')
-  assert.equal(manifest.version, '0.4.6')
+  assert.equal(manifest.version, '0.4.7')
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(manifest.dsh.client.platform, 'web')
   assert(manifest.files.includes('lib/core.js'))
