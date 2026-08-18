@@ -46,7 +46,9 @@ window.__ModuleLoader__.load({
       .dsh-remote-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.dsh-remote-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer}.dsh-remote-button:disabled{cursor:default;opacity:.4}.dsh-remote-button-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}.dsh-remote-gate-button{width:100%}
       .dsh-remote-error{min-height:18px;margin:8px 0 0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-remote-meta,.dsh-remote-details{color:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-caption));font-size:12px;line-height:18px}.dsh-remote-meta{margin:20px 0 0;text-align:center}.dsh-remote-details{margin:0}
       .dsh-remote-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:720px}.dsh-remote-settings h2{margin:0;font:var(--dsw-font-l-20)}.dsh-remote-intro{margin:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14)}
-      .dsh-remote-toggle{display:flex;align-items:center;gap:8px;font:var(--dsw-font-s-14);cursor:pointer}.dsh-remote-toggle input{width:16px;height:16px;margin-left:auto}.dsh-remote-nav-label{display:inline-flex;align-items:center;gap:8px}
+      .dsh-remote-toggle{display:flex;align-items:center;gap:8px;font:var(--dsw-font-s-14);cursor:pointer}.dsh-remote-toggle input{width:16px;height:16px;margin-left:auto}
+      button:has([data-settings-nav-label="remote-control"]) > svg:first-child{display:none}
+      .dsh-remote-nav-label{display:inline-flex;align-items:center;gap:8px}
       @keyframes dsh-remote-gate-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.dsh-remote-gate-card{animation:none}}@media(max-width:520px){.dsh-remote-gate{padding:16px}.dsh-remote-gate-card{padding:20px;border-radius:var(--dsw-radius-l,12px)}}
     `;
 
@@ -71,9 +73,14 @@ window.__ModuleLoader__.load({
         globalThis.localStorage?.removeItem(LEGACY_STORAGE_KEY);
       } catch {}
     }
-
     function apply(ctx) {
-      const remoteBrowser = isRemoteBrowser();
+      if (typeof document !== "undefined" && !document.getElementById("dsh-remote-control-styles")) {
+        const style = document.createElement("style");
+        style.id = "dsh-remote-control-styles";
+        style.textContent = uiCss;
+        document.head.appendChild(style);
+      }
+
       let currentSecret = storedSecret();
       const rpc = (channel, method, payload = {}, signal) => ctx.connection.rpc.call(channel, method, payload, signal);
       const remoteResult = (method, payload = {}, signal, token = currentSecret) => rpc(
@@ -309,7 +316,6 @@ window.__ModuleLoader__.load({
       const label = () => react.createElement("span", {
         "data-settings-nav-label": "remote-control", className: "dsh-remote-nav-label",
       },
-      react.createElement("style", null, "button:has([data-settings-nav-label]) > svg:first-child{display:none}"),
       react.createElement(IconGlobeOutline14, { size: 16 }),
       react.createElement("span", null, "远程控制"));
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({

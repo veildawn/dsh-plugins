@@ -36,7 +36,9 @@ window.__ModuleLoader__.load({
       .ai-proxy-status{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14)}
       .ai-proxy-dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-caption))}.ai-proxy-dot[data-active=true]{background:var(--dsw-alias-state-success-primary)}
       .ai-proxy-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.ai-proxy-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-decoration:none;cursor:pointer}.ai-proxy-button:disabled{cursor:default;opacity:.4}.ai-proxy-button-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}
-      .ai-proxy-error{min-height:18px;margin:0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.ai-proxy-details{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.ai-proxy-nav-label{display:inline-flex;align-items:center;gap:8px}
+      .ai-proxy-error{min-height:18px;margin:0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.ai-proxy-details{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+      button:has([data-settings-nav-label="ai-proxy"]) > svg:first-child{display:none}
+      .ai-proxy-nav-label{display:inline-flex;align-items:center;gap:8px}
     `;
 
     function normalizeGateway(value) {
@@ -54,12 +56,17 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
+      if (typeof document !== "undefined" && !document.getElementById("dsh-ai-proxy-styles")) {
+        const style = document.createElement("style");
+        style.id = "dsh-ai-proxy-styles";
+        style.textContent = uiCss;
+        document.head.appendChild(style);
+      }
       const authRequest = async (method, payload = {}) => {
         const result = await ctx.connection.rpc.call(AUTH_RPC_CHANNEL, method, payload);
         if (!result || result.ok !== true) throw new Error(result?.error?.message || "OAuth request failed");
         return result.value;
       };
-
       function AiProxySettings(props) {
         const [gateway, setGateway] = react.useState("");
         const [saved, setSaved] = react.useState("");
@@ -178,7 +185,6 @@ window.__ModuleLoader__.load({
       const label = () => react.createElement("span", {
         "data-settings-nav-label": "ai-proxy", className: "ai-proxy-nav-label",
       },
-      react.createElement("style", null, "button:has([data-settings-nav-label]) > svg:first-child{display:none}"),
       react.createElement(IconApiOutline14, { size: 16 }),
       react.createElement("span", null, "AI Proxy"));
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
