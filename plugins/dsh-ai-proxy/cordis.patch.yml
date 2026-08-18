@@ -1,0 +1,10 @@
+# The dsh-ai-proxy bundle patch: mounts the plugin's host half with neutral
+# defaults. Applied as one bundle layer; the user's profile cordis.patch.yml
+# can still target the same row id (last write wins) and the gateway address
+# is edited in the independent AI Proxy settings section at runtime.
+- insert:
+    - id: llm-ai-proxy
+      name: dsh-ai-proxy
+      config:
+        baseURL: http://localhost:18080
+        clientId: dsh
