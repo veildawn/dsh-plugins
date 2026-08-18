@@ -1,20 +1,3 @@
-(function ensureCryptoRandomUUID() {
-  if (typeof globalThis === 'undefined') return
-  const crypto = globalThis.crypto || (globalThis.crypto = {})
-  if (typeof crypto.randomUUID === 'function') return
-  crypto.randomUUID = function randomUUID() {
-    if (typeof crypto.getRandomValues === 'function') {
-      return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (digit) =>
-        (digit ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> digit / 4).toString(16)
-      )
-    }
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (placeholder) => {
-      const random = Math.random() * 16 | 0
-      return (placeholder === 'x' ? random : random & 3 | 8).toString(16)
-    })
-  }
-})()
-
 window.__ModuleLoader__.load({
   id: 'dsh-mobile-adapter',
   factory: () => {

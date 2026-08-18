@@ -5,23 +5,10 @@ import { apply as applyHost, patchIndex, VIEWPORT_CONTENT } from '../lib/index.j
 
 let definition
 const previousWindow = globalThis.window
-const previousCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
-let randomByte = 0
-Object.defineProperty(globalThis, 'crypto', {
-  configurable: true,
-  value: { getRandomValues: (bytes) => bytes.fill(randomByte++ & 255) },
-})
 globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
 await import('../lib/client.js')
 globalThis.window = previousWindow
-const polyfilledUUID = globalThis.crypto.randomUUID()
-if (previousCrypto) Object.defineProperty(globalThis, 'crypto', previousCrypto)
-else delete globalThis.crypto
 const client = definition.factory()
-
-test('Client polyfills crypto.randomUUID in insecure contexts', () => {
-  assert.match(polyfilledUUID, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
-})
 
 class Events {
   listeners = new Map()
