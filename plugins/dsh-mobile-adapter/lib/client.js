@@ -285,24 +285,15 @@ window.__ModuleLoader__.load({
       const dispatchImages = (files) => {
         if (!files || !files.length) return
         const dt = typeof win.DataTransfer === 'function' ? new win.DataTransfer() : null
-        if (dt) {
-          for (const f of files) dt.items?.add ? dt.items.add(f) : null
-          const textarea = doc.querySelector('[data-composer-card] textarea')
-          if (textarea) {
-            try {
-              const pasteEv = typeof win.ClipboardEvent === 'function'
-                ? new win.ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt })
-                : new win.Event('paste', { bubbles: true, cancelable: true })
-              if (!pasteEv.clipboardData) pasteEv.clipboardData = dt
-              textarea.dispatchEvent(pasteEv)
-            } catch (_) {}
-          }
-          const dropEv = typeof win.DragEvent === 'function'
-            ? new win.DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })
-            : new win.Event('drop', { bubbles: true, cancelable: true })
-          if (!dropEv.dataTransfer) dropEv.dataTransfer = dt
-          doc.dispatchEvent(dropEv)
-        }
+        if (!dt) return
+        for (const f of files) dt.items?.add ? dt.items.add(f) : null
+        // 只派发 drop：DSH 在 document 上原生监听 drop 并 intake 图片，
+        // 同时派发 paste 会让同一批图片被两个入口各添加一次（重复上传）。
+        const dropEv = typeof win.DragEvent === 'function'
+          ? new win.DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })
+          : new win.Event('drop', { bubbles: true, cancelable: true })
+        if (!dropEv.dataTransfer) dropEv.dataTransfer = dt
+        doc.dispatchEvent(dropEv)
       }
 
       uploadBtn.addEventListener('click', () => {
