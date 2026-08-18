@@ -118,7 +118,7 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   assert.match(host, /llm\/stream/)
   assert.match(host, /agent\/turn-stopping/)
   assert.match(host, /connection\.rpc\.handle/)
-  assert.match(client, /connection\.rpc\.call/)
+  assert.match(client, /connectionRpc\.call/)
   assert.match(client, /api\.settings\.(?:describe|replace)/)
   assert.doesNotMatch(client, /conversation\.input\.left|ModelRoleSelect|ROLE_SLOT|"subagent"|子代理角色（兼容）/)
 })
@@ -269,6 +269,12 @@ test('host registers advisor control and delegates image requests before main ro
   })
 })
 test('client settingsRequest falls back to api.settings on HTTP 403', async () => {
+  const IconBranchOutline16 = props => ({ type: 'svg', props })
+  const client = definition.factory((id) => {
+    if (id === 'react') return { Fragment: Symbol('Fragment'), createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), useEffect() {}, useState(initial) { return [initial, () => {}] } }
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return { IconBranchOutline16 }
+    return {}
+  })
   const ctx = {
     connection: {
       rpc: {
