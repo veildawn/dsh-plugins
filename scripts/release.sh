@@ -40,7 +40,8 @@ echo "=========================================="
 
 # 1. 运行该插件测试
 echo "🧪 正在运行 $PLUGIN 自动化测试..."
-(cd "$PLUGIN_DIR" && NODE_PATH=/Users/veildawn/.dsh/profiles/node_modules:/Users/veildawn/.dsh/profiles/web/node_modules npm test)
+DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
+(cd "$PLUGIN_DIR" && NODE_PATH="$DSH_HOME/profiles/node_modules:$DSH_HOME/profiles/web/node_modules" npm test)
 
 # 2. 打包生成 tgz
 echo "📦 打包 tgz..."
