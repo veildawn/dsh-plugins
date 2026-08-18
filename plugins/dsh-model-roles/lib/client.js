@@ -44,7 +44,7 @@ window.__ModuleLoader__.load({
       task: { title: "任务", detail: "DSH 委派创建的子代理自动使用；未配置时回退到默认角色。" },
       advisor: { title: "顾问", detail: "顾问复核开启后，DSH 会启动独立子代理评审每个已完成回合，并将重要建议送回主会话。" },
     };
-    const INTRO_TEXT = "为 10 类任务自动匹配合适模型。图片交给独立的识图子代理处理；计划模式、Preset 和子代理会自动使用对应模型，无需在输入框手动选择。";
+    const INTRO_TEXT = "系统会自动为任务选择合适模型。图片由独立的识图子代理处理；计划模式、Preset 和子代理会自动使用对应模型，无需在输入框手动选择。";
     const HELP_TEXT = "普通任务会自动选择合适模型；图片由识图子代理分析，结果会带回主会话。使用 /advisor on 或 /advisor off 可控制当前会话的顾问复核。";
     const css = `
       .mr-page{display:flex;flex-direction:column;gap:14px;width:100%;max-width:780px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
       .mr-field{display:flex;flex-direction:column;gap:5px}.mr-label{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500}.mr-select,.mr-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:8px;outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
       .mr-select:focus-visible,.mr-input:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.mr-select:disabled,.mr-input:disabled{opacity:.55}
       .mr-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}.mr-button{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:18px;background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer}.mr-button:disabled{cursor:default;opacity:.45}.mr-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff}.mr-danger{color:var(--dsw-alias-state-error-primary)}
-      .mr-status{min-height:18px;color:var(--dsw-alias-label-tertiary);font-size:12px}.mr-error{color:var(--dsw-alias-state-error-primary)}.mr-warning{padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d98e00) 10%,transparent);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+      .mr-feedback{padding:9px 11px;border-radius:8px;font-size:12px;line-height:18px}.mr-feedback.mr-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}.mr-status{min-height:18px;color:var(--dsw-alias-label-tertiary);font-size:12px}.mr-warning{padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d98e00) 10%,transparent);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
       .mr-advisor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.mr-check{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-secondary);font-size:13px}
       @media(max-width:640px){.mr-grid,.mr-advisor{grid-template-columns:1fr}.mr-card-head{flex-direction:column}.mr-actions{justify-content:stretch}.mr-button{flex:1}}
     `;
@@ -82,6 +82,12 @@ window.__ModuleLoader__.load({
         seen.add(role);
         if (!route.provider || !route.model) return `角色“${role}”尚未选择模型`;
       }
+      return "";
+    }
+    function statusMessage(status, writable, dirty) {
+      if (status === "loading") return "正在读取模型与角色配置…";
+      if (!writable) return "当前设置文档为只读。";
+      if (dirty) return "有未保存的更改。";
       return "";
     }
 
@@ -155,6 +161,8 @@ window.__ModuleLoader__.load({
         const modelRows = rowsFromGroups(groups);
         const dirty = JSON.stringify({ roles, advisor }) !== saved;
         const validation = validateRoles(roles);
+        const feedback = error || validation;
+        const statusText = statusMessage(status, writable, dirty);
 
         const setRoute = (role, patch) => {
           setRoles((current) => {
@@ -255,6 +263,7 @@ window.__ModuleLoader__.load({
           react.createElement("style", null, css),
           react.createElement("h2", null, "模型角色"),
           react.createElement("p", { className: "mr-intro" }, INTRO_TEXT),
+          feedback ? react.createElement("div", { className: "mr-feedback mr-error", role: "alert" }, feedback) : null,
           react.createElement("section", { className: "mr-card" },
             react.createElement("div", null,
               react.createElement("h3", { className: "mr-title" }, "顾问复核运行时"),
@@ -281,7 +290,7 @@ window.__ModuleLoader__.load({
             react.createElement("button", { className: "mr-button", type: "button", disabled: saving || !writable, onClick: addPreset }, "添加 Preset"),
             react.createElement("button", { className: "mr-button", type: "button", disabled: saving || !dirty, onClick: load }, "撤销"),
             react.createElement("button", { className: "mr-button mr-primary", type: "button", disabled: saving || !writable || !dirty || Boolean(validation), onClick: save }, saving ? "保存中…" : "保存")),
-          react.createElement("p", { className: `mr-status ${error || validation ? "mr-error" : ""}`, role: "status", "aria-live": "polite" }, error || validation || (status === "loading" ? "正在读取模型与角色配置…" : !writable ? "当前设置文档为只读。" : dirty ? "有未保存的更改。" : "配置已同步。")));
+          statusText ? react.createElement("p", { className: "mr-status", role: "status", "aria-live": "polite" }, statusText) : null);
       }
 
       const label = () => react.createElement("span", {
@@ -299,7 +308,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, HELP_TEXT, modelKey, parseModelKey, normalizeRole, rowsFromGroups, routeMap, validateRoles, css };
+    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, HELP_TEXT, modelKey, parseModelKey, normalizeRole, rowsFromGroups, routeMap, validateRoles, statusMessage, css };
     return module.exports;
   }
 });
