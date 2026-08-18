@@ -338,7 +338,7 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /\.uV2eYG_modes\{flex:none;flex-wrap:nowrap!important;[^}]*overflow:visible!important\}/)
   assert.doesNotMatch(css, /\.uV2eYG_tools\{[^}]*overflow-y:hidden/)
   assert.match(css, /\.uV2eYG_trailing\{flex:none;max-width:calc\(100% - 36px\);margin-left:auto;[^}]*gap:6px!important/)
-  assert.match(css, /\.uV2eYG_add\{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*border-radius:50%!important/)
+  assert.match(css, /\.uV2eYG_add\{display:none!important\}/)
   assert.match(css, /\.dsh-mobile-upload-btn\{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /\.uV2eYG_primary\{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*min-width:32px!important;[^}]*min-height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /\.uV2eYG_primary\{transform:none!important\}/)
