@@ -103,7 +103,7 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   assert.match(host, /agent\/turn-stopping/)
   assert.match(host, /connection\.rpc\.handle/)
   assert.match(client, /connection\.rpc\.call/)
-  assert.doesNotMatch(client, /api\.settings\.(?:describe|replace)/)
+  assert.match(client, /api\.settings\.(?:describe|replace)/)
   assert.doesNotMatch(client, /conversation\.input\.left|ModelRoleSelect|ROLE_SLOT|"subagent"|子代理角色（兼容）/)
 })
 
@@ -250,5 +250,64 @@ test('host registers advisor control and delegates image requests before main ro
     provider: 'native', model: 'text', maxTokens: 100,
   })), {
     provider: 'p', model: 'text', maxTokens: 100,
+  })
+})
+test('client settingsRequest falls back to api.settings on HTTP 403', async () => {
+  const ctx = {
+    connection: {
+      rpc: {
+        async call() {
+          throw new Error('transport failure for /model-roles-settings/describe: HTTP 403')
+        },
+      },
+    },
+  }
+  const api = {
+    settings: {
+      async describe() {
+        return {
+          result: {
+            ok: true,
+            value: {
+              writable: true,
+              hasDocument: true,
+              namespaces: [{
+                ns: 'model-roles',
+                value: { roles: [{ role: 'plan', provider: 'p', model: 'm' }] },
+                revision: 3,
+              }],
+            },
+          },
+        }
+      },
+      async replace(payload) {
+        return {
+          result: {
+            ok: true,
+            value: {
+              ns: payload.ns,
+              value: payload.section,
+              revision: payload.expectedRevision + 1,
+            },
+          },
+        }
+      },
+    },
+  }
+  const settingsRequest = client.internals.createSettingsRequest(ctx.connection.rpc, api)
+  const describeResult = await settingsRequest('describe', {}, api)
+  assert.deepEqual(describeResult, {
+    writable: true,
+    value: { roles: [{ role: 'plan', provider: 'p', model: 'm' }] },
+    revision: 3,
+  })
+  const replaceResult = await settingsRequest('replace', {
+    section: { roles: [{ role: 'vision', provider: 'p', model: 'v' }] },
+    expectedRevision: 3,
+  }, api)
+  assert.deepEqual(replaceResult, {
+    writable: true,
+    value: { roles: [{ role: 'vision', provider: 'p', model: 'v' }] },
+    revision: 4,
   })
 })

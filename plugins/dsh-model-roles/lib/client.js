@@ -83,6 +83,43 @@ window.__ModuleLoader__.load({
       }
       return "";
     }
+    function createSettingsRequest(connectionRpc, defaultApi) {
+      return async (method, payload = {}, api = defaultApi) => {
+        try {
+          const result = await connectionRpc.call(SETTINGS_RPC_CHANNEL, method, payload);
+          if (result && result.ok === true) return result.value;
+          throw new Error(result?.error?.message || "模型角色设置请求失败");
+        } catch (error) {
+          if (!/HTTP 403\b/.test(error instanceof Error ? error.message : String(error)) || !api?.settings) {
+            throw error;
+          }
+          if (method === "describe") {
+            const desc = await api.settings.describe({});
+            if (!desc.result.ok) throw new Error(desc.result.error.message);
+            const entry = (desc.result.value.namespaces || []).find((n) => n.ns === NS);
+            return {
+              writable: desc.result.value.writable,
+              value: entry?.value || { roles: [] },
+              revision: entry?.revision || 0,
+            };
+          }
+          if (method === "replace") {
+            const resp = await api.settings.replace({
+              ns: NS,
+              section: payload.section,
+              expectedRevision: payload.expectedRevision,
+            });
+            if (!resp.result.ok) throw new Error(resp.result.error.message);
+            return {
+              writable: true,
+              value: resp.result.value.value || { roles: [] },
+              revision: resp.result.value.revision || 0,
+            };
+          }
+          throw error;
+        }
+      };
+    }
 
     function apply(ctx) {
       if (typeof document !== "undefined" && !document.getElementById(NAV_STYLE_ID)) {
@@ -91,14 +128,7 @@ window.__ModuleLoader__.load({
         style.textContent = navCss;
         document.head.appendChild(style);
       }
-      const settingsRequest = async (method, payload = {}) => {
-        const result = await ctx.connection.rpc.call(SETTINGS_RPC_CHANNEL, method, payload);
-        if (!result || result.ok !== true) {
-          throw new Error(result?.error?.message || "模型角色设置请求失败");
-        }
-        return result.value;
-      };
-
+      const settingsRequest = createSettingsRequest(ctx.connection.rpc, ctx.connection.api);
       function ModelRolesSettings(props) {
         const [status, setStatus] = react.useState("loading");
         const [error, setError] = react.useState("");
@@ -116,7 +146,7 @@ window.__ModuleLoader__.load({
           setError("");
           try {
             const [settingsView, modelsResponse] = await Promise.all([
-              settingsRequest("describe"), props.api.llm.models({}),
+              settingsRequest("describe", {}, props.api), props.api.llm.models({}),
             ]);
             if (!modelsResponse.result.ok) throw new Error(modelsResponse.result.error.message);
             const next = (settingsView.value?.roles || []).map((route) => ({ ...route }));
@@ -199,7 +229,7 @@ window.__ModuleLoader__.load({
             }));
             await settingsRequest("replace", {
               section: { roles: normalized, advisor }, expectedRevision: revision,
-            });
+            }, props.api);
             await load();
           } catch (cause) {
             setError(cause instanceof Error ? cause.message : String(cause));
@@ -298,7 +328,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, HELP_TEXT, modelKey, parseModelKey, normalizeRole, rowsFromGroups, routeMap, validateRoles, css };
+    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, HELP_TEXT, modelKey, parseModelKey, normalizeRole, rowsFromGroups, routeMap, validateRoles, css, createSettingsRequest };
     return module.exports;
   }
 });
