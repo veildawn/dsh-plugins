@@ -45,7 +45,12 @@ test('browser bundle loads with the expected client services', async () => {
     default: '默认', smol: '快速', slow: '深度', vision: '识图', plan: '计划',
     designer: '设计', commit: '提交', tiny: '轻量后台', task: '任务', advisor: '顾问',
   })
-  assert.equal(client.internals.HELP_TEXT, '普通任务会自动选择合适模型；图片由识图子代理分析，结果会带回主会话。使用 /advisor on 或 /advisor off 可控制当前会话的顾问复核。')
+  assert.equal(client.internals.INTRO_TEXT, '系统会自动为任务选择合适模型。')
+  assert.equal(client.internals.ADVISOR_HELP_TEXT, '请先为顾问选择模型。')
+  assert.equal(client.internals.statusMessage('ready', true, false), '')
+  assert.equal(client.internals.statusMessage('loading', true, false), '正在读取模型与角色配置…')
+  assert.equal(client.internals.statusMessage('ready', true, true), '有未保存的更改。')
+  assert.equal(client.internals.statusMessage('ready', false, false), '当前设置文档为只读。')
   assert.equal(client.internals.normalizeRole(' Designer '), 'designer')
   assert.equal(client.internals.validateRoles([
     { role: 'plan', provider: 'p', model: 'm' },
