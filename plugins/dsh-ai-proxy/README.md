@@ -14,12 +14,12 @@ DeepSeek Harness 的 AI Proxy LLM Provider 插件。`0.2.0` 起只负责 AI Prox
 - 将每个模型的 `effort_levels` 原样映射为 DSH reasoning effort，并以
   `reasoning_effort` 原样发送。
 - 支持用户消息中的图片，将 DSH attachment 转为 OpenAI `image_url` data URL。
-- 提供独立的 **设置 → AI Proxy** 卡片及 loopback-only `/ai-proxy-auth` 认证通道。
+- 提供独立的 **设置 → AI Proxy** 卡片及支持局域网客户端的 `/ai-proxy-auth` 认证通道。
 
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-ai-proxy-0.2.0.tgz
+dsh plugin --profile web add ./dsh-ai-proxy-0.2.1.tgz
 dsh service restart
 ```
 
@@ -80,11 +80,11 @@ dsh service restart
 `localStorage`，也不会挂载 Unlock Screen。需要远程设置/凭据桥接时单独安装：
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-control-0.1.0.tgz
+dsh plugin --profile web add ./dsh-remote-control-0.1.2.tgz
 ```
 
-OAuth 认证接口 `/ai-proxy-auth` 保持 loopback-only；远程控制插件不会把任意 RPC 通道加入
-白名单。
+OAuth 认证接口 `/ai-proxy-auth` 使用连接默认访问策略，可由局域网客户端直接调用；远程控制
+插件仍不会把任意 RPC 通道加入白名单。
 
 ## 开发与测试
 

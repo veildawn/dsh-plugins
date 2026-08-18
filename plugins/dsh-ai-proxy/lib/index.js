@@ -919,13 +919,12 @@ export function apply(ctx, config) {
   })
 
   // Connection is optional for headless compositions. When present, the
-  // browser receives a dedicated loopback-only command channel instead of
+  // browser receives a dedicated command channel instead of
   // writing transient actions into the settings document.
   ctx.inject(['connection'], (connectionCtx) => {
     connectionCtx.connection.rpc.handle(
       AUTH_RPC_CHANNEL,
       (method, payload) => handleAuthRpc(api, method, payload),
-      { authority: 'loopback' },
     )
   })
 

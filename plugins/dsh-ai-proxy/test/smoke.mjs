@@ -373,7 +373,7 @@ test('Host auth RPC revokes and clears tokens without changing settings', async 
     await sleep(50)
 
     assert.equal(connection.registration().channel, AUTH_RPC_CHANNEL)
-    assert.deepEqual(connection.registration().options, { authority: 'loopback' })
+    assert.equal(connection.registration().options, undefined)
     assert.deepEqual([...connection.registrations.keys()], [AUTH_RPC_CHANNEL])
     assert(ctx.llm.listProviders().some((p) => p.id === 'ai-proxy'), 'provider registered')
     const before = await connection.registration().handler('status', {})

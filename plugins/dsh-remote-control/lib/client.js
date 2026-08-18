@@ -204,7 +204,7 @@ window.__ModuleLoader__.load({
         host: ["pickDirectory", "openPath"],
         settings: ["describe", "openDocument", "update", "replace", "mutate"],
         credentials: ["describe", "set", "unset"],
-        llm: ["discoverModels"],
+        llm: ["providers", "models", "discoverModels"],
       };
       for (const [domain, methods] of Object.entries(privilegedMethods)) {
         for (const method of methods) {

@@ -47,6 +47,8 @@ const METHODS = {
   'credentials.describe': (api, request) => api.credentials.describe(request),
   'credentials.set': (api, request) => api.credentials.set(request),
   'credentials.unset': (api, request) => api.credentials.unset(request),
+  'llm.providers': (api, request) => api.llm.providers(request),
+  'llm.models': (api, request) => api.llm.models(request),
   'llm.discoverModels': (api, request) => api.llm.discoverModels(request),
 }
 

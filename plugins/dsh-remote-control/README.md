@@ -19,7 +19,7 @@ DSH 特权 API。
 插件自带 `cordis.patch.yml`，安装后会插入 `remote-control` Cordis 行，默认关闭远程访问：
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-control-0.1.0.tgz
+dsh plugin --profile web add ./dsh-remote-control-0.1.2.tgz
 dsh service restart
 ```
 
@@ -27,7 +27,7 @@ dsh service restart
 
 ```sh
 cd ~/.dsh/profiles/web
-pnpm add /path/to/dsh-remote-control-0.1.0.tgz
+pnpm add /path/to/dsh-remote-control-0.1.2.tgz
 ```
 
 对应的手动 Cordis 配置为：
@@ -109,7 +109,7 @@ DSH_REMOTE_CONTROL_SECRET='replace-with-a-long-random-secret'
 - `credentials.describe/set/unset`
 - `agentPreset.read/copy/openDocument/remove`
 - `host.pickDirectory/openPath`
-- `llm.discoverModels`
+- `llm.providers/models/discoverModels`
 
 浏览器端会将对应的 `connection.api` 方法重定向到认证通道。远程页面总是走该通道；本机
 页面优先走官方直连，仅在直连返回 HTTP 403 时回退。

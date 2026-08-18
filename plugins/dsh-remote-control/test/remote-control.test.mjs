@@ -66,7 +66,10 @@ class FakeApiProxy extends Service {
     this.credentials = {
       describe: result('credentials', 'describe'), set: result('credentials', 'set'), unset: result('credentials', 'unset'),
     }
-    this.llm = { discoverModels: result('llm', 'discoverModels') }
+    this.llm = {
+      providers: result('llm', 'providers'), models: result('llm', 'models'),
+      discoverModels: result('llm', 'discoverModels'),
+    }
   }
 }
 
@@ -144,11 +147,19 @@ test('configuration is local-only and authenticated calls use a fixed allowlist'
   assert.deepEqual(await remote('call', { token: 'remote-test', method: 'settings.describe', payload: {} }), {
     ok: true, value: { domain: 'settings', method: 'describe', payload: {} },
   })
+  assert.deepEqual(await remote('call', { token: 'remote-test', method: 'llm.providers', payload: {} }), {
+    ok: true, value: { domain: 'llm', method: 'providers', payload: {} },
+  })
+  assert.deepEqual(await remote('call', { token: 'remote-test', method: 'llm.models', payload: { provider: 'x' } }), {
+    ok: true, value: { domain: 'llm', method: 'models', payload: { provider: 'x' } },
+  })
   assert.deepEqual(await alias('call', { token: 'remote-test', method: 'llm.discoverModels', payload: { provider: 'x' } }), {
     ok: true, value: { domain: 'llm', method: 'discoverModels', payload: { provider: 'x' } },
   })
   assert.deepEqual(apiProxy.calls.map(({ domain, method }) => ({ domain, method })), [
     { domain: 'settings', method: 'describe' },
+    { domain: 'llm', method: 'providers' },
+    { domain: 'llm', method: 'models' },
     { domain: 'llm', method: 'discoverModels' },
   ])
   assert.deepEqual(await configure('setSecret', { secret: '' }), {
@@ -232,7 +243,12 @@ class BrowserConnection extends Service {
     this.calls = []
     this.api = {
       settings: { describe: async () => { throw new Error('transport failure: HTTP 403') } },
-      credentials: {}, agentPresets: {}, host: {}, llm: {},
+      credentials: {}, agentPresets: {}, host: {},
+      llm: {
+        providers: async () => { throw new Error('transport failure: HTTP 403') },
+        models: async () => { throw new Error('transport failure: HTTP 403') },
+        discoverModels: async () => { throw new Error('transport failure: HTTP 403') },
+      },
     }
     this.rpc = { call: async (channel, method, payload) => {
       this.calls.push({ channel, method, payload })
@@ -331,6 +347,11 @@ test('remote Unlock Screen authenticates, stores the secret and redirects privil
       method: 'call',
       payload: { method: 'settings.describe', payload: {}, token: 'remote-test' },
     })
+    for (const method of ['providers', 'models', 'discoverModels']) {
+      assert.deepEqual(await connection.api.llm[method]({}), {
+        rpcId: 'remote-control', result: { ok: true, value: { proxied: 'llm.' + method } },
+      })
+    }
   } finally {
     globalThis.location = previousLocation
   }
