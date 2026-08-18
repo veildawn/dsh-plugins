@@ -925,6 +925,7 @@ export function apply(ctx, config) {
     connectionCtx.connection.rpc.handle(
       AUTH_RPC_CHANNEL,
       (method, payload) => handleAuthRpc(api, method, payload),
+      { authority: 'trusted-host' },
     )
   })
 

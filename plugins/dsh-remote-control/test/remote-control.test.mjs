@@ -45,6 +45,19 @@ class FakeConnection extends Service {
     } }
   }
 }
+class FakeWebServer extends Service {
+  constructor(ctx) {
+    super(ctx, 'webServer')
+    this.taps = []
+  }
+  tapIndex(fn) {
+    this.taps.push(fn)
+    return () => {
+      const idx = this.taps.indexOf(fn)
+      if (idx !== -1) this.taps.splice(idx, 1)
+    }
+  }
+}
 
 class FakeApiProxy extends Service {
   constructor(ctx) {
@@ -78,10 +91,10 @@ function makeHost() {
   const settings = new MemorySettings(ctx)
   const credentials = new FakeCredentials(ctx)
   const connection = new FakeConnection(ctx)
+  const webServer = new FakeWebServer(ctx)
   const apiProxy = new FakeApiProxy(ctx)
-  return { ctx, settings, credentials, connection, apiProxy }
+  return { ctx, settings, credentials, connection, webServer, apiProxy }
 }
-
 test('secret comparison and resolution reject unsafe values and honor documented priority', async (t) => {
   assert.equal(internals.matchesRemoteControlSecret('secret', 'secret'), true)
   assert.equal(internals.matchesRemoteControlSecret('secret', 'Secret'), false)
@@ -104,7 +117,7 @@ test('secret comparison and resolution reject unsafe values and honor documented
 })
 
 test('Host registers a loopback config channel plus primary and compatible remote channels', async () => {
-  const { ctx, connection } = makeHost()
+  const { ctx, connection, webServer } = makeHost()
   await ctx.plugin(plugin).await()
   assert.deepEqual([...connection.registrations.keys()], [
     CONFIG_RPC_CHANNEL,
@@ -115,8 +128,9 @@ test('Host registers a loopback config channel plus primary and compatible remot
   for (const channel of [REMOTE_CONTROL_RPC_CHANNEL, ...REMOTE_CONTROL_RPC_ALIASES]) {
     assert.deepEqual(connection.registrations.get(channel).options, { authority: 'trusted-host' })
   }
+  const transformed = webServer.taps.reduce((html, tap) => tap(html), '<html><head><title>Test</title></head><body></body></html>')
+  assert(transformed.includes('randomUUID'), 'webServer indexTap injects crypto.randomUUID polyfill')
 })
-
 test('configuration is local-only and authenticated calls use a fixed allowlist', async () => {
   const { ctx, connection, credentials, settings, apiProxy } = makeHost()
   await ctx.plugin(plugin).await()
