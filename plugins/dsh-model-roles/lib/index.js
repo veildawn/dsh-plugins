@@ -108,7 +108,7 @@ function settingsRpcView(settingsProvider) {
   }
 }
 
-/** Dedicated loopback wire for a namespace hidden by DSH's settings allowlist. */
+/** Dedicated host RPC wire for a namespace hidden by DSH's settings allowlist. */
 export async function handleSettingsRpc(settingsProvider, method, payload) {
   const keys = payload === null || typeof payload !== 'object' || Array.isArray(payload)
     ? null
@@ -289,12 +289,12 @@ export function apply(ctx, config = {}) {
 
   // DSH's generic browser settings API intentionally allowlists product and
   // configurable-provider namespaces. Keep this plugin editable through a
-  // narrowly scoped, loopback-only Connection channel instead.
+  // narrowly scoped Connection channel instead.
   ctx.inject(['connection'], (connectionCtx) => {
     connectionCtx.connection.rpc.handle(
       SETTINGS_RPC_CHANNEL,
       (method, payload) => handleSettingsRpc(ctx.settings, method, payload),
-      { authority: 'loopback' },
+      { authority: 'trusted-host' },
     )
   })
 

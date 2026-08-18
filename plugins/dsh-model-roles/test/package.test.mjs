@@ -202,7 +202,7 @@ test('host registers advisor control and delegates image requests before main ro
             handle(channel, handler, options) {
               assert.equal(channel, '/model-roles-settings')
               assert.equal(typeof handler, 'function')
-              assert.deepEqual(options, { authority: 'loopback' })
+              assert.deepEqual(options, { authority: 'trusted-host' })
               return async () => {}
             },
           },
