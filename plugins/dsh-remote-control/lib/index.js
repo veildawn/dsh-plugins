@@ -152,6 +152,11 @@ export function apply(ctx, config) {
   const scope = ctx.settings.register(NS, Config, { base: config ?? {} })
   current = () => scope.get()
 
+  ctx.inject(['webServer'], (webServerCtx) => {
+    const polyfillScript = `<script>(function(){if(typeof globalThis!=="undefined"){const c=globalThis.crypto||(globalThis.crypto={});if(typeof c.randomUUID!=="function"){c.randomUUID=function(){if(typeof c.getRandomValues==="function"){return([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(d){return(d^c.getRandomValues(new Uint8Array(1))[0]&15>>d/4).toString(16);});}return"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(p){const r=Math.random()*16|0;return(p==="x"?r:r&3|8).toString(16);});};}}})();</script>`
+    webServerCtx.webServer.tapIndex(html => html.replace('<head>', '<head>' + polyfillScript))
+  })
+
   ctx.inject(['connection'], (connectionCtx) => {
     connectionCtx.connection.rpc.handle(
       CONFIG_RPC_CHANNEL,
