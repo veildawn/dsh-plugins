@@ -1,0 +1,12 @@
+# Mount role routing with no forced model assignments. Configure mappings in
+# Settings -> 模型角色; an empty table preserves native DSH behavior.
+- insert:
+    - id: model-roles
+      name: dsh-model-roles
+      config:
+        roles: []
+        advisor:
+          enabled: false
+          subagents: false
+          provider: spawn
+          maxTranscriptChars: 60000

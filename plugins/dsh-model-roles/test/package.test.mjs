@@ -1,0 +1,254 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import {
+  SETTINGS_RPC_CHANNEL,
+  apply as applyHost,
+  contentHasImage,
+  handleSettingsRpc,
+} from '../lib/index.js'
+
+let definition
+const previousWindow = globalThis.window
+const previousCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+let randomByte = 0
+Object.defineProperty(globalThis, 'crypto', {
+  configurable: true,
+  value: { getRandomValues: bytes => bytes.fill(randomByte++ & 255) },
+})
+globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+await import('../lib/client.js')
+globalThis.window = previousWindow
+const polyfilledUUID = globalThis.crypto.randomUUID()
+if (previousCrypto) Object.defineProperty(globalThis, 'crypto', previousCrypto)
+else delete globalThis.crypto
+
+test('browser bundle loads with the expected client services', async () => {
+  assert.match(polyfilledUUID, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  const react = {
+    Fragment: Symbol('Fragment'),
+    createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+    useEffect() {},
+    useState(initial) { return [initial, () => {}] },
+  }
+  const IconApiOutline14 = props => react.createElement('svg', props)
+  const client = definition.factory((id) => {
+    if (id === 'react') return react
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return { IconApiOutline14 }
+    assert.fail('unexpected browser dependency: ' + id)
+  })
+  assert.deepEqual(client.inject, ['slots', 'connection', 'remote'])
+  assert.deepEqual(client.internals.OMP_ROLES, [
+    'default', 'smol', 'slow', 'vision', 'plan', 'designer', 'commit', 'tiny', 'task', 'advisor',
+  ])
+  assert.deepEqual(Object.fromEntries(Object.entries(client.internals.copy).map(([id, value]) => [id, value.title])), {
+    default: '默认', smol: '快速', slow: '深度', vision: '识图', plan: '计划',
+    designer: '设计', commit: '提交', tiny: '轻量后台', task: '任务', advisor: '顾问',
+  })
+  assert.equal(client.internals.HELP_TEXT, '普通任务会自动选择合适模型；图片由识图子代理分析，结果会带回主会话。使用 /advisor on 或 /advisor off 可控制当前会话的顾问复核。')
+  assert.equal(client.internals.normalizeRole(' Designer '), 'designer')
+  assert.equal(client.internals.validateRoles([
+    { role: 'plan', provider: 'p', model: 'm' },
+    { role: 'PLAN', provider: 'p', model: 'other' },
+  ]), '角色 ID“plan”重复')
+  const key = client.internals.modelKey('open/router', 'model/a')
+  assert.deepEqual(client.internals.parseModelKey(key), { provider: 'open/router', model: 'model/a' })
+
+  const registrations = []
+  const stops = []
+  const ctx = {
+    connection: { api: { settings: {}, llm: {} } },
+    remote: {
+      $on() { const stop = () => {}; stops.push(stop); return stop },
+    },
+    slots: {
+      inject(name, install) {
+        assert.equal(name, 'settings.section')
+        return install()
+      },
+      register(entry, component) { registrations.push({ entry, component }); return () => {} },
+    },
+  }
+  client.apply(ctx)
+  const settings = registrations.find(({ entry }) => entry.name === 'settings.section')
+  assert.equal(settings.entry.id, 'model-roles')
+  assert.equal(settings.entry.order, 24)
+  assert.equal(typeof settings.component, 'function')
+  assert.equal(settings.entry.inject().api, ctx.connection.api)
+  const navLabel = settings.entry.label()
+  assert.equal(navLabel.props.className, 'mr-nav-label')
+  assert.deepEqual(navLabel.props.style, { display: 'inline-flex', alignItems: 'center', gap: 8 })
+  assert.equal(navLabel.props.children.length, 2)
+  assert.match(client.internals.navCss, /data-settings-nav-label="model-roles"/)
+  assert.doesNotMatch(client.internals.navCss, /data-settings-nav-label\]/)
+  assert.equal(registrations.length, 1)
+})
+
+test('manifest, bundle patch and package contents form a DSH plugin', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+  const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+  const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
+  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.equal(manifest.name, 'dsh-model-roles')
+  assert.equal(manifest.version, '0.4.4')
+  assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
+  assert.equal(manifest.dsh.client.platform, 'web')
+  assert(manifest.files.includes('lib/core.js'))
+  assert.equal(manifest.scripts['test:live'], 'node scripts/live-ai-proxy-e2e.mjs')
+  assert(manifest.files.includes('scripts/live-ai-proxy-e2e.mjs'))
+  assert.match(patch, /name: dsh-model-roles/)
+  assert.match(host, /ctx\.on\('agent\/request'/)
+  assert.match(host, /ctx\.commands\.register/)
+  assert.match(host, /llm\/stream/)
+  assert.match(host, /agent\/turn-stopping/)
+  assert.match(host, /connection\.rpc\.handle/)
+  assert.match(client, /connection\.rpc\.call/)
+  assert.doesNotMatch(client, /api\.settings\.(?:describe|replace)/)
+  assert.doesNotMatch(client, /conversation\.input\.left|ModelRoleSelect|ROLE_SLOT|"subagent"|子代理角色（兼容）/)
+})
+
+test('loopback settings RPC exposes and revision-checks the plugin namespace', async () => {
+  const calls = []
+  const settings = {
+    writable: true,
+    describe(options) {
+      assert.deepEqual(options, { redactSecrets: true })
+      return [{
+        ns: 'model-roles',
+        value: { roles: [{ role: 'vision', provider: 'p', model: 'v' }] },
+        revision: calls.length + 4,
+      }]
+    },
+    async replace(ns, section, expectedRevision) {
+      calls.push({ ns, section, expectedRevision })
+    },
+  }
+
+  assert.equal(SETTINGS_RPC_CHANNEL, '/model-roles-settings')
+  assert.deepEqual(await handleSettingsRpc(settings, 'describe', {}), {
+    ok: true,
+    value: {
+      writable: true,
+      value: { roles: [{ role: 'vision', provider: 'p', model: 'v' }] },
+      revision: 4,
+    },
+  })
+  const section = { roles: [{ role: 'default', provider: 'p', model: 'm' }] }
+  assert.deepEqual(await handleSettingsRpc(settings, 'replace', {
+    section,
+    expectedRevision: 4,
+  }), {
+    ok: true,
+    value: {
+      writable: true,
+      value: { roles: [{ role: 'vision', provider: 'p', model: 'v' }] },
+      revision: 5,
+    },
+  })
+  assert.deepEqual(calls, [{ ns: 'model-roles', section, expectedRevision: 4 }])
+  assert.equal((await handleSettingsRpc(settings, 'replace', {
+    section: [], expectedRevision: 4,
+  })).ok, false)
+  assert.equal((await handleSettingsRpc(settings, 'unknown', {})).ok, false)
+})
+
+test('host registers advisor control and delegates image requests before main routing', async () => {
+  const commands = new Map()
+  const listeners = new Map()
+  const starts = []
+  let watcher
+  const section = {
+    roles: [
+      { role: 'default', provider: 'p', model: 'text', reasoningEffort: '' },
+      { role: 'vision', provider: 'p', model: 'vision', reasoningEffort: 'high' },
+    ],
+    advisor: { enabled: false, subagents: false, provider: 'spawn', maxTranscriptChars: 60000 },
+  }
+  const ctx = {
+    logger: { error() {} },
+    settings: {
+      writable: true,
+      describe: () => [{ ns: 'model-roles', value: section, revision: 0 }],
+      replace: async () => {},
+      register(ns) {
+        assert.equal(ns, 'model-roles')
+        return {
+          get: () => section,
+          watch(next) { watcher = next },
+        }
+      },
+    },
+    commands: {
+      register(definition) { commands.set(definition.name, definition); return () => {} },
+    },
+    llm: { stream() { throw new Error('not exercised') } },
+    subagents: {
+      async start(provider, request) {
+        starts.push({ provider, request })
+        return {
+          result: Promise.resolve({
+            stopReason: 'completed',
+            output: [{ type: 'text', text: 'The image shows a red banner.' }],
+          }),
+          async dispose() {},
+        }
+      },
+    },
+    inject(dependencies, install) {
+      assert.deepEqual(dependencies, ['connection'])
+      return install({
+        connection: {
+          rpc: {
+            handle(channel, handler, options) {
+              assert.equal(channel, '/model-roles-settings')
+              assert.equal(typeof handler, 'function')
+              assert.deepEqual(options, { authority: 'loopback' })
+              return async () => {}
+            },
+          },
+        },
+      })
+    },
+    on(name, listener) {
+      listeners.set(name, listener)
+      return () => {}
+    },
+  }
+  applyHost(ctx)
+  assert.equal(typeof watcher, 'function')
+  const requestListener = listeners.get('agent/request')
+  const preStepListener = listeners.get('agent/pre-step')
+  assert.equal(commands.has('model-role'), false)
+  assert.equal(commands.get('advisor').name, 'advisor')
+  assert.equal(typeof listeners.get('llm/stream'), 'function')
+  assert.equal(typeof listeners.get('agent/turn-stopping'), 'function')
+  const imageAgent = {
+    options: {},
+    session: {
+      events: [],
+      deriveMessages: () => [{ role: 'user', content: [{ type: 'image' }] }],
+    },
+  }
+  const decision = await preStepListener({
+    agent: imageAgent,
+    turn: 1,
+    signal: AbortSignal.timeout(5_000),
+  }, async () => ({
+    kind: 'enter',
+    messages: [{
+      role: 'user',
+      content: [{ type: 'text', text: 'inspect' }, { type: 'image' }],
+      source: { kind: 'user' },
+    }],
+  }))
+  assert.equal(starts.length, 1)
+  assert.equal(starts[0].provider, 'spawn')
+  assert.equal(starts[0].request.agentOptions.modelRole, 'vision')
+  assert.equal(decision.messages.some((message) => contentHasImage(message.content)), false)
+  assert.match(decision.messages.at(-1).content[0].text, /red banner/u)
+  assert.deepEqual(await requestListener({ agent: imageAgent }, async () => ({
+    provider: 'native', model: 'text', maxTokens: 100,
+  })), {
+    provider: 'p', model: 'text', maxTokens: 100,
+  })
+})
