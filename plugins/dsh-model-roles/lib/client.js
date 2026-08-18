@@ -22,7 +22,7 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
-    const { IconApiOutline14 } = require("@deepseek-ai/dsh-client-ui-primitives");
+    const { IconBranchOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives");
 
     const NS = "model-roles";
     const SETTINGS_RPC_CHANNEL = "/model-roles-settings";
@@ -288,7 +288,7 @@ window.__ModuleLoader__.load({
         className: "mr-nav-label",
         style: { display: "inline-flex", alignItems: "center", gap: 8 },
       },
-        react.createElement(IconApiOutline14, { size: 16 }),
+        react.createElement(IconBranchOutline16, { size: 16 }),
         react.createElement("span", null, "模型角色"));
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT, id: "model-roles", order: 24, label,

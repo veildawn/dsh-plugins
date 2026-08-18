@@ -31,10 +31,10 @@ test('browser bundle loads with the expected client services', async () => {
     useEffect() {},
     useState(initial) { return [initial, () => {}] },
   }
-  const IconApiOutline14 = props => react.createElement('svg', props)
+  const IconBranchOutline16 = props => react.createElement('svg', props)
   const client = definition.factory((id) => {
     if (id === 'react') return react
-    if (id === '@deepseek-ai/dsh-client-ui-primitives') return { IconApiOutline14 }
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') return { IconBranchOutline16 }
     assert.fail('unexpected browser dependency: ' + id)
   })
   assert.deepEqual(client.inject, ['slots', 'connection', 'remote'])

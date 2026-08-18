@@ -8,7 +8,7 @@
 
 | 插件名称 | 目录 | 说明 | 最新独立版本 |
 | :--- | :--- | :--- | :--- |
-| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行) | [`v0.4.6`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.6) |
+| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.6`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.6) |
 | **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标） | [`v0.1.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.4) |
 | **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接与 LLM Provider 插件（OAuth 2.0 PKCE 认证、Token 刷新、模型与推理等级阶梯拉取、局域网登录放行、专属 API 终端图标） | [`v0.2.3`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.2.3) |
 | **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、创造模式/PTC 模式/标准模式/极简模式状态与切换） | [`v0.1.8`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.8) |
