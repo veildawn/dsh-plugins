@@ -8,9 +8,9 @@
 
 | 插件名称 | 目录 | 说明 | 最新独立版本 |
 | :--- | :--- | :--- | :--- |
-| **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、创造模式/PTC 模式/标准模式/极简模式状态与切换） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.5) |
-| **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接） | [`v0.1.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.0) |
-| **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接与 LLM Provider 插件（OAuth 2.0 PKCE 认证、Token 刷新、模型与推理等级阶梯拉取） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.2.0) |
+| **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容） | [`v0.1.3`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.3) |
+| **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接与 LLM Provider 插件（OAuth 2.0 PKCE 认证、Token 刷新、模型与推理等级阶梯拉取、局域网登录放行） | [`v0.2.2`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.2.2) |
+| **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、创造模式/PTC 模式/标准模式/极简模式状态与切换） | [`v0.1.8`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.8) |
 
 ---
 
@@ -19,17 +19,17 @@
 无需下载整个仓库，每个插件均提供独立的 `.tgz` 安装包。使用 DSH 官方 CLI 即可在线一键安装：
 
 ```bash
-# 1. 安装移动端适配插件
-dsh profile --name web plugin add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.5/dsh-mobile-adapter-0.1.5.tgz
+# 1. 安装远程安全通道插件 (推荐所有公网/局域网部署安装)
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.3/dsh-remote-control-0.1.3.tgz
 
-# 2. 安装远程安全通道插件
-dsh profile --name web plugin add https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.0/dsh-remote-control-0.1.0.tgz
+# 2. 安装 AI Proxy 网关插件
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.2/dsh-ai-proxy-0.2.2.tgz
 
-# 3. 安装 AI Proxy 网关插件
-dsh profile --name web plugin add https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.0/dsh-ai-proxy-0.2.0.tgz
+# 3. 安装移动端适配插件 (手机浏览器访问必备)
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.8/dsh-mobile-adapter-0.1.8.tgz
 
 # 重启服务即可生效
-dsh service restart
+dsh service restart --profile web
 ```
 
 ---
@@ -41,8 +41,9 @@ dsh service restart
 ### 方式 1：使用一键发布脚本 (推荐)
 ```bash
 # 格式: ./scripts/release.sh <插件目录名> [版本号(可选)]
-./scripts/release.sh dsh-mobile-adapter 0.1.6
-./scripts/release.sh dsh-remote-control 0.1.1
+./scripts/release.sh dsh-remote-control 0.1.3
+./scripts/release.sh dsh-ai-proxy 0.2.2
+./scripts/release.sh dsh-mobile-adapter 0.1.8
 ```
 脚本会自动：
 1. 运行对应插件的单元测试；
@@ -51,7 +52,7 @@ dsh service restart
 4. 自动创建对应的独立 GitHub Release 并上传 `.tgz`。
 
 ### 方式 2：CI/CD 自动触发
-只要给仓库推送形如 `dsh-mobile-adapter@v0.1.6` 的 Tag，GitHub Actions 将会自动检测对应插件目录并构建专属 Release。
+只要给仓库推送形如 `dsh-remote-control@v0.1.3` 的 Tag，GitHub Actions 将会自动检测对应插件目录并构建专属 Release。
 
 ---
 
