@@ -29,22 +29,21 @@ window.__ModuleLoader__.load({
     const SETTINGS_SLOT = "settings.section";
     const NAV_STYLE_ID = "dsh-model-roles-nav-styles";
     const OMP_ROLES = ["default", "smol", "slow", "vision", "plan", "designer", "commit", "tiny", "task", "advisor"];
-    const BUILTIN = OMP_ROLES;
+    const BUILTIN = OMP_ROLES.filter((role) => role !== "default");
     const ROLE_PATTERN = /^[a-z][a-z0-9_-]*$/;
     const inject = ["slots", "connection", "remote"];
     const copy = {
-      default: { title: "默认", detail: "普通实现任务，以及自动路由无法明确归类的主会话任务。" },
       smol: { title: "快速", detail: "自动用于短小、机械、低风险、适合低成本模型的任务。" },
       slow: { title: "深度", detail: "自动用于复杂推理、疑难调试、架构、研究或高风险正确性任务。" },
       vision: { title: "识图", detail: "图片会交给一次性识图子代理分析，结果以文本带回主会话，避免主角色长期占用识图模型。" },
-      plan: { title: "计划", detail: "会话进入 /plan 后自动使用；未配置时回退到默认角色。" },
+      plan: { title: "计划", detail: "会话进入 /plan 后自动使用；未配置时使用当前会话模型。" },
       designer: { title: "设计", detail: "自动用于 UI、UX、视觉、交互、布局、样式和产品设计任务。" },
       commit: { title: "提交", detail: "自动用于提交信息生成及提交专用分析。" },
       tiny: { title: "轻量后台", detail: "用于自动任务分类、会话标题和压缩等 DSH 后台调用。" },
-      task: { title: "任务", detail: "DSH 委派创建的子代理自动使用；未配置时回退到默认角色。" },
+      task: { title: "任务", detail: "DSH 委派创建的子代理自动使用；未配置时使用当前会话模型。" },
       advisor: { title: "顾问", detail: "顾问复核开启后，DSH 会启动独立子代理评审每个已完成回合，并将重要建议送回主会话。" },
     };
-    const INTRO_TEXT = "系统会自动为任务选择合适模型。";
+    const INTRO_TEXT = "系统会自动为任务选择合适模型；未命中已配置角色时使用当前会话选择的模型。";
     const ADVISOR_HELP_TEXT = "请先为顾问选择模型。";
     const css = `
       .mr-page{display:flex;flex-direction:column;gap:14px;width:100%;max-width:780px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
@@ -69,6 +68,9 @@ window.__ModuleLoader__.load({
       } catch { return null; }
     }
     function normalizeRole(value) { return String(value || "").trim().toLowerCase(); }
+    function configurableRoutes(roles) {
+      return (roles || []).filter((route) => normalizeRole(route?.role) !== "default");
+    }
     function rowsFromGroups(groups) {
       return groups.flatMap((group) => group.models.map((model) => ({ group, model })));
     }
@@ -78,6 +80,7 @@ window.__ModuleLoader__.load({
       for (const route of roles) {
         const role = normalizeRole(route.role);
         if (!ROLE_PATTERN.test(role)) return `角色 ID“${route.role}”格式无效`;
+        if (role === "default") return "默认模型由当前会话选择，无需配置";
         if (seen.has(role)) return `角色 ID“${role}”重复`;
         seen.add(role);
         if (!route.provider || !route.model) return `角色“${role}”尚未选择模型`;
@@ -126,7 +129,7 @@ window.__ModuleLoader__.load({
               settingsRequest("describe"), props.api.llm.models({}),
             ]);
             if (!modelsResponse.result.ok) throw new Error(modelsResponse.result.error.message);
-            const next = (settingsView.value?.roles || []).map((route) => ({ ...route }));
+            const next = configurableRoutes(settingsView.value?.roles).map((route) => ({ ...route }));
             const nextAdvisor = {
               enabled: false, subagents: false, provider: "spawn", maxTranscriptChars: 60000,
               ...(settingsView.value?.advisor || {}),
@@ -202,7 +205,7 @@ window.__ModuleLoader__.load({
           setSaving(true);
           setError("");
           try {
-            const normalized = roles.map((route) => ({
+            const normalized = configurableRoutes(roles).map((route) => ({
               role: normalizeRole(route.role), provider: route.provider, model: route.model,
               reasoningEffort: route.reasoningEffort || "",
             }));
@@ -247,7 +250,7 @@ window.__ModuleLoader__.load({
                   className: "mr-select", value: route ? modelKey(route.provider, route.model) : "", disabled: saving || status === "loading",
                   onChange: (event) => changeModel(role, event.target.value), "aria-label": `${role} 模型`,
                 },
-                react.createElement("option", { value: "" }, role === "default" ? "使用会话模型" : role === "tiny" ? "继承快速 / 默认角色" : "继承默认角色"),
+                react.createElement("option", { value: "" }, role === "tiny" ? "继承快速角色 / 使用会话模型" : "使用当前会话模型"),
                 ...modelOptions)),
               react.createElement("label", { className: "mr-field" },
                 react.createElement("span", { className: "mr-label" }, "思考档位"),
@@ -307,7 +310,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, ADVISOR_HELP_TEXT, modelKey, parseModelKey, normalizeRole, rowsFromGroups, routeMap, validateRoles, statusMessage, css };
+    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, ADVISOR_HELP_TEXT, modelKey, parseModelKey, normalizeRole, configurableRoutes, rowsFromGroups, routeMap, validateRoles, statusMessage, css };
     return module.exports;
   }
 });

@@ -22,6 +22,7 @@ export const OMP_ROLES = Object.freeze([
 
 export const BUILTIN_ROLES = OMP_ROLES
 const BUILTIN_ROLE_SET = new Set(BUILTIN_ROLES)
+export const CONFIGURABLE_ROLES = Object.freeze(OMP_ROLES.filter((role) => role !== 'default'))
 export const ROLE_ID_PATTERN = /^[a-z][a-z0-9_-]*$/u
 export const ADVISOR_COMMAND = 'advisor'
 export const AUTOMATIC_TASK_ROLES = Object.freeze([
@@ -43,7 +44,9 @@ export function normalizeRoleId(value) {
 }
 
 /**
- * Validate settings rows and build an immutable lookup table.
+ * Validate settings rows and build an immutable lookup table. The `default`
+ * role is deliberately ignored so legacy settings cannot override the model
+ * selected for the current DSH session.
  *
  * A missing reasoningEffort means "use this model's provider/default effort".
  */
@@ -56,6 +59,7 @@ export function resolveRoleTable(config = {}) {
       throw new Error('model-roles: every role entry must be an object')
     }
     const role = normalizeRoleId(row.role)
+    if (role === 'default') continue
     if (table.has(role)) throw new Error(`model-roles: duplicate role "${role}"`)
     const provider = typeof row.provider === 'string' ? row.provider.trim() : ''
     const model = typeof row.model === 'string' ? row.model.trim() : ''
@@ -134,7 +138,26 @@ export function agentHasImage(agent) {
   return false
 }
 
-/** Latest user-authored text used by the lightweight automatic role router. */
+const CONTINUATION_TASKS = new Set([
+  '继续', '请继续', '继续吧', '继续做', '继续处理', '继续完成', '继续执行', '继续修复',
+  '接着', '请接着', '接着吧', '接着做', '接着处理', '接着完成', '往下做',
+  '继续之前的任务', '继续上次的任务', '接着之前的任务', '接着上次的任务',
+  'continue', 'please continue', 'continue please', 'continue the task',
+  'go on', 'please go on', 'keep going', 'carry on',
+  'resume', 'please resume', 'resume the task', 'resume the previous task',
+  'proceed', 'please proceed',
+])
+
+/** Whether a human message only asks to resume the preceding task. */
+export function isContinuationTask(value) {
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+    .replace(/[。.!！?？…]+$/gu, '')
+    .trim()
+  return CONTINUATION_TASKS.has(normalized)
+}
+
+/** Latest substantive user-authored text used by the automatic role router. */
 export function taskTextOf(agent) {
   let messages
   try {
@@ -152,17 +175,24 @@ export function taskTextOf(agent) {
       }))
   }
   const hasHumanSource = messages.some((message) => message?.source?.kind === 'user')
+  let continuation = ''
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]
     if (message?.role !== 'user' || !Array.isArray(message.content)) continue
     if (hasHumanSource && message.source?.kind !== 'user') continue
-    return message.content
+    const text = message.content
       .filter((block) => block?.type === 'text' && typeof block.text === 'string')
       .map((block) => block.text)
       .join('\n')
       .trim()
+    if (text === '') continue
+    if (isContinuationTask(text)) {
+      continuation ||= text
+      continue
+    }
+    return text
   }
-  return ''
+  return continuation
 }
 
 /** Accept only one exact, classifier-owned main-task role token. */
@@ -245,14 +275,15 @@ export function roleForAgent(agent, table) {
 }
 
 /**
- * Resolve the selected role through OMP-compatible fallbacks. `tiny` inherits
- * `smol`; every specialized role finally inherits `default`.
+ * Resolve the selected role. `tiny` inherits `smol`; an unconfigured role
+ * returns no override so the current session's selected model is preserved.
  */
 export function routeForRole(table, role) {
+  if (role === 'default') return undefined
   const direct = table.get(role)
   if (direct !== undefined) return direct
-  if (role === 'tiny') return table.get('smol') ?? table.get('default')
-  return role === 'default' ? undefined : table.get('default')
+  if (role === 'tiny') return table.get('smol')
+  return undefined
 }
 
 /** Apply one role route while retaining non-route request controls. */

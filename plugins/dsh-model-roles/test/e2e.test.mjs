@@ -89,10 +89,10 @@ function createRuntime(roles, settingsSection = {}) {
   return { ctx, adapter }
 }
 
-async function requestThroughHarness(ctx, agent) {
+async function requestThroughHarness(ctx, agent, { turn = 1, step = 1 } = {}) {
   const config = await agentEvents(ctx, agent).waterfall('agent/request', {
-    turn: 1,
-    step: 1,
+    turn,
+    step,
     signal: AbortSignal.timeout(5_000),
   }, () => Promise.resolve({
     provider: 'e2e',
@@ -114,7 +114,7 @@ test('all conversation roles traverse DSH session, agent/request, and llm/stream
     'default', 'smol', 'slow', 'vision', 'plan',
     'designer', 'commit', 'task', 'advisor',
   ]
-  const { ctx, adapter } = createRuntime([...conversationRoles, 'tiny'].map((role) => ({
+  const { ctx, adapter } = createRuntime([...conversationRoles.filter((role) => role !== 'default'), 'tiny'].map((role) => ({
     role,
     provider: 'e2e',
     model: `${role}-model`,
@@ -166,12 +166,11 @@ test('all conversation roles traverse DSH session, agent/request, and llm/stream
   const routedRequests = adapter.requests.filter((request) =>
     !request.system?.includes('Classify the user task into one model role'))
   assert.deepEqual(routedRequests.map(({ model }) => model),
-    conversationRoles.map((role) => `${role}-model`))
+    conversationRoles.map((role) => role === 'default' ? 'unrouted-model' : `${role}-model`))
 })
 
 test('automatic task classification runs once per agent turn across tool-loop steps', async () => {
   const { ctx, adapter } = createRuntime([
-    { role: 'default', provider: 'e2e', model: 'default-model' },
     { role: 'smol', provider: 'e2e', model: 'smol-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
   ])
@@ -193,9 +192,34 @@ test('automatic task classification runs once per agent turn across tool-loop st
   assert.deepEqual(routed.map(({ model }) => model), ['smol-model', 'smol-model'])
 })
 
+test('continuation-only turns retain the substantive task role after an agent reload', async () => {
+  const { ctx, adapter } = createRuntime([
+    { role: 'slow', provider: 'e2e', model: 'slow-model' },
+    { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
+  ])
+  const session = ctx.sessions.create('automatic-role-continuation')
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Resolve this architecture tradeoff with a rigorous analysis.' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+
+  await requestThroughHarness(ctx, { ctx, session, options: {} }, { turn: 1 })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: '继续' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  await requestThroughHarness(ctx, { ctx, session, options: {} }, { turn: 2 })
+
+  const classifier = adapter.requests.filter((request) =>
+    request.system?.includes('Classify the user task into one model role'))
+  const routed = adapter.requests.filter((request) =>
+    !request.system?.includes('Classify the user task into one model role'))
+  assert.equal(classifier.length, 2)
+  assert.deepEqual(routed.map(({ model }) => model), ['slow-model', 'slow-model'])
+})
+
 test('image input runs once in a vision subagent and returns text-only analysis to the main agent', async () => {
   const { ctx, adapter } = createRuntime([
-    { role: 'default', provider: 'e2e', model: 'default-model' },
     { role: 'vision', provider: 'e2e', model: 'vision-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
   ])
@@ -264,13 +288,12 @@ test('image input runs once in a vision subagent and returns text-only analysis 
   assert.deepEqual(adapter.requests.map(({ model }) => model), [
     'vision-model',
     'tiny-model',
-    'default-model',
+    'unrouted-model',
   ])
 })
 
 test('/advisor drives the real DSH spawn provider and steers actionable advice', async () => {
   const { ctx, adapter } = createRuntime([
-    { role: 'default', provider: 'e2e', model: 'default-model' },
     { role: 'advisor', provider: 'e2e', model: 'advisor-model' },
   ], {
     advisor: { enabled: false, provider: 'advisor-e2e', subagents: false },
@@ -370,7 +393,6 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
 
 test('tiny role routes real DSH title and compaction LLM calls', async () => {
   const { ctx, adapter } = createRuntime([
-    { role: 'default', provider: 'e2e', model: 'default-model' },
     { role: 'smol', provider: 'e2e', model: 'smol-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model', reasoningEffort: 'low' },
   ])

@@ -41,18 +41,28 @@ test('browser bundle loads with the expected client services', async () => {
   assert.deepEqual(client.internals.OMP_ROLES, [
     'default', 'smol', 'slow', 'vision', 'plan', 'designer', 'commit', 'tiny', 'task', 'advisor',
   ])
+  assert.deepEqual(client.internals.BUILTIN, [
+    'smol', 'slow', 'vision', 'plan', 'designer', 'commit', 'tiny', 'task', 'advisor',
+  ])
   assert.deepEqual(Object.fromEntries(Object.entries(client.internals.copy).map(([id, value]) => [id, value.title])), {
-    default: '默认', smol: '快速', slow: '深度', vision: '识图', plan: '计划',
+    smol: '快速', slow: '深度', vision: '识图', plan: '计划',
     designer: '设计', commit: '提交', tiny: '轻量后台', task: '任务', advisor: '顾问',
   })
   assert.equal(client.internals.copy.tiny.detail, '用于自动任务分类、会话标题和压缩等 DSH 后台调用。')
-  assert.equal(client.internals.INTRO_TEXT, '系统会自动为任务选择合适模型。')
+  assert.equal(client.internals.INTRO_TEXT, '系统会自动为任务选择合适模型；未命中已配置角色时使用当前会话选择的模型。')
   assert.equal(client.internals.ADVISOR_HELP_TEXT, '请先为顾问选择模型。')
   assert.equal(client.internals.statusMessage('ready', true, false), '')
   assert.equal(client.internals.statusMessage('loading', true, false), '正在读取模型与角色配置…')
   assert.equal(client.internals.statusMessage('ready', true, true), '有未保存的更改。')
   assert.equal(client.internals.statusMessage('ready', false, false), '当前设置文档为只读。')
   assert.equal(client.internals.normalizeRole(' Designer '), 'designer')
+  assert.deepEqual(client.internals.configurableRoutes([
+    { role: 'default', provider: 'legacy', model: 'forced' },
+    { role: 'plan', provider: 'p', model: 'm' },
+  ]), [{ role: 'plan', provider: 'p', model: 'm' }])
+  assert.equal(client.internals.validateRoles([
+    { role: 'default', provider: 'p', model: 'm' },
+  ]), '默认模型由当前会话选择，无需配置')
   assert.equal(client.internals.validateRoles([
     { role: 'plan', provider: 'p', model: 'm' },
     { role: 'PLAN', provider: 'p', model: 'other' },
@@ -165,7 +175,7 @@ test('host registers advisor control and delegates image requests before main ro
   let watcher
   const section = {
     roles: [
-      { role: 'default', provider: 'p', model: 'text', reasoningEffort: '' },
+      { role: 'default', provider: 'legacy', model: 'forced', reasoningEffort: '' },
       { role: 'vision', provider: 'p', model: 'vision', reasoningEffort: 'high' },
     ],
     advisor: { enabled: false, subagents: false, provider: 'spawn', maxTranscriptChars: 60000 },
@@ -255,6 +265,6 @@ test('host registers advisor control and delegates image requests before main ro
   assert.deepEqual(await requestListener({ agent: imageAgent }, async () => ({
     provider: 'native', model: 'text', maxTokens: 100,
   })), {
-    provider: 'p', model: 'text', maxTokens: 100,
+    provider: 'native', model: 'text', maxTokens: 100,
   })
 })

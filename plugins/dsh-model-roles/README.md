@@ -10,22 +10,23 @@
 
 | 角色 | 触发条件 | 未配置时 |
 | --- | --- | --- |
-| `default` | 普通实现任务或自动分类不明确的主会话任务 | 使用 DSH 会话当前模型 |
-| `smol` | 自动分类为短小、机械、低风险的任务；或同名 Agent Preset | 回退 `default` |
-| `slow` | 自动分类为复杂推理、疑难调试、架构、研究或高风险正确性任务；或同名 Preset | 回退 `default` |
-| `vision` | 图片输入自动委派给一次性识图子代理 | 回退 `default` |
-| `plan` | `/plan` 处于开启状态 | 回退 `default` |
-| `designer` | 自动分类为 UI、UX、视觉、交互、布局或产品设计；或同名 Preset | 回退 `default` |
-| `commit` | 自动分类为提交信息生成或提交专用分析；或同名 Preset | 回退 `default` |
-| `tiny` | 主任务自动分类，以及 DSH 会话标题、压缩等后台 LLM 调用 | 回退 `smol`，再回退 `default` |
-| `task` | DSH 委派创建的子会话 | 回退 `default` |
+| `default` | 普通实现任务或自动分类不明确的主会话任务；无需配置 | 始终使用 DSH 会话当前选择的模型 |
+| `smol` | 自动分类为短小、机械、低风险的任务；或同名 Agent Preset | 使用会话当前模型 |
+| `slow` | 自动分类为复杂推理、疑难调试、架构、研究或高风险正确性任务；或同名 Preset | 使用会话当前模型 |
+| `vision` | 图片输入自动委派给一次性识图子代理 | 使用会话当前模型 |
+| `plan` | `/plan` 处于开启状态 | 使用会话当前模型 |
+| `designer` | 自动分类为 UI、UX、视觉、交互、布局或产品设计；或同名 Preset | 使用会话当前模型 |
+| `commit` | 自动分类为提交信息生成或提交专用分析；或同名 Preset | 使用会话当前模型 |
+| `tiny` | 主任务自动分类，以及 DSH 会话标题、压缩等后台 LLM 调用 | 回退 `smol`，再使用原请求模型 |
+| `task` | DSH 委派创建的子会话 | 使用会话当前模型 |
 | `advisor` | 顾问复核运行时创建的独立 DSH 子代理 | 未直接配置时不启动顾问复核 |
 | 自定义 Preset 角色 | Agent Preset ID 与角色 ID 完全相同 | 继续按后续规则判断 |
 
-内建角色严格为 OMP 当前的 10 个模型角色，没有旧版别名或迁移兼容项。
+语义上保留 OMP 当前的 10 个模型角色，其中 `default` 由每个 DSH 会话的模型选择器提供，设置页
+只配置其余 9 个专用角色。旧设置中的 `default` 映射会被忽略，不能覆盖会话选择。
 
 主请求路由优先级为：插件内部运行时角色 → `plan` → 同名 Agent Preset → `task` 子代理 →
-主任务自动分类 → `default` → DSH 会话模型。收到图片时，插件会在主请求之前启动一次性
+主任务自动分类 → DSH 会话模型。收到图片时，插件会在主请求之前启动一次性
 `vision` 子代理：它不能调用工具，最多生成 4096 token，只负责识图、OCR 和提取与任务相关的
 事实。完成后图片会从本次主模型输入中移除，识图文字以插件消息带回主会话；主会话随后照常自动
 选择普通角色，因此不会因为历史里存在图片而长期占用识图模型。识图子代理失败时，仅当前回合
@@ -36,11 +37,11 @@
 普通主会话进入每个新回合时，插件使用 `tiny` 角色模型把最新用户任务严格分类为
 `default`、`smol`、`slow`、`designer` 或 `commit`。同一回合的后续工具循环复用分类结果，不会
 重复产生分类调用。如果未配置 `tiny`，则使用直接配置的 `smol`；两者都未配置时跳过分类并使用
-`default`。
+当前会话模型。
 
 输入框不提供角色选择器，也不注册 `/model-role` 命令。图片、计划模式、子代理、顾问和同名
 Agent Preset 都使用 DSH 原生生命周期与事实，不要求用户手动选角。分类模型失败或输出非法角色
-时安全回退 `default`。
+时安全回退到当前会话模型。
 
 ### 顾问复核
 
@@ -62,9 +63,12 @@ Agent Preset 都使用 DSH 原生生命周期与事实，不要求用户手动�
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-model-roles-0.4.9.tgz
+dsh plugin --profile web add ./dsh-model-roles-0.4.11.tgz
 dsh service restart
 ```
+
+升级插件时必须先等待所有运行中的会话结束再重启 DSH；重启活跃服务会让尚未关闭的回合以
+`interrupted` 结束。仅修改角色设置不需要重启，保存后会从下一次请求即时生效。
 
 插件自带的 Cordis 配置为空映射，安装后不会改变原生行为：
 
@@ -89,10 +93,6 @@ dsh service restart
 ```yaml
 model-roles:
   roles:
-    - role: default
-      provider: ai-proxy
-      model: minimax-m3
-      reasoningEffort: medium
     - role: plan
       provider: ai-proxy
       model: deepseek-v4
@@ -141,13 +141,13 @@ model-roles:
 
 ## 与 DSH 模型选择器的关系
 
-DSH 对话框中的模型选择仍是该会话的基础路由。命中已配置角色时，本插件在请求组装阶段覆盖
-基础路由；没有命中任何配置时完全保留原生选择。修改映射不会改写历史消息，只影响后续模型
-请求。
+DSH 对话框中的模型选择就是该会话的默认模型，不在模型角色中重复配置。命中已配置的专用角色
+时，本插件在请求组装阶段临时覆盖基础路由；没有命中任何配置时完全保留原生选择。修改映射不会
+改写历史消息，只影响后续模型请求。
 
 ## 与 DSH 的融合边界
 
-- 十个 OMP 角色都可以独立选择模型；`vision` 通过一次性 DSH 子代理触发，`plan`、`task` 使用 DSH 原生会话事实自动触发，
+- 除 `default` 外的九个 OMP 专用角色可以独立选择模型；`default` 始终来自当前会话；`vision` 通过一次性 DSH 子代理触发，`plan`、`task` 使用 DSH 原生会话事实自动触发，
   `tiny` 接管自动任务分类、DSH 会话标题与压缩 LLM 调用，`advisor` 使用 DSH 子代理和 steering
   通道完成复核。
 - `smol`、`slow`、`designer`、`commit` 由轻量模型阅读本回合任务后自动选择；同名 Agent Preset
@@ -169,6 +169,6 @@ npm pack --dry-run
 ```
 
 端到端测试使用真实的 Cordis、DSH Settings、Commands、Session、Agent 事件、LLM Runtime 与
-Subagent Runtime；只在最外层模型 Provider 使用可观测测试 Adapter。测试会逐个证明 10 个角色
-最终命中各自的模型，并覆盖自动任务分类、同回合分类缓存、顾问建议回注以及 `tiny` 标题/压缩
-路由。提供真实模型映射后，还要在实际 DSH Profile 中逐角色执行联网模型验收。
+Subagent Runtime；只在最外层模型 Provider 使用可观测测试 Adapter。测试会证明 `default` 保留
+会话模型、九个专用角色命中各自配置，并覆盖自动任务分类、同回合分类缓存、顾问建议回注以及
+`tiny` 标题/压缩路由。提供真实模型映射后，还要在实际 DSH Profile 中逐角色执行联网模型验收。

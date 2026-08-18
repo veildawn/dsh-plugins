@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   BUILTIN_ROLES,
+  CONFIGURABLE_ROLES,
   OMP_ROLES,
   advisorEnabledOf,
   agentHasImage,
@@ -49,9 +50,12 @@ test('the complete OMP vocabulary is the only built-in role set', () => {
     'default', 'smol', 'slow', 'vision', 'plan', 'designer', 'commit', 'tiny', 'task', 'advisor',
   ])
   assert.deepEqual(BUILTIN_ROLES, OMP_ROLES)
+  assert.deepEqual(CONFIGURABLE_ROLES, [
+    'smol', 'slow', 'vision', 'plan', 'designer', 'commit', 'tiny', 'task', 'advisor',
+  ])
 })
 
-test('role ids normalize and malformed or duplicate tables fail loud', () => {
+test('role ids normalize, legacy default routes are ignored, and invalid tables fail loud', () => {
   assert.equal(normalizeRoleId(' Designer '), 'designer')
   assert.throws(() => normalizeRoleId('@slow'), /must match/)
   assert.throws(() => resolveRoleTable({ roles: [
@@ -59,6 +63,10 @@ test('role ids normalize and malformed or duplicate tables fail loud', () => {
     { role: 'PLAN', provider: 'p', model: 'b' },
   ] }), /duplicate role/)
   assert.throws(() => resolveRoleTable({ roles: [{ role: 'plan', provider: '', model: 'a' }] }), /needs non-empty/)
+  assert.equal(resolveRoleTable({ roles: [
+    { role: ' DEFAULT ', provider: 'legacy', model: 'forced' },
+  ] }).size, 0)
+  assert.equal(table.has('default'), false)
 })
 
 test('plan mode folds the latest public plan/mode event', () => {
@@ -86,7 +94,7 @@ test('image detection walks durable messages and nested tool results', () => {
   })), true)
 })
 
-test('automatic task routing reads the latest user text and accepts only classifier roles', () => {
+test('automatic task routing reads the latest substantive user task and accepts only classifier roles', () => {
   assert.equal(taskTextOf(agent({ messages: [
     { role: 'user', content: [{ type: 'text', text: 'old task' }] },
     { role: 'assistant', content: [{ type: 'text', text: 'answer' }] },
@@ -97,6 +105,11 @@ test('automatic task routing reads the latest user text and accepts only classif
     { role: 'user', source: { kind: 'plugin', plugin: 'runtime' }, content: [{ type: 'text', text: 'Current runtime context' }] },
     { role: 'user', source: { kind: 'plugin', plugin: 'skills' }, content: [{ type: 'text', text: '<system-reminder>skills</system-reminder>' }] },
   ] })), 'mechanically rename this symbol')
+  assert.equal(taskTextOf(agent({ messages: [
+    { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'Resolve this architecture tradeoff.' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'I started the analysis.' }] },
+    { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] },
+  ] })), 'Resolve this architecture tradeoff.')
   assert.equal(parseAutomaticRole('designer'), 'designer')
   assert.equal(parseAutomaticRole('`slow`\n'), 'slow')
   assert.equal(parseAutomaticRole('task'), undefined)
@@ -139,11 +152,10 @@ test('role precedence is internal runtime, plan, preset, task, then default', ()
   assert.equal(roleForAgent(agent(), table), 'default')
 })
 
-test('specialized roles fall back to default and an absent default preserves the session route', () => {
-  const onlyDefault = resolveRoleTable({ roles: [
-    { role: 'default', provider: 'p', model: 'm', reasoningEffort: '' },
-  ] })
-  assert.deepEqual(routeForRole(onlyDefault, 'plan'), { provider: 'p', model: 'm' })
+test('unconfigured roles preserve the session route and tiny can inherit smol', () => {
+  const legacyDefault = new Map([['default', { provider: 'legacy', model: 'forced' }]])
+  assert.equal(routeForRole(legacyDefault, 'default'), undefined)
+  assert.equal(routeForRole(legacyDefault, 'plan'), undefined)
   assert.deepEqual(routeForRole(table, 'tiny'), table.get('smol'))
   assert.deepEqual(routeForRole(table, 'task'), table.get('task'))
   assert.equal(routeForRole(new Map(), 'plan'), undefined)

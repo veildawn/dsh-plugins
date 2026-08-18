@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-roles",
-  "version": "0.4.9",
+  "version": "0.4.11",
   "description": "Automatic OMP-style model-role routing deeply integrated with DeepSeek Harness tasks, vision, plan mode, subagents, background work, and advisor review",
   "type": "module",
   "main": "lib/index.js",

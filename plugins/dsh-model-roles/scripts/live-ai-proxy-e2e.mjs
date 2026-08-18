@@ -13,8 +13,8 @@ if (requestedRoles.has('tiny')) {
   for (const role of ['default', 'smol', 'slow', 'designer', 'commit']) requestedRoles.add(role)
 }
 
+const sessionRoute = { provider: 'ai-proxy', model: 'gpt-5.6-terra', reasoningEffort: 'medium' }
 const routes = {
-  default: { provider: 'ai-proxy', model: 'gpt-5.6-terra', reasoningEffort: 'medium' },
   smol: { provider: 'ai-proxy', model: 'deepseek-v4-flash', reasoningEffort: 'low' },
   slow: { provider: 'ai-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'high' },
   vision: { provider: 'ai-proxy', model: 'gemini-3.7-flash-tiered', reasoningEffort: 'high' },
@@ -106,9 +106,9 @@ async function createSession() {
   const created = await rpc('session.create', { cwd })
   await rpc('session.selectModel', {
     sessionId: created.sessionId,
-    provider: routes.default.provider,
-    model: routes.default.model,
-    reasoningEffort: routes.default.reasoningEffort,
+    provider: sessionRoute.provider,
+    model: sessionRoute.model,
+    reasoningEffort: sessionRoute.reasoningEffort,
   })
   return created.sessionId
 }
@@ -177,7 +177,7 @@ async function runMainRole(role, prompt, options = {}) {
   const sessionId = await createSession()
   if (options.command !== undefined) await command(sessionId, options.command)
   const events = await promptAndWait(sessionId, [{ type: 'text', text: prompt }])
-  const evidence = assertCompletedRoute(events, routes[role], role)
+  const evidence = assertCompletedRoute(events, role === 'default' ? sessionRoute : routes[role], role)
   const text = assistantText(evidence.assistant)
   assert(text.length > 0, `${role}: empty assistant text`)
   if (options.matches !== undefined) assert.match(text, options.matches, `${role}: unexpected assistant text`)
@@ -262,7 +262,7 @@ const defaultResult = await recordRole('default', async () => {
     'This is an ordinary implementation task, neither a tiny mechanical change nor a difficult architecture problem.',
     'Do not use tools. State one practical benefit of input validation, then include the exact marker DEFAULT_OK.',
   ].join(' '), { matches: /DEFAULT_OK/i })
-  return { sessionId: run.sessionId, model: routes.default.model }
+  return { sessionId: run.sessionId, model: sessionRoute.model }
 })
 
 const smolResult = await recordRole('smol', async () => {

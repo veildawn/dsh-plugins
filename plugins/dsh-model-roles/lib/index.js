@@ -11,8 +11,8 @@
  *   internal runtime > plan mode > exact Agent Preset > task >
  *   automatic default/smol/slow/designer/commit classification.
  *
- * An absent specialized role falls back to `default`; an absent `default`
- * preserves the session's ordinary model selection.
+ * An absent specialized role preserves the model selected for the current
+ * session. `default` is a classifier outcome, never a configurable override.
  *
  * @module dsh-model-roles
  */
@@ -22,6 +22,7 @@ import {
   ADVISOR_COMMAND,
   AUTOMATIC_TASK_ROLES,
   BUILTIN_ROLES,
+  CONFIGURABLE_ROLES,
   OMP_ROLES,
   ROLE_ID_PATTERN,
   advisorEnabledOf,
@@ -47,6 +48,7 @@ export {
   ADVISOR_COMMAND,
   AUTOMATIC_TASK_ROLES,
   BUILTIN_ROLES,
+  CONFIGURABLE_ROLES,
   OMP_ROLES,
   ROLE_ID_PATTERN,
   advisorEnabledOf,
@@ -379,7 +381,7 @@ export function apply(ctx, config = {}) {
     let cached = classifiedTurns.get(agent)
     if (cached === undefined || cached.turn !== turn) {
       const result = classifyAutomaticRole(ctx, agent, table, signal).catch((error) => {
-        ctx.logger.warn('model-roles: automatic task classification failed; using default')
+        ctx.logger.warn('model-roles: automatic task classification failed; using the session model')
         ctx.logger.warn(error)
         return 'default'
       })
