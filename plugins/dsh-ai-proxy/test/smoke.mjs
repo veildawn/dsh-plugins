@@ -8,7 +8,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import * as plugin from '../lib/index.js'
-const { internals, resolveOptions, AUTH_RPC_CHANNEL, REMOTE_CONTROL_RPC_CHANNEL, REMOTE_CONTROL_SECRET_REF } = plugin
+const { internals, resolveOptions, AUTH_RPC_CHANNEL } = plugin
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -85,28 +85,6 @@ class FakeConnection extends Service {
   }
 }
 
-class FakeApiProxy extends Service {
-  constructor(ctx) {
-    super(ctx, 'apiProxy')
-    this.calls = []
-    const result = (domain, method) => async (request) => {
-      this.calls.push({ domain, method, request })
-      return { rpcId: request.rpcId, result: { ok: true, value: { domain, method, payload: request.payload } } }
-    }
-    this.agentPresets = {
-      read: result('agentPreset', 'read'), copy: result('agentPreset', 'copy'),
-      openDocument: result('agentPreset', 'openDocument'), remove: result('agentPreset', 'remove'),
-    }
-    this.host = { pickDirectory: result('host', 'pickDirectory'), openPath: result('host', 'openPath') }
-    this.settings = {
-      describe: result('settings', 'describe'), openDocument: result('settings', 'openDocument'),
-      update: result('settings', 'update'), replace: result('settings', 'replace'), mutate: result('settings', 'mutate'),
-    }
-    this.credentials = { describe: result('credentials', 'describe'), set: result('credentials', 'set'), unset: result('credentials', 'unset') }
-    this.llm = { discoverModels: result('llm', 'discoverModels') }
-  }
-}
-
 class FakeAttachments extends Service {
   constructor(ctx) {
     super(ctx, 'attachments')
@@ -125,8 +103,7 @@ function makeCtx(settingsDoc) {
   const creds = new FakeCreds(ctx)
   const connection = new FakeConnection(ctx)
   const attachments = new FakeAttachments(ctx)
-  const apiProxy = new FakeApiProxy(ctx)
-  return { ctx, creds, connection, settings, attachments, apiProxy }
+  return { ctx, creds, connection, settings, attachments }
 }
 
 // ── mock gateway ───────────────────────────────────────────────────────────
@@ -385,46 +362,6 @@ test('OAuth login: PKCE loopback flow stores rotating tokens', async () => {
   }
 })
 
-test('remote OAuth returns an OOB authorize URL and exchanges the displayed code', async () => {
-  const gw = await mockGateway()
-  const { ctx, creds, connection } = makeCtx()
-  try {
-    await ctx.plugin(plugin, {
-      baseURL: gw.url,
-      clientId: 'dsh',
-      remoteAccess: true,
-      remoteAuthSecret: 'remote-test',
-    })
-    const remote = connection.registration(REMOTE_CONTROL_RPC_CHANNEL).handler
-    const started = await remote('call', {
-      token: 'remote-test', method: 'aiProxy.login', payload: {},
-    })
-    assert.equal(started.ok, true)
-    assert.equal(started.value.state, 'authorizing')
-    const authorize = new URL(started.value.authorizeUrl)
-    assert.equal(authorize.searchParams.get('redirect_uri'), gw.url + '/oauth/code')
-    assert.equal((await remote('call', {
-      token: 'remote-test', method: 'aiProxy.completeLogin',
-      payload: { code: 'mock-code', state: 'wrong-state' },
-    })).ok, false, 'the Host rejects a code from another login attempt')
-
-    const completed = await remote('call', {
-      token: 'remote-test', method: 'aiProxy.completeLogin',
-      payload: { code: 'mock-code', state: authorize.searchParams.get('state') },
-    })
-    assert.equal(completed.ok, true)
-    assert.equal(completed.value.state, 'signed-in')
-    assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), 'acc-code')
-    assert.equal((await remote('call', {
-      token: 'remote-test', method: 'aiProxy.status', payload: {},
-    })).value.state, 'signed-in')
-    const tokenCall = gw.requests.find((request) => request.path === '/oauth/token')
-    assert.equal(tokenCall.params.redirect_uri, gw.url + '/oauth/code')
-  } finally {
-    gw.close()
-  }
-})
-
 test('Host auth RPC revokes and clears tokens without changing settings', async () => {
   const gw = await mockGateway()
   const { ctx, creds, connection } = makeCtx()
@@ -437,7 +374,7 @@ test('Host auth RPC revokes and clears tokens without changing settings', async 
 
     assert.equal(connection.registration().channel, AUTH_RPC_CHANNEL)
     assert.deepEqual(connection.registration().options, { authority: 'loopback' })
-    assert.deepEqual(connection.registration(REMOTE_CONTROL_RPC_CHANNEL).options, { authority: 'trusted-host' })
+    assert.deepEqual([...connection.registrations.keys()], [AUTH_RPC_CHANNEL])
     assert(ctx.llm.listProviders().some((p) => p.id === 'ai-proxy'), 'provider registered')
     const before = await connection.registration().handler('status', {})
     assert.equal(before.value.state, 'signed-in')
@@ -476,64 +413,6 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
   } finally {
     gw.close()
   }
-})
-
-test('remote control authenticates before proxying an upstream privileged method', async () => {
-  const { ctx, connection, creds, settings, apiProxy } = makeCtx()
-  await ctx.plugin(plugin, { clientId: 'dsh' })
-  const local = connection.registration().handler
-  const remote = connection.registration(REMOTE_CONTROL_RPC_CHANNEL).handler
-
-  assert.deepEqual(await remote('status', { token: 'wrong' }), {
-    ok: true,
-    value: { enabled: false, secretConfigured: false, authenticated: false },
-  })
-  assert.deepEqual(await local('setRemoteSecret', { secret: 'remote-test' }), {
-    ok: true,
-    value: { enabled: false, secretConfigured: true },
-  })
-  assert.equal(creds.store.get(REMOTE_CONTROL_SECRET_REF), 'remote-test')
-  assert.deepEqual(await remote('status', { token: 'remote-test' }), {
-    ok: true,
-    value: { enabled: false, secretConfigured: true, authenticated: false },
-  })
-  assert.deepEqual(await local('setRemoteAccess', { enabled: true }), {
-    ok: true,
-    value: { enabled: true, secretConfigured: true },
-  })
-  assert.equal(settings.doc['ai-proxy'].remoteAccess, true)
-  assert.deepEqual(await remote('status', { token: 'remote-test' }), {
-    ok: true,
-    value: { enabled: true, secretConfigured: true, authenticated: true },
-  })
-  assert.deepEqual(await remote('status', { token: 'wrong' }), {
-    ok: true,
-    value: { enabled: true, secretConfigured: true, authenticated: false },
-  })
-  assert.equal((await remote('call', { token: 'wrong', method: 'settings.describe', payload: {} })).ok, false)
-  assert.equal((await remote('call', { token: 'remote-test', method: 'toString', payload: {} })).ok, false, 'prototype properties are not dispatchable')
-  assert.deepEqual(await remote('call', { token: 'remote-test', method: 'settings.describe', payload: {} }), {
-    ok: true,
-    value: { domain: 'settings', method: 'describe', payload: {} },
-  })
-  assert.deepEqual(await remote('call', { token: 'remote-test', method: 'aiProxy.gateway', payload: {} }), {
-    ok: true,
-    value: { baseURL: 'http://localhost:18080', clientId: 'dsh' },
-  })
-  assert.deepEqual(await remote('call', {
-    token: 'remote-test', method: 'aiProxy.setBaseURL', payload: { baseURL: 'https://aps.veildawn.com/' },
-  }), {
-    ok: true,
-    value: { baseURL: 'https://aps.veildawn.com', clientId: 'dsh' },
-  })
-  assert.equal(settings.doc['ai-proxy'].baseURL, 'https://aps.veildawn.com')
-  for (const method of ['status', 'login', 'logout']) {
-    const result = await remote('call', { token: 'remote-test', method: 'aiProxy.' + method, payload: { unexpected: true } })
-    assert.equal(result.error.code, 'bad-request', method + ' is routed through the AI Proxy auth dispatcher')
-  }
-  assert.deepEqual(apiProxy.calls, [{
-    domain: 'settings', method: 'describe', request: { rpcId: apiProxy.calls[0].request.rpcId, payload: {} },
-  }])
 })
 
 test('startup migration removes legacy OAuth action and status fields only', async () => {

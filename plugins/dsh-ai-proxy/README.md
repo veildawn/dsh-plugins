@@ -1,118 +1,97 @@
 # dsh-ai-proxy
 
-DeepSeek Harness 的「AI Proxy 网关」Provider 插件:OAuth 2.0 登录(授权码 + PKCE S256)+
-按套餐的模型发现 + 按模型的思考等级(reasoning effort)。UI 分为独立的
-「设置 → AI Proxy」与「设置 → 远程控制」两个分节。
+DeepSeek Harness 的 AI Proxy LLM Provider 插件。`0.2.0` 起只负责 AI Proxy 网关、OAuth
+2.0 PKCE、模型发现与推理，不再包含远程通道或锁屏门禁；远程访问请安装独立的
+`dsh-remote-control`。
 
-登录后,DSH 的模型选择器里出现 `ai-proxy` 这个 provider,列表是你自己的凭据向网关
-GET /v1/models 拉到的——看到的就是你的套餐真正允许的那些模型,每个模型带自己的
-思考等级档位(effort_levels),与网关面板上的计费/配额同一条准入链。
+## 功能
 
-## 工作原理
-
-- 登录:在「设置 → AI Proxy」填网关地址并点「登录」,host 起
-  一个 127.0.0.1 回环回调服务器,打开浏览器走授权码 + PKCE S256(未登记的 client_id 用
-  回环回调即可,不需要改网关)。登录完成后凭据自动落库,页面显示已登录,
-  模型选择器出现你套餐允许的模型
-- 网关地址:设置页内未登录与已登录状态都可修改(走仅限本机的 Host 认证接口,
-  不改写 settings.yaml 的其余字段);已登录时改动后点「保存」,未登录时点「登录」
-  会先保存再拉起浏览器
-- 登出:设置页点「退出登录」→ 调网关 POST /oauth/revoke → 清凭据仓;没有静态密钥时,
-  模型选择器里的 ai-proxy 分组随之消失
-- 令牌:access/refresh 存在 DSH 凭据仓($DSH_HOME/.credentials.yaml),不落配置文件;
-  到期前 30 秒自动用 refresh 轮换,旧 refresh 立即作废(防重放);401 时流式请求会轮换一次
-  并重试一次
-- 模型:GET /v1/models(Bearer 凭据)缓存 5 分钟;context_window、modality、
-  effort_levels 完全按照网关返回值采用,插件不推断或补全档位;
-  离线或未登录时回退到设置里的静态目录
-- 思考等级:effort_levels 逐项映射为 DSH 的 reasoning 档位(名字按 low/medium/high/xhigh
-  等常识映射),请求里作为 reasoning_effort 原样回传,由网关按其 effort ladder 钳制并翻译成
-  各家上游的档位
-
-## 远程控制 (Remote Control)
-
-在 **设置 → 远程控制** 中，仅在本机页面启用「远程访问」并设置密钥。密钥写入
-DSH 凭据仓的 `DSH_REMOTE_CONTROL_SECRET`（也可在启动环境或 `ai-proxy.remoteAuthSecret`
-这个 secret-role 设置项中提供）；不会出现在设置读取响应中。远程域名打开时先显示全屏门禁，
-不会挂载主工作区；验证通过后密钥保存在浏览器 localStorage，特权请求会自动携带它。可在
-**设置 → 远程控制** 中随时「锁定远程会话 / 清除本地凭证」。
-
-远程 Web Host 必须仍使用 Harness 的信任主机栅栏启动，例如：
-
-~~~sh
-dsh web --port 3080 --trusted-host deepseek.veildawn.com
-~~~
-
-插件新增受认证的 `/ai-proxy-remote-control` Cordis RPC 通道，校验通过后才在 Host 内部调用
-`ctx.apiProxy` 处理 `settings.*`、`credentials.*`、`agentPreset.*` 和 `llm.discoverModels`。
-官方 `/api/*` 的 loopback-only 403 规则保持不变；远程特权调用直接走带密钥的白名单通道，
-未启用、缺少密钥或密钥错误均拒绝访问。`localhost` 和 `127.0.0.1` 继续无门禁放行。
+- 注册 `ai-proxy` LLM Provider，调用 OpenAI 兼容的 `/v1/chat/completions` 流式接口。
+- OAuth 2.0 Authorization Code + PKCE S256 登录、刷新令牌轮换与登出撤销。
+- access/refresh/expiry 只写入 DSH 凭据仓，不写入 `settings.yaml`。
+- 使用账号凭据请求 `/v1/models`，同步套餐允许的模型、上下文窗口、输入模态和
+  `effort_levels`。
+- 将每个模型的 `effort_levels` 原样映射为 DSH reasoning effort，并以
+  `reasoning_effort` 原样发送。
+- 支持用户消息中的图片，将 DSH attachment 转为 OpenAI `image_url` data URL。
+- 提供独立的 **设置 → AI Proxy** 卡片及 loopback-only `/ai-proxy-auth` 认证通道。
 
 ## 安装
 
-插件自带 bundle 补丁层(cordis.patch.yml),一条命令安装并自动激活,无需手改
-profile 的任何 YAML:
+```sh
+dsh plugin --profile web add ./dsh-ai-proxy-0.2.0.tgz
+dsh service restart
+```
 
-~~~sh
-dsh plugin --profile web add dsh-ai-proxy@https://github.com/veildawn/ai-proxy-releases/releases/download/<tag>/dsh-ai-proxy-<ver>.tgz
-~~~
+插件自带 `cordis.patch.yml`。手动 Cordis 配置等价于：
 
-手动等价方式(不经过 dsh plugin 的 bundle 归并时才需要):
-`cd ~/.dsh/profiles/web && pnpm add dsh-ai-proxy@<tgz 或源码目录>`,
-再在 profile 的 cordis.patch.yml 里加一段
-(`- insert: [{id: llm-ai-proxy, name: dsh-ai-proxy, config: {baseURL, clientId}}]`)。
+```yaml
+- insert:
+    - id: llm-ai-proxy
+      name: dsh-ai-proxy
+      config:
+        baseURL: http://localhost:18080
+        clientId: dsh
+```
 
-重启应用(host 与客户端 bundle 都在启动时装载;更新插件后也要重启)。之后到
-**设置 → AI Proxy**:
+重启后在 **设置 → AI Proxy** 中填写网关地址并点击“登录”。浏览器将打开授权页，Host
+在 `127.0.0.1` 创建一次性回调监听器并完成 code + PKCE verifier 交换。
 
-1. 填写网关地址并点「登录」,当前浏览器会打开网关授权页;若弹窗被拦截可点
-   「点击前往授权」。本机授权会自动回到回环监听器；远程浏览器授权后把页面显示的
-   `code#state` 粘回设置页即可完成登录。随后模型选择器会出现 ai-proxy 的模型和思考档位;
-2. 「退出登录」随时可回到未登录状态;没有静态密钥时模型分组消失。
+## 凭据生命周期
 
-用静态密钥也可以:把 `apiKeyEnv` 改为自定义凭据引用并在 DSH 凭据仓或启动环境中配置它。
-默认引用为 `AIPROXY_ACCESS_TOKEN`;只有已登录时设置页才显示「退出登录」。
+- `AIPROXY_ACCESS_TOKEN`：OAuth access token；
+- `AIPROXY_REFRESH_TOKEN`：轮换 refresh token；
+- `AIPROXY_TOKEN_EXPIRY`：提前 30 秒计算的到期时间；
+- 默认静态密钥引用也是 `AIPROXY_ACCESS_TOKEN`，可通过 `apiKeyEnv` 改写。
 
-## 设置项(ai-proxy 分节)
+每次操作重新解析凭据。access token 到期时使用 single-flight 刷新；流式推理遇到 401 时
+强制刷新一次，并仅重试一次。登出会调用网关 `/oauth/revoke`，再清除 OAuth 凭据。
 
-| 字段 | 默认 | 说明 |
+## 模型与推理
+
+插件使用 Bearer 凭据调用 `GET /v1/models`，默认缓存 5 分钟。网关不可达或没有凭据时，
+回退到 `models` 静态目录；静态目录只是可用性兜底，不是请求白名单。
+
+`input_modalities` 包含 `image` 时，DSH 模型信息声明 `['text', 'image']`；明确只包含文本时
+声明 `['text']`；未声明时保持未知，不擅自禁用图片。系统消息、助手消息和工具结果中的图片
+会返回 `UNSUPPORTED_CONTENT`，不会静默丢弃。
+
+## 配置
+
+| 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| baseURL | http://localhost:18080 | 网关地址;OAuth 发现、模型列表、推理共用 |
-| clientId | dsh | OAuth 客户端 id;2–64 位,以小写字母或数字开头,其余可用 `a-z0-9._-` |
-| apiKeyEnv | AIPROXY_ACCESS_TOKEN | 静态密钥凭据引用;可覆盖 |
-| defaultReasoningEffort | '' | 默认档位;留空 = 该模型 ladder 的第一档 |
-| maxTokens / defaultContextWindow | 65536 / 200000 | 目录未给出时的兜底值 |
-| modelCacheTtlMs | 300000 | 模型目录缓存 |
-| remoteAccess | false | 仅本机设置卡可启用的远程特权通道开关 |
-| remoteAuthSecret | '' | secret-role 回退密钥；优先使用 `DSH_REMOTE_CONTROL_SECRET` 凭据/环境变量 |
-| models | [] | 静态兜底目录(未登录/网关不可达时) |
-| retryPolicy | 内置默认 | 重试策略,语法同 dsh-llm |
+| `baseURL` | `http://localhost:18080` | OAuth、模型目录和推理共用网关地址 |
+| `clientId` | `dsh` | OAuth public client id |
+| `apiKeyEnv` | `AIPROXY_ACCESS_TOKEN` | 静态密钥凭据引用 |
+| `defaultReasoningEffort` | `''` | 空值使用模型 ladder 第一档 |
+| `maxTokens` | `65536` | 模型目录未提供时的输出上限 |
+| `defaultContextWindow` | `200000` | 模型目录未提供时的上下文窗口 |
+| `modelCacheTtlMs` | `300000` | 模型目录缓存时间 |
+| `streamIdleTimeoutMs` | `300000` | SSE 流空闲超时 |
+| `models` | `[]` | 离线静态兜底目录 |
+| `retryPolicy` | DSH 默认值 | `dsh-llm` 重试策略 |
 
-## 已知限制
+`remoteAccess` 和 `remoteAuthSecret` 已从 0.2.0 配置 schema 删除。升级后可从旧 `ai-proxy`
+设置段移除这两个字段。
 
-- 图片输入已支持:网关 /v1/models 的 `input_modalities` 声明了模型可读的媒体
-  (text/image/audio/video,未声明的模型按乐观默认开放图片),插件据此向 DSH 报告
-  `inputModalities` 以驱动图片入口;发送时经 attachment 服务读图并转成 OpenAI
-  `image_url` data URL。系统/助手消息与工具结果中的图片会被显式拒绝
-  (UNSUPPORTED_CONTENT,不做静默丢弃)。
-- 思考档位 id 原样透传:某个模型 ladder 之外的档位请求会交给网关钳制/拒绝,错误信息里带
-  上游枚举,便于排查。
-- 当前 DSH 没有公开的第三方 Provider 编辑器扩展点,因此插件不在「模型」设置页创建
-  AI Proxy 行,避免「未知 Provider」提示;登录入口放在独立设置分节。适配器和登录后的
-  模型仍正常出现在模型选择器。扩展点需求见
-  [deepseek-harness#1491](https://github.com/deepseek-ai/deepseek-harness/discussions/1491)。
-  clientId、重试策略等高级字段仍在 settings.yaml 的 ai-proxy 段编辑。
+## 远程访问
+
+本插件不会注册 `/dsh-remote-control`、`/ai-proxy-remote-control`，不会修改浏览器
+`localStorage`，也不会挂载 Unlock Screen。需要远程设置/凭据桥接时单独安装：
+
+```sh
+dsh plugin --profile web add ./dsh-remote-control-0.1.0.tgz
+```
+
+OAuth 认证接口 `/ai-proxy-auth` 保持 loopback-only；远程控制插件不会把任意 RPC 通道加入
+白名单。
 
 ## 开发与测试
 
-lib/index.js 是零构建的 host 插件入口,lib/oauth.js 封装 OAuth 令牌生命周期,lib/client.js
-通过公开的 settings.section 提供 AI Proxy 与远程控制设置页;host 文件均为 ESM,依赖走
-profile 的 hoisted node_modules。开发期把 harness 的 node_modules 软链进来即可:
+```sh
+npm test
+npm pack --dry-run
+```
 
-~~~sh
-ln -sfn "<harness checkout>/node_modules" clients/dsh/node_modules
-npm test --prefix clients/dsh
-~~~
-
-与网关的契约见 docs/clients/oauth-login.md:发现文档、强制 PKCE S256、未登记客户端仅
-回环回调、refresh 轮换与重放吊销。
+`lib/index.js` 是 Host Provider，`lib/oauth.js` 管理 OAuth 生命周期，`lib/client.js` 仅提供
+AI Proxy 设置卡。所有 Host 文件均为 ESM，浏览器入口是 DSH ModuleLoader 格式。

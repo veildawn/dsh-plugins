@@ -25,7 +25,6 @@
  * @module dsh-ai-proxy
  */
 import z from '@deepseek-ai/schemastery'
-import { randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   CallId, LlmAdapter, LlmError, ProviderRequestId, ReasoningEffortId,
   RetryPolicySchema, assertUsableApiKey, attributionHeaders, contentHasImage,
@@ -64,8 +63,6 @@ export const DEFAULT_MODEL_CACHE_TTL_MS = 300000
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300000
 
 export const DEFAULT_API_KEY_ENV = 'AIPROXY_ACCESS_TOKEN'
-/** Credential/env reference for Remote Control's write-only shared secret. */
-export const REMOTE_CONTROL_SECRET_REF = 'DSH_REMOTE_CONTROL_SECRET'
 
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 
@@ -494,19 +491,8 @@ class AiProxyApi {
   }
 
   /** Start browser authorization without holding the RPC open for the callback. */
-  login({ remote = false } = {}) {
-    return this.oauth.login({ remote })
-  }
-
-  /** Exchange the code returned by the gateway's remote-browser OOB page. */
-  async completeLogin(code, state) {
-    const body = await this.oauth.completeLogin(code, state)
-    const models = await this.catalog()
-    const minutes = Math.round((Number(body.expires_in) || 3600) / 60)
-    return {
-      state: 'signed-in',
-      message: '已登录 · ' + models.length + ' 个模型 · access token 约 ' + minutes + ' 分钟有效',
-    }
+  login() {
+    return this.oauth.login()
   }
 
   /** Revoke the grant and return credential-derived signed-out state. */
@@ -787,10 +773,6 @@ export const Config = z.object({
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   modelCacheTtlMs: z.number().step(1).min(10000).default(DEFAULT_MODEL_CACHE_TTL_MS),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
-  remoteAccess: z.boolean().default(false),
-  // A manual settings fallback for deployments that cannot use the credentials
-  // provider. It is always redacted from settings.describe responses.
-  remoteAuthSecret: z.string().role('secret').default(''),
   models: z.array(catalogModel).default([]),
   retryPolicy: RetryPolicySchema,
 })
@@ -817,10 +799,6 @@ export function resolveOptions(raw) {
   if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) throw new Error(name + ': maxTokens must be a positive safe integer')
   const defaultContextWindow = raw.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW
   if (!Number.isInteger(defaultContextWindow) || defaultContextWindow <= 0) throw new Error(name + ': defaultContextWindow must be a positive integer')
-  const remoteAccess = raw.remoteAccess ?? false
-  if (typeof remoteAccess !== 'boolean') throw new Error(name + ': remoteAccess must be a boolean')
-  const remoteAuthSecret = raw.remoteAuthSecret ?? ''
-  if (typeof remoteAuthSecret !== 'string') throw new Error(name + ': remoteAuthSecret must be a string')
   return {
     baseURL: (raw.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, ''),
     clientId,
@@ -830,8 +808,6 @@ export function resolveOptions(raw) {
     defaultContextWindow,
     modelCacheTtlMs,
     streamIdleTimeoutMs,
-    remoteAccess,
-    remoteAuthSecret,
     models: raw.models ?? [],
     retryPolicy: resolveRetryPolicy(raw.retryPolicy, name + ': retryPolicy'),
   }
@@ -839,40 +815,6 @@ export function resolveOptions(raw) {
 
 /** Dedicated Host RPC channel for interactive provider authentication. */
 export const AUTH_RPC_CHANNEL = '/ai-proxy-auth'
-/** Token-authenticated remote control channel; never replaces the core /api route. */
-export const REMOTE_CONTROL_RPC_CHANNEL = '/ai-proxy-remote-control'
-
-// This mirrors the upstream loopback-only set. It is deliberately a fixed
-// dispatch table, never a caller-controlled object path.
-const REMOTE_CONTROL_METHODS = {
-  'aiProxy.status': remoteAiProxyMethod('status'),
-  'aiProxy.gateway': remoteAiProxyMethod('config'),
-  'aiProxy.setBaseURL': remoteAiProxyMethod('setBaseURL'),
-  'aiProxy.login': remoteAiProxyMethod('login'),
-  'aiProxy.completeLogin': remoteAiProxyMethod('completeLogin'),
-  'aiProxy.logout': remoteAiProxyMethod('logout'),
-  'agentPreset.read': (api, request) => api.agentPresets.read(request),
-  'agentPreset.copy': (api, request) => api.agentPresets.copy(request),
-  'agentPreset.openDocument': (api, request, signal) => api.agentPresets.openDocument(request, signal),
-  'agentPreset.remove': (api, request) => api.agentPresets.remove(request),
-  'host.pickDirectory': (api, request, signal) => api.host.pickDirectory(request, signal),
-  'host.openPath': (api, request, signal) => api.host.openPath(request, signal),
-  'settings.describe': (api, request) => api.settings.describe(request),
-  'settings.openDocument': (api, request, signal) => api.settings.openDocument(request, signal),
-  'settings.update': (api, request) => api.settings.update(request),
-  'settings.replace': (api, request) => api.settings.replace(request),
-  'settings.mutate': (api, request) => api.settings.mutate(request),
-  'credentials.describe': (api, request) => api.credentials.describe(request),
-  'credentials.set': (api, request) => api.credentials.set(request),
-  'credentials.unset': (api, request) => api.credentials.unset(request),
-  'llm.discoverModels': (api, request) => api.llm.discoverModels(request),
-}
-
-function remoteAiProxyMethod(method) {
-  return async (_api, request, _signal, aiProxy) => ({
-    result: await handleAuthRpc(aiProxy, method, request.payload, aiProxy.options, true),
-  })
-}
 
 function badAuthRequest(message) {
   return {
@@ -885,46 +827,8 @@ function badAuthRequest(message) {
   }
 }
 
-function remoteControlError(message) {
-  return badAuthRequest(message)
-}
-
-/** Constant-time compare for the one shared remote-control secret. */
-export function matchesRemoteControlSecret(expected, presented) {
-  if (typeof expected !== 'string' || expected.length === 0 || typeof presented !== 'string') return false
-  const left = Buffer.from(expected)
-  const right = Buffer.from(presented)
-  return left.length === right.length && timingSafeEqual(left, right)
-}
-
-async function remoteControlSecret(ctx, options) {
-  const stored = await ctx.credentials.resolve(credentialRef(REMOTE_CONTROL_SECRET_REF))
-  return stored?.value || options().remoteAuthSecret || undefined
-}
-
-async function remoteControlStatus(ctx, options) {
-  return {
-    enabled: options().remoteAccess,
-    secretConfigured: Boolean(await remoteControlSecret(ctx, options)),
-  }
-}
-
-async function configureRemoteAccess(ctx, options, enabled) {
-  if (typeof enabled !== 'boolean') throw new Error('远程访问开关必须是布尔值')
-  await ctx.settings.mutate(NS, [{ op: 'set', path: ['remoteAccess'], value: enabled }])
-  return remoteControlStatus(ctx, options)
-}
-
-async function setRemoteControlSecret(ctx, options, secret) {
-  if (typeof secret !== 'string') throw new Error('远程访问密钥必须是字符串')
-  const value = secret.trim()
-  if (value.length === 0) await ctx.credentials.unset(REMOTE_CONTROL_SECRET_REF)
-  else await ctx.credentials.set(REMOTE_CONTROL_SECRET_REF, value)
-  return remoteControlStatus(ctx, options)
-}
-
 /** Dispatch the authentication-and-gateway interface over Connection RPC. */
-export async function handleAuthRpc(api, method, payload, options = api.options, remote = false) {
+export async function handleAuthRpc(api, method, payload) {
   const keys = payload === null || typeof payload !== 'object' || Array.isArray(payload)
     ? null
     : Reflect.ownKeys(payload)
@@ -939,16 +843,9 @@ export async function handleAuthRpc(api, method, payload, options = api.options,
       case 'config': {
         if (keys.length !== 0) return badAuthRequest('AI Proxy ' + method + ' requests must carry an empty object')
         if (method === 'status') return { ok: true, value: await api.authStatus() }
-        if (method === 'login') return { ok: true, value: await api.login({ remote }) }
+        if (method === 'login') return { ok: true, value: await api.login() }
         if (method === 'logout') return { ok: true, value: await api.logout() }
         return { ok: true, value: api.gateway() }
-      }
-      case 'completeLogin': {
-        if (keys.length !== 2 || !Object.hasOwn(payload, 'code') || !Object.hasOwn(payload, 'state')
-          || typeof payload.code !== 'string' || typeof payload.state !== 'string') {
-          return badAuthRequest('AI Proxy completeLogin requests must carry exactly string code and state fields')
-        }
-        return { ok: true, value: await api.completeLogin(payload.code, payload.state) }
       }
       case 'setBaseURL': {
         if (keys.length !== 1 || !Object.hasOwn(payload, 'baseURL')) {
@@ -956,76 +853,8 @@ export async function handleAuthRpc(api, method, payload, options = api.options,
         }
         return { ok: true, value: await api.setGateway(payload.baseURL) }
       }
-      case 'remoteConfig': {
-        if (keys.length !== 0) return badAuthRequest('AI Proxy remoteConfig requests must carry an empty object')
-        return { ok: true, value: await remoteControlStatus(api.ctx, options) }
-      }
-      case 'setRemoteAccess': {
-        if (keys.length !== 1 || !Object.hasOwn(payload, 'enabled')) {
-          return badAuthRequest('AI Proxy setRemoteAccess requests must carry exactly one enabled field')
-        }
-        return { ok: true, value: await configureRemoteAccess(api.ctx, options, payload.enabled) }
-      }
-      case 'setRemoteSecret': {
-        if (keys.length !== 1 || !Object.hasOwn(payload, 'secret')) {
-          return badAuthRequest('AI Proxy setRemoteSecret requests must carry exactly one secret field')
-        }
-        return { ok: true, value: await setRemoteControlSecret(api.ctx, options, payload.secret) }
-      }
       default: return badAuthRequest('Unknown AI Proxy authentication method: ' + method)
     }
-  } catch (error) {
-    return {
-      ok: false,
-      error: {
-        code: 'internal',
-        message: error instanceof Error ? error.message : String(error),
-        details: {},
-      },
-    }
-  }
-}
-
-/**
- * Authenticate a trusted-host request, then execute one upstream privileged
- * method inside the Host. The browser can never make this channel call an
- * arbitrary ctx property, and the upstream /api 403 fence remains intact.
- */
-export async function handleRemoteControlRpc(ctx, options, method, payload, signal, aiProxy) {
-  const keys = payload === null || typeof payload !== 'object' || Array.isArray(payload)
-    ? null
-    : Reflect.ownKeys(payload)
-  if (keys === null || !Object.hasOwn(payload, 'token')) {
-    return remoteControlError('远程控制认证失败')
-  }
-  try {
-    const expected = await remoteControlSecret(ctx, options)
-    if (method === 'status') {
-      if (keys.length !== 1) return remoteControlError('Remote Control status requests must carry exactly one token field')
-      const enabled = options().remoteAccess
-      return {
-        ok: true,
-        value: {
-          enabled,
-          secretConfigured: Boolean(expected),
-          authenticated: enabled && matchesRemoteControlSecret(expected, payload.token),
-        },
-      }
-    }
-    if (!options().remoteAccess || !matchesRemoteControlSecret(expected, payload.token)) {
-      return remoteControlError('远程控制认证失败')
-    }
-    if (method !== 'call' || keys.length !== 3 || !Object.hasOwn(payload, 'method') || !Object.hasOwn(payload, 'payload')) {
-      return remoteControlError('Remote Control requests must be status or a token-authenticated call')
-    }
-    if (typeof payload.method !== 'string' || !Object.hasOwn(REMOTE_CONTROL_METHODS, payload.method)) {
-      return remoteControlError('Remote Control method is not allowed: ' + String(payload.method))
-    }
-    const invoke = REMOTE_CONTROL_METHODS[payload.method]
-    const api = ctx.get('apiProxy')
-    if (api === undefined) return remoteControlError('Remote Control API is unavailable')
-    const response = await invoke(api, { rpcId: randomUUID(), payload: payload.payload }, signal, aiProxy)
-    return response.result
   } catch (error) {
     return {
       ok: false,
@@ -1095,13 +924,8 @@ export function apply(ctx, config) {
   ctx.inject(['connection'], (connectionCtx) => {
     connectionCtx.connection.rpc.handle(
       AUTH_RPC_CHANNEL,
-      (method, payload) => handleAuthRpc(api, method, payload, options),
+      (method, payload) => handleAuthRpc(api, method, payload),
       { authority: 'loopback' },
-    )
-    connectionCtx.connection.rpc.handle(
-      REMOTE_CONTROL_RPC_CHANNEL,
-      (method, payload, signal) => handleRemoteControlRpc(connectionCtx, options, method, payload, signal, api),
-      { authority: 'trusted-host' },
     )
   })
 
@@ -1127,4 +951,4 @@ export function apply(ctx, config) {
 }
 
 // Re-exported pure helpers for unit tests.
-export const internals = { AiProxyApi, AiProxyAdapter, OAuthSession, serializeMessages, serializeUserContent, serializeRequest, imageDataUrl, inputModalitiesOf, translate, parseSse, pkcePair, base64url, effortName, mapUsage, mapFinishReason, httpErrorCode, discoverEndpoints, tokenRequest, startCallbackListener, handleAuthRpc, handleRemoteControlRpc, matchesRemoteControlSecret }
+export const internals = { AiProxyApi, AiProxyAdapter, OAuthSession, serializeMessages, serializeUserContent, serializeRequest, imageDataUrl, inputModalitiesOf, translate, parseSse, pkcePair, base64url, effortName, mapUsage, mapFinishReason, httpErrorCode, discoverEndpoints, tokenRequest, startCallbackListener, handleAuthRpc }

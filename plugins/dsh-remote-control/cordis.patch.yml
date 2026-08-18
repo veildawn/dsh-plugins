@@ -1,0 +1,6 @@
+# Mount the Host-side remote gate with remote access disabled by default.
+- insert:
+    - id: remote-control
+      name: dsh-remote-control
+      config:
+        enabled: false

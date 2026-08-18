@@ -9,7 +9,7 @@ const {
   AiProxyApi,
   serializeMessages, serializeUserContent, serializeRequest, translate, pkcePair, effortName,
   imageDataUrl, inputModalitiesOf,
-  mapUsage, mapFinishReason, httpErrorCode, matchesRemoteControlSecret,
+  mapUsage, mapFinishReason, httpErrorCode,
 } = internals
 
 async function* payloads(items) {
@@ -36,13 +36,6 @@ test('resolveOptions: clientId follows the gateway entity invariant', () => {
   for (const clientId of ['a', '-dsh', '.dsh', 'DSH', 'a'.repeat(65)]) {
     assert.throws(() => resolveOptions({ clientId }), /clientId must be 2-64/)
   }
-})
-
-test('remote control secret comparison rejects empty and unequal values', () => {
-  assert.equal(matchesRemoteControlSecret('remote-test', 'remote-test'), true)
-  assert.equal(matchesRemoteControlSecret('remote-test', 'remote-tesT'), false)
-  assert.equal(matchesRemoteControlSecret('', ''), false)
-  assert.equal(matchesRemoteControlSecret('remote-test', undefined), false)
 })
 
 test('effortName: known rungs get human names, unknown ids pass through', () => {

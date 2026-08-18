@@ -209,35 +209,30 @@ export class OAuthSession {
   }
 
   /** Prepare one interactive authorization and return its URL without blocking RPC. */
-  async login({ remote = false } = {}) {
-    if (this.loginFlow && this.loginFlow.remote !== remote) this.clearLogin(this.loginFlow)
+  async login() {
     if (!this.loginFlow && !this.loginStartInFlight) {
       this.loginError = null
-      this.loginStartInFlight = this.startLogin(remote)
+      this.loginStartInFlight = this.startLogin()
         .finally(() => { this.loginStartInFlight = null })
     }
     if (this.loginStartInFlight) await this.loginStartInFlight
-    if (this.loginFlow && this.loginFlow.remote !== remote) {
-      this.clearLogin(this.loginFlow)
-      return this.login({ remote })
-    }
     return this.loginFlow ? this.authorizingStatus() : this.status()
   }
 
   authorizingStatus() {
     return {
       state: 'authorizing',
-      message: this.loginFlow?.remote ? '等待浏览器授权；完成后请粘贴授权码…' : '等待浏览器授权中…',
+      message: '等待浏览器授权中…',
       authorizeUrl: this.loginFlow?.authorizeUrl,
     }
   }
 
-  async startLogin(remote) {
+  async startLogin() {
     const opts = this.options()
     const { authorizationEndpoint, tokenEndpoint } = await discoverEndpoints(opts.baseURL)
     const { verifier, challenge, state } = pkcePair()
-    const listener = remote ? null : await startCallbackListener()
-    const redirectUri = listener?.redirectUri ?? opts.baseURL + '/oauth/code'
+    const listener = await startCallbackListener()
+    const redirectUri = listener.redirectUri
     const authorize = new URL(authorizationEndpoint)
     authorize.searchParams.set('client_id', opts.clientId)
     authorize.searchParams.set('response_type', 'code')
@@ -248,7 +243,6 @@ export class OAuthSession {
     authorize.searchParams.set('code_challenge_method', 'S256')
 
     const flow = {
-      remote,
       state,
       verifier,
       redirectUri,
@@ -257,14 +251,7 @@ export class OAuthSession {
       authorizeUrl: authorize.toString(),
     }
     this.loginFlow = flow
-    if (remote) {
-      flow.timer = setTimeout(() => {
-        this.failLogin(flow, new LlmError('OAuth 授权超时(5 分钟),请重试', 'TIMEOUT'))
-      }, LOGIN_TIMEOUT_MS)
-      flow.timer.unref?.()
-    } else {
-      void this.finishLoopback(flow).catch((error) => this.failLogin(flow, error))
-    }
+    void this.finishLoopback(flow).catch((error) => this.failLogin(flow, error))
   }
 
   async finishLoopback(flow) {
@@ -286,16 +273,6 @@ export class OAuthSession {
       throw new LlmError('授权回调校验失败(state 不匹配或缺少授权码)', 'INVALID_REQUEST')
     }
     await this.exchangeLogin(flow, callback.code)
-  }
-
-  /** Finish the remote OOB flow with the code and state shown by the gateway. */
-  async completeLogin(code, state) {
-    const flow = this.loginFlow
-    if (!flow?.remote) throw new LlmError('没有等待完成的远程 OAuth 授权', 'INVALID_REQUEST')
-    if (typeof code !== 'string' || code.trim() === '' || state !== flow.state) {
-      throw new LlmError('授权码无效或 state 不匹配', 'INVALID_REQUEST')
-    }
-    return this.exchangeLogin(flow, code.trim())
   }
 
   async exchangeLogin(flow, code) {
