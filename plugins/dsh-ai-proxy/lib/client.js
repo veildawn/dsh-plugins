@@ -182,11 +182,7 @@ window.__ModuleLoader__.load({
         );
       }
 
-      const label = () => react.createElement("span", {
-        "data-settings-nav-label": "ai-proxy", className: "ai-proxy-nav-label",
-      },
-      react.createElement(IconApiOutline14, { size: 16 }),
-      react.createElement("span", null, "AI Proxy"));
+      const label = () => "AI Proxy";
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
         id: "ai-proxy",
