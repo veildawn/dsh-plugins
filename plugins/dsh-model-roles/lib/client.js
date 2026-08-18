@@ -44,6 +44,7 @@ window.__ModuleLoader__.load({
       task: { title: "任务", detail: "DSH 委派创建的子代理自动使用；未配置时回退到默认角色。" },
       advisor: { title: "顾问", detail: "顾问复核开启后，DSH 会启动独立子代理评审每个已完成回合，并将重要建议送回主会话。" },
     };
+    const INTRO_TEXT = "为 10 类任务自动匹配合适模型。图片交给独立的识图子代理处理；计划模式、Preset 和子代理会自动使用对应模型，无需在输入框手动选择。";
     const HELP_TEXT = "普通任务会自动选择合适模型；图片由识图子代理分析，结果会带回主会话。使用 /advisor on 或 /advisor off 可控制当前会话的顾问复核。";
     const css = `
       .mr-page{display:flex;flex-direction:column;gap:14px;width:100%;max-width:780px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
@@ -253,7 +254,7 @@ window.__ModuleLoader__.load({
         return react.createElement("div", { className: "mr-page" },
           react.createElement("style", null, css),
           react.createElement("h2", null, "模型角色"),
-          react.createElement("p", { className: "mr-intro" }, "完整提供 OMP 的 10 个模型角色。图片由一次性识图子代理处理，其余任务按计划模式、Agent Preset、子代理事实和当前任务语义自动选角；无需在输入框手动切换。"),
+          react.createElement("p", { className: "mr-intro" }, INTRO_TEXT),
           react.createElement("section", { className: "mr-card" },
             react.createElement("div", null,
               react.createElement("h3", { className: "mr-title" }, "顾问复核运行时"),
@@ -298,7 +299,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, HELP_TEXT, modelKey, parseModelKey, normalizeRole, rowsFromGroups, routeMap, validateRoles, css };
+    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, HELP_TEXT, modelKey, parseModelKey, normalizeRole, rowsFromGroups, routeMap, validateRoles, css };
     return module.exports;
   }
 });

@@ -46,6 +46,7 @@ test('browser bundle loads with the expected client services', async () => {
     designer: '设计', commit: '提交', tiny: '轻量后台', task: '任务', advisor: '顾问',
   })
   assert.equal(client.internals.HELP_TEXT, '普通任务会自动选择合适模型；图片由识图子代理分析，结果会带回主会话。使用 /advisor on 或 /advisor off 可控制当前会话的顾问复核。')
+  assert.equal(client.internals.INTRO_TEXT, '为 10 类任务自动匹配合适模型。图片交给独立的识图子代理处理；计划模式、Preset 和子代理会自动使用对应模型，无需在输入框手动选择。')
   assert.equal(client.internals.normalizeRole(' Designer '), 'designer')
   assert.equal(client.internals.validateRoles([
     { role: 'plan', provider: 'p', model: 'm' },
@@ -90,7 +91,7 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
   const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
   assert.equal(manifest.name, 'dsh-model-roles')
-  assert.equal(manifest.version, '0.4.4')
+  assert.equal(manifest.version, '0.4.5')
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(manifest.dsh.client.platform, 'web')
   assert(manifest.files.includes('lib/core.js'))
