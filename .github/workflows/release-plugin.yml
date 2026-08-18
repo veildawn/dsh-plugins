@@ -1,0 +1,72 @@
+name: Release Single Plugin
+
+on:
+  push:
+    tags:
+      # 匹配形如 dsh-mobile-adapter@v0.1.5 或 dsh-remote-control@v0.1.0 或 @deepseek-ai/...
+      - '*@v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Parse Tag & Locate Plugin
+        id: parse
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "Processing Tag: $TAG"
+          # 提取插件名与版本号，例如 dsh-mobile-adapter@v0.1.5 -> PLUGIN=dsh-mobile-adapter, VERSION=0.1.5
+          PLUGIN_NAME=$(echo "$TAG" | sed -E 's/@v[0-9].*//')
+          VERSION=$(echo "$TAG" | sed -E 's/.*@v//')
+          
+          echo "Plugin: $PLUGIN_NAME"
+          echo "Version: $VERSION"
+          
+          PLUGIN_DIR="plugins/$PLUGIN_NAME"
+          if [ ! -d "$PLUGIN_DIR" ]; then
+            echo "Error: Directory $PLUGIN_DIR does not exist!"
+            exit 1
+          fi
+          
+          echo "plugin_name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "plugin_dir=$PLUGIN_DIR" >> $GITHUB_OUTPUT
+
+      - name: Pack Plugin Tarball
+        id: pack
+        run: |
+          cd ${{ steps.parse.outputs.plugin_dir }}
+          npm pack
+          TGZ_NAME=$(ls *.tgz | head -n 1)
+          echo "Packaged: $TGZ_NAME"
+          echo "tgz_path=${{ steps.parse.outputs.plugin_dir }}/$TGZ_NAME" >> $GITHUB_OUTPUT
+          echo "tgz_name=$TGZ_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "${{ steps.parse.outputs.plugin_name }} v${{ steps.parse.outputs.version }}"
+          tag_name: ${{ github.ref_name }}
+          files: ${{ steps.pack.outputs.tgz_path }}
+          body: |
+            ### 📦 ${{ steps.parse.outputs.plugin_name }} Release (v${{ steps.parse.outputs.version }})
+
+            #### 💻 一键安装命令 (Installation)
+            ```bash
+            # 使用 DSH 官方 CLI 安装
+            dsh profile --name web plugin add https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.pack.outputs.tgz_name }}
+
+            # 重启服务生效
+            dsh service restart
+            ```
