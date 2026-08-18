@@ -74,6 +74,12 @@ window.__ModuleLoader__.load({
       } catch {}
     }
     function apply(ctx) {
+      if (typeof document !== "undefined" && !document.getElementById("dsh-remote-control-styles")) {
+        const style = document.createElement("style");
+        style.id = "dsh-remote-control-styles";
+        style.textContent = uiCss;
+        document.head.appendChild(style);
+      }
       const remoteBrowser = isRemoteBrowser();
       let currentSecret = storedSecret();
       const rpc = (channel, method, payload = {}, signal) => ctx.connection.rpc.call(channel, method, payload, signal);
@@ -307,7 +313,11 @@ window.__ModuleLoader__.load({
         );
       }
 
-      const label = () => "远程控制";
+      const label = () => react.createElement("span", {
+        "data-settings-nav-label": "remote-control", className: "dsh-remote-nav-label",
+      },
+      react.createElement(IconGlobeOutline14, { size: 16 }),
+      react.createElement("span", null, "远程控制"));
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
         id: "remote-control",

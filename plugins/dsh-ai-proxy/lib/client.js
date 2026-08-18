@@ -181,8 +181,11 @@ window.__ModuleLoader__.load({
           react.createElement("p", { className: "ai-proxy-details" }, "模型调用与用量由 AI Proxy 网关统一统计。")
         );
       }
-
-      const label = () => "AI Proxy";
+      const label = () => react.createElement("span", {
+        "data-settings-nav-label": "ai-proxy", className: "ai-proxy-nav-label",
+      },
+      react.createElement(IconApiOutline14, { size: 16 }),
+      react.createElement("span", null, "AI Proxy"));
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
         id: "ai-proxy",

@@ -127,7 +127,7 @@ test('browser client registers only the AI Proxy OAuth settings section', async 
   assert.deepEqual({ name: section.entry.name, id: section.entry.id, order: section.entry.order }, {
     name: 'settings.section', id: 'ai-proxy', order: 25,
   })
-  assert.equal(section.entry.label(), 'AI Proxy')
+  assert(findElement(section.entry.label(), (node) => node?.type === IconApiOutline14))
   assert.equal(section.entry.inject().remoteRequest, undefined)
 
   const props = section.entry.inject()

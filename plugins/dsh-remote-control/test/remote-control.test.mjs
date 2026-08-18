@@ -313,7 +313,7 @@ test('local browser registers settings without a lock screen', async () => {
     const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
     assert(section)
     assert.equal(section.entry.order, 26)
-    assert.equal(section.entry.label(), '远程控制')
+    assert(findElement(section.entry.label(), (node) => node?.type === IconGlobeOutline14))
     render(section.component, section.entry.inject())
     await new Promise((resolve) => setImmediate(resolve))
     assert.deepEqual(connection.calls, [{ channel: CONFIG_RPC_CHANNEL, method: 'status', payload: {} }])
