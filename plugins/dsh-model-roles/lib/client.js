@@ -40,7 +40,7 @@ window.__ModuleLoader__.load({
       plan: { title: "计划", detail: "会话进入 /plan 后自动使用；未配置时回退到默认角色。" },
       designer: { title: "设计", detail: "自动用于 UI、UX、视觉、交互、布局、样式和产品设计任务。" },
       commit: { title: "提交", detail: "自动用于提交信息生成及提交专用分析。" },
-      tiny: { title: "轻量后台", detail: "自动任务分类、会话标题和压缩等 DSH 后台调用使用；未配置时继承快速角色。" },
+      tiny: { title: "轻量后台", detail: "用于自动任务分类、会话标题和压缩等 DSH 后台调用。" },
       task: { title: "任务", detail: "DSH 委派创建的子代理自动使用；未配置时回退到默认角色。" },
       advisor: { title: "顾问", detail: "顾问复核开启后，DSH 会启动独立子代理评审每个已完成回合，并将重要建议送回主会话。" },
     };

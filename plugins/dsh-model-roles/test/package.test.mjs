@@ -45,6 +45,7 @@ test('browser bundle loads with the expected client services', async () => {
     default: '默认', smol: '快速', slow: '深度', vision: '识图', plan: '计划',
     designer: '设计', commit: '提交', tiny: '轻量后台', task: '任务', advisor: '顾问',
   })
+  assert.equal(client.internals.copy.tiny.detail, '用于自动任务分类、会话标题和压缩等 DSH 后台调用。')
   assert.equal(client.internals.INTRO_TEXT, '系统会自动为任务选择合适模型。')
   assert.equal(client.internals.ADVISOR_HELP_TEXT, '请先为顾问选择模型。')
   assert.equal(client.internals.statusMessage('ready', true, false), '')
