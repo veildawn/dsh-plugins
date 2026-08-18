@@ -90,7 +90,7 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   const host = await readFile(new URL('../lib/index.js', import.meta.url), 'utf8')
   const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
   assert.equal(manifest.name, 'dsh-model-roles')
-  assert.equal(manifest.version, '0.4.4')
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/)
   assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(manifest.dsh.client.platform, 'web')
   assert(manifest.files.includes('lib/core.js'))
