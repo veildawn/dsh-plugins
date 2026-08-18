@@ -9,6 +9,7 @@ import {
 } from '../lib/index.js'
 
 let definition
+let client
 const previousWindow = globalThis.window
 const previousCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
 let randomByte = 0
@@ -32,7 +33,7 @@ test('browser bundle loads with the expected client services', async () => {
     useState(initial) { return [initial, () => {}] },
   }
   const IconBranchOutline16 = props => react.createElement('svg', props)
-  const client = definition.factory((id) => {
+  client = definition.factory((id) => {
     if (id === 'react') return react
     if (id === '@deepseek-ai/dsh-client-ui-primitives') return { IconBranchOutline16 }
     assert.fail('unexpected browser dependency: ' + id)
@@ -102,7 +103,7 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   assert.match(host, /llm\/stream/)
   assert.match(host, /agent\/turn-stopping/)
   assert.match(host, /connection\.rpc\.handle/)
-  assert.match(client, /connection\.rpc\.call/)
+  assert.match(client, /connectionRpc\.call/)
   assert.match(client, /api\.settings\.(?:describe|replace)/)
   assert.doesNotMatch(client, /conversation\.input\.left|ModelRoleSelect|ROLE_SLOT|"subagent"|子代理角色（兼容）/)
 })
