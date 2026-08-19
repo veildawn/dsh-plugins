@@ -145,12 +145,17 @@ test('client helpers agree with the host about paths and formats', () => {
   assert.equal(internals.baseNameOf('lib/core.js'), 'core.js')
   assert.equal(internals.parentOf('a/b/c.js'), 'a/b')
   assert.equal(internals.parentOf('top'), '')
-  assert.deepEqual(internals.crumbsOf('a/b/c'), [
-    { name: 'a', path: 'a' },
-    { name: 'b', path: 'a/b' },
-    { name: 'c', path: 'a/b/c' },
-  ])
-  assert.deepEqual(internals.crumbsOf(''), [])
+  // The bundle carries its own copy of flattenTree (it cannot import the host
+  // half), so it must behave identically to the unit-tested original.
+  const rows = internals.flattenTree({
+    expanded: new Set(['lib']),
+    nodes: new Map([
+      ['', { status: 'ready', entries: [{ name: 'lib', path: 'lib', type: 'directory' }] }],
+      ['lib', { status: 'ready', entries: [{ name: 'core.js', path: 'lib/core.js', type: 'file' }] }],
+    ]),
+  })
+  assert.deepEqual(rows.map((row) => [row.key, row.depth]), [['lib', 0], ['lib/core.js', 1]])
+  assert.equal(internals.flattenTree({ expanded: new Set(['x']), nodes: new Map([['', { status: 'ready', entries: [{ name: 'x', path: 'x', type: 'directory' }] }]]) })[1].state, 'loading')
 
   assert.equal(internals.mediaTypeOf('shot.PNG'), 'image/png')
   assert.equal(internals.mediaTypeOf('manual.pdf'), 'application/pdf')
@@ -264,4 +269,40 @@ test('the sidebar entry adapts to the wide and collapsed column', () => {
   assert.match(source, /\.fv-entry\{[^}]*width:100%[^}]*height:42px/)
   assert.match(source, /\.fv-entry-rail\{[^}]*width:36px;height:36px[^}]*border-radius:50%\}/)
   assert.match(source, /\.fv-entry-label\{[^}]*white-space:nowrap/)
+})
+
+test('the tree expands in place and loads children lazily', () => {
+  const source = read('lib/client.js')
+
+  // Directories must toggle, not navigate: the old tree replaced the listing
+  // and offered an "up one level" row instead of showing structure.
+  assert.match(source, /onToggle/)
+  assert.match(source, /const toggleDirectory = /)
+  assert.doesNotMatch(source, /上一级/)
+  assert.doesNotMatch(source, /const openDirectory = /)
+
+  // Children are fetched on first expand only; a cached listing is reused when
+  // a directory is reopened.
+  assert.match(source, /if \(!isOpen && !nodes\.has\(dirPath\)\) loadDirectory\(dirPath\)/)
+
+  // Regression: loading must not sit in an effect that both writes and depends
+  // on `nodes`. Such an effect re-runs itself and its cleanup cancels the very
+  // request it issued, leaving the tree on "loading" forever with no request
+  // ever completing.
+  assert.match(source, /const loadDirectory = \(dirPath\) => \{/)
+  assert.doesNotMatch(source, /wanted/)
+
+  // Staleness is judged by a generation token, bumped on root/filter change and
+  // on refresh, so a response from a previous tree cannot be grafted on.
+  assert.match(source, /treeGeneration\.current \+= 1/)
+  assert.match(source, /if \(treeGeneration\.current !== generation\) return/)
+
+  // Accessibility: a tree needs roles and per-row expansion state.
+  assert.match(source, /role: "tree"/)
+  assert.match(source, /role: "treeitem"/)
+  assert.match(source, /"aria-expanded": row\.expanded \? "true" : "false"/)
+  assert.match(source, /"aria-level": row\.depth \+ 1/)
+
+  // Depth is expressed as indentation.
+  assert.match(source, /paddingLeft: 8 \+ row\.depth \* 14/)
 })

@@ -4,7 +4,9 @@ import test from 'node:test'
 import {
   MAX_BYTES,
   WINDOW_LINES,
+  ancestorsOf,
   baseNameOf,
+  flattenTree,
   extensionOf,
   formatBytes,
   isHiddenEntry,
@@ -176,4 +178,105 @@ test('byte sizes stay short enough for a listing column', () => {
   assert.equal(formatBytes(MAX_BYTES), '20 MB')
   assert.equal(formatBytes(-1), '')
   assert.equal(formatBytes(Number.NaN), '')
+})
+
+test('ancestors list the directories leading to a path', () => {
+  assert.deepEqual(ancestorsOf('a/b/c.js'), ['a', 'a/b'])
+  assert.deepEqual(ancestorsOf('top.md'), [])
+  assert.deepEqual(ancestorsOf(''), [])
+  assert.deepEqual(ancestorsOf('a\\b\\c.js'), ['a', 'a/b'])
+})
+
+const dir = (name, path) => ({ name, path, type: 'directory' })
+const file = (name, path) => ({ name, path, type: 'file', kind: 'text' })
+
+test('a collapsed tree shows only the root listing', () => {
+  const rows = flattenTree({
+    expanded: new Set(),
+    nodes: new Map([['', { status: 'ready', entries: [dir('lib', 'lib'), file('a.js', 'a.js')] }]]),
+  })
+  assert.deepEqual(rows.map((row) => [row.key, row.depth, row.expanded]), [['lib', 0, false], ['a.js', 0, false]])
+})
+
+test('expanding a directory nests its children one level deeper', () => {
+  const rows = flattenTree({
+    expanded: new Set(['lib']),
+    nodes: new Map([
+      ['', { status: 'ready', entries: [dir('lib', 'lib'), file('a.js', 'a.js')] }],
+      ['lib', { status: 'ready', entries: [file('core.js', 'lib/core.js')] }],
+    ]),
+  })
+  assert.deepEqual(rows.map((row) => [row.key, row.depth]), [['lib', 0], ['lib/core.js', 1], ['a.js', 0]])
+  assert.equal(rows[0].expanded, true)
+})
+
+test('a directory expanded before its listing arrives shows a loading row', () => {
+  // Without this the tree looks unresponsive while a slow listing is in flight.
+  const rows = flattenTree({
+    expanded: new Set(['lib']),
+    nodes: new Map([
+      ['', { status: 'ready', entries: [dir('lib', 'lib')] }],
+      ['lib', { status: 'loading' }],
+    ]),
+  })
+  assert.deepEqual(rows.map((row) => [row.kind, row.depth, row.state]), [
+    ['entry', 0, undefined],
+    ['status', 1, 'loading'],
+  ])
+
+  // A never-requested node is treated the same way.
+  const unrequested = flattenTree({
+    expanded: new Set(['lib']),
+    nodes: new Map([['', { status: 'ready', entries: [dir('lib', 'lib')] }]]),
+  })
+  assert.equal(unrequested[1].state, 'loading')
+})
+
+test('failed and empty directories report inline instead of vanishing', () => {
+  const rows = flattenTree({
+    expanded: new Set(['bad', 'empty']),
+    nodes: new Map([
+      ['', { status: 'ready', entries: [dir('bad', 'bad'), dir('empty', 'empty')] }],
+      ['bad', { status: 'error', error: { code: 'read-failed' } }],
+      ['empty', { status: 'ready', entries: [] }],
+    ]),
+  })
+  assert.deepEqual(rows.map((row) => row.state), [undefined, 'error', undefined, 'empty'])
+  assert.equal(rows[1].error.code, 'read-failed')
+})
+
+test('deep nesting renders fully but is bounded against pathological depth', () => {
+  const expanded = new Set()
+  const nodes = new Map()
+  let path = ''
+  for (let depth = 0; depth < 40; depth += 1) {
+    const child = path === '' ? `d${depth}` : `${path}/d${depth}`
+    nodes.set(path, { status: 'ready', entries: [dir(`d${depth}`, child)] })
+    expanded.add(child)
+    path = child
+  }
+  nodes.set(path, { status: 'ready', entries: [] })
+  const rows = flattenTree({ expanded, nodes, maxDepth: 8 })
+  assert.equal(Math.max(...rows.map((row) => row.depth)), 8)
+
+  const shallow = flattenTree({
+    expanded: new Set(['a', 'a/b']),
+    nodes: new Map([
+      ['', { status: 'ready', entries: [dir('a', 'a')] }],
+      ['a', { status: 'ready', entries: [dir('b', 'a/b')] }],
+      ['a/b', { status: 'ready', entries: [file('deep.js', 'a/b/deep.js')] }],
+    ]),
+  })
+  assert.deepEqual(shallow.map((row) => [row.key, row.depth]), [['a', 0], ['a/b', 1], ['a/b/deep.js', 2]])
+})
+
+test('the root itself shows status when empty or unreadable', () => {
+  assert.deepEqual(
+    flattenTree({ expanded: new Set(), nodes: new Map([['', { status: 'loading' }]]) }).map((r) => r.state),
+    ['loading'],
+  )
+  assert.deepEqual(
+    flattenTree({ expanded: new Set(), nodes: new Map([['', { status: 'ready', entries: [] }]]) }).map((r) => r.state),
+    ['empty'],
+  )
 })

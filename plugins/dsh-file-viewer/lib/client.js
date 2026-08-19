@@ -57,7 +57,9 @@ window.__ModuleLoader__.load({
       .fv-row[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
       .fv-row-name{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
       .fv-row-size{flex:none;color:var(--dsw-alias-label-caption);font-size:11px;font-variant-numeric:tabular-nums}
-      .fv-glyph{flex:none;width:16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:11px}
+      .fv-glyph{flex:none;width:16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:11px;transition:transform .12s}
+      .fv-glyph-open{transform:rotate(90deg)}
+      .fv-tree-status{padding:4px 8px;color:var(--dsw-alias-label-caption);font-size:12px;line-height:20px}
       .fv-main{display:flex;flex:1 1 auto;flex-direction:column;min-width:0;min-height:0}
       .fv-main-head{display:flex;flex:none;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:12px}
       .fv-main-name{flex:1 1 auto;min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-weight:500;white-space:nowrap;text-overflow:ellipsis}
@@ -143,22 +145,52 @@ window.__ModuleLoader__.load({
       return (value >= 10 ? Math.round(value) : Math.round(value * 10) / 10) + " " + units[unit];
     }
 
-    /** Path segments plus the cumulative path each one navigates to. */
-    function crumbsOf(path) {
-      const parts = String(path || "").split("/").filter((part) => part !== "");
-      const rows = [];
-      let joined = "";
-      for (const part of parts) {
-        joined = joined === "" ? part : joined + "/" + part;
-        rows.push({ name: part, path: joined });
-      }
-      return rows;
-    }
-
     function parentOf(path) {
       const trimmed = String(path || "").replace(/\/+$/, "");
       const cut = trimmed.lastIndexOf("/");
       return cut < 0 ? "" : trimmed.slice(0, cut);
+    }
+
+    /**
+     * Flatten the lazily-loaded tree into render rows. Mirrors `flattenTree` in
+     * lib/core.js, which is where it is unit tested — the browser bundle is one
+     * hand-written file and cannot import from the host half.
+     *
+     * A directory whose listing is still in flight contributes a placeholder
+     * row rather than nothing, so expanding a slow directory looks like it did
+     * something.
+     */
+    function flattenTree({ expanded, nodes, maxDepth = 32 }) {
+      const rows = [];
+      const open = expanded || new Set();
+      const table = nodes || new Map();
+
+      const walk = (dirPath, depth) => {
+        if (depth > maxDepth) return;
+        const node = table.get(dirPath);
+        if (node === undefined || node.status === "loading") {
+          rows.push({ kind: "status", key: dirPath + "\u0000loading", depth, state: "loading" });
+          return;
+        }
+        if (node.status === "error") {
+          rows.push({ kind: "status", key: dirPath + "\u0000error", depth, state: "error", error: node.error });
+          return;
+        }
+        const entries = node.entries || [];
+        if (entries.length === 0) {
+          rows.push({ kind: "status", key: dirPath + "\u0000empty", depth, state: "empty" });
+          return;
+        }
+        for (const entry of entries) {
+          const isDirectory = entry.type === "directory";
+          const isOpen = isDirectory && open.has(entry.path);
+          rows.push({ kind: "entry", key: entry.path, depth, entry, expanded: isOpen });
+          if (isOpen) walk(entry.path, depth + 1);
+        }
+      };
+
+      walk("", 0);
+      return rows;
     }
 
     /** Human-readable copy for each structured host failure. */
@@ -231,37 +263,50 @@ window.__ModuleLoader__.load({
       const openStore = createStore(false);
       const request = createRequest(ctx.connection);
 
-      /** One directory listing pane. */
-      function Tree({ root, path, entries, selected, loading, onOpen, onSelect }) {
-        if (loading && entries.length === 0) {
-          return react.createElement("div", { className: "fv-note" }, "正在读取目录…");
-        }
-        const rows = [];
-        if (path !== "") {
-          rows.push(react.createElement("button", {
-            key: "..", type: "button", className: "fv-row", onClick: () => onOpen(parentOf(path)),
-          },
-            react.createElement("span", { className: "fv-glyph" }, "\u2191"),
-            react.createElement("span", { className: "fv-row-name" }, "上一级")));
-        }
-        for (const entry of entries) {
+      /**
+       * The file tree. Directories expand in place rather than replacing the
+       * listing, and a directory's children are requested the first time it
+       * opens, so opening the viewer costs one listing regardless of tree size.
+       */
+      function Tree({ rows, selected, onToggle, onSelect }) {
+        const children = rows.map((row) => {
+          const indent = { paddingLeft: 8 + row.depth * 14 + "px" };
+          if (row.kind === "status") {
+            const copy = row.state === "loading" ? "正在读取…"
+              : row.state === "error" ? messageOf(row.error)
+              : "空目录";
+            return react.createElement("div", {
+              key: row.key,
+              className: row.state === "error" ? "fv-tree-status fv-error" : "fv-tree-status",
+              style: indent,
+            }, copy);
+          }
+          const entry = row.entry;
           const isDirectory = entry.type === "directory";
-          rows.push(react.createElement("button", {
-            key: entry.path,
+          return react.createElement("button", {
+            key: row.key,
             type: "button",
             className: "fv-row",
+            style: indent,
+            role: "treeitem",
+            "aria-level": row.depth + 1,
+            ...(isDirectory ? { "aria-expanded": row.expanded ? "true" : "false" } : {}),
             "aria-current": !isDirectory && entry.path === selected ? "true" : undefined,
             title: entry.name,
-            onClick: () => (isDirectory ? onOpen(entry.path) : onSelect(entry)),
+            onClick: () => (isDirectory ? onToggle(entry.path) : onSelect(entry)),
           },
-            react.createElement("span", { className: "fv-glyph" }, isDirectory ? "\u25B8" : "\u00B7"),
+            react.createElement("span", {
+              className: row.expanded ? "fv-glyph fv-glyph-open" : "fv-glyph",
+              "aria-hidden": "true",
+            }, isDirectory ? "\u25B8" : "\u00B7"),
             react.createElement("span", { className: "fv-row-name" }, entry.name),
             typeof entry.size === "number" && !isDirectory
               ? react.createElement("span", { className: "fv-row-size" }, formatBytes(entry.size))
-              : null));
-        }
-        if (rows.length === 0) rows.push(react.createElement("div", { key: "empty", className: "fv-note" }, "空目录"));
-        return react.createElement("div", { className: "fv-tree", role: "list", "aria-label": "文件列表" }, ...rows);
+              : null);
+        });
+        return react.createElement("div", {
+          className: "fv-tree", role: "tree", "aria-label": "文件树",
+        }, ...children);
       }
 
       /** Images and PDFs: fetch bytes once, hand a blob URL to the browser. */
@@ -508,14 +553,17 @@ window.__ModuleLoader__.load({
         const open = useStore(openStore);
         const [roots, setRoots] = react.useState([]);
         const [root, setRoot] = react.useState("");
-        const [path, setPath] = react.useState("");
-        const [entries, setEntries] = react.useState([]);
-        const [listing, setListing] = react.useState(false);
+        // The tree is an expansion set plus a per-directory listing cache; a
+        // directory is fetched the first time it opens and then remembered, so
+        // collapsing and reopening costs nothing.
+        const [expanded, setExpanded] = react.useState(() => new Set());
+        const [nodes, setNodes] = react.useState(() => new Map());
         const [meta, setMeta] = react.useState(null);
         const [hidden, setHidden] = react.useState(false);
         const [error, setError] = react.useState(null);
         const [pane, setPane] = react.useState("tree");
         const metaTicket = react.useRef(0);
+        const treeGeneration = react.useRef(0);
 
         react.useEffect(() => {
           if (!open) return undefined;
@@ -531,23 +579,39 @@ window.__ModuleLoader__.load({
           return () => { live = false; };
         }, [open]);
 
-        react.useEffect(() => {
-          if (!open || root === "") return undefined;
-          let live = true;
-          setListing(true);
-          request("list", { root, path, hidden }).then((value) => {
-            if (!live) return;
-            setEntries(value.entries || []);
-            setError(null);
+        /**
+         * Request one directory listing and file it into the node cache.
+         *
+         * Deliberately not an effect: an effect that writes `nodes` while also
+         * depending on it re-runs itself, and its cleanup then cancels the very
+         * request it just issued, leaving the tree on "loading" forever. Loads
+         * are triggered explicitly instead, and staleness is judged by a
+         * generation token bumped on every root or filter change.
+         */
+        const loadDirectory = (dirPath) => {
+          const generation = treeGeneration.current;
+          setNodes((current) => new Map(current).set(dirPath, { status: "loading" }));
+          request("list", { root, path: dirPath, hidden }).then((value) => {
+            if (treeGeneration.current !== generation) return;
+            setNodes((current) => new Map(current).set(dirPath, { status: "ready", entries: value.entries || [] }));
+            if (dirPath === "") setError(null);
           }).catch((problem) => {
-            if (!live) return;
-            setEntries([]);
-            setError(problem);
-          }).finally(() => {
-            if (live) setListing(false);
+            if (treeGeneration.current !== generation) return;
+            setNodes((current) => new Map(current).set(dirPath, { status: "error", error: problem }));
+            if (dirPath === "") setError(problem);
           });
-          return () => { live = false; };
-        }, [open, root, path, hidden]);
+        };
+
+        // A new root or filter invalidates every cached listing; the bumped
+        // generation makes any in-flight response from the old tree stale.
+        react.useEffect(() => {
+          if (!open || root === "") return;
+          treeGeneration.current += 1;
+          setExpanded(new Set());
+          setNodes(new Map());
+          setMeta(null);
+          loadDirectory("");
+        }, [open, root, hidden]);
 
         react.useEffect(() => {
           if (!open) return undefined;
@@ -560,10 +624,27 @@ window.__ModuleLoader__.load({
 
         if (!open) return null;
 
-        const openDirectory = (next) => {
-          setPath(next);
-          setMeta(null);
+        // Expanding fetches the listing the first time only; collapsing keeps
+        // the cache so reopening is instant.
+        const toggleDirectory = (dirPath) => {
+          const isOpen = expanded.has(dirPath);
+          setExpanded((current) => {
+            const next = new Set(current);
+            if (isOpen) next.delete(dirPath);
+            else next.add(dirPath);
+            return next;
+          });
+          if (!isOpen && !nodes.has(dirPath)) loadDirectory(dirPath);
         };
+
+        // Re-read every directory the reader currently has open, keeping the
+        // tree's shape.
+        const refresh = () => {
+          treeGeneration.current += 1;
+          setNodes(new Map());
+          for (const dirPath of ["", ...expanded]) loadDirectory(dirPath);
+        };
+
         // Clicking two files quickly must not let the slower answer win: only
         // the newest request may write state.
         const selectFile = (entry) => {
@@ -581,8 +662,8 @@ window.__ModuleLoader__.load({
           });
         };
 
-        const crumbs = crumbsOf(path);
         const activeRoot = roots.find((row) => row.id === root);
+        const treeRows = flattenTree({ expanded, nodes });
 
         return react.createElement("div", {
           className: "fv-scrim",
@@ -601,22 +682,16 @@ window.__ModuleLoader__.load({
                   className: "fv-root-select",
                   value: root,
                   "aria-label": "工作区",
-                  onChange: (event) => {
-                    setRoot(event.target.value);
-                    setPath("");
-                    setMeta(null);
-                  },
+                  onChange: (event) => setRoot(event.target.value),
                 }, ...roots.map((row) => react.createElement("option", { key: row.id, value: row.id }, row.label)))
                 : react.createElement("span", { className: "fv-crumbs" }, activeRoot ? activeRoot.label : ""),
-              react.createElement("div", { className: "fv-crumbs" },
-                react.createElement("button", { type: "button", className: "fv-crumb", onClick: () => openDirectory("") }, "根目录"),
-                ...crumbs.flatMap((crumb, index) => [
-                  react.createElement("span", { key: "sep" + index, className: "fv-crumb-sep" }, "/"),
-                  react.createElement("button", {
-                    key: crumb.path, type: "button", className: "fv-crumb", title: crumb.name,
-                    onClick: () => openDirectory(crumb.path),
-                  }, crumb.name),
-                ])),
+              // The tree shows structure, so the header carries the selected
+              // file's path instead of navigable breadcrumbs.
+              react.createElement("div", { className: "fv-crumbs", title: meta === null ? "" : meta.path },
+                meta === null ? "" : meta.path),
+              react.createElement("button", {
+                type: "button", className: "fv-icon-button", "aria-label": "刷新", title: "刷新", onClick: refresh,
+              }, react.createElement("span", { "aria-hidden": "true" }, "\u21BB")),
               react.createElement("button", {
                 type: "button",
                 className: "fv-icon-button",
@@ -631,9 +706,9 @@ window.__ModuleLoader__.load({
                 : react.createElement("span", { "aria-hidden": "true" }, "\u2715"))),
             react.createElement("div", { className: "fv-body", "data-pane": pane },
               react.createElement(Tree, {
-                root, path, entries, loading: listing,
+                rows: treeRows,
                 selected: meta === null ? "" : meta.path,
-                onOpen: openDirectory,
+                onToggle: toggleDirectory,
                 onSelect: selectFile,
               }),
               react.createElement("div", { className: "fv-main" },
@@ -691,7 +766,7 @@ window.__ModuleLoader__.load({
     exports.inject = inject;
     exports.internals = {
       RPC_CHANNEL, OVERLAY_SLOT, ACTION_SLOT, STYLE_ID, WINDOW_LINES, css,
-      ERROR_COPY, baseNameOf, formatBytes, crumbsOf, parentOf, columnLabel,
+      ERROR_COPY, baseNameOf, formatBytes, parentOf, flattenTree, columnLabel,
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
     };
     return module.exports;

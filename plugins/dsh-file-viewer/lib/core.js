@@ -308,6 +308,70 @@ export function joinPath(root, relative) {
 }
 
 /**
+ * Every ancestor directory of a path, outermost first, excluding the path
+ * itself. Used to reveal the directories leading to a file without collapsing
+ * anything the reader already opened.
+ * @param {string} path - a root-relative path.
+ * @returns {string[]} ancestor paths, e.g. `a/b/c.js` -> `['a', 'a/b']`.
+ */
+export function ancestorsOf(path) {
+  const parts = String(path ?? '').split(/[\\/]+/).filter((part) => part !== '')
+  const rows = []
+  let joined = ''
+  for (const part of parts.slice(0, -1)) {
+    joined = joined === '' ? part : `${joined}/${part}`
+    rows.push(joined)
+  }
+  return rows
+}
+
+/**
+ * Flatten a lazily-loaded directory tree into render rows.
+ *
+ * Only expanded directories contribute children, and a directory whose listing
+ * has not arrived yet contributes a single placeholder row instead of nothing —
+ * otherwise expanding a slow directory looks like it did nothing.
+ *
+ * @param {object} tree - the tree state.
+ * @param {Set<string>} tree.expanded - directory paths currently open.
+ * @param {Map<string, {status: string, entries?: readonly object[], error?: unknown}>} tree.nodes - per-directory listings keyed by path (root is '').
+ * @param {number} [tree.maxDepth] - safety bound against pathological nesting.
+ * @returns {{key: string, kind: 'entry'|'status', depth: number}[]} rows in display order.
+ */
+export function flattenTree({ expanded, nodes, maxDepth = 32 }) {
+  const rows = []
+  const open = expanded ?? new Set()
+  const table = nodes ?? new Map()
+
+  const walk = (dirPath, depth) => {
+    if (depth > maxDepth) return
+    const node = table.get(dirPath)
+    if (node === undefined || node.status === 'loading') {
+      rows.push({ kind: 'status', key: `${dirPath}\u0000loading`, depth, state: 'loading' })
+      return
+    }
+    if (node.status === 'error') {
+      rows.push({ kind: 'status', key: `${dirPath}\u0000error`, depth, state: 'error', error: node.error })
+      return
+    }
+    const entries = node.entries ?? []
+    if (entries.length === 0) {
+      rows.push({ kind: 'status', key: `${dirPath}\u0000empty`, depth, state: 'empty' })
+      return
+    }
+    for (const entry of entries) {
+      const isDirectory = entry.type === 'directory'
+      const isOpen = isDirectory && open.has(entry.path)
+      rows.push({ kind: 'entry', key: entry.path, depth, entry, expanded: isOpen })
+      if (isOpen) walk(entry.path, depth + 1)
+    }
+  }
+
+  walk('', 0)
+  return rows
+}
+
+/**
  * Human-readable byte size for file listings and oversize notices.
  * @param {number} bytes - a byte count.
  * @returns {string} e.g. `1.4 MB`.
