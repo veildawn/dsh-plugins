@@ -66,11 +66,15 @@ window.__ModuleLoader__.load({
       .fv-row{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
       .fv-row-seat{position:relative;display:flex;align-items:center;gap:2px}
       .fv-row-seat>.fv-row{flex:1 1 auto;min-width:0}
-      .fv-mention{flex:none;width:26px;height:26px;margin-right:4px;padding:0;border:0;border-radius:6px;background:none;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-strong-14);line-height:1;cursor:pointer;opacity:0}
+      /* Always visible rather than revealed on hover. Hiding it behind hover
+         made it unreachable wherever hover is unreliable — touch screens, but
+         also phones with a paired mouse, where (hover:none) reports false. It is
+         kept quiet with a muted colour instead, and the row's hover only
+         strengthens it. */
+      .fv-mention{flex:none;width:26px;height:26px;margin-right:4px;padding:0;border:0;border-radius:6px;background:none;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-strong-14);line-height:1;cursor:pointer;opacity:.5}
       .fv-row-seat:hover .fv-mention,.fv-mention:focus-visible{opacity:1}
-      /* No hover on touch, so the control has to stay visible there. */
-      @media(hover:none){.fv-mention{opacity:1}}
-      .fv-mention:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-mention:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);opacity:1}
+      @media(hover:none),(pointer:coarse){.fv-mention{opacity:1}}
       .fv-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
       .fv-row[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
       .fv-row-name{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -119,8 +123,8 @@ window.__ModuleLoader__.load({
            composer and the safe area, and sits under the drawer's z-index. */
         .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;right:calc(14px + var(--dsh-sar,0px));bottom:calc(148px + var(--dsh-sab,0px));width:46px;height:46px;border:0;border-radius:50%;background:var(--dsw-alias-bg-inverse,#1f1f1f);color:var(--dsw-alias-label-inverse,#fff);box-shadow:0 4px 14px rgba(0,0,0,.28);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family);transition:transform .16s ease-out}
         .fv-float-entry:active{transform:scale(.96)}
-        /* Bigger touch target, and always visible since there is no hover. */
-        .fv-mention{width:36px;height:36px;opacity:1}
+        /* 44px is the smallest comfortable touch target. */
+        .fv-mention{width:44px;height:44px;margin-right:2px;opacity:1}
         .fv-shell{width:100%;border-left:none}
         .fv-tree{width:100%;border-right:none}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}

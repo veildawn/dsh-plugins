@@ -497,7 +497,13 @@ test('tree rows can reference a file into the composer', () => {
   // Closing after inserting leaves the draft visible and sendable.
   assert.match(source, /target\.setDraft\(appendMention\(target\.draft, shown\)\);\s*openStore\.set\(null\)/)
 
-  // Touch has no hover, so the control cannot rely on it to appear.
-  assert.match(source, /@media\(hover:none\)\{\.fv-mention\{opacity:1\}\}/)
-  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-mention\{width:36px;height:36px;opacity:1\}/)
+  // Never gated behind hover. Hiding it that way made it unreachable wherever
+  // hover is unreliable, including phones with a paired mouse where
+  // (hover:none) reports false — it is muted rather than hidden.
+  assert.match(source, /\.fv-mention\{[^}]*opacity:\.5\}/)
+  assert.doesNotMatch(source, /\.fv-mention\{[^}]*opacity:0\}/)
+  assert.match(source, /@media\(hover:none\),\(pointer:coarse\)\{\.fv-mention\{opacity:1\}\}/)
+
+  // 44px is the smallest comfortable touch target.
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-mention\{width:44px;height:44px;margin-right:2px;opacity:1\}/)
 })
