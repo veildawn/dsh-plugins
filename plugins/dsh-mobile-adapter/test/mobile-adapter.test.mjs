@@ -67,6 +67,13 @@ class Element extends Events {
       this.children.push(child)
     }
   }
+  prepend(...children) {
+    for (let i = children.length - 1; i >= 0; i--) {
+      const child = children[i]
+      child.parentElement = this
+      this.children.unshift(child)
+    }
+  }
   setAttribute(name, value) { this.attributes.set(name, String(value)) }
   getAttribute(name) { return this.attributes.get(name) ?? null }
   hasAttribute(name) { return this.attributes.has(name) }
@@ -102,6 +109,17 @@ class Document extends Events {
     this.startButton = new Element('button', this)
     this.startButton.parentElement = this.sidebar
     this.composer = new Element('div', this)
+    this.card = new Element('div', this)
+    this.card.parentElement = this.composer
+    this.composer.append(this.card)
+    this.tools = new Element('div', this)
+    this.tools.className = 'uV2eYG_tools'
+    this.modelLabel = new Element('span', this)
+    this.modelLabel.className = '_7KE1Ra_triggerLabel'
+    this.modelLabel.textContent = 'antigravity/gemini-3-flash'
+    this.effortLabel = new Element('span', this)
+    this.effortLabel.className = '_7KE1Ra_triggerEffort'
+    this.effortLabel.textContent = 'High'
     this.textarea = new Element('textarea', this)
     this.textarea.setAttribute('placeholder', '给智能体发消息')
     this.permission = new Element('button', this)
@@ -170,6 +188,10 @@ class Document extends Events {
     if (selector.startsWith('.Sh0Q9G_trigger,')) return this.permission
     if (selector === '.Sh0Q9G_triggerLabel') return null
     if (selector === '[data-composer-card] textarea') return this.textarea
+    if (selector === '[data-composer-card] .uV2eYG_tools') return this.tools
+    if (selector === '[data-composer-card]') return this.card
+    if (selector === '._7KE1Ra_triggerLabel') return this.modelLabel
+    if (selector === '._7KE1Ra_triggerEffort') return this.effortLabel
     if (selector === '.rS3zOq_chip') return this.plan ? new Element('button', this) : null
     if (selector === '[data-composer-seat]') return this.composer
     return null
@@ -317,16 +339,20 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.doesNotMatch(css, /\.uV2eYG_tools\{[^}]*overflow-y:hidden/)
   assert.match(css, /\.uV2eYG_trailing\{flex:none;max-width:calc\(100% - 36px\);margin-left:auto;[^}]*gap:6px!important/)
   assert.match(css, /\.uV2eYG_add\{display:none!important\}/)
+  assert.match(css, /\.dsh-mobile-upload-btn\{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /\.uV2eYG_primary\{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*min-width:32px!important;[^}]*min-height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /\.uV2eYG_primary\{transform:none!important\}/)
-  assert.match(css, /\.Sh0Q9G_trigger,\.uV2eYG_select\{max-width:100px!important;min-width:0!important\}/)
-  assert.match(css, /\.Sh0Q9G_trigger\{[^}]*display:inline-flex!important;[^}]*width:max-content!important;min-width:max-content!important;max-width:none!important;[^}]*flex-wrap:nowrap!important;[^}]*white-space:nowrap!important;overflow:visible!important/)
-  assert.match(css, /\.Sh0Q9G_triggerIcon\{display:inline-flex!important;flex:none;margin:0!important\}/)
-  assert.match(css, /\.uV2eYG_modes \.Sh0Q9G_triggerLabel\{display:block!important;min-width:max-content;white-space:nowrap;overflow:visible\}/)
+  assert.match(css, /\.Sh0Q9G_trigger,\.uV2eYG_select\{max-width:32px!important;min-width:32px!important\}/)
+  assert.match(css, /\.Sh0Q9G_trigger\{[^}]*display:inline-grid!important;place-items:center!important;[^}]*width:32px!important;min-width:32px!important;max-width:32px!important;[^}]*border-radius:50%!important/)
+  assert.match(css, /\.Sh0Q9G_triggerIcon\{display:inline-grid!important;place-items:center!important;flex:none;margin:0!important\}/)
+  assert.match(css, /\.uV2eYG_modes \.Sh0Q9G_triggerLabel\{display:none!important\}/)
+  assert.match(css, /\.Sh0Q9G_triggerLabel\{display:none!important\}/)
   assert.match(css, /\.Sh0Q9G_chevron\{display:none!important\}/)
   assert.match(css, /\.rS3zOq_chip\{[^}]*width:max-content!important;[^}]*min-width:max-content!important;[^}]*padding:0 10px!important;[^}]*white-space:nowrap!important;overflow:visible!important;flex:none!important/)
-  assert.match(css, /\._7KE1Ra_root\{flex:1 1 110px;max-width:110px;min-width:0\}/)
-  assert.match(css, /\._7KE1Ra_trigger\{max-width:110px!important;min-width:0!important\}/)
+  assert.match(css, /\._7KE1Ra_root\{[^}]*width:32px!important/)
+  assert.match(css, /\._7KE1Ra_trigger\{[^}]*width:32px!important;[^}]*border-radius:50%!important/)
+  assert.match(css, /\._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron\{display:none!important\}/)
+  assert.match(css, /\.dsh-mobile-composer-info\{[^}]*text-align:center/)
   assert.match(css, /\.JObwrW_root,\.JObwrW_trigger\{[^}]*width:24px!important;[^}]*height:24px!important/)
   assert.match(css, /\[data-composer-card\] textarea\{[^}]*min-height:44px;max-height:160px;font-size:16px!important/)
   assert.doesNotMatch(css, /\[data-composer-card\] button[^}]*min-width:44px/)
@@ -402,7 +428,7 @@ test('Mobile dialogs and in-place menus stay usable without overwriting portal c
   assert.match(css, /\._3e4SsG_menu\{position:absolute!important;bottom:calc\(100% \+ 4px\)!important;left:0!important;right:auto!important;width:min\(320px,calc\(100vw - 24px\)\)!important\}/)
   assert.match(css, /\._3e4SsG_item\{[^}]*min-height:44px!important;padding:8px 12px!important\}/)
   assert.match(css, /\._3e4SsG_itemName\{max-width:50%!important;[^}]*text-overflow:ellipsis!important;white-space:nowrap!important\}/)
-  assert.match(css, /\._7KE1Ra_menu\{position:absolute!important;bottom:calc\(100% \+ 8px\)!important;right:0!important;left:auto!important;width:min\(280px,calc\(100vw - 24px\)\)!important\}/)
+  assert.match(css, /\._7KE1Ra_menu\{position:absolute!important;bottom:calc\(100% \+ 8px\)!important;right:-80px!important;left:auto!important;width:min\(280px,calc\(100vw - 32px\)\)!important;max-width:calc\(100vw - 32px\)!important\}/)
   assert.match(css, /\._7KE1Ra_option,\._7KE1Ra_cell\{[^}]*width:100%!important;min-width:0!important\}/)
   assert.match(css, /\._7KE1Ra_modelName,\._7KE1Ra_description,\._7KE1Ra_cellLabel,\._7KE1Ra_cellValue\{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important\}/)
   assert.doesNotMatch(css, /\[role="dialog"\]\[aria-modal="true"\]:(?:has\(>nav\)|not\(:has\(>nav\)\))\{/)
@@ -599,15 +625,34 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   f.doc.emit('focusout')
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '0px')
 
+  const uploadBtn = f.doc.tools.children.find((node) => node.className === 'dsh-mobile-upload-btn')
+  assert(uploadBtn, 'upload button should be prepended into composer tools in mobile mode')
+  assert.equal(uploadBtn.getAttribute('aria-label'), '上传图片')
+
+  const infoEl = f.doc.composer.children.find((node) => node.className === 'dsh-mobile-composer-info')
+  assert(infoEl, 'composer info element should be rendered below card in mobile mode')
+  assert.equal(infoEl.textContent, 'antigravity/gemini-3-flash · High')
+
+  const fileInput = f.doc.body.children.find((node) => node.tagName === 'INPUT' && node.type === 'file')
+  assert(fileInput, 'hidden file input should be present in document body')
+  assert.equal(fileInput.accept, 'image/*')
+
+  let fileInputClicked = false
+  fileInput.click = () => { fileInputClicked = true }
+  uploadBtn.click()
+  assert.equal(fileInputClicked, true, 'clicking upload button triggers hidden file input click')
+
   f.media.matches = false
   f.media.emit('change')
   assert.equal(bar.hidden, true)
+  assert.equal(f.doc.tools.children.includes(uploadBtn), false, 'upload button is removed in desktop mode')
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-vvh'), '')
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '')
 
   f.cleanup()
   assert.equal(f.doc.getElementById('dsh-mobile-adapter-style'), null)
   assert.equal(f.doc.body.children.includes(bar), false)
+  assert.equal(f.doc.body.children.includes(fileInput), false)
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-vvh'), '')
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '')
   f.viewport.emit('resize')

@@ -79,20 +79,27 @@ window.__ModuleLoader__.load({
         .uV2eYG_modes{flex:none;flex-wrap:nowrap!important;align-items:center;gap:4px!important;overflow:visible!important}
         .uV2eYG_trailing{flex:none;max-width:calc(100% - 36px);margin-left:auto;justify-content:flex-end;gap:6px!important;overflow:visible}
         .uV2eYG_add{display:none!important}
+        .dsh-mobile-upload-btn{box-sizing:border-box;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;border-radius:50%!important;background:var(--dsw-specific-selector,rgba(0,0,0,.06))!important;border:none!important;color:var(--dsw-alias-label-primary)!important;display:inline-grid!important;place-items:center!important;cursor:pointer!important;flex:none!important;padding:0!important;outline:none}
+        .dsh-mobile-upload-btn:hover,.dsh-mobile-upload-btn:active{background:var(--dsw-alias-interactive-bg-hover-solid,rgba(0,0,0,.12))!important;color:var(--dsw-alias-label-primary)!important}
+        .dsh-mobile-upload-btn svg{width:16px;height:16px;flex:none;display:block}
         .uV2eYG_primary{box-sizing:border-box;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none;border-radius:50%!important;display:grid;place-items:center}
         .uV2eYG_primary{transform:none!important}
         .Sh0Q9G_trigger,.uV2eYG_select,.rS3zOq_chip,._7KE1Ra_trigger{box-sizing:border-box;height:32px!important;min-height:32px!important;padding:0 8px!important;border-radius:8px!important;font-size:12px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
         .rS3zOq_chip{box-sizing:border-box!important;width:max-content!important;height:32px!important;min-width:max-content!important;min-height:32px!important;padding:0 10px!important;border-radius:999px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:4px!important;white-space:nowrap!important;overflow:visible!important;flex:none!important;line-height:1!important}
         [data-plan-review-key],[data-slot="conversation.composer.dock"],[data-plan-review-scroll]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important}
         [data-plan-review-scroll]{max-height:min(45dvh,360px)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important}
-        .Sh0Q9G_trigger,.uV2eYG_select{max-width:100px!important;min-width:0!important}
-        .Sh0Q9G_trigger{display:inline-flex!important;width:max-content!important;min-width:max-content!important;max-width:none!important;align-items:center!important;flex:none;flex-wrap:nowrap!important;gap:4px!important;border-radius:999px!important;white-space:nowrap!important;overflow:visible!important}
-        .Sh0Q9G_triggerIcon{display:inline-flex!important;flex:none;margin:0!important}
-        .uV2eYG_modes .Sh0Q9G_triggerLabel{display:block!important;min-width:max-content;white-space:nowrap;overflow:visible}
+        .Sh0Q9G_trigger,.uV2eYG_select{max-width:32px!important;min-width:32px!important}
+        .Sh0Q9G_trigger{box-sizing:border-box!important;display:inline-grid!important;place-items:center!important;width:32px!important;min-width:32px!important;max-width:32px!important;height:32px!important;min-height:32px!important;padding:0!important;border-radius:50%!important;flex:none!important}
+        .Sh0Q9G_triggerIcon{display:inline-grid!important;place-items:center!important;flex:none;margin:0!important}
+        .uV2eYG_modes .Sh0Q9G_triggerLabel{display:none!important}
+        .Sh0Q9G_triggerLabel{display:none!important}
         .Sh0Q9G_chevron{display:none!important}
-        ._7KE1Ra_root{flex:1 1 110px;max-width:110px;min-width:0}
-        ._7KE1Ra_trigger{width:100%}
-        ._7KE1Ra_trigger{max-width:110px!important;min-width:0!important}
+        ._7KE1Ra_root{flex:none!important;width:32px!important;max-width:32px!important;min-width:32px!important}
+        ._7KE1Ra_trigger{box-sizing:border-box!important;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;max-width:32px!important;border-radius:50%!important;padding:0!important;display:inline-grid!important;place-items:center!important;background:var(--dsw-specific-selector,rgba(0,0,0,.06))!important;color:var(--dsw-alias-label-primary)!important;outline:none}
+        ._7KE1Ra_trigger:hover,._7KE1Ra_trigger:active{background:var(--dsw-alias-interactive-bg-hover-solid,rgba(0,0,0,.12))!important}
+        ._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron{display:none!important}
+        ._7KE1Ra_trigger::before{content:"";width:16px;height:16px;display:block;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat}
+        .dsh-mobile-composer-info{box-sizing:border-box;width:100%;padding:4px 12px 2px;font-size:11px;line-height:14px;color:var(--dsw-alias-label-tertiary);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.2px}
         .JObwrW_root,.JObwrW_trigger{box-sizing:border-box;width:24px!important;height:24px!important;min-width:24px!important;min-height:24px!important;flex:none}
         [data-composer-card] textarea{box-sizing:border-box;min-height:44px;max-height:160px;font-size:16px!important}
         .md-code-block button,[role="dialog"] button{min-width:44px;min-height:44px}
@@ -147,9 +154,13 @@ window.__ModuleLoader__.load({
         ._3e4SsG_menu{position:absolute!important;bottom:calc(100% + 4px)!important;left:0!important;right:auto!important;width:min(320px,calc(100vw - 24px))!important}
         ._3e4SsG_item{box-sizing:border-box;min-height:44px!important;padding:8px 12px!important}
         ._3e4SsG_itemName{max-width:50%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-        ._7KE1Ra_menu{position:absolute!important;bottom:calc(100% + 8px)!important;right:0!important;left:auto!important;width:min(280px,calc(100vw - 24px))!important}
+        ._7KE1Ra_menu{position:absolute!important;bottom:calc(100% + 8px)!important;right:-80px!important;left:auto!important;width:min(280px,calc(100vw - 32px))!important;max-width:calc(100vw - 32px)!important}
         ._7KE1Ra_option,._7KE1Ra_cell{box-sizing:border-box!important;width:100%!important;min-width:0!important}
         ._7KE1Ra_modelName,._7KE1Ra_description,._7KE1Ra_cellLabel,._7KE1Ra_cellValue{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+        ._7KE1Ra_cell{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:6px!important;max-width:100%!important;overflow:hidden!important}
+        ._7KE1Ra_cellLabel{flex:none!important;max-width:40%!important;color:var(--dsw-alias-label-primary)!important;white-space:nowrap!important}
+        ._7KE1Ra_cellValue{flex:1 1 auto!important;min-width:0!important;text-align:right!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+        ._7KE1Ra_cellChevron{flex:none!important}
         .VOzbGW_overlay{box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw;height:var(--dsh-vvh,100dvh)!important;background:var(--dsw-alias-bg-base);display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}
         .VOzbGW_mask{display:none!important}
         .VOzbGW_panel{box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex;flex-direction:column;overflow:hidden}
@@ -267,8 +278,50 @@ window.__ModuleLoader__.load({
       backdrop.setAttribute('aria-label', '关闭会话侧栏')
       backdrop.hidden = true
 
+      const fileInput = doc.createElement('input')
+      fileInput.type = 'file'
+      fileInput.accept = 'image/*'
+      fileInput.multiple = true
+      fileInput.style.display = 'none'
+      fileInput.setAttribute('aria-hidden', 'true')
+
+      const uploadBtn = doc.createElement('button')
+      uploadBtn.type = 'button'
+      uploadBtn.className = 'dsh-mobile-upload-btn'
+      uploadBtn.setAttribute('aria-label', '上传图片')
+      uploadBtn.title = '上传图片'
+      uploadBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5.5498 9.75V5H6.9502V9.75C6.9502 10.3299 7.4201 10.7998 8 10.7998C8.5799 10.7998 9.0498 10.3299 9.0498 9.75V4.5C9.0498 2.9536 7.7964 1.7002 6.25 1.7002C4.7036 1.7002 3.4502 2.9536 3.4502 4.5V9.75C3.4502 12.2629 5.4871 14.2998 8 14.2998C10.5129 14.2998 12.5498 12.2629 12.5498 9.75V4H13.9502V9.75C13.9502 13.0361 11.2861 15.7002 8 15.7002C4.71391 15.7002 2.0498 13.0361 2.0498 9.75V4.5C2.04981 2.1804 3.9304 0.299806 6.25 0.299805C8.5696 0.299805 10.4502 2.1804 10.4502 4.5V9.75C10.4502 11.1031 9.3531 12.2002 8 12.2002C6.6469 12.2002 5.5498 11.1031 5.5498 9.75Z" fill="currentColor"/></svg>'
+
+      const infoEl = doc.createElement('div')
+      infoEl.className = 'dsh-mobile-composer-info'
+      infoEl.setAttribute('aria-live', 'polite')
+
+      const dispatchImages = (files) => {
+        if (!files || !files.length) return
+        const dt = typeof win.DataTransfer === 'function' ? new win.DataTransfer() : null
+        if (!dt) return
+        for (const f of files) dt.items?.add ? dt.items.add(f) : null
+        // 只派发 drop：DSH 在 document 上原生监听 drop 并 intake 图片，
+        // 同时派发 paste 会让同一批图片被两个入口各添加一次（重复上传）。
+        const dropEv = typeof win.DragEvent === 'function'
+          ? new win.DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })
+          : new win.Event('drop', { bubbles: true, cancelable: true })
+        if (!dropEv.dataTransfer) dropEv.dataTransfer = dt
+        doc.dispatchEvent(dropEv)
+      }
+
+      uploadBtn.addEventListener('click', () => {
+        fileInput.click()
+      })
+
+      fileInput.addEventListener('change', () => {
+        const files = [...(fileInput.files || [])]
+        if (files.length) dispatchImages(files)
+        fileInput.value = ''
+      })
+
       doc.head.append(style)
-      doc.body.append(bar, backdrop)
+      doc.body.append(bar, backdrop, fileInput)
 
       const media = win.matchMedia(MOBILE_QUERY)
       const frameOf = () => doc.querySelector('[data-slot="root"]>div')
@@ -287,24 +340,51 @@ window.__ModuleLoader__.load({
         const trajectory = trajectoryOf()
         const inTrajectory = trajectory?.getAttribute('aria-selected') === 'true'
         bar.hidden = !mobile
-        title.textContent = titleOf(doc)
-        status.textContent = state.text
+        const nextTitle = titleOf(doc)
+        if (title.textContent !== nextTitle) title.textContent = nextTitle
+        if (status.textContent !== state.text) status.textContent = state.text
         status.dataset.running = state.running ? 'true' : 'false'
         status.dataset.plan = state.plan ? 'true' : 'false'
         status.dataset.preset = state.preset || ''
         view.hidden = !mobile || trajectory == null
-        view.textContent = inTrajectory ? '← 对话' : '⌁ 轨迹'
-        view.setAttribute('aria-label', inTrajectory ? '关闭轨迹，返回对话' : '查看轨迹')
+        if (view.textContent !== (inTrajectory ? '← 对话' : '⌁ 轨迹')) view.textContent = inTrajectory ? '← 对话' : '⌁ 轨迹'
+        const nextViewLabel = inTrajectory ? '关闭轨迹，返回对话' : '查看轨迹'
+        if (view.getAttribute('aria-label') !== nextViewLabel) view.setAttribute('aria-label', nextViewLabel)
         backdrop.hidden = !open
         menu.setAttribute('aria-expanded', String(open))
-        menu.setAttribute('aria-label', open ? '关闭会话侧栏' : '打开会话侧栏')
+        const nextMenuLabel = open ? '关闭会话侧栏' : '打开会话侧栏'
+        if (menu.getAttribute('aria-label') !== nextMenuLabel) menu.setAttribute('aria-label', nextMenuLabel)
         if (sidebar) {
-          sidebar.id = 'dsh-mobile-drawer'
-          sidebar.setAttribute('aria-hidden', String(mobile && !open))
-          sidebar.inert = mobile && !open
+          if (sidebar.id !== 'dsh-mobile-drawer') sidebar.id = 'dsh-mobile-drawer'
+          const nextHidden = String(mobile && !open)
+          if (sidebar.getAttribute('aria-hidden') !== nextHidden) sidebar.setAttribute('aria-hidden', nextHidden)
+          if (sidebar.inert !== (mobile && !open)) sidebar.inert = mobile && !open
         }
         if (open && !previousOpen) win.requestAnimationFrame(() => doc.querySelector('[data-slot="sidebar"] button')?.focus())
         previousOpen = open
+
+        if (mobile) {
+          const toolsEl = doc.querySelector('[data-composer-card] .uV2eYG_tools')
+          if (toolsEl && !toolsEl.contains(uploadBtn)) {
+            toolsEl.prepend(uploadBtn)
+          }
+          const modelName = doc.querySelector('._7KE1Ra_triggerLabel')?.textContent?.trim()
+          const effort = doc.querySelector('._7KE1Ra_triggerEffort')?.textContent?.trim()
+          const cardEl = doc.querySelector('[data-composer-card]')
+          if (cardEl && modelName) {
+            const nextInfo = effort ? `${modelName} · ${effort}` : modelName
+            if (infoEl.textContent !== nextInfo) infoEl.textContent = nextInfo
+            if (cardEl.nextSibling !== infoEl) {
+              if (typeof cardEl.after === 'function') cardEl.after(infoEl)
+              else if (cardEl.parentElement) cardEl.parentElement.append(infoEl)
+            }
+          } else {
+            infoEl.remove()
+          }
+        } else {
+          uploadBtn.remove()
+          infoEl.remove()
+        }
       }
 
       const toggle = () => {
@@ -361,7 +441,21 @@ window.__ModuleLoader__.load({
       doc.addEventListener('pointerup', onPointerUp, { passive: true })
 
       const root = doc.getElementById('root')
-      const observer = new MutationObserver(sync)
+      // 帧合并：mutation 风暴期间每帧最多跑一次 sync/syncViewport，
+      // 避免 React 渲染产生的密集 DOM 变化把主线程占满（移动端卡死）。
+      let syncQueued = false
+      let viewportQueued = false
+      const requestSync = () => {
+        if (syncQueued) return
+        syncQueued = true
+        win.requestAnimationFrame(() => { syncQueued = false; sync() })
+      }
+      const requestViewport = () => {
+        if (viewportQueued) return
+        viewportQueued = true
+        win.requestAnimationFrame(() => { viewportQueued = false; syncViewport() })
+      }
+      const observer = new MutationObserver(requestSync)
       if (root) observer.observe(root, {
         childList: true,
         subtree: true,
@@ -370,8 +464,8 @@ window.__ModuleLoader__.load({
         attributeFilter: ['data-sidebar-collapsed', 'data-phase', 'aria-label', 'aria-selected', 'placeholder', 'disabled'],
       })
       const onMedia = () => {
-        sync()
-        syncViewport()
+        requestSync()
+        requestViewport()
       }
       const modernMedia = typeof media.addEventListener === 'function'
       if (modernMedia) media.addEventListener('change', onMedia)
@@ -381,12 +475,13 @@ window.__ModuleLoader__.load({
       const syncViewport = () => {
         const rootStyle = doc.documentElement.style
         if (!media.matches) {
-          rootStyle.removeProperty('--dsh-vvh')
-          rootStyle.removeProperty('--dsh-keyboard-inset')
+          if (rootStyle.getPropertyValue('--dsh-vvh')) rootStyle.removeProperty('--dsh-vvh')
+          if (rootStyle.getPropertyValue('--dsh-keyboard-inset')) rootStyle.removeProperty('--dsh-keyboard-inset')
           return
         }
         const viewportHeight = viewport?.height ?? win.innerHeight
-        if (viewportHeight) rootStyle.setProperty('--dsh-vvh', `${Math.round(viewportHeight)}px`)
+        const nextVvh = viewportHeight ? `${Math.round(viewportHeight)}px` : ''
+        if (nextVvh && rootStyle.getPropertyValue('--dsh-vvh') !== nextVvh) rootStyle.setProperty('--dsh-vvh', nextVvh)
         const active = doc.activeElement
         const editing = active?.tagName === 'TEXTAREA'
           && (typeof active.closest !== 'function' || active.closest('[data-composer-card]') !== null)
@@ -395,14 +490,15 @@ window.__ModuleLoader__.load({
         const inset = editing && (viewport?.scale ?? 1) === 1
           ? Math.max(0, Math.round(layoutHeight - visibleBottom))
           : 0
-        rootStyle.setProperty('--dsh-keyboard-inset', `${inset}px`)
+        const nextInset = `${inset}px`
+        if (rootStyle.getPropertyValue('--dsh-keyboard-inset') !== nextInset) rootStyle.setProperty('--dsh-keyboard-inset', nextInset)
       }
-      viewport?.addEventListener('resize', syncViewport)
-      viewport?.addEventListener('scroll', syncViewport)
-      doc.addEventListener('focusin', syncViewport)
-      doc.addEventListener('focusout', syncViewport)
+      viewport?.addEventListener('resize', requestViewport)
+      viewport?.addEventListener('scroll', requestViewport)
+      doc.addEventListener('focusin', requestViewport)
+      doc.addEventListener('focusout', requestViewport)
       syncViewport()
-      sync()
+      requestSync()
 
       return () => {
         observer.disconnect()
@@ -421,6 +517,9 @@ window.__ModuleLoader__.load({
         style.remove()
         bar.remove()
         backdrop.remove()
+        fileInput.remove()
+        uploadBtn.remove()
+        infoEl.remove()
       }
     }
 
