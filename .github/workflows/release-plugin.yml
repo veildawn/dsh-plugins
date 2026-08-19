@@ -61,8 +61,10 @@ jobs:
         with:
           version: 11
 
+      # pnpm-lock.yaml is intentionally gitignored in this repo, so a frozen
+      # install is not available here.
       - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Run Plugin Tests
         run: pnpm --filter ${{ steps.parse.outputs.plugin_name }} test
