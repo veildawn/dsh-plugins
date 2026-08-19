@@ -247,3 +247,21 @@ test('viewers remount per file and never render a partial preview', () => {
   // Regression: a slower in-flight meta response could overwrite a newer one.
   assert.match(source, /metaTicket\.current !== ticket/)
 })
+
+test('the sidebar entry adapts to the wide and collapsed column', () => {
+  const source = read('lib/client.js')
+
+  // Regression: the entry reused the 30px round icon button for both states, so
+  // in the wide column the label wrapped inside the circle and overflowed onto
+  // the settings row below.
+  assert.match(source, /const wide = props !== undefined && props\.wide === true/)
+  assert.match(source, /wide \? "fv-entry" : "fv-entry fv-entry-rail"/)
+  assert.match(source, /wide \? react\.createElement\("span", \{ className: "fv-entry-label" \}/)
+  assert.doesNotMatch(source, /className: "fv-icon-button",\s*\n\s*title: "文件查看器"/)
+
+  // The wide row matches the settings control's 42px full-width geometry, and
+  // the rail state is a 36px circle with no label.
+  assert.match(source, /\.fv-entry\{[^}]*width:100%[^}]*height:42px/)
+  assert.match(source, /\.fv-entry-rail\{[^}]*width:36px;height:36px[^}]*border-radius:50%\}/)
+  assert.match(source, /\.fv-entry-label\{[^}]*white-space:nowrap/)
+})

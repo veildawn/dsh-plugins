@@ -45,6 +45,11 @@ window.__ModuleLoader__.load({
       .fv-icon-button{display:inline-grid;flex:none;place-items:center;width:30px;height:30px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer}
       .fv-icon-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-icon-button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-entry{box-sizing:border-box;display:flex;flex:none;align-items:center;gap:8px;width:100%;height:42px;padding:0 10px 0 8px;border:none;border-radius:12px;background:none;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;line-height:22px;text-align:left;cursor:pointer;overflow:hidden}
+      .fv-entry:hover{background:var(--dsw-alias-interactive-bg-hover)}
+      .fv-entry-icon{display:inline-grid;flex:none;place-items:center;width:16px;height:16px}
+      .fv-entry-label{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+      .fv-entry-rail{justify-content:center;gap:0;width:36px;height:36px;padding:0;border-radius:50%}
       .fv-body{display:flex;flex:1 1 auto;min-height:0}
       .fv-tree{display:flex;flex:none;flex-direction:column;width:280px;min-height:0;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:6px;gap:1px;overscroll-behavior:contain}
       .fv-row{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
@@ -645,18 +650,25 @@ window.__ModuleLoader__.load({
                   : react.createElement(FileView, { meta, root, api: props.api })))));
       }
 
-      /** Sidebar entry button. */
+      /**
+       * Sidebar entry. Mirrors the settings control in the same foot area: a
+       * full-width labelled row while the column is wide, a round icon in the
+       * collapsed rail. A fixed-size icon button cannot hold the label — the
+       * text wraps inside the circle and overflows onto the row below.
+       */
       function ViewerAction(props) {
+        const wide = props !== undefined && props.wide === true;
         return react.createElement("button", {
           type: "button",
-          className: "fv-icon-button",
+          className: wide ? "fv-entry" : "fv-entry fv-entry-rail",
           title: "文件查看器",
           "aria-label": "文件查看器",
           onClick: () => openStore.set(!openStore.get()),
-        }, IconFolderOutline16
-          ? react.createElement(IconFolderOutline16, { size: 16 })
-          : react.createElement("span", { "aria-hidden": "true" }, "\u{1F5C1}"),
-          props && props.wide ? react.createElement("span", { style: { marginLeft: 8 } }, "文件") : null);
+        },
+          react.createElement("span", { className: "fv-entry-icon", "aria-hidden": "true" }, IconFolderOutline16
+            ? react.createElement(IconFolderOutline16, { size: 16 })
+            : "\u{1F5C1}"),
+          wide ? react.createElement("span", { className: "fv-entry-label" }, "文件") : null);
       }
 
       ctx.slots.inject(OVERLAY_SLOT, () => ctx.slots.register({
