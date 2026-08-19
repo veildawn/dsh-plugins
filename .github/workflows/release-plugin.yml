@@ -16,10 +16,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # pnpm 11 requires Node >= 22.13, and the plugins' tests use the
+      # node:test runner and Object.hasOwn, both fine on 22.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Parse Tag & Locate Plugin
         id: parse
