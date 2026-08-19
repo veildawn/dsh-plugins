@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
     const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
-    const { ReadBlock, MarkdownText, JsonTree, IconFolderOutline16, IconCloseOutline16 } = primitives;
+    const { ReadBlock, MarkdownText, JsonTree, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16 } = primitives;
 
     const RPC_CHANNEL = "/dsh-file-viewer";
     const OVERLAY_SLOT = "shell.overlay";
@@ -93,7 +93,7 @@ window.__ModuleLoader__.load({
         /* The narrow layout replaces the session header, so the header entry is
            unreachable there and this floating one takes over. It clears the
            composer and the safe area, and sits under the drawer's z-index. */
-        .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;right:calc(12px + var(--dsh-sar,0px));bottom:calc(148px + var(--dsh-sab,0px));width:44px;height:44px;border:1px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv2);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family)}
+        .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;right:calc(14px + var(--dsh-sar,0px));bottom:calc(148px + var(--dsh-sab,0px));width:46px;height:46px;border:0;border-radius:50%;background:var(--dsw-alias-bg-inverse,#1f1f1f);color:var(--dsw-alias-label-inverse,#fff);box-shadow:0 4px 14px rgba(0,0,0,.28);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family);transition:transform .16s ease-out}
         .fv-float-entry:active{transform:scale(.96)}
         .fv-shell{width:100%;border-left:none}
         .fv-tree{width:100%;border-right:none}
@@ -284,6 +284,9 @@ window.__ModuleLoader__.load({
       // `null` is closed; an object is open. Carrying the requesting session lets
       // the overlay land on that session's project instead of the first
       // workspace, and a fresh object per open re-runs the resolution.
+      // The outline variant reads as faint at icon sizes, so prefer the filled
+      // one and keep outline only as a fallback.
+      const FolderIcon = IconFolderOpen16 ?? IconFolderOutline16 ?? null;
       const openStore = createStore(null);
       // Which session the conversation header currently belongs to. The phone
       // entry is drawn outside that header and cannot receive its props.
@@ -807,9 +810,9 @@ window.__ModuleLoader__.load({
           title: "查看项目文件",
           "aria-label": "查看项目文件",
           onClick: () => openStore.set(openStore.get() === null ? { sessionId } : null),
-        }, IconFolderOutline16
-          ? react.createElement(IconFolderOutline16, { size: 16 })
-          : react.createElement("span", { "aria-hidden": "true" }, "\u{1F5C1}"));
+        }, FolderIcon === null
+          ? react.createElement("span", { "aria-hidden": "true" }, "\u{1F4C1}")
+          : react.createElement(FolderIcon, { size: 16 }));
       }
 
       /**
@@ -827,9 +830,9 @@ window.__ModuleLoader__.load({
           title: "查看项目文件",
           "aria-label": "查看项目文件",
           onClick: () => openStore.set({ sessionId }),
-        }, IconFolderOutline16
-          ? react.createElement(IconFolderOutline16, { size: 18 })
-          : react.createElement("span", { "aria-hidden": "true" }, "\u{1F5C1}"));
+        }, FolderIcon === null
+          ? react.createElement("span", { "aria-hidden": "true" }, "\u{1F4C1}")
+          : react.createElement(FolderIcon, { size: 20 }));
       }
 
       // The overlay seat carries both the drawer and the phone entry: it sits
@@ -847,10 +850,12 @@ window.__ModuleLoader__.load({
         inject: () => ({ api: ctx.connection.api }),
       }, ViewerSurfaces));
 
+      // Ahead of the session-log download, which registers without an order
+      // and so sorts at 0; the list is ordered ascending.
       ctx.slots.inject(HEADER_SLOT, () => ctx.slots.register({
         name: HEADER_SLOT,
         id: "file-viewer",
-        order: 20,
+        order: -10,
       }, ViewerHeaderAction));
 
       return { openStore };

@@ -378,7 +378,7 @@ test('the phone entry is drawn outside the header the narrow layout hides', () =
   // measured on a 390x844 viewport, plus the safe area.
   assert.match(source, /\.fv-float-entry\{[^}]*bottom:calc\(148px \+ var\(--dsh-sab,0px\)\)/)
   assert.match(source, /\.fv-float-entry\{[^}]*z-index:39/)
-  assert.match(source, /\.fv-float-entry\{[^}]*width:44px;height:44px/)
+  assert.match(source, /\.fv-float-entry\{[^}]*width:46px;height:46px/)
 })
 
 test('the drawer can be dismissed on a phone', () => {
@@ -396,4 +396,23 @@ test('the drawer can be dismissed on a phone', () => {
 
   // The close button stays in the head on every width.
   assert.match(source, /"aria-label": "关闭", onClick: \(\) => openStore\.set\(null\)/)
+})
+
+test('the entry reads clearly and precedes the session log download', () => {
+  const source = read('lib/client.js')
+
+  // The outline folder is faint at icon sizes; the filled variant is used with
+  // outline kept only as a fallback.
+  assert.match(source, /const FolderIcon = IconFolderOpen16 \?\? IconFolderOutline16 \?\? null/)
+  assert.match(source, /react\.createElement\(FolderIcon, \{ size: 16 \}\)/)
+  assert.match(source, /react\.createElement\(FolderIcon, \{ size: 20 \}\)/)
+
+  // The utilities list sorts ascending and session-log-download registers with
+  // no order, so it sits at 0; a negative order puts this button to its left.
+  assert.match(source, /order: -10,\s*\}, ViewerHeaderAction\)\)/)
+
+  // The phone entry is a solid filled circle, not a faint outline.
+  assert.match(source, /\.fv-float-entry\{[^}]*background:var\(--dsw-alias-bg-inverse/)
+  assert.match(source, /\.fv-float-entry\{[^}]*box-shadow:0 4px 14px/)
+  assert.match(source, /\.fv-float-entry\{[^}]*border:0/)
 })
