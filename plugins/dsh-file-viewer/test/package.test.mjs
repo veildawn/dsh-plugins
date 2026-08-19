@@ -92,7 +92,7 @@ test('the client bundle registers through the module loader with declared deps',
   const seen = []
   const client = definition.factory((id) => {
     seen.push(id)
-    if (id === 'react') return { useState: () => [], useEffect: () => {}, createElement: () => null, Fragment: 'fragment' }
+    if (id === 'react') return { useState: () => [], useEffect: () => {}, useRef: () => ({ current: 0 }), createElement: () => null, Fragment: 'fragment' }
     if (id === '@deepseek-ai/dsh-client-ui-primitives') {
       return { ReadBlock: 'ReadBlock', MarkdownText: 'MarkdownText', JsonTree: 'JsonTree' }
     }
@@ -226,4 +226,24 @@ test('the request wrapper surfaces host error codes', async () => {
     assert.equal(error.code, 'outside-root')
     return true
   })
+})
+
+test('viewers remount per file and never render a partial preview', () => {
+  const source = read('lib/client.js')
+
+  // Regression: paging state used to persist across a file switch, so the first
+  // request for a new file carried the previous file's offset.
+  assert.match(source, /const key = root \+ .+ \+ meta\.path/, 'each file needs a distinct remount key')
+  for (const view of ['BinaryView', 'SheetView', 'DocView', 'TextView']) {
+    assert(source.includes(`createElement(${view}, { key,`), `${view} must be keyed per file`)
+  }
+
+  // Regression: a rendered preview requires the whole document; without it the
+  // toggle silently disappeared instead of explaining the fallback.
+  assert.match(source, /const canPreview = /)
+  assert.match(source, /previewUnavailable/)
+  assert.match(source, /仅显示源码/)
+
+  // Regression: a slower in-flight meta response could overwrite a newer one.
+  assert.match(source, /metaTicket\.current !== ticket/)
 })

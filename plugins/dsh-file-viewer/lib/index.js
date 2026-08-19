@@ -15,10 +15,12 @@ import z from '@deepseek-ai/schemastery'
 
 import {
   MAX_BYTES,
+  MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   baseNameOf,
   isHiddenEntry,
   isSafeRelativePath,
+  isWholeDocumentKind,
   joinPath,
   kindOf,
   langOf,
@@ -31,10 +33,12 @@ import {
 
 export {
   MAX_BYTES,
+  MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   baseNameOf,
   isHiddenEntry,
   isSafeRelativePath,
+  isWholeDocumentKind,
   joinPath,
   kindOf,
   langOf,
@@ -168,17 +172,19 @@ export async function describeFile(ctx, options, payload, signal) {
   if (info.type === 'directory') throw new ViewerError('is-a-directory', 'the requested path is a directory')
 
   const size = typeof info.size === 'number' ? info.size : undefined
-  const kind = kindOf(relative === '' ? target.displayPath : relative)
-  const textual = kind === 'text' || kind === 'markdown' || kind === 'json'
+  const naming = relative === '' ? target.displayPath : relative
+  const kind = kindOf(naming)
+  const lang = languageOf(naming)
+  const textual = kind === 'text' || isWholeDocumentKind(kind)
   const limit = textual ? MAX_TEXT_BYTES : options().maxBytes
   return {
     root: root.id,
     path: relative,
-    name: baseNameOf(relative === '' ? target.displayPath : relative),
+    name: baseNameOf(naming),
     displayPath: target.displayPath,
     kind,
     ...(size === undefined ? {} : { size }),
-    ...(languageOf(relative) === undefined ? {} : { lang: languageOf(relative) }),
+    ...(lang === undefined ? {} : { lang }),
     tooLarge: size !== undefined && size > limit,
     limit,
   }
@@ -204,13 +210,16 @@ export async function readText(ctx, options, payload, signal) {
   const text = await ctx.fs.readText(target, signal)
   const { lines, eol } = splitLines(text)
   const window = resolveWindow(lines.length, payload?.offset, payload?.limit)
+  const naming = relative === '' ? target.displayPath : relative
+  const fileKind = kindOf(naming)
+  const lang = languageOf(naming)
   return {
     root: root.id,
     path: relative,
-    name: baseNameOf(relative === '' ? target.displayPath : relative),
+    name: baseNameOf(naming),
     displayPath: target.displayPath,
-    kind: kindOf(relative === '' ? target.displayPath : relative),
-    ...(languageOf(relative) === undefined ? {} : { lang: languageOf(relative) }),
+    kind: fileKind,
+    ...(lang === undefined ? {} : { lang }),
     eol,
     totalLines: lines.length,
     offset: window.offset,
@@ -218,8 +227,10 @@ export async function readText(ctx, options, payload, signal) {
     hasBefore: window.hasBefore,
     hasAfter: window.hasAfter,
     lines: windowRows(lines, window),
-    // Markdown and JSON viewers need the whole document, not a window.
-    ...(window.hasBefore || window.hasAfter ? {} : { text }),
+    // Markdown and JSON render from the whole document — a window would show
+    // half a table or a truncated object — so they ship complete regardless of
+    // paging, up to a budget past which the client keeps the paged source view.
+    ...(isWholeDocumentKind(fileKind) && text.length <= MAX_PREVIEW_BYTES ? { text } : {}),
   }
 }
 

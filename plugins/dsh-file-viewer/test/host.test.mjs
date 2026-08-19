@@ -332,3 +332,59 @@ test('sheet and doc reads enforce the same containment as text reads', async () 
   }
   assert.deepEqual(fs.calls, [])
 })
+
+test('markdown and json ship the whole document even when paged', async () => {
+  // Regression: the preview only shipped `text` for files that fit in one
+  // window, so any markdown over 500 lines silently lost its rendered preview.
+  const long = Array.from({ length: 900 }, (_, index) => `paragraph ${index + 1}`).join('\n')
+  const json = '{\n' + Array.from({ length: 700 }, (_, index) => `  "k${index}": ${index}`).join(',\n') + '\n}'
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/long.md`]: { type: 'file', size: long.length, text: long },
+    [`${ROOT}/big.json`]: { type: 'file', size: json.length, text: json },
+    [`${ROOT}/big.js`]: { type: 'file', size: long.length, text: long },
+  })
+  const ctx = createCtx(fs)
+
+  const markdown = await handleRpc(ctx, options(), 'read', { path: 'long.md' })
+  assert.equal(markdown.value.hasAfter, true, 'the file must be paged')
+  assert.equal(markdown.value.text, long, 'a paged markdown file still needs its whole text')
+  assert.equal(markdown.value.lines.length, 500, 'the window still comes along for the source view')
+
+  const structured = await handleRpc(ctx, options(), 'read', { path: 'big.json' })
+  assert.equal(structured.value.hasAfter, true)
+  assert.equal(structured.value.text, json)
+
+  // Code files stay windowed: ReadBlock renders from `lines`, so shipping the
+  // whole file would be wasted bytes.
+  const code = await handleRpc(ctx, options(), 'read', { path: 'big.js' })
+  assert.equal(code.value.hasAfter, true)
+  assert.equal(code.value.text, undefined)
+})
+
+test('a document past the preview budget falls back to windowed source', async () => {
+  const { MAX_PREVIEW_BYTES } = await import('../lib/index.js')
+  const huge = 'x\n'.repeat(MAX_PREVIEW_BYTES)
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/huge.md`]: { type: 'file', size: huge.length, text: huge },
+  })
+  const result = await handleRpc(createCtx(fs), options(), 'read', { path: 'huge.md' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'markdown')
+  // No partial preview: the client shows source and says why.
+  assert.equal(result.value.text, undefined)
+  assert(result.value.lines.length > 0)
+})
+
+test('metadata derives kind and language from the root itself when no path is given', async () => {
+  // Regression: `lang` was read from the empty relative path, so a root-level
+  // target reported no language.
+  const fs = createFs({ 'D:/repo/notes.md': { type: 'file', size: 4, text: 'text' } })
+  const ctx = createCtx(fs, { workspaces: ['D:/repo/notes.md'] })
+  const result = await handleRpc(ctx, options(), 'meta', {})
+  assert.equal(result.ok, true)
+  assert.equal(result.value.name, 'notes.md')
+  assert.equal(result.value.kind, 'markdown')
+  assert.equal(result.value.lang, 'markdown')
+})

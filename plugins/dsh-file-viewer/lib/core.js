@@ -13,6 +13,19 @@ export const MAX_BYTES = 20 * 1024 * 1024
 /** Largest text file the viewer reads as text at all. */
 export const MAX_TEXT_BYTES = 8 * 1024 * 1024
 
+/**
+ * Largest document shipped whole for Markdown/JSON rendering. Those formats
+ * are meaningless in line windows — half a document does not render — so they
+ * travel complete, and past this budget the viewer honestly falls back to the
+ * paged source view instead of rendering a partial document.
+ */
+export const MAX_PREVIEW_BYTES = 2 * 1024 * 1024
+
+/** Formats rendered from a whole document rather than a line window. */
+export function isWholeDocumentKind(kind) {
+  return kind === 'markdown' || kind === 'json'
+}
+
 /** Lines per text window. ReadBlock has no virtual scrolling, so the client pages. */
 export const WINDOW_LINES = 500
 

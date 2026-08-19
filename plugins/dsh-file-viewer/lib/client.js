@@ -377,13 +377,12 @@ window.__ModuleLoader__.load({
 
       /** Text, Markdown and JSON: one windowed read, three renderings. */
       function TextView({ meta, root }) {
+        // Callers mount this with a per-file key, so paging state starts fresh
+        // for every file instead of leaking the previous file's window into the
+        // first request.
         const [state, setState] = react.useState({ status: "loading", data: null, error: null });
         const [offset, setOffset] = react.useState(1);
         const [raw, setRaw] = react.useState(false);
-        react.useEffect(() => {
-          setOffset(1);
-          setRaw(false);
-        }, [root, meta.path]);
         react.useEffect(() => {
           let live = true;
           setState((current) => ({ status: "loading", data: current.data, error: null }));
@@ -401,10 +400,13 @@ window.__ModuleLoader__.load({
         const data = state.data;
         if (data === null) return react.createElement("div", { className: "fv-note" }, "正在读取…");
 
+        // A rendered preview needs the whole document. Past the host's preview
+        // budget only windowed lines arrive, so the source view is all there is.
+        const canPreview = (data.kind === "markdown" || data.kind === "json") && typeof data.text === "string";
         let body;
-        if (data.kind === "markdown" && !raw && typeof data.text === "string") {
+        if (canPreview && !raw && data.kind === "markdown") {
           body = react.createElement(MarkdownText, { text: data.text });
-        } else if (data.kind === "json" && !raw && typeof data.text === "string") {
+        } else if (canPreview && !raw) {
           body = jsonBodyOf(data.text);
         } else {
           body = react.createElement(ReadBlock, {
@@ -430,9 +432,15 @@ window.__ModuleLoader__.load({
             react.createElement("span", null, `第 ${data.offset}–${data.end} 行 / 共 ${data.totalLines} 行`))
           : null;
 
+        const previewUnavailable = !canPreview && (data.kind === "markdown" || data.kind === "json");
+
         return react.createElement(react.Fragment, null,
           react.createElement("div", { className: "fv-content" },
-            (data.kind === "markdown" || data.kind === "json") && typeof data.text === "string"
+            previewUnavailable
+              ? react.createElement("div", { className: "fv-note" },
+                data.kind === "markdown" ? "文档过大，仅显示源码。" : "文件过大，仅显示源码。")
+              : null,
+            canPreview
               ? react.createElement("div", { className: "fv-sheet-tabs" },
                 react.createElement("button", {
                   type: "button", className: "fv-tab", "aria-selected": raw ? "false" : "true", onClick: () => setRaw(false),
@@ -477,14 +485,17 @@ window.__ModuleLoader__.load({
               }, "用本地程序打开")
               : null);
         }
-        if (meta.kind === "image" || meta.kind === "pdf") return react.createElement(BinaryView, { meta, root });
+        // The key remounts each viewer per file so no per-file state (paging,
+        // active sheet, blob URL) survives a switch.
+        const key = root + "\u0000" + meta.path;
+        if (meta.kind === "image" || meta.kind === "pdf") return react.createElement(BinaryView, { key, meta, root });
         if (meta.kind === "sheet") {
-          return react.createElement("div", { className: "fv-content" }, react.createElement(SheetView, { meta, root }));
+          return react.createElement("div", { className: "fv-content" }, react.createElement(SheetView, { key, meta, root }));
         }
         if (meta.kind === "doc") {
-          return react.createElement("div", { className: "fv-content" }, react.createElement(DocView, { meta, root }));
+          return react.createElement("div", { className: "fv-content" }, react.createElement(DocView, { key, meta, root }));
         }
-        return react.createElement(TextView, { meta, root });
+        return react.createElement(TextView, { key, meta, root });
       }
 
       /** The overlay page: root picker, breadcrumbs, tree and viewer. */
@@ -499,6 +510,7 @@ window.__ModuleLoader__.load({
         const [hidden, setHidden] = react.useState(false);
         const [error, setError] = react.useState(null);
         const [pane, setPane] = react.useState("tree");
+        const metaTicket = react.useRef(0);
 
         react.useEffect(() => {
           if (!open) return undefined;
@@ -547,12 +559,18 @@ window.__ModuleLoader__.load({
           setPath(next);
           setMeta(null);
         };
+        // Clicking two files quickly must not let the slower answer win: only
+        // the newest request may write state.
         const selectFile = (entry) => {
           setPane("content");
+          const ticket = metaTicket.current + 1;
+          metaTicket.current = ticket;
           request("meta", { root, path: entry.path }).then((value) => {
+            if (metaTicket.current !== ticket) return;
             setMeta(value);
             setError(null);
           }).catch((problem) => {
+            if (metaTicket.current !== ticket) return;
             setMeta(null);
             setError(problem);
           });
