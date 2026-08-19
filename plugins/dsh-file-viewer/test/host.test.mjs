@@ -388,3 +388,45 @@ test('metadata derives kind and language from the root itself when no path is gi
   assert.equal(result.value.kind, 'markdown')
   assert.equal(result.value.lang, 'markdown')
 })
+
+test('a session resolves to the deepest root containing its working directory', async () => {
+  const fs = createFs({})
+  const ctx = createCtx(fs, { workspaces: ['D:/repo', 'D:/repo/packages/app', 'D:/other'] })
+  ctx.sessions = {
+    get: (id) => ({
+      'in-root': { header: { cwd: 'D:/repo' } },
+      'in-subdir': { header: { cwd: 'D:\\repo\\plugins\\viewer' } },
+      // A nested workspace must win over its parent.
+      'in-nested': { header: { cwd: 'D:/repo/packages/app/src' } },
+      'outside': { header: { cwd: 'D:/elsewhere' } },
+      'no-cwd': { header: {} },
+      // Resumed sessions carry cwd under meta.
+      'from-meta': { header: { meta: { cwd: 'D:/other' } } },
+    })[id],
+    list: () => [],
+  }
+
+  const root = await handleRpc(ctx, options(), 'roots', { sessionId: 'in-root' })
+  assert.equal(root.value.root, 'D:/repo')
+  assert.equal(root.value.reveal, '')
+
+  const sub = await handleRpc(ctx, options(), 'roots', { sessionId: 'in-subdir' })
+  assert.equal(sub.value.root, 'D:/repo')
+  assert.equal(sub.value.reveal, 'plugins/viewer', 'a windows cwd must reveal with forward slashes')
+
+  const nested = await handleRpc(ctx, options(), 'roots', { sessionId: 'in-nested' })
+  assert.equal(nested.value.root, 'D:/repo/packages/app', 'the deepest containing root wins')
+  assert.equal(nested.value.reveal, 'src')
+
+  const meta = await handleRpc(ctx, options(), 'roots', { sessionId: 'from-meta' })
+  assert.equal(meta.value.root, 'D:/other')
+
+  // A cwd outside every root, a session without one, and no session at all all
+  // fall back to the plain root list rather than guessing.
+  for (const sessionId of ['outside', 'no-cwd', 'missing-session', undefined]) {
+    const result = await handleRpc(ctx, options(), 'roots', sessionId === undefined ? {} : { sessionId })
+    assert.equal(result.ok, true)
+    assert.equal(result.value.root, undefined, `${sessionId} must not resolve a root`)
+    assert.equal(result.value.roots.length, 3)
+  }
+})

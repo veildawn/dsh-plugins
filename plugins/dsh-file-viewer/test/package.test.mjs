@@ -306,3 +306,35 @@ test('the tree expands in place and loads children lazily', () => {
   // Depth is expressed as indentation.
   assert.match(source, /paddingLeft: 8 \+ row\.depth \* 14/)
 })
+
+test('the conversation header carries a session-scoped entry', () => {
+  const source = read('lib/client.js')
+
+  // The contract reserves `header.actions` for context and lineage controls;
+  // optional session tools go in `utilities` so they cannot reorder those.
+  assert.match(source, /const HEADER_SLOT = "conversation\.session\.header\.utilities"/)
+  assert.match(source, /ctx\.slots\.inject\(HEADER_SLOT/)
+
+  // Session scope means the component receives sessionId, which is what lets
+  // the host resolve that session's project directory.
+  assert.match(source, /props === undefined \? undefined : props\.sessionId/)
+  assert.match(source, /openStore\.set\(openStore\.get\(\) === null \? \{ sessionId \} : null\)/)
+
+  // Open state is a payload, not a boolean, so the overlay knows which session
+  // asked; a fresh object per open re-runs root resolution.
+  assert.match(source, /const openStore = createStore\(null\)/)
+  assert.doesNotMatch(source, /openStore\.set\(false\)/)
+  assert.doesNotMatch(source, /openStore\.set\(true\)/)
+
+  // The revealed directory's whole ancestor chain opens on arrival.
+  assert.match(source, /const chain = reveal === "" \? \[\] : \[\.\.\.ancestorsOf\(reveal\), reveal\]/)
+  assert.match(source, /for \(const dirPath of \["", \.\.\.chain\]\) loadDirectory\(dirPath\)/)
+})
+
+test('registering in a conversation slot is declared in the manifest', () => {
+  // The slot must exist before registration runs, which is what `dsh.client.inject`
+  // guarantees; without this the header entry silently never appears.
+  assert(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-conversation'))
+  assert(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar'))
+  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-conversation'], '^0.1.0-rc.6')
+})

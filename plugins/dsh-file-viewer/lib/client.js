@@ -28,6 +28,10 @@ window.__ModuleLoader__.load({
     const RPC_CHANNEL = "/dsh-file-viewer";
     const OVERLAY_SLOT = "shell.overlay";
     const ACTION_SLOT = "sidebar.footer.action";
+    // Session-scoped utilities sit at the far right of the conversation header;
+    // the contract reserves `actions` for context and lineage controls, so an
+    // optional tool belongs here and cannot disturb their order.
+    const HEADER_SLOT = "conversation.session.header.utilities";
     const STYLE_ID = "dsh-file-viewer-styles";
     const WINDOW_LINES = 500;
     const inject = ["slots", "connection"];
@@ -151,6 +155,18 @@ window.__ModuleLoader__.load({
       return cut < 0 ? "" : trimmed.slice(0, cut);
     }
 
+    /** Every ancestor directory of a path, outermost first. Mirrors lib/core.js. */
+    function ancestorsOf(path) {
+      const parts = String(path || "").split(/[\\/]+/).filter((part) => part !== "");
+      const rows = [];
+      let joined = "";
+      for (const part of parts.slice(0, -1)) {
+        joined = joined === "" ? part : joined + "/" + part;
+        rows.push(joined);
+      }
+      return rows;
+    }
+
     /**
      * Flatten the lazily-loaded tree into render rows. Mirrors `flattenTree` in
      * lib/core.js, which is where it is unit tested — the browser bundle is one
@@ -260,7 +276,10 @@ window.__ModuleLoader__.load({
 
     function apply(ctx) {
       ensureStyles(typeof document === "undefined" ? null : document);
-      const openStore = createStore(false);
+      // `null` is closed; an object is open. Carrying the requesting session lets
+      // the overlay land on that session's project instead of the first
+      // workspace, and a fresh object per open re-runs the resolution.
+      const openStore = createStore(null);
       const request = createRequest(ctx.connection);
 
       /**
@@ -550,7 +569,8 @@ window.__ModuleLoader__.load({
 
       /** The overlay page: root picker, breadcrumbs, tree and viewer. */
       function ViewerOverlay(props) {
-        const open = useStore(openStore);
+        const request_ = useStore(openStore);
+        const open = request_ !== null;
         const [roots, setRoots] = react.useState([]);
         const [root, setRoot] = react.useState("");
         // The tree is an expansion set plus a per-directory listing cache; a
@@ -562,22 +582,30 @@ window.__ModuleLoader__.load({
         const [hidden, setHidden] = react.useState(false);
         const [error, setError] = react.useState(null);
         const [pane, setPane] = react.useState("tree");
+        // Directory to open on arrival, relative to the resolved root: the
+        // session's working directory when it sits below the workspace root.
+        const [reveal, setReveal] = react.useState("");
         const metaTicket = react.useRef(0);
         const treeGeneration = react.useRef(0);
 
+        // Resolve the root set on every open. When the request came from a
+        // conversation header the host also reports which root that session's
+        // working directory belongs to, and the path within it to reveal.
         react.useEffect(() => {
-          if (!open) return undefined;
+          if (request_ === null) return undefined;
           let live = true;
-          request("roots").then((value) => {
-            if (!live) return;
-            setRoots(value.roots || []);
-            setRoot((current) => (current !== "" ? current : (value.roots || [])[0]?.id || ""));
-            setError(null);
-          }).catch((problem) => {
-            if (live) setError(problem);
-          });
+          request("roots", request_.sessionId === undefined ? {} : { sessionId: request_.sessionId })
+            .then((value) => {
+              if (!live) return;
+              setRoots(value.roots || []);
+              setRoot(value.root || (value.roots || [])[0]?.id || "");
+              setReveal(typeof value.reveal === "string" ? value.reveal : "");
+              setError(null);
+            }).catch((problem) => {
+              if (live) setError(problem);
+            });
           return () => { live = false; };
-        }, [open]);
+        }, [request_]);
 
         /**
          * Request one directory listing and file it into the node cache.
@@ -604,19 +632,22 @@ window.__ModuleLoader__.load({
 
         // A new root or filter invalidates every cached listing; the bumped
         // generation makes any in-flight response from the old tree stale.
+        // When the host named a directory to reveal, its whole ancestor chain
+        // opens at once so the session's project is visible on arrival.
         react.useEffect(() => {
           if (!open || root === "") return;
           treeGeneration.current += 1;
-          setExpanded(new Set());
           setNodes(new Map());
           setMeta(null);
-          loadDirectory("");
-        }, [open, root, hidden]);
+          const chain = reveal === "" ? [] : [...ancestorsOf(reveal), reveal];
+          setExpanded(new Set(chain));
+          for (const dirPath of ["", ...chain]) loadDirectory(dirPath);
+        }, [open, root, hidden, reveal]);
 
         react.useEffect(() => {
           if (!open) return undefined;
           const onKeyDown = (event) => {
-            if (event.key === "Escape") openStore.set(false);
+            if (event.key === "Escape") openStore.set(null);
           };
           document.addEventListener("keydown", onKeyDown);
           return () => document.removeEventListener("keydown", onKeyDown);
@@ -671,7 +702,7 @@ window.__ModuleLoader__.load({
           "aria-modal": "true",
           "aria-label": "文件查看器",
           onMouseDown: (event) => {
-            if (event.target === event.currentTarget) openStore.set(false);
+            if (event.target === event.currentTarget) openStore.set(null);
           },
         },
           react.createElement("div", { className: "fv-shell" },
@@ -700,7 +731,7 @@ window.__ModuleLoader__.load({
                 onClick: () => setHidden((current) => !current),
               }, react.createElement("span", { "aria-hidden": "true" }, "\u00B7*")),
               react.createElement("button", {
-                type: "button", className: "fv-icon-button", "aria-label": "关闭", onClick: () => openStore.set(false),
+                type: "button", className: "fv-icon-button", "aria-label": "关闭", onClick: () => openStore.set(null),
               }, IconCloseOutline16
                 ? react.createElement(IconCloseOutline16, { size: 16 })
                 : react.createElement("span", { "aria-hidden": "true" }, "\u2715"))),
@@ -738,12 +769,30 @@ window.__ModuleLoader__.load({
           className: wide ? "fv-entry" : "fv-entry fv-entry-rail",
           title: "文件查看器",
           "aria-label": "文件查看器",
-          onClick: () => openStore.set(!openStore.get()),
+          // No session context in the sidebar, so this opens the first workspace.
+          onClick: () => openStore.set(openStore.get() === null ? {} : null),
         },
           react.createElement("span", { className: "fv-entry-icon", "aria-hidden": "true" }, IconFolderOutline16
             ? react.createElement(IconFolderOutline16, { size: 16 })
             : "\u{1F5C1}"),
           wide ? react.createElement("span", { className: "fv-entry-label" }, "文件") : null);
+      }
+
+      /**
+       * Conversation header entry. Session-scoped, so it can name the session
+       * and have the host open the viewer on that session's project directory.
+       */
+      function ViewerHeaderAction(props) {
+        const sessionId = props === undefined ? undefined : props.sessionId;
+        return react.createElement("button", {
+          type: "button",
+          className: "fv-icon-button",
+          title: "查看项目文件",
+          "aria-label": "查看项目文件",
+          onClick: () => openStore.set(openStore.get() === null ? { sessionId } : null),
+        }, IconFolderOutline16
+          ? react.createElement(IconFolderOutline16, { size: 16 })
+          : react.createElement("span", { "aria-hidden": "true" }, "\u{1F5C1}"));
       }
 
       ctx.slots.inject(OVERLAY_SLOT, () => ctx.slots.register({
@@ -752,6 +801,12 @@ window.__ModuleLoader__.load({
         order: 30,
         inject: () => ({ api: ctx.connection.api }),
       }, ViewerOverlay));
+
+      ctx.slots.inject(HEADER_SLOT, () => ctx.slots.register({
+        name: HEADER_SLOT,
+        id: "file-viewer",
+        order: 20,
+      }, ViewerHeaderAction));
 
       ctx.slots.inject(ACTION_SLOT, () => ctx.slots.register({
         name: ACTION_SLOT,
@@ -765,8 +820,8 @@ window.__ModuleLoader__.load({
     exports.apply = apply;
     exports.inject = inject;
     exports.internals = {
-      RPC_CHANNEL, OVERLAY_SLOT, ACTION_SLOT, STYLE_ID, WINDOW_LINES, css,
-      ERROR_COPY, baseNameOf, formatBytes, parentOf, flattenTree, columnLabel,
+      RPC_CHANNEL, OVERLAY_SLOT, ACTION_SLOT, HEADER_SLOT, STYLE_ID, WINDOW_LINES, css,
+      ERROR_COPY, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
     };
     return module.exports;

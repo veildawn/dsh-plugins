@@ -371,9 +371,47 @@ export async function readDoc(ctx, options, payload, signal) {
   }
 }
 
+/**
+ * Resolve which root a session belongs to, so the viewer opens on the project
+ * the reader is working in rather than the first registered workspace.
+ *
+ * A session's `cwd` may sit inside a workspace rather than be one, so the
+ * deepest containing root wins and the remainder is returned as a path to
+ * reveal in the tree.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{sessionId?: string}} payload - client request.
+ * @returns {{roots: object[], root?: string, reveal?: string}} roots plus the session's position.
+ */
+export function resolveSessionRoot(ctx, options, payload) {
+  const roots = collectRoots(ctx, options)
+  const sessionId = payload?.sessionId
+  if (typeof sessionId !== 'string' || sessionId === '') return { roots }
+
+  const session = ctx.sessions?.get?.(sessionId)
+  const cwd = session?.header?.cwd ?? session?.header?.meta?.cwd
+  if (typeof cwd !== 'string' || cwd === '') return { roots }
+
+  // Compare on one separator style and case-insensitively: roots come from the
+  // registry, sessions and hand-written config, so `D:\repo\a` and `D:/repo`
+  // can legitimately describe the same tree.
+  const key = cwd.replace(/[\\/]+$/, '').replace(/\\/g, '/')
+  const fold = (value) => value.toLowerCase()
+  let best
+  for (const root of roots) {
+    const rootKey = root.id.replace(/[\\/]+$/, '').replace(/\\/g, '/')
+    const sameRoot = fold(key) === fold(rootKey)
+    if (sameRoot || fold(key).startsWith(fold(rootKey) + '/')) {
+      if (best === undefined || rootKey.length > best.rootKey.length) best = { root, rootKey, sameRoot }
+    }
+  }
+  if (best === undefined) return { roots }
+  return { roots, root: best.root.id, reveal: best.sameRoot ? '' : key.slice(best.rootKey.length + 1) }
+}
+
 /** Method table; each entry receives `(ctx, options, payload, signal)`. */
 const METHODS = Object.freeze({
-  roots: (ctx, options) => ({ roots: collectRoots(ctx, options) }),
+  roots: (ctx, options, payload) => resolveSessionRoot(ctx, options, payload),
   list: listDirectory,
   meta: describeFile,
   read: readText,
