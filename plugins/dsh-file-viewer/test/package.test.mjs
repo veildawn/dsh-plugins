@@ -504,6 +504,17 @@ test('tree rows can reference a file into the composer', () => {
   assert.doesNotMatch(source, /\.fv-mention\{[^}]*opacity:0\}/)
   assert.match(source, /@media\(hover:none\),\(pointer:coarse\)\{\.fv-mention\{opacity:1\}\}/)
 
+  // The tree pads itself while sized at 100%, so without border-box it measures
+  // 12px wider than the viewport and pushes the row's trailing edge — the size
+  // label and this button — off screen on a narrow phone.
+  assert.match(source, /\.fv-tree\{box-sizing:border-box;/)
+
+  // The row is a flex child now; width:100% would claim the whole seat and
+  // squeeze the button out of the row entirely.
+  assert.match(source, /\.fv-row\{[^}]*min-width:0;min-height:32px/)
+  assert.doesNotMatch(source, /\.fv-row\{[^}]*width:100%/)
+  assert.match(source, /\.fv-row-seat\{[^}]*width:100%;min-width:0;max-width:100%\}/)
+
   // 44px is the smallest comfortable touch target.
   assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-mention\{width:44px;height:44px;margin-right:2px;opacity:1\}/)
 })

@@ -62,9 +62,9 @@ window.__ModuleLoader__.load({
       .fv-icon-button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-wrap-glyph{font-size:15px;line-height:1}
       .fv-body{display:flex;flex:1 1 auto;min-height:0}
-      .fv-tree{display:flex;flex:none;flex-direction:column;width:280px;min-height:0;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:6px;gap:1px;overscroll-behavior:contain}
-      .fv-row{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
-      .fv-row-seat{position:relative;display:flex;align-items:center;gap:2px}
+      .fv-tree{box-sizing:border-box;display:flex;flex:none;flex-direction:column;width:280px;min-height:0;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:6px;gap:1px;overscroll-behavior:contain}
+      .fv-row{display:flex;align-items:center;gap:8px;min-width:0;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
+      .fv-row-seat{position:relative;display:flex;align-items:center;gap:2px;width:100%;min-width:0;max-width:100%}
       .fv-row-seat>.fv-row{flex:1 1 auto;min-width:0}
       /* Always visible rather than revealed on hover. Hiding it behind hover
          made it unreachable wherever hover is unreliable — touch screens, but
