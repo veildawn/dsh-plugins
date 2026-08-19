@@ -39,8 +39,10 @@ echo "   Tag : $TAG"
 echo "=========================================="
 
 # 1. 运行该插件测试
+# 插件从 profile 的共享目录解析宿主包，其位置随 HOME 变化，所以不能写死。
+DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
 echo "🧪 正在运行 $PLUGIN 自动化测试..."
-(cd "$PLUGIN_DIR" && NODE_PATH=/Users/veildawn/.dsh/profiles/node_modules:/Users/veildawn/.dsh/profiles/web/node_modules npm test)
+(cd "$PLUGIN_DIR" && NODE_PATH="$DSH_HOME/profiles/node_modules:$DSH_HOME/profiles/web/node_modules" npm test)
 
 # 2. 打包生成 tgz
 echo "📦 打包 tgz..."
