@@ -380,3 +380,20 @@ test('the phone entry is drawn outside the header the narrow layout hides', () =
   assert.match(source, /\.fv-float-entry\{[^}]*z-index:39/)
   assert.match(source, /\.fv-float-entry\{[^}]*width:44px;height:44px/)
 })
+
+test('the drawer can be dismissed on a phone', () => {
+  const source = read('lib/client.js')
+
+  // A phone has no Escape key, and a full-screen drawer leaves no scrim to tap,
+  // so the back gesture must close it. A history entry of our own is what stops
+  // that gesture from leaving the app.
+  assert.match(source, /window\.history\.pushState\(\{ fileViewer: true \}, ""\)/)
+  assert.match(source, /window\.addEventListener\("popstate", onPopState\)/)
+
+  // Closing by any other route must retract that entry, or the next back press
+  // is spent undoing it and looks like nothing happened.
+  assert.match(source, /state\.fileViewer === true\) window\.history\.back\(\)/)
+
+  // The close button stays in the head on every width.
+  assert.match(source, /"aria-label": "关闭", onClick: \(\) => openStore\.set\(null\)/)
+})

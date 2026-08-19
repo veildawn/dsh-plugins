@@ -686,3 +686,14 @@ test('the file viewer drawer is adapted for phones', () => {
   const mobileBlock = css.slice(css.indexOf('@media (max-width:768px)'))
   assert(mobileBlock.includes('.fv-scrim'), 'viewer rules must sit inside the mobile query')
 })
+
+test('the file viewer drawer clears the mobile bar', async () => {
+  const css = client.internals.css
+
+  // The shell's overlay layer is its own stacking context at z-index 20, so a
+  // z-index on the scrim cannot lift it past .dsh-mobile-bar at 900. The bar
+  // covered the drawer's header and swallowed every control in it, including
+  // close — the only way out on a phone. The layer itself has to be raised.
+  assert.match(css, /\.pI_x6G_overlayLayer:has\(\.fv-scrim\)\{z-index:1100!important\}/)
+  assert.match(css, /\.dsh-mobile-bar\{[^}]*z-index:900/)
+})

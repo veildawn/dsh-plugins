@@ -164,6 +164,11 @@ window.__ModuleLoader__.load({
         .VOzbGW_overlay{box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw;height:var(--dsh-vvh,100dvh)!important;background:var(--dsw-alias-bg-base);display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}
         .VOzbGW_mask{display:none!important}
         .VOzbGW_panel{box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex;flex-direction:column;overflow:hidden}
+        /* The shell's overlay layer is its own stacking context at z-index 20,
+           which traps anything inside it below .dsh-mobile-bar (z-index 900) —
+           the bar covered the drawer's header and swallowed its close button.
+           Raise the layer itself; the scrim's own z-index cannot escape it. */
+        [data-slot="root"] .pI_x6G_overlayLayer:has(.fv-scrim){z-index:1100!important}
         /* dsh-file-viewer drawer. A 64vw panel is unusable on a phone, so it
            takes the whole screen. Height tracks the visual viewport instead of
            100dvh, which some mobile browsers report before the address bar

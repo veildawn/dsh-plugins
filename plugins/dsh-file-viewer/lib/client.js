@@ -661,6 +661,23 @@ window.__ModuleLoader__.load({
           return () => document.removeEventListener("keydown", onKeyDown);
         }, [open]);
 
+        // A phone has no Escape key, and beside a full-screen drawer there is no
+        // scrim left to tap, so the back gesture has to close it. Without a
+        // history entry of our own that gesture leaves the app entirely.
+        react.useEffect(() => {
+          if (!open) return undefined;
+          window.history.pushState({ fileViewer: true }, "");
+          const onPopState = () => openStore.set(null);
+          window.addEventListener("popstate", onPopState);
+          return () => {
+            window.removeEventListener("popstate", onPopState);
+            // Drop our entry when the drawer was closed some other way, or the
+            // next back press would be spent undoing it and appear to do nothing.
+            const state = window.history.state;
+            if (state !== null && state !== undefined && state.fileViewer === true) window.history.back();
+          };
+        }, [open]);
+
         if (!open) return null;
 
         // Expanding fetches the listing the first time only; collapsing keeps
