@@ -518,3 +518,16 @@ test('tree rows can reference a file into the composer', () => {
   // 44px is the smallest comfortable touch target.
   assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-mention\{width:44px;height:44px;margin-right:2px;opacity:1\}/)
 })
+
+test('an existing stylesheet is refreshed rather than left stale', () => {
+  const source = read('lib/client.js')
+
+  // Bailing out on the id alone left old rules in place whenever the tag
+  // outlived the module, so the script updated while the layout did not.
+  assert.match(source, /if \(existing\.textContent !== css\) existing\.textContent = css/)
+  assert.doesNotMatch(source, /if \(!doc \|\| doc\.getElementById\(STYLE_ID\)\) return/)
+
+  // Checked on every open, not only at startup: apply() runs once while the
+  // stylesheet can outlive the module across a client reload.
+  assert.match(source, /if \(!open\) return;\s*ensureStyles\(/)
+})

@@ -132,9 +132,20 @@ window.__ModuleLoader__.load({
       }
     `;
 
-    /** Inject the stylesheet once per document. */
+    /**
+     * Inject the stylesheet, refreshing it when the content has changed.
+     *
+     * Bailing out on the id alone left a stale sheet in place whenever the tag
+     * outlived the module — the script would update while the rules did not,
+     * which shows up as a layout fault that no reload seems to fix.
+     */
     function ensureStyles(doc) {
-      if (!doc || doc.getElementById(STYLE_ID)) return;
+      if (!doc) return;
+      const existing = doc.getElementById(STYLE_ID);
+      if (existing) {
+        if (existing.textContent !== css) existing.textContent = css;
+        return;
+      }
       const tag = doc.createElement("style");
       tag.id = STYLE_ID;
       tag.textContent = css;
@@ -769,6 +780,14 @@ window.__ModuleLoader__.load({
             const state = window.history.state;
             if (state !== null && state !== undefined && state.fileViewer === true) window.history.back();
           };
+        }, [open]);
+
+        // Re-checked on every open, not just at startup: the stylesheet outlives
+        // this module across a client reload, and a stale sheet renders the
+        // drawer with old rules while the script is current.
+        react.useEffect(() => {
+          if (!open) return;
+          ensureStyles(typeof document === "undefined" ? null : document);
         }, [open]);
 
         if (!open) return null;
