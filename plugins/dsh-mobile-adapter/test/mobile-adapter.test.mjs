@@ -309,7 +309,9 @@ test('Conversation mobile CSS keeps a bounded scrollport and permanently hides m
   assert.match(css, /\[data-slot="root"\]>div\{height:100%!important;min-height:0/)
   assert.match(css, /\[data-slot="conversation"\]\{flex:1 1 0;height:100%;min-width:0;min-height:0/)
   assert.match(css, /\[data-conversation-scroll\]\{flex:1 1 0;min-width:0;min-height:0/)
-  assert.match(css, /\[data-slot="conversation\.session\.header"\]>header\{display:none!important\}/)
+  // The native header stays in the tree so its utilities list keeps working;
+  // only the crumbs, actions and tabs give way to .dsh-mobile-bar.
+  assert.match(css, /\.wSkVaW_titleRow>\.wSkVaW_crumbs,[^{]*\.wSkVaW_tabs\{display:none!important\}/)
   assert.match(css, /\.wSkVaW_heroWorkspaceRow\{[^}]*width:100%;padding:0 20px!important;gap:4px!important;flex-wrap:wrap\}/)
   assert.match(css, /\.pXSMma_workspace\{[^}]*min-width:0!important;max-width:100%!important;min-height:36px!important;flex:1 1 140px\}/)
   assert.match(css, /\[data-slot="conversation\.hero\.agentPreset"\]>span\{min-width:0;max-width:min\(50%,240px\);flex:0 1 auto\}/)
@@ -522,7 +524,12 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   client.apply(f.ctx)
   const bar = f.doc.body.children.find((node) => node.className === 'dsh-mobile-bar')
   const backdrop = f.doc.body.children.find((node) => node.className === 'dsh-mobile-backdrop')
-  const [menu, titleBox, view] = bar.children
+  // Selected by class rather than position: the order of the bar's children is
+  // not part of its contract, and new seats are inserted between them.
+  const inBar = (name) => bar.children.find((node) => node.className === name)
+  const menu = inBar('dsh-mobile-icon')
+  const titleBox = inBar('dsh-mobile-titlebox')
+  const view = inBar('dsh-mobile-view')
   const [title, status] = titleBox.children
   assert.equal(bar.hidden, false)
   assert.equal(title.textContent, '移动端适配会话')
@@ -685,4 +692,37 @@ test('the file viewer drawer is adapted for phones', () => {
   // These rules only apply on the phone breakpoint.
   const mobileBlock = css.slice(css.indexOf('@media (max-width:768px)'))
   assert(mobileBlock.includes('.fv-scrim'), 'viewer rules must sit inside the mobile query')
+})
+
+test('session header utilities survive the mobile header replacement', async () => {
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const css = client.internals.css
+
+  // The native header is replaced by .dsh-mobile-bar, but its utilities list is
+  // where plugins register session tools. Hiding the header outright hid those
+  // controls with no way to reach them.
+  assert.doesNotMatch(css, /\[data-slot="conversation\.session\.header"\]>header\{display:none!important\}/)
+
+  // The header stays in the tree, stripped to just that list and parked over the
+  // bar's trailing edge, clear of the trajectory button.
+  assert.match(css, /\[data-slot="conversation\.session\.header"\]>header\{[^}]*position:absolute!important/)
+  assert.match(css, /\[data-slot="conversation\.session\.header"\]>header\{[^}]*right:calc\(64px \+ max\(8px,var\(--dsh-sar\)\)\)!important/)
+  // headerUtilities is nested inside titleRow, so that row must stay laid out —
+  // hiding it took the utilities with it, which is what broke the button.
+  assert.match(css, /\.wSkVaW_titleRow>\.wSkVaW_crumbs,[^{]*\.wSkVaW_headerActions/)
+  assert.match(css, /header>\.wSkVaW_titleRow\{[^}]*display:flex!important/)
+
+  // The parked box must not swallow taps meant for the bar's own controls.
+  assert.match(css, /header\{[^}]*pointer-events:none!important\}/)
+  assert.match(css, /\.wSkVaW_headerUtilities button\{pointer-events:auto!important/)
+  assert.match(css, /\.dsh-mobile-bar \.dsh-mobile-titlebox\{padding-right:164px}/)
+
+  // React must keep owning those nodes: relocating them out of its container
+  // detaches the delegated handlers and the buttons go dead silently.
+  assert.doesNotMatch(source, /utilityHost/)
+  assert.doesNotMatch(source, /header\.utilities"\]'\)/)
+
+  // Touch targets match the bar, and text labels collapse to icons.
+  assert.match(css, /\.wSkVaW_headerUtilities button\{[^}]*width:40px!important;height:40px!important/)
+  assert.match(css, /\.wSkVaW_headerUtilities button>span\{display:none!important\}/)
 })

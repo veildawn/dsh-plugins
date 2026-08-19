@@ -34,6 +34,9 @@ window.__ModuleLoader__.load({
         .dsh-mobile-view{box-sizing:border-box;min-width:72px;height:44px;flex:none;border:0;border-radius:12px;background:transparent;color:inherit;font:600 13px/1 var(--dsw-font-family);display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 10px;cursor:pointer;white-space:nowrap}
         .dsh-mobile-view[hidden]{display:none}
         .dsh-mobile-titlebox{min-width:0;flex:1;display:flex;flex-direction:column;justify-content:center;gap:1px}
+        /* Room for the native header's utilities list, which is parked over the
+           bar's trailing edge; its width depends on which plugins registered. */
+        @media (max-width:768px){.dsh-mobile-bar .dsh-mobile-titlebox{padding-right:164px}}
         .dsh-mobile-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--dsw-font-s-strong-14);font-weight:600}
         .dsh-mobile-status{display:flex;width:max-content;max-width:100%;align-items:center;gap:5px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .dsh-mobile-status:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-success-primary)}
@@ -52,7 +55,21 @@ window.__ModuleLoader__.load({
         [data-slot="sidebar"] .qDHVXG_list{scrollbar-gutter:auto!important}
         [data-slot="root"]>div>div:has(>[data-slot="conversation"]){box-sizing:border-box;display:flex;width:100vw;height:100%;min-height:0;padding:calc(52px + var(--dsh-sat)) var(--dsh-sar) var(--dsh-keyboard-inset,0px) var(--dsh-sal);overflow:hidden}
         [data-slot="conversation"]{flex:1 1 0;height:100%;min-width:0;min-height:0}
-        [data-slot="conversation.session.header"]>header{display:none!important}
+        /* The native session header is replaced by .dsh-mobile-bar, but its
+           utilities list is a registration point for plugins, so hiding the
+           header outright would hide those controls with no way to reach them.
+           Keep the header in the tree and strip it to just that list, then park
+           it over the bar's trailing edge. React keeps owning those nodes —
+           moving them out of its container silently kills their handlers. */
+        [data-slot="conversation.session.header"]>header{box-sizing:border-box!important;position:absolute!important;z-index:901!important;top:var(--dsh-sat)!important;right:calc(64px + max(8px,var(--dsh-sar)))!important;left:auto!important;width:auto!important;min-width:40px!important;min-height:0!important;height:52px!important;margin:0!important;padding:0!important;border:0!important;background:none!important;box-shadow:none!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:2px!important;pointer-events:none!important}
+        /* headerUtilities lives inside titleRow, so that row must stay laid out
+           and only its own content (crumbs, actions) is dropped. */
+        [data-slot="conversation.session.header"]>header>.wSkVaW_titleRow{pointer-events:none!important;width:auto!important;max-width:none!important;min-width:0!important;height:100%!important;flex:none!important;justify-content:flex-end!important;gap:0!important;margin:0!important;padding:0!important;border:0!important;background:none!important;display:flex!important;align-items:center!important}
+        .wSkVaW_titleRow>.wSkVaW_crumbs,.wSkVaW_titleRow>.wSkVaW_headerActions,[data-slot="conversation.session.header"]>header>.wSkVaW_tabs{display:none!important}
+        .wSkVaW_headerUtilities{pointer-events:none!important;width:auto!important;max-width:none!important;min-width:0!important;justify-content:flex-end!important;height:100%!important;flex:none!important;display:flex!important;align-items:center!important;gap:2px!important;margin:0!important;padding:0!important}
+        .wSkVaW_headerUtilities button{pointer-events:auto!important;width:40px!important;height:40px!important;flex:none!important;padding:0!important;border:0!important;border-radius:12px!important;background:transparent!important;color:var(--dsw-alias-label-primary)!important;display:grid!important;place-items:center!important;cursor:pointer}
+        .wSkVaW_headerUtilities button>span{display:none!important}
+        .wSkVaW_headerUtilities button svg{display:block!important}
         .wSkVaW_heroWorkspaceRow{box-sizing:border-box;width:100%;padding:0 20px!important;gap:4px!important;flex-wrap:wrap}
         .pXSMma_workspace{box-sizing:border-box;min-width:0!important;max-width:100%!important;min-height:36px!important;flex:1 1 140px}
         [data-slot="conversation.hero.agentPreset"]>span{min-width:0;max-width:min(50%,240px);flex:0 1 auto}
@@ -270,6 +287,7 @@ window.__ModuleLoader__.load({
       const view = doc.createElement('button')
       view.type = 'button'
       view.className = 'dsh-mobile-view'
+
       bar.append(menu, titleBox, view)
 
       const backdrop = doc.createElement('button')
