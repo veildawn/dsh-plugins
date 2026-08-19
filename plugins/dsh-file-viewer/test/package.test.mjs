@@ -9,6 +9,27 @@ const manifest = require('../package.json')
 const root = fileURLToPath(new URL('..', import.meta.url))
 const read = (relative) => readFileSync(root + relative, 'utf8')
 
+/**
+ * Evaluate the browser bundle and hand back its module exports.
+ *
+ * The bundle registers itself with the host's loader off `window` rather than
+ * exporting anything, so it has to be run with that shape in place and the
+ * definition caught as it registers.
+ */
+const loadClient = () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  return definition.factory((id) => (id === 'react'
+    ? { createElement: () => null, useRef: () => ({ current: null }), useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useEffect: () => {} }
+    : { ReadBlock: null, MarkdownText: null, JsonTree: null }))
+}
+
 test('the manifest is a loadable DSH plugin', () => {
   assert.equal(manifest.name, 'dsh-file-viewer')
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/)
@@ -260,7 +281,10 @@ test('the viewer opens as a right-hand drawer with no sidebar entry', () => {
   // along with its styles and slot registration.
   assert.doesNotMatch(source, /sidebar\.footer\.action/)
   assert.doesNotMatch(source, /ViewerAction\b/)
-  assert.doesNotMatch(source, /fv-entry/)
+  // The removed sidebar button owned the .fv-entry class. Matched as a class
+  // rather than as a bare substring so the --fv-entry-* placement properties on
+  // the phone entry do not read as a return of that button.
+  assert.doesNotMatch(source, /\.fv-entry[{ ,:]/)
   assert(!manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar'))
   assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-sidebar'], undefined)
 
@@ -378,10 +402,11 @@ test('the phone entry is drawn outside the header the narrow layout hides', () =
 
   // It must clear the composer and the safe area, and stay under the drawer.
   // Clears the composer (100px) and the adapter's info strip (20px) below it,
-  // measured on a 390x844 viewport, plus the safe area.
-  assert.match(source, /\.fv-float-entry\{[^}]*bottom:calc\(148px \+ var\(--dsh-sab,0px\)\)/)
+  // measured on a 390x844 viewport, plus the safe area. That default is now the
+  // fallback of the placement property a drag overrides.
+  assert.match(source, /\.fv-float-entry\{[^}]*bottom:var\(--fv-entry-bottom,calc\(148px \+ var\(--dsh-sab,0px\)\)\)/)
   assert.match(source, /\.fv-float-entry\{[^}]*z-index:39/)
-  assert.match(source, /\.fv-float-entry\{[^}]*width:46px;height:46px/)
+  assert.match(source, /\.fv-float-entry\{[^}]*width:48px;height:48px/)
 })
 
 test('the drawer can be dismissed on a phone', () => {
@@ -414,10 +439,20 @@ test('the entry reads clearly and precedes the session log download', () => {
   // no order, so it sits at 0; a negative order puts this button to its left.
   assert.match(source, /order: -10,\s*\}, ViewerHeaderAction\)\)/)
 
-  // The phone entry is a solid filled circle, not a faint outline.
-  assert.match(source, /\.fv-float-entry\{[^}]*background:var\(--dsw-alias-bg-inverse/)
-  assert.match(source, /\.fv-float-entry\{[^}]*box-shadow:0 4px 14px/)
-  assert.match(source, /\.fv-float-entry\{[^}]*border:0/)
+  // The phone entry follows the host's own round floating button: a floating
+  // fill, a hairline border and shadow-lv2. The earlier rule named
+  // --dsw-alias-bg-inverse and --dsw-alias-label-inverse, which the theme does
+  // not define, so it always rendered its literal fallbacks and stayed dark
+  // under a light theme.
+  assert.match(source, /\.fv-float-entry\{[^}]*background:var\(--dsw-alias-button-floating-fill\)/)
+  assert.match(source, /\.fv-float-entry\{[^}]*color:var\(--dsw-alias-label-primary\)/)
+  assert.match(source, /\.fv-float-entry\{[^}]*box-shadow:var\(--dsw-shadow-lv2\)/)
+  assert.match(source, /\.fv-float-entry\{[^}]*border:1px solid var\(--dsw-alias-border-l2\)/)
+  // Matched as var() references, since the comment above the rule names both
+  // tokens to explain why they are gone.
+  assert.doesNotMatch(source, /var\(--dsw-alias-bg-inverse/)
+  assert.doesNotMatch(source, /var\(--dsw-alias-label-inverse/)
+  assert.doesNotMatch(source, /box-shadow:0 4px 14px/)
 })
 
 test('source views can be soft wrapped from the toolbar', () => {
@@ -542,4 +577,122 @@ test('the mention button survives a host that gives the bridge no input props', 
   assert.match(source, /function writeDraftToDom\(doc, text\)/)
   assert.match(source, /Object\.getOwnPropertyDescriptor\(proto, "value"\)/)
   assert.match(source, /area\.dispatchEvent\(new Event\("input", \{ bubbles: true \}\)\)/)
+})
+
+test('a dragged entry settles against the nearest edge inside the safe area', () => {
+  const { internals } = loadClient()
+  const { settleEntry } = internals
+  const viewport = { width: 360, height: 780, size: 48 }
+  const safe = { top: 52, bottom: 34, left: 0, right: 0 }
+
+  // Horizontal placement is decided by the button's centre, not its left edge,
+  // so a button whose left sits past the midpoint but whose centre does not
+  // still returns to the near side.
+  assert.equal(settleEntry({ ...viewport, x: 10, y: 400, safe }).side, 'left')
+  assert.equal(settleEntry({ ...viewport, x: 300, y: 400, safe }).side, 'right')
+  assert.equal(settleEntry({ ...viewport, x: 155, y: 400, safe }).side, 'left')
+  assert.equal(settleEntry({ ...viewport, x: 157, y: 400, safe }).side, 'right')
+
+  // Vertically the released height is kept, expressed from the bottom.
+  assert.equal(settleEntry({ ...viewport, x: 300, y: 400, safe }).bottom, 780 - 400 - 48)
+
+  // Dragged off the bottom it stops at the safe-area floor rather than leaving
+  // the screen, and off the top it stops below the mobile bar. Without those
+  // clamps a rotation could strand the button where it cannot be tapped.
+  assert.equal(settleEntry({ ...viewport, x: 300, y: 5000, safe }).bottom, 14 + 34)
+  assert.equal(settleEntry({ ...viewport, x: 300, y: -5000, safe }).bottom, 780 - 52 - 14 - 48)
+
+  // The horizontal inset clears the safe area on the side it lands on.
+  assert.equal(settleEntry({ ...viewport, x: 0, y: 400, safe: { ...safe, left: 20 } }).offset, 34)
+  assert.equal(settleEntry({ ...viewport, x: 340, y: 400, safe: { ...safe, right: 20 } }).offset, 34)
+
+  // A viewport shorter than the insets it must respect cannot satisfy both, and
+  // the floor wins so the button stays reachable.
+  const cramped = settleEntry({ width: 360, height: 90, size: 48, x: 300, y: 0, safe })
+  assert.equal(cramped.bottom, 14 + 34)
+})
+
+test('a stored entry position is validated before it is trusted', () => {
+  const { internals } = loadClient()
+  const { readEntryPosition, writeEntryPosition, ENTRY_POSITION_KEY } = internals
+  const previous = globalThis.localStorage
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+  }
+  try {
+    assert.equal(ENTRY_POSITION_KEY, 'dsh-file-viewer.entry-position')
+    assert.equal(readEntryPosition(), null)
+
+    writeEntryPosition({ side: 'left', bottom: 200 })
+    assert.deepEqual(readEntryPosition(), { side: 'left', bottom: 200 })
+
+    // A value from an older build or edited by hand would otherwise place the
+    // button off-screen with no way to drag it back.
+    for (const bad of ['not json', '{}', '{"side":"middle","bottom":10}', '{"side":"left"}', '{"side":"left","bottom":-5}']) {
+      store.set(ENTRY_POSITION_KEY, bad)
+      assert.equal(readEntryPosition(), null, bad)
+    }
+
+    writeEntryPosition(null)
+    assert.equal(readEntryPosition(), null)
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage
+    else globalThis.localStorage = previous
+  }
+})
+
+test('reading a position survives storage that throws on access', () => {
+  const { internals } = loadClient()
+  const previous = globalThis.localStorage
+  // Privacy modes throw on the property access itself, not just on the call.
+  Object.defineProperty(globalThis, 'localStorage', {
+    get() { throw new Error('SecurityError') },
+    configurable: true,
+  })
+  try {
+    assert.equal(internals.readEntryPosition(), null)
+    assert.doesNotThrow(() => internals.writeEntryPosition({ side: 'left', bottom: 10 }))
+  } finally {
+    delete globalThis.localStorage
+    if (previous !== undefined) globalThis.localStorage = previous
+  }
+})
+
+test('the entry can be dragged without the release opening the drawer', () => {
+  const source = read('lib/client.js')
+
+  // Capture keeps the move and release events coming once the finger leaves the
+  // button, which happens almost at once when dragging.
+  assert.match(source, /element\.setPointerCapture\(event\.pointerId\)/)
+  assert.match(source, /releasePointerCapture\(event\.pointerId\)/)
+  // A gesture the system interrupts must not leave the drag armed.
+  assert.match(source, /onPointerCancel/)
+  // Otherwise the page scroller claims the drag.
+  assert.match(source, /\.fv-float-entry\{[^}]*touch-action:none/)
+  // Secondary touches during a pinch must not hijack an active drag.
+  assert.match(source, /event\.isPrimary === false \|\| event\.button > 0/)
+
+  // A release that ended a drag still fires a click, which would open the
+  // drawer the user was only repositioning.
+  assert.match(source, /if \(dragged\.current\) return;/)
+  // Cleared when the next press begins, not in the click handler: a touch drag
+  // does not reliably emit a click, and a flag left armed swallowed the next
+  // genuine tap instead of the release that set it.
+  assert.match(source, /dragged\.current = false;\s*drag\.current = \{/)
+  // Below the slop a press stays a tap.
+  assert.match(source, /travelled < DRAG_SLOP/)
+
+  // Placement travels through custom properties so the stylesheet keeps the
+  // default corner and its safe-area maths.
+  assert.match(source, /setProperty\("--fv-entry-left"/)
+  assert.match(source, /setProperty\("--fv-entry-bottom"/)
+  assert.match(source, /\.fv-float-entry\{[^}]*left:var\(--fv-entry-left,auto\)/)
+
+  // Lifted while dragging, and the transition is dropped so it tracks exactly.
+  assert.match(source, /\.fv-float-entry\[data-dragging="true"\]\{[^}]*transition:none/)
+  // The reduce block has to cover transitions too, not just animations.
+  assert.match(source, /prefers-reduced-motion:reduce\)\{[\s\S]*?\.fv-float-entry[^{]*\{transition:none/)
 })

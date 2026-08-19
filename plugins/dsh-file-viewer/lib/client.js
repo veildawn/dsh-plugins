@@ -41,6 +41,12 @@ window.__ModuleLoader__.load({
     // nothing itself.
     const COMPOSER_SLOT = "conversation.input.left";
     const STYLE_ID = "dsh-file-viewer-styles";
+    // Per-browser UI state, so it lives in localStorage rather than plugin
+    // settings; the key follows the `<plugin>.<setting>` form used elsewhere.
+    const ENTRY_POSITION_KEY = "dsh-file-viewer.entry-position";
+    // Below this much travel a press is a tap. Large enough to absorb the slip of
+    // a finger on a touch target, small enough that a deliberate drag registers.
+    const DRAG_SLOP = 8;
     const WINDOW_LINES = 500;
     const inject = ["slots", "connection"];
 
@@ -120,9 +126,29 @@ window.__ModuleLoader__.load({
       @media(max-width:768px){
         /* The narrow layout replaces the session header, so the header entry is
            unreachable there and this floating one takes over. It clears the
-           composer and the safe area, and sits under the drawer's z-index. */
-        .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;right:calc(14px + var(--dsh-sar,0px));bottom:calc(148px + var(--dsh-sab,0px));width:46px;height:46px;border:0;border-radius:50%;background:var(--dsw-alias-bg-inverse,#1f1f1f);color:var(--dsw-alias-label-inverse,#fff);box-shadow:0 4px 14px rgba(0,0,0,.28);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family);transition:transform .16s ease-out}
-        .fv-float-entry:active{transform:scale(.96)}
+           composer and the safe area, and sits under the drawer's z-index.
+
+           Styled after the host's own round floating button (its scroll-to-bottom
+           control): a floating fill, a hairline border and shadow-lv2. The
+           previous rule named --dsw-alias-bg-inverse and --dsw-alias-label-inverse,
+           neither of which the theme defines, so it always rendered the literal
+           fallbacks and stayed dark under a light theme.
+
+           Placement comes from the two custom properties rather than fixed
+           offsets, so a dragged position needs no inline right/bottom and the
+           default still reads from the safe area. touch-action is none because a
+           drag would otherwise be claimed by the page scroller. */
+        .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;left:var(--fv-entry-left,auto);right:var(--fv-entry-right,calc(14px + var(--dsh-sar,0px)));bottom:var(--fv-entry-bottom,calc(148px + var(--dsh-sab,0px)));width:48px;height:48px;border:1px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-button-floating-fill);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv2);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family);touch-action:none;-webkit-tap-highlight-color:transparent;transition:transform var(--ds-transition-duration-fast,.1s) var(--ds-ease-in-out)}
+        .fv-float-entry:active{background:var(--dsw-alias-button-floating-hover,var(--dsw-alias-button-floating-fill));transform:scale(.94)}
+        /* Lifted while dragging so it reads as picked up, and the transition is
+           dropped so the button tracks the finger exactly instead of lagging. */
+        .fv-float-entry[data-dragging="true"]{box-shadow:var(--dsw-shadow-lv3);transform:scale(1.04);transition:none;cursor:grabbing}
+        /* Nested inside this breakpoint rather than beside the other reduce rule
+           near the top: at equal specificity the later rule wins, and the entry's
+           own transition is declared here, so an earlier one had no effect. */
+        @media(prefers-reduced-motion:reduce){
+          .fv-float-entry,.fv-float-entry:active,.fv-float-entry[data-dragging="true"]{transition:none;transform:none}
+        }
         /* 44px is the smallest comfortable touch target. */
         .fv-mention{width:44px;height:44px;margin-right:2px;opacity:1}
         .fv-shell{width:100%;border-left:none}
@@ -171,6 +197,71 @@ window.__ModuleLoader__.load({
       else area.value = text;
       area.dispatchEvent(new Event("input", { bubbles: true }));
       return true;
+    }
+
+    /**
+     * Resolve where a dragged entry button comes to rest.
+     *
+     * Horizontally it snaps to whichever edge the button's own centre ended up
+     * nearest, so the button never parks mid-screen over the conversation.
+     * Vertically it keeps the released height, clamped so it stays clear of the
+     * mobile top bar and the bottom safe area — without that clamp a rotation or
+     * a keyboard opening can strand it off-screen where it cannot be tapped
+     * again.
+     *
+     * `bottom` is returned rather than `top` because that is the axis the CSS
+     * already positions against, and it keeps the button anchored above the
+     * composer as the viewport shrinks.
+     */
+    function settleEntry(input) {
+      const box = input || {};
+      const size = Number(box.size) > 0 ? Number(box.size) : 48;
+      const width = Number(box.width) > 0 ? Number(box.width) : size;
+      const height = Number(box.height) > 0 ? Number(box.height) : size;
+      const margin = Number.isFinite(Number(box.margin)) ? Number(box.margin) : 14;
+      const safe = box.safe || {};
+      const top = Math.max(0, Number(safe.top) || 0);
+      const bottomInset = Math.max(0, Number(safe.bottom) || 0);
+      const left = Math.max(0, Number(safe.left) || 0);
+      const right = Math.max(0, Number(safe.right) || 0);
+
+      const centre = (Number(box.x) || 0) + size / 2;
+      const side = centre < width / 2 ? "left" : "right";
+      const offset = side === "left" ? margin + left : margin + right;
+
+      // Measured from the viewport's bottom, so a larger value sits higher up.
+      const fromBottom = height - ((Number(box.y) || 0) + size);
+      const lowest = margin + bottomInset;
+      const highest = Math.max(lowest, height - top - margin - size);
+      return { side, offset, bottom: Math.round(Math.min(Math.max(fromBottom, lowest), highest)) };
+    }
+
+    /**
+     * Read the stored entry position, discarding anything malformed.
+     *
+     * Storage can hold a value written by an older build or hand-edited, and a
+     * bad one would place the button off-screen with no way to drag it back, so
+     * the shape is checked rather than trusted. Reaching localStorage at all
+     * throws in some privacy modes, hence the catch around the access itself.
+     */
+    function readEntryPosition() {
+      try {
+        const raw = globalThis.localStorage?.getItem(ENTRY_POSITION_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        const side = parsed?.side;
+        const bottom = Number(parsed?.bottom);
+        if (side !== "left" && side !== "right") return null;
+        if (!Number.isFinite(bottom) || bottom < 0) return null;
+        return { side, bottom };
+      } catch { return null; }
+    }
+
+    function writeEntryPosition(position) {
+      try {
+        if (position === null) globalThis.localStorage?.removeItem(ENTRY_POSITION_KEY);
+        else globalThis.localStorage?.setItem(ENTRY_POSITION_KEY, JSON.stringify(position));
+      } catch { /* storage is unavailable; the position is simply not remembered */ }
     }
 
     /**
@@ -1003,6 +1094,132 @@ window.__ModuleLoader__.load({
       function ViewerFloatingAction() {
         const sessionId = useStore(sessionStore);
         const isOpen = useStore(openStore) !== null;
+        // Restored from storage on the first render so the button does not visibly
+        // jump from the default corner to where it was left.
+        const [placement, setPlacement] = react.useState(readEntryPosition);
+        const node = react.useRef(null);
+        const drag = react.useRef(null);
+        // Survives from the release to the click the browser fires straight after,
+        // which is the only way to tell that click apart from a real tap.
+        const dragged = react.useRef(false);
+
+        // Applied as custom properties instead of inline right/bottom so the
+        // stylesheet keeps ownership of the default corner and the safe-area maths.
+        react.useEffect(() => {
+          const element = node.current;
+          if (!element) return;
+          const style = element.style;
+          if (placement === null) {
+            style.removeProperty("--fv-entry-left");
+            style.removeProperty("--fv-entry-right");
+            style.removeProperty("--fv-entry-bottom");
+            return;
+          }
+          const edge = `${Math.round(placement.offset ?? 14)}px`;
+          style.setProperty("--fv-entry-left", placement.side === "left" ? edge : "auto");
+          style.setProperty("--fv-entry-right", placement.side === "left" ? "auto" : edge);
+          style.setProperty("--fv-entry-bottom", `${Math.round(placement.bottom)}px`);
+        }, [placement]);
+
+        const insets = (element) => {
+          const view = element.ownerDocument?.defaultView;
+          if (!view) return { top: 0, bottom: 0, left: 0, right: 0 };
+          const root = view.getComputedStyle(element.ownerDocument.documentElement);
+          const read = (name) => Number.parseFloat(root.getPropertyValue(name)) || 0;
+          // The mobile bar occupies the top inset plus its own 52px, and the
+          // keyboard inset lifts the floor while the composer is focused.
+          return {
+            top: read("--dsh-sat") + 52,
+            bottom: read("--dsh-sab") + read("--dsh-keyboard-inset"),
+            left: read("--dsh-sal"),
+            right: read("--dsh-sar"),
+          };
+        };
+
+        const onPointerDown = (event) => {
+          // Secondary touches during a pinch must not hijack an active drag.
+          if (event.isPrimary === false || event.button > 0) return;
+          const element = event.currentTarget;
+          const box = element.getBoundingClientRect();
+          // Cleared here rather than in the click handler: a touch drag does not
+          // reliably emit a click, and a flag left armed swallowed the next
+          // genuine tap instead of the release that set it.
+          dragged.current = false;
+          drag.current = {
+            id: event.pointerId,
+            grabX: event.clientX - box.left,
+            grabY: event.clientY - box.top,
+            startX: event.clientX,
+            startY: event.clientY,
+            moved: false,
+          };
+          // Capture keeps the move and release events coming once the finger
+          // leaves the button, which it does almost immediately when dragging.
+          try { element.setPointerCapture(event.pointerId); } catch { /* capture is best effort */ }
+        };
+
+        const onPointerMove = (event) => {
+          const state = drag.current;
+          if (state === null || state.id !== event.pointerId) return;
+          if (!state.moved) {
+            const travelled = Math.abs(event.clientX - state.startX) + Math.abs(event.clientY - state.startY);
+            if (travelled < DRAG_SLOP) return;
+            state.moved = true;
+            event.currentTarget.setAttribute("data-dragging", "true");
+          }
+          // Positioned live off the left edge so the button tracks the finger;
+          // the right/bottom pair is restored when it settles.
+          const element = event.currentTarget;
+          const style = element.style;
+          style.setProperty("--fv-entry-left", `${Math.round(event.clientX - state.grabX)}px`);
+          style.setProperty("--fv-entry-right", "auto");
+          const view = element.ownerDocument?.defaultView;
+          const height = view?.visualViewport?.height ?? view?.innerHeight ?? 0;
+          style.setProperty("--fv-entry-bottom", `${Math.round(height - (event.clientY - state.grabY) - element.offsetHeight)}px`);
+        };
+
+        const finishDrag = (event) => {
+          const state = drag.current;
+          if (state === null || state.id !== event.pointerId) return;
+          drag.current = null;
+          const element = event.currentTarget;
+          element.removeAttribute("data-dragging");
+          try { element.releasePointerCapture(event.pointerId); } catch { /* already released */ }
+          if (!state.moved) return;
+          dragged.current = true;
+          const view = element.ownerDocument?.defaultView;
+          const settled = settleEntry({
+            x: event.clientX - state.grabX,
+            y: event.clientY - state.grabY,
+            size: element.offsetWidth,
+            width: view?.visualViewport?.width ?? view?.innerWidth ?? 0,
+            height: view?.visualViewport?.height ?? view?.innerHeight ?? 0,
+            safe: insets(element),
+          });
+          setPlacement(settled);
+          writeEntryPosition({ side: settled.side, bottom: settled.bottom });
+        };
+
+        const onPointerCancel = (event) => {
+          const state = drag.current;
+          if (state === null || state.id !== event.pointerId) return;
+          drag.current = null;
+          const element = event.currentTarget;
+          element.removeAttribute("data-dragging");
+          try { element.releasePointerCapture(event.pointerId); } catch { /* already released */ }
+          if (state.moved) dragged.current = true;
+          // A cancelled gesture keeps the last committed position, so the live
+          // properties written while moving have to be rolled back. A new object
+          // is needed for the effect to re-run and rewrite them.
+          setPlacement((current) => (current === null ? null : { ...current }));
+          if (placement === null && state.moved) {
+            const style = element.style;
+            style.removeProperty("--fv-entry-left");
+            style.removeProperty("--fv-entry-right");
+            style.removeProperty("--fv-entry-bottom");
+          }
+        };
+
         // Not gated on knowing a session: the host falls back to the workspace
         // roots when none is given, and requiring one made the button depend on
         // a slot that is not always rendered — an empty session drops the
@@ -1010,10 +1227,20 @@ window.__ModuleLoader__.load({
         if (isOpen) return null;
         return react.createElement("button", {
           type: "button",
+          ref: node,
           className: "fv-float-entry",
-          title: "查看项目文件",
+          title: "查看项目文件（可拖动）",
           "aria-label": "查看项目文件",
-          onClick: () => openStore.set({ sessionId }),
+          onPointerDown,
+          onPointerMove,
+          onPointerUp: finishDrag,
+          onPointerCancel,
+          // A release that ended a drag still fires a click, which would open the
+          // drawer the user was only repositioning.
+          onClick: () => {
+            if (dragged.current) return;
+            openStore.set({ sessionId });
+          },
         }, FolderIcon === null
           ? react.createElement("span", { "aria-hidden": "true" }, "\u{1F4C1}")
           : react.createElement(FolderIcon, { size: 20 }));
@@ -1063,6 +1290,7 @@ window.__ModuleLoader__.load({
       RPC_CHANNEL, OVERLAY_SLOT, HEADER_SLOT, SESSION_SLOT, COMPOSER_SLOT, STYLE_ID, WINDOW_LINES, css,
       ERROR_COPY, appendMention, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
+      ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
     };
     return module.exports;
   }
