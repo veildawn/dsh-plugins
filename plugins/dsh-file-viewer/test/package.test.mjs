@@ -442,3 +442,23 @@ test('source views can be soft wrapped from the toolbar', () => {
   // The pressed state has to be visible, or the toggle looks inert.
   assert.match(source, /\.fv-icon-button\[aria-pressed="true"\]\{background:/)
 })
+
+test('the phone entry survives a session with no messages', () => {
+  const source = read('lib/client.js')
+
+  // Regression: the header entry was the only reporter of the active session,
+  // but the host renders no session header at all for an empty session — every
+  // plugin registered there vanishes, the built-in session log included. On a
+  // phone that left no entry, which looked like the button disappearing after a
+  // refresh that landed on an existing empty session.
+  assert.match(source, /const SESSION_SLOT = "conversation\.input\.overlay"/)
+  assert.match(source, /function SessionReporter\(props\)/)
+  assert.match(source, /sessionStore\.set\(sessionId\)/)
+  assert.match(source, /\}, SessionReporter\)\)/)
+
+  // It draws nothing; it exists only to publish the id.
+  assert.match(source, /return null;\s*\}\s*\/\*\*\s*\*\s*Phone entry/)
+
+  // The header entry no longer reports, so there is one source of truth.
+  assert.doesNotMatch(source, /function ViewerHeaderAction[\s\S]{0,400}sessionStore\.set/)
+})

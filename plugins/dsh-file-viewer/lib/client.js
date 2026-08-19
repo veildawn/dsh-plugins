@@ -31,6 +31,10 @@ window.__ModuleLoader__.load({
     // the contract reserves `actions` for context and lineage controls, so an
     // optional tool belongs here and cannot disturb their order.
     const HEADER_SLOT = "conversation.session.header.utilities";
+    // The session header is not rendered for a session with no messages, so the
+    // header entry cannot be the only source of the active session id. This slot
+    // hangs off the composer, which exists even in an empty session.
+    const SESSION_SLOT = "conversation.input.overlay";
     const STYLE_ID = "dsh-file-viewer-styles";
     const WINDOW_LINES = 500;
     const inject = ["slots", "connection"];
@@ -815,21 +819,12 @@ window.__ModuleLoader__.load({
        * and have the host open the viewer on that session's project directory.
        */
       /**
-       * Conversation header entry. Session-scoped, so it can name the session
-       * and have the host open the viewer on that session's project directory.
-       *
-       * It also publishes that session id, because the narrow layout replaces
-       * the whole session header with its own bar: this component still mounts
-       * there but renders inside a hidden subtree, so the phone entry has to be
-       * drawn elsewhere and needs the id from here.
+       * Conversation header entry, session-scoped so the host can open the
+       * viewer on that session's project directory. SessionReporter publishes
+       * the id separately, since this header is absent in an empty session.
        */
       function ViewerHeaderAction(props) {
         const sessionId = props === undefined ? undefined : props.sessionId;
-        react.useEffect(() => {
-          sessionStore.set(sessionId);
-          return () => { if (sessionStore.get() === sessionId) sessionStore.set(undefined); };
-        }, [sessionId]);
-
         return react.createElement("button", {
           type: "button",
           className: "fv-icon-button",
@@ -839,6 +834,21 @@ window.__ModuleLoader__.load({
         }, FolderIcon === null
           ? react.createElement("span", { "aria-hidden": "true" }, "\u{1F4C1}")
           : react.createElement(FolderIcon, { size: 16 }));
+      }
+
+      /**
+       * Reports the active session without drawing anything. The header entry
+       * used to be the only reporter, but an empty session renders no header at
+       * all — the host omits it along with every plugin registered there — so
+       * the phone entry had nothing to work from and stayed hidden.
+       */
+      function SessionReporter(props) {
+        const sessionId = props === undefined ? undefined : props.sessionId;
+        react.useEffect(() => {
+          sessionStore.set(sessionId);
+          return () => { if (sessionStore.get() === sessionId) sessionStore.set(undefined); };
+        }, [sessionId]);
+        return null;
       }
 
       /**
@@ -876,6 +886,12 @@ window.__ModuleLoader__.load({
         inject: () => ({ api: ctx.connection.api }),
       }, ViewerSurfaces));
 
+      ctx.slots.inject(SESSION_SLOT, () => ctx.slots.register({
+        name: SESSION_SLOT,
+        id: "file-viewer-session",
+        order: 0,
+      }, SessionReporter));
+
       // Ahead of the session-log download, which registers without an order
       // and so sorts at 0; the list is ordered ascending.
       ctx.slots.inject(HEADER_SLOT, () => ctx.slots.register({
@@ -890,7 +906,7 @@ window.__ModuleLoader__.load({
     exports.apply = apply;
     exports.inject = inject;
     exports.internals = {
-      RPC_CHANNEL, OVERLAY_SLOT, HEADER_SLOT, STYLE_ID, WINDOW_LINES, css,
+      RPC_CHANNEL, OVERLAY_SLOT, HEADER_SLOT, SESSION_SLOT, STYLE_ID, WINDOW_LINES, css,
       ERROR_COPY, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
     };
