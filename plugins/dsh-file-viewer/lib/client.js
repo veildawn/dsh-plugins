@@ -859,7 +859,11 @@ window.__ModuleLoader__.load({
       function ViewerFloatingAction() {
         const sessionId = useStore(sessionStore);
         const isOpen = useStore(openStore) !== null;
-        if (sessionId === undefined || isOpen) return null;
+        // Not gated on knowing a session: the host falls back to the workspace
+        // roots when none is given, and requiring one made the button depend on
+        // a slot that is not always rendered — an empty session drops the
+        // conversation header, and the button vanished with it.
+        if (isOpen) return null;
         return react.createElement("button", {
           type: "button",
           className: "fv-float-entry",

@@ -371,7 +371,10 @@ test('the phone entry is drawn outside the header the narrow layout hides', () =
   // adapter uses, and the phone entry yields once the drawer is open.
   assert.match(source, /\.fv-float-entry\{display:none\}/)
   assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-float-entry\{[^}]*position:fixed/)
-  assert.match(source, /if \(sessionId === undefined \|\| isOpen\) return null/)
+  // Not gated on a known session: the host falls back to workspace roots, and
+  // requiring one tied the button to a slot that is not always rendered.
+  assert.match(source, /if \(isOpen\) return null/)
+  assert.doesNotMatch(source, /if \(sessionId === undefined \|\| isOpen\)/)
 
   // It must clear the composer and the safe area, and stay under the drawer.
   // Clears the composer (100px) and the adapter's info strip (20px) below it,
