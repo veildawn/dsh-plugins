@@ -16,10 +16,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # pnpm 11 requires Node >= 22.13, and the plugins' tests use the
+      # node:test runner and Object.hasOwn, both fine on 22.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Parse Tag & Locate Plugin
         id: parse
@@ -38,17 +40,45 @@ jobs:
             echo "Error: Directory $PLUGIN_DIR does not exist!"
             exit 1
           fi
-          
+
+          # The tarball npm produces is named from package.json, not from the tag.
+          # A mismatch ships a Release whose own install command 404s, so refuse
+          # to build one.
+          MANIFEST_VERSION=$(node -p "require('./$PLUGIN_DIR/package.json').version")
+          if [ "$MANIFEST_VERSION" != "$VERSION" ]; then
+            echo "Error: tag says v$VERSION but $PLUGIN_DIR/package.json says $MANIFEST_VERSION"
+            exit 1
+          fi
+
           echo "plugin_name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "plugin_dir=$PLUGIN_DIR" >> $GITHUB_OUTPUT
+
+      # There is no root package.json, so corepack cannot infer a version;
+      # pin it here instead.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      # pnpm-lock.yaml is intentionally gitignored in this repo, so a frozen
+      # install is not available here.
+      - name: Install Dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run Plugin Tests
+        run: pnpm --filter ${{ steps.parse.outputs.plugin_name }} test
 
       - name: Pack Plugin Tarball
         id: pack
         run: |
           cd ${{ steps.parse.outputs.plugin_dir }}
           npm pack
-          TGZ_NAME=$(ls *.tgz | head -n 1)
+          TGZ_NAME="${{ steps.parse.outputs.plugin_name }}-${{ steps.parse.outputs.version }}.tgz"
+          if [ ! -f "$TGZ_NAME" ]; then
+            echo "Error: expected $TGZ_NAME, got: $(ls *.tgz)"
+            exit 1
+          fi
           echo "Packaged: $TGZ_NAME"
           echo "tgz_path=${{ steps.parse.outputs.plugin_dir }}/$TGZ_NAME" >> $GITHUB_OUTPUT
           echo "tgz_name=$TGZ_NAME" >> $GITHUB_OUTPUT
@@ -65,7 +95,7 @@ jobs:
             #### 💻 一键安装命令 (Installation)
             ```bash
             # 使用 DSH 官方 CLI 安装
-            dsh profile --name web plugin add https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.pack.outputs.tgz_name }}
+            dsh plugin add --profile web https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.pack.outputs.tgz_name }}
 
             # 重启服务生效
             dsh service restart

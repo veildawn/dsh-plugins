@@ -659,3 +659,30 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-vvh'), '', 'viewport listener is removed on cleanup')
   assert(f.toggles() >= 8)
 })
+
+test('the file viewer drawer is adapted for phones', () => {
+  const css = client.internals.css
+
+  // A 64vw drawer is unusable on a phone: it takes the whole screen instead.
+  assert.match(css, /\.fv-scrim\{[^}]*width:100vw!important/)
+  assert.match(css, /\.fv-shell\{[^}]*width:100vw!important[^}]*height:100%!important/)
+  assert.match(css, /\.fv-shell\{[^}]*border-radius:0!important/)
+
+  // Height must follow the visual viewport, not 100dvh, which some mobile
+  // browsers report before the address bar settles.
+  assert.match(css, /\.fv-scrim\{[^}]*height:var\(--dsh-vvh,100dvh\)!important/)
+
+  // Safe-area insets on the header and both scroll regions.
+  assert.match(css, /\.fv-head\{[^}]*var\(--dsh-sat\)[^}]*var\(--dsh-sal\)/)
+  assert.match(css, /\.fv-tree,\.fv-content\{[^}]*var\(--dsh-sab\)/)
+
+  // Touch targets reach 40px, and the slide-in is dropped since the drawer is
+  // full-screen here.
+  assert.match(css, /\.fv-icon-button\{[^}]*width:40px!important;height:40px!important/)
+  assert.match(css, /\.fv-row\{min-height:40px!important\}/)
+  assert.match(css, /\.fv-shell\{[^}]*animation:none!important/)
+
+  // These rules only apply on the phone breakpoint.
+  const mobileBlock = css.slice(css.indexOf('@media (max-width:768px)'))
+  assert(mobileBlock.includes('.fv-scrim'), 'viewer rules must sit inside the mobile query')
+})
