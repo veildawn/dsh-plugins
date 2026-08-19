@@ -1,0 +1,7 @@
+# Cordis bundle patch: mounts the file viewer's host half.
+#
+# Patches apply in `dsh.profile.bundles` order, so a later bundle (and finally
+# the user's own profile patch) can override this row by reusing the same id.
+- insert:
+    - id: file-viewer
+      name: dsh-file-viewer
