@@ -388,3 +388,29 @@ export function formatBytes(bytes) {
   }
   return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`
 }
+
+/**
+ * Append a file reference to a draft, ready to submit.
+ *
+ * The agent reads paths from the prompt as plain text, so a reference is just
+ * the path with an `@` marker. Paths containing whitespace are wrapped in
+ * backticks, otherwise the agent cannot tell where the path ends.
+ *
+ * @param {string} draft - the composer's current text.
+ * @param {string} displayPath - workspace-relative path of the file or folder.
+ * @returns {string} the draft with the reference appended.
+ */
+export function appendMention(draft, displayPath) {
+  const path = typeof displayPath === 'string' ? displayPath.trim() : ''
+  if (path === '') return typeof draft === 'string' ? draft : ''
+
+  const quoted = /[\s`]/.test(path) ? '`' + path.replace(/`/g, '') + '`' : path
+  const reference = '@' + quoted
+  const current = typeof draft === 'string' ? draft : ''
+  if (current === '') return reference + ' '
+
+  // Never join onto the previous word, but do not add a second space either —
+  // the caller may append several references in a row.
+  const separator = /\s$/.test(current) ? '' : ' '
+  return current + separator + reference + ' '
+}

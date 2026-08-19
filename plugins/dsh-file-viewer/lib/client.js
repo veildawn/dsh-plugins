@@ -35,6 +35,11 @@ window.__ModuleLoader__.load({
     // header entry cannot be the only source of the active session id. This slot
     // hangs off the composer, which exists even in an empty session.
     const SESSION_SLOT = "conversation.input.overlay";
+    // Seat on the composer's own toolbar row. Its props carry the input state,
+    // which is the only place a plugin can read the draft and write it back, so
+    // the mention button needs a component mounted here even though it draws
+    // nothing itself.
+    const COMPOSER_SLOT = "conversation.input.left";
     const STYLE_ID = "dsh-file-viewer-styles";
     const WINDOW_LINES = 500;
     const inject = ["slots", "connection"];
@@ -59,6 +64,13 @@ window.__ModuleLoader__.load({
       .fv-body{display:flex;flex:1 1 auto;min-height:0}
       .fv-tree{display:flex;flex:none;flex-direction:column;width:280px;min-height:0;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:6px;gap:1px;overscroll-behavior:contain}
       .fv-row{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
+      .fv-row-seat{position:relative;display:flex;align-items:center;gap:2px}
+      .fv-row-seat>.fv-row{flex:1 1 auto;min-width:0}
+      .fv-mention{flex:none;width:26px;height:26px;margin-right:4px;padding:0;border:0;border-radius:6px;background:none;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-strong-14);line-height:1;cursor:pointer;opacity:0}
+      .fv-row-seat:hover .fv-mention,.fv-mention:focus-visible{opacity:1}
+      /* No hover on touch, so the control has to stay visible there. */
+      @media(hover:none){.fv-mention{opacity:1}}
+      .fv-mention:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
       .fv-row[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
       .fv-row-name{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -107,6 +119,8 @@ window.__ModuleLoader__.load({
            composer and the safe area, and sits under the drawer's z-index. */
         .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;right:calc(14px + var(--dsh-sar,0px));bottom:calc(148px + var(--dsh-sab,0px));width:46px;height:46px;border:0;border-radius:50%;background:var(--dsw-alias-bg-inverse,#1f1f1f);color:var(--dsw-alias-label-inverse,#fff);box-shadow:0 4px 14px rgba(0,0,0,.28);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family);transition:transform .16s ease-out}
         .fv-float-entry:active{transform:scale(.96)}
+        /* Bigger touch target, and always visible since there is no hover. */
+        .fv-mention{width:36px;height:36px;opacity:1}
         .fv-shell{width:100%;border-left:none}
         .fv-tree{width:100%;border-right:none}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}
@@ -154,6 +168,24 @@ window.__ModuleLoader__.load({
       const trimmed = String(path || "").replace(/[\\/]+$/, "");
       const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
       return cut < 0 ? trimmed : trimmed.slice(cut + 1);
+    }
+
+    /**
+     * Append a file reference to a draft. Mirrors core.js's appendMention; this
+     * file is the browser bundle and cannot import from the host half.
+     * @param {string} draft - the composer's current text.
+     * @param {string} displayPath - workspace-relative path.
+     * @returns {string} the draft with the reference appended.
+     */
+    function appendMention(draft, displayPath) {
+      const path = typeof displayPath === "string" ? displayPath.trim() : "";
+      if (path === "") return typeof draft === "string" ? draft : "";
+      const quoted = /[\s`]/.test(path) ? "`" + path.replace(/`/g, "") + "`" : path;
+      const reference = "@" + quoted;
+      const current = typeof draft === "string" ? draft : "";
+      if (current === "") return reference + " ";
+      const separator = /\s$/.test(current) ? "" : " ";
+      return current + separator + reference + " ";
     }
 
     function formatBytes(bytes) {
@@ -303,6 +335,10 @@ window.__ModuleLoader__.load({
       // Which session the conversation header currently belongs to. The phone
       // entry is drawn outside that header and cannot receive its props.
       const sessionStore = createStore(undefined);
+      // The composer's draft accessors, captured from the slot that receives
+      // them. The drawer renders in a different subtree and cannot reach the
+      // input state through props.
+      const composerStore = createStore(null);
       const request = createRequest(ctx.connection);
 
       /**
@@ -310,7 +346,7 @@ window.__ModuleLoader__.load({
        * listing, and a directory's children are requested the first time it
        * opens, so opening the viewer costs one listing regardless of tree size.
        */
-      function Tree({ rows, selected, onToggle, onSelect }) {
+      function Tree({ rows, selected, onToggle, onSelect, onMention }) {
         const children = rows.map((row) => {
           const indent = { paddingLeft: 8 + row.depth * 14 + "px" };
           if (row.kind === "status") {
@@ -325,26 +361,45 @@ window.__ModuleLoader__.load({
           }
           const entry = row.entry;
           const isDirectory = entry.type === "directory";
-          return react.createElement("button", {
+          // A wrapper rather than a button, so it can hold the mention control:
+          // a button cannot nest inside another button.
+          return react.createElement("div", {
             key: row.key,
-            type: "button",
-            className: "fv-row",
-            style: indent,
+            className: "fv-row-seat",
             role: "treeitem",
             "aria-level": row.depth + 1,
             ...(isDirectory ? { "aria-expanded": row.expanded ? "true" : "false" } : {}),
             "aria-current": !isDirectory && entry.path === selected ? "true" : undefined,
-            title: entry.name,
-            onClick: () => (isDirectory ? onToggle(entry.path) : onSelect(entry)),
           },
-            react.createElement("span", {
-              className: row.expanded ? "fv-glyph fv-glyph-open" : "fv-glyph",
-              "aria-hidden": "true",
-            }, isDirectory ? "\u25B8" : "\u00B7"),
-            react.createElement("span", { className: "fv-row-name" }, entry.name),
-            typeof entry.size === "number" && !isDirectory
-              ? react.createElement("span", { className: "fv-row-size" }, formatBytes(entry.size))
-              : null);
+            react.createElement("button", {
+              type: "button",
+              className: "fv-row",
+              style: indent,
+              title: entry.name,
+              onClick: () => (isDirectory ? onToggle(entry.path) : onSelect(entry)),
+            },
+              react.createElement("span", {
+                className: row.expanded ? "fv-glyph fv-glyph-open" : "fv-glyph",
+                "aria-hidden": "true",
+              }, isDirectory ? "▸" : "·"),
+              react.createElement("span", { className: "fv-row-name" }, entry.name),
+              typeof entry.size === "number" && !isDirectory
+                ? react.createElement("span", { className: "fv-row-size" }, formatBytes(entry.size))
+                : null),
+            onMention === undefined
+              ? null
+              : react.createElement("button", {
+                type: "button",
+                className: "fv-mention",
+                title: "引用到输入框",
+                "aria-label": "引用 " + entry.name + " 到输入框",
+                onClick: (event) => {
+                  // Otherwise the row's own click also fires and would expand the
+                  // directory or switch the preview.
+                  event.stopPropagation();
+                  onMention(entry);
+                },
+              }, react.createElement("span", { "aria-hidden": "true" }, "@")));
         });
         return react.createElement("div", {
           className: "fv-tree", role: "tree", "aria-label": "文件树",
@@ -609,6 +664,19 @@ window.__ModuleLoader__.load({
         // Soft wrap for source views. Off by default: code is written with
         // meaningful line breaks and wrapping obscures them.
         const [wrap, setWrap] = react.useState(false);
+        const composer = useStore(composerStore);
+
+        /**
+         * Append a reference to the composer and close the drawer, so the draft
+         * is visible and can be sent without a second gesture.
+         */
+        const mention = (entry) => {
+          const target = composerStore.get();
+          if (target === null) return;
+          const shown = entry.displayPath === undefined ? entry.path : entry.displayPath;
+          target.setDraft(appendMention(target.draft, shown));
+          openStore.set(null);
+        };
         const [error, setError] = react.useState(null);
         const [pane, setPane] = react.useState("tree");
         // Directory to open on arrival, relative to the resolved root: the
@@ -799,6 +867,7 @@ window.__ModuleLoader__.load({
                 selected: meta === null ? "" : meta.path,
                 onToggle: toggleDirectory,
                 onSelect: selectFile,
+                onMention: composer === null ? undefined : mention,
               }),
               react.createElement("div", { className: "fv-main" },
                 react.createElement("div", { className: "fv-main-head" },
@@ -852,6 +921,24 @@ window.__ModuleLoader__.load({
       }
 
       /**
+       * Publishes the composer's draft accessors without drawing anything. Only
+       * a component seated on the composer receives them, and the drawer that
+       * needs them renders in a different subtree.
+       */
+      function ComposerBridge(props) {
+        // The draft text lives on the input state snapshot; writing it back is a
+        // separate action object. Neither is reachable from the drawer's subtree.
+        const draft = props && props.input ? props.input.draft : undefined;
+        const setDraft = props && props.inputActions ? props.inputActions.setDraft : undefined;
+        react.useEffect(() => {
+          if (typeof setDraft !== "function") return undefined;
+          composerStore.set({ draft: typeof draft === "string" ? draft : "", setDraft });
+          return () => { composerStore.set(null); };
+        }, [draft, setDraft]);
+        return null;
+      }
+
+      /**
        * Phone entry, rendered from the overlay seat because that one is not
        * inside the header the narrow layout hides. CSS shows it only below the
        * same breakpoint, so it never doubles up with the header button.
@@ -890,6 +977,12 @@ window.__ModuleLoader__.load({
         inject: () => ({ api: ctx.connection.api }),
       }, ViewerSurfaces));
 
+      ctx.slots.inject(COMPOSER_SLOT, () => ctx.slots.register({
+        name: COMPOSER_SLOT,
+        id: "file-viewer-composer",
+        order: 0,
+      }, ComposerBridge));
+
       ctx.slots.inject(SESSION_SLOT, () => ctx.slots.register({
         name: SESSION_SLOT,
         id: "file-viewer-session",
@@ -910,8 +1003,8 @@ window.__ModuleLoader__.load({
     exports.apply = apply;
     exports.inject = inject;
     exports.internals = {
-      RPC_CHANNEL, OVERLAY_SLOT, HEADER_SLOT, SESSION_SLOT, STYLE_ID, WINDOW_LINES, css,
-      ERROR_COPY, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
+      RPC_CHANNEL, OVERLAY_SLOT, HEADER_SLOT, SESSION_SLOT, COMPOSER_SLOT, STYLE_ID, WINDOW_LINES, css,
+      ERROR_COPY, appendMention, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
     };
     return module.exports;

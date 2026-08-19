@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  appendMention,
   MAX_BYTES,
   WINDOW_LINES,
   ancestorsOf,
@@ -279,4 +280,30 @@ test('the root itself shows status when empty or unreadable', () => {
     flattenTree({ expanded: new Set(), nodes: new Map([['', { status: 'ready', entries: [] }]]) }).map((r) => r.state),
     ['empty'],
   )
+})
+
+test('appendMention appends a file reference to the draft', () => {
+  // Empty draft: the reference plus a trailing space, ready to keep typing.
+  assert.equal(appendMention('', 'src/index.js'), '@src/index.js ')
+
+  // Never joins onto the previous word.
+  assert.equal(appendMention('看看这个', 'a/b.txt'), '看看这个 @a/b.txt ')
+
+  // Already spaced: no double space, so several references can follow.
+  assert.equal(appendMention('前文 ', 'a.txt'), '前文 @a.txt ')
+  assert.equal(appendMention(appendMention('', 'a.txt'), 'b.txt'), '@a.txt @b.txt ')
+
+  // Whitespace in a path needs quoting or the agent cannot see where it ends.
+  assert.equal(appendMention('', 'my docs/note.md'), '@`my docs/note.md` ')
+
+  // Backticks inside a path would break out of the quoting.
+  assert.equal(appendMention('', 'we`ird name/x.txt'), '@`weird name/x.txt` ')
+
+  // A folder is referenced the same way.
+  assert.equal(appendMention('', 'src/lib'), '@src/lib ')
+
+  // Nothing to reference leaves the draft untouched.
+  assert.equal(appendMention('保留', ''), '保留')
+  assert.equal(appendMention('保留', '   '), '保留')
+  assert.equal(appendMention(undefined, 'a.txt'), '@a.txt ')
 })

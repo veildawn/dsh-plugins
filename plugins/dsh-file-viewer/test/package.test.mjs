@@ -465,3 +465,39 @@ test('the phone entry survives a session with no messages', () => {
   // The header entry no longer reports, so there is one source of truth.
   assert.doesNotMatch(source, /function ViewerHeaderAction[\s\S]{0,400}sessionStore\.set/)
 })
+
+test('tree rows can reference a file into the composer', () => {
+  const source = read('lib/client.js')
+
+  // The draft is only reachable from a component seated on the composer, and the
+  // drawer renders in a different subtree, so a bridge publishes the accessors.
+  assert.match(source, /const COMPOSER_SLOT = "conversation\.input\.left"/)
+  assert.match(source, /function ComposerBridge\(props\)/)
+  // The draft text is on the input snapshot; writing it back is a separate
+  // action object. Reading setDraft off the snapshot silently yields undefined.
+  assert.match(source, /props\.input \? props\.input\.draft : undefined/)
+  assert.match(source, /props\.inputActions \? props\.inputActions\.setDraft : undefined/)
+  assert.match(source, /composerStore\.set\(\{ draft: typeof draft === "string" \? draft : "", setDraft \}\)/)
+  assert.match(source, /\}, ComposerBridge\)\)/)
+
+  // Rows became wrappers because a button cannot nest inside another button.
+  assert.match(source, /className: "fv-row-seat"/)
+  assert.match(source, /className: "fv-mention"/)
+
+  // Without stopPropagation the row's own click also fires, expanding the
+  // directory or switching the preview.
+  assert.match(source, /event\.stopPropagation\(\);\s*onMention\(entry\)/)
+
+  // Folders are referenceable too, so the button is not gated on entry type.
+  assert.doesNotMatch(source, /onMention[\s\S]{0,120}isDirectory \? null/)
+
+  // Offered only when a composer is actually present.
+  assert.match(source, /onMention: composer === null \? undefined : mention/)
+
+  // Closing after inserting leaves the draft visible and sendable.
+  assert.match(source, /target\.setDraft\(appendMention\(target\.draft, shown\)\);\s*openStore\.set\(null\)/)
+
+  // Touch has no hover, so the control cannot rely on it to appear.
+  assert.match(source, /@media\(hover:none\)\{\.fv-mention\{opacity:1\}\}/)
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-mention\{width:36px;height:36px;opacity:1\}/)
+})
