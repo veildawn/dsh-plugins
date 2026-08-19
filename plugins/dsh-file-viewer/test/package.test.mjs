@@ -416,3 +416,29 @@ test('the entry reads clearly and precedes the session log download', () => {
   assert.match(source, /\.fv-float-entry\{[^}]*box-shadow:0 4px 14px/)
   assert.match(source, /\.fv-float-entry\{[^}]*border:0/)
 })
+
+test('source views can be soft wrapped from the toolbar', () => {
+  const source = read('lib/client.js')
+
+  // Off by default: code carries meaning in its line breaks.
+  assert.match(source, /const \[wrap, setWrap\] = react\.useState\(false\)/)
+
+  // The toggle is offered only where sideways scrolling actually happens —
+  // images, PDFs, sheets and documents do not.
+  assert.match(source, /meta\.kind === "text" \|\| meta\.kind === "markdown" \|\| meta\.kind === "json"/)
+  assert.match(source, /"aria-pressed": wrap \? "true" : "false"/)
+  assert.match(source, /"aria-label": wrap \? "取消自动换行" : "自动换行"/)
+
+  // A rendered preview already reflows, so the attribute only applies to source.
+  assert.match(source, /const wrapping = wrap && \(!canPreview \|\| raw\)/)
+  assert.match(source, /"data-wrap": wrapping \? "on" : "off"/)
+
+  // ReadBlock's class names carry a build hash, so the rules key off structure:
+  // a scrolling body of flex rows, each a gutter span then a content span.
+  assert.match(source, /\.fv-content\[data-wrap="on"\] div\[class\*="_body_"\]\{overflow-x:hidden\}/)
+  assert.match(source, /\.fv-content\[data-wrap="on"\] span\[class\*="_gutter_"\]\{flex:none;white-space:pre\}/)
+  assert.match(source, /\.fv-content\[data-wrap="on"\] span\[class\*="_content_"\]\{min-width:0;flex:1 1 auto;white-space:pre-wrap;overflow-wrap:anywhere\}/)
+
+  // The pressed state has to be visible, or the toggle looks inert.
+  assert.match(source, /\.fv-icon-button\[aria-pressed="true"\]\{background:/)
+})

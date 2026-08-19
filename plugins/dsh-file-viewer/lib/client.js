@@ -51,6 +51,7 @@ window.__ModuleLoader__.load({
       .fv-icon-button{display:inline-grid;flex:none;place-items:center;width:30px;height:30px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer}
       .fv-icon-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-icon-button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-wrap-glyph{font-size:15px;line-height:1}
       .fv-body{display:flex;flex:1 1 auto;min-height:0}
       .fv-tree{display:flex;flex:none;flex-direction:column;width:280px;min-height:0;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:6px;gap:1px;overscroll-behavior:contain}
       .fv-row{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
@@ -85,6 +86,13 @@ window.__ModuleLoader__.load({
       .fv-table th,.fv-table td{max-width:320px;padding:5px 9px;border:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-align:left;white-space:pre-wrap;vertical-align:top;word-break:break-word}
       .fv-table th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);font-weight:600}
       .fv-table th:first-child,.fv-table td:first-child{position:sticky;left:0;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-caption);text-align:right}
+      /* Soft wrap for code. ReadBlock's class names carry a build hash, so the
+         rules key off its structure: a scrolling body of flex rows, each with a
+         gutter span followed by a content span, all white-space:pre. */
+      .fv-content[data-wrap="on"] div[class*="_body_"]{overflow-x:hidden}
+      .fv-content[data-wrap="on"] div[class*="_line_"]{align-items:flex-start}
+      .fv-content[data-wrap="on"] span[class*="_gutter_"]{flex:none;white-space:pre}
+      .fv-content[data-wrap="on"] span[class*="_content_"]{min-width:0;flex:1 1 auto;white-space:pre-wrap;overflow-wrap:anywhere}
       .fv-float-entry{display:none}
       @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
       /* Below the mobile-adapter breakpoint the drawer takes the full width and
@@ -456,7 +464,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Text, Markdown and JSON: one windowed read, three renderings. */
-      function TextView({ meta, root }) {
+      function TextView({ meta, root, wrap }) {
         // Callers mount this with a per-file key, so paging state starts fresh
         // for every file instead of leaking the previous file's window into the
         // first request.
@@ -514,8 +522,11 @@ window.__ModuleLoader__.load({
 
         const previewUnavailable = !canPreview && (data.kind === "markdown" || data.kind === "json");
 
+        // Only the source view scrolls sideways; a rendered preview already
+        // reflows, so the attribute is pointless there and would just confuse.
+        const wrapping = wrap && (!canPreview || raw);
         return react.createElement(react.Fragment, null,
-          react.createElement("div", { className: "fv-content" },
+          react.createElement("div", { className: "fv-content", "data-wrap": wrapping ? "on" : "off" },
             previewUnavailable
               ? react.createElement("div", { className: "fv-note" },
                 data.kind === "markdown" ? "文档过大，仅显示源码。" : "文件过大，仅显示源码。")
@@ -547,7 +558,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Pick the viewer for a file and keep unsupported formats useful. */
-      function FileView({ meta, root, api }) {
+      function FileView({ meta, root, api, wrap }) {
         if (meta === null) {
           return react.createElement("div", { className: "fv-note" }, "从左侧选择一个文件。");
         }
@@ -575,7 +586,7 @@ window.__ModuleLoader__.load({
         if (meta.kind === "doc") {
           return react.createElement("div", { className: "fv-content" }, react.createElement(DocView, { key, meta, root }));
         }
-        return react.createElement(TextView, { key, meta, root });
+        return react.createElement(TextView, { key, meta, root, wrap });
       }
 
       /** The overlay page: root picker, breadcrumbs, tree and viewer. */
@@ -591,6 +602,9 @@ window.__ModuleLoader__.load({
         const [nodes, setNodes] = react.useState(() => new Map());
         const [meta, setMeta] = react.useState(null);
         const [hidden, setHidden] = react.useState(false);
+        // Soft wrap for source views. Off by default: code is written with
+        // meaningful line breaks and wrapping obscures them.
+        const [wrap, setWrap] = react.useState(false);
         const [error, setError] = react.useState(null);
         const [pane, setPane] = react.useState("tree");
         // Directory to open on arrival, relative to the resolved root: the
@@ -748,6 +762,18 @@ window.__ModuleLoader__.load({
               // file's path instead of navigable breadcrumbs.
               react.createElement("div", { className: "fv-crumbs", title: meta === null ? "" : meta.path },
                 meta === null ? "" : meta.path),
+              // Only offered where it changes anything: images, PDFs, sheets and
+              // documents do not scroll sideways the way source lines do.
+              meta !== null && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
+                ? react.createElement("button", {
+                  type: "button",
+                  className: "fv-icon-button",
+                  "aria-pressed": wrap ? "true" : "false",
+                  "aria-label": wrap ? "取消自动换行" : "自动换行",
+                  title: wrap ? "取消自动换行" : "自动换行",
+                  onClick: () => setWrap((current) => !current),
+                }, react.createElement("span", { className: "fv-wrap-glyph", "aria-hidden": "true" }, "↩"))
+                : null,
               react.createElement("button", {
                 type: "button", className: "fv-icon-button", "aria-label": "刷新", title: "刷新", onClick: refresh,
               }, react.createElement("span", { "aria-hidden": "true" }, "\u21BB")),
@@ -781,7 +807,7 @@ window.__ModuleLoader__.load({
                     : null),
                 error !== null && meta === null
                   ? react.createElement("div", { className: "fv-note fv-error" }, messageOf(error))
-                  : react.createElement(FileView, { meta, root, api: props.api })))));
+                  : react.createElement(FileView, { meta, root, api: props.api, wrap })))));
       }
 
       /**
