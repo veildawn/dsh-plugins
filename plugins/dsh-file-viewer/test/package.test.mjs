@@ -277,7 +277,7 @@ test('the viewer opens as a right-hand drawer with no sidebar entry', () => {
   assert.match(source, /prefers-reduced-motion:reduce/)
 
   // Below the mobile-adapter breakpoint the drawer is full width.
-  assert.match(source, /@media\(max-width:768px\)\{\s*\n?\s*\.fv-shell\{width:100%/)
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-shell\{width:100%/)
 })
 
 test('the tree expands in place and loads children lazily', () => {
@@ -345,4 +345,38 @@ test('registering in a conversation slot is declared in the manifest', () => {
   // guarantees; without this the header entry silently never appears.
   assert(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-conversation'))
   assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-conversation'], '^0.1.0-rc.6')
+})
+
+test('the phone entry is drawn outside the header the narrow layout hides', () => {
+  const source = read('lib/client.js')
+
+  // dsh-mobile-adapter replaces the whole session header with its own bar, so a
+  // button registered in that header still mounts but renders inside a hidden
+  // subtree. Reaching into that header from the adapter was tried and rejected:
+  // it exposed controls the phone layout deliberately hides and broke the bar's
+  // own layout. The viewer draws its own entry instead.
+  assert.match(source, /function ViewerFloatingAction\(\)/)
+  assert.match(source, /className: "fv-float-entry"/)
+
+  // It renders from the overlay seat, which is outside that header.
+  assert.match(source, /react\.createElement\(ViewerFloatingAction, null\)/)
+  assert.match(source, /\}, ViewerSurfaces\)\)/)
+
+  // The header component publishes the session id, since the phone entry cannot
+  // receive that header's props.
+  assert.match(source, /const sessionStore = createStore\(undefined\)/)
+  assert.match(source, /sessionStore\.set\(sessionId\)/)
+
+  // Only one of the two is ever on screen, decided by the same breakpoint the
+  // adapter uses, and the phone entry yields once the drawer is open.
+  assert.match(source, /\.fv-float-entry\{display:none\}/)
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-float-entry\{[^}]*position:fixed/)
+  assert.match(source, /if \(sessionId === undefined \|\| isOpen\) return null/)
+
+  // It must clear the composer and the safe area, and stay under the drawer.
+  // Clears the composer (100px) and the adapter's info strip (20px) below it,
+  // measured on a 390x844 viewport, plus the safe area.
+  assert.match(source, /\.fv-float-entry\{[^}]*bottom:calc\(148px \+ var\(--dsh-sab,0px\)\)/)
+  assert.match(source, /\.fv-float-entry\{[^}]*z-index:39/)
+  assert.match(source, /\.fv-float-entry\{[^}]*width:44px;height:44px/)
 })

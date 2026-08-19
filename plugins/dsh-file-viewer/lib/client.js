@@ -85,10 +85,16 @@ window.__ModuleLoader__.load({
       .fv-table th,.fv-table td{max-width:320px;padding:5px 9px;border:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-align:left;white-space:pre-wrap;vertical-align:top;word-break:break-word}
       .fv-table th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);font-weight:600}
       .fv-table th:first-child,.fv-table td:first-child{position:sticky;left:0;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-caption);text-align:right}
+      .fv-float-entry{display:none}
       @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
       /* Below the mobile-adapter breakpoint the drawer takes the full width and
          the two panes swap instead of sitting side by side. */
       @media(max-width:768px){
+        /* The narrow layout replaces the session header, so the header entry is
+           unreachable there and this floating one takes over. It clears the
+           composer and the safe area, and sits under the drawer's z-index. */
+        .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;right:calc(12px + var(--dsh-sar,0px));bottom:calc(148px + var(--dsh-sab,0px));width:44px;height:44px;border:1px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv2);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family)}
+        .fv-float-entry:active{transform:scale(.96)}
         .fv-shell{width:100%;border-left:none}
         .fv-tree{width:100%;border-right:none}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}
@@ -279,6 +285,9 @@ window.__ModuleLoader__.load({
       // the overlay land on that session's project instead of the first
       // workspace, and a fresh object per open re-runs the resolution.
       const openStore = createStore(null);
+      // Which session the conversation header currently belongs to. The phone
+      // entry is drawn outside that header and cannot receive its props.
+      const sessionStore = createStore(undefined);
       const request = createRequest(ctx.connection);
 
       /**
@@ -759,8 +768,22 @@ window.__ModuleLoader__.load({
        * Conversation header entry. Session-scoped, so it can name the session
        * and have the host open the viewer on that session's project directory.
        */
+      /**
+       * Conversation header entry. Session-scoped, so it can name the session
+       * and have the host open the viewer on that session's project directory.
+       *
+       * It also publishes that session id, because the narrow layout replaces
+       * the whole session header with its own bar: this component still mounts
+       * there but renders inside a hidden subtree, so the phone entry has to be
+       * drawn elsewhere and needs the id from here.
+       */
       function ViewerHeaderAction(props) {
         const sessionId = props === undefined ? undefined : props.sessionId;
+        react.useEffect(() => {
+          sessionStore.set(sessionId);
+          return () => { if (sessionStore.get() === sessionId) sessionStore.set(undefined); };
+        }, [sessionId]);
+
         return react.createElement("button", {
           type: "button",
           className: "fv-icon-button",
@@ -772,12 +795,40 @@ window.__ModuleLoader__.load({
           : react.createElement("span", { "aria-hidden": "true" }, "\u{1F5C1}"));
       }
 
+      /**
+       * Phone entry, rendered from the overlay seat because that one is not
+       * inside the header the narrow layout hides. CSS shows it only below the
+       * same breakpoint, so it never doubles up with the header button.
+       */
+      function ViewerFloatingAction() {
+        const sessionId = useStore(sessionStore);
+        const isOpen = useStore(openStore) !== null;
+        if (sessionId === undefined || isOpen) return null;
+        return react.createElement("button", {
+          type: "button",
+          className: "fv-float-entry",
+          title: "查看项目文件",
+          "aria-label": "查看项目文件",
+          onClick: () => openStore.set({ sessionId }),
+        }, IconFolderOutline16
+          ? react.createElement(IconFolderOutline16, { size: 18 })
+          : react.createElement("span", { "aria-hidden": "true" }, "\u{1F5C1}"));
+      }
+
+      // The overlay seat carries both the drawer and the phone entry: it sits
+      // outside the session header, which the narrow layout hides wholesale.
+      function ViewerSurfaces(props) {
+        return react.createElement(react.Fragment, null,
+          react.createElement(ViewerOverlay, props),
+          react.createElement(ViewerFloatingAction, null));
+      }
+
       ctx.slots.inject(OVERLAY_SLOT, () => ctx.slots.register({
         name: OVERLAY_SLOT,
         id: "file-viewer",
         order: 30,
         inject: () => ({ api: ctx.connection.api }),
-      }, ViewerOverlay));
+      }, ViewerSurfaces));
 
       ctx.slots.inject(HEADER_SLOT, () => ctx.slots.register({
         name: HEADER_SLOT,
