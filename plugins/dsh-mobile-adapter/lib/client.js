@@ -153,6 +153,21 @@ window.__ModuleLoader__.load({
         .VOzbGW_overlay{box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw;height:var(--dsh-vvh,100dvh)!important;background:var(--dsw-alias-bg-base);display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}
         .VOzbGW_mask{display:none!important}
         .VOzbGW_panel{box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex;flex-direction:column;overflow:hidden}
+        /* dsh-file-viewer drawer. A 64vw panel is unusable on a phone, so it
+           takes the whole screen. Height tracks the visual viewport instead of
+           100dvh, which some mobile browsers report before the address bar
+           settles, and both edges respect the safe-area insets. */
+        .fv-scrim{box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw!important;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-base)!important;animation:none!important}
+        .fv-shell{box-sizing:border-box;width:100vw!important;height:100%!important;max-width:none!important;border:0!important;border-radius:0!important;box-shadow:none!important;animation:none!important}
+        .fv-head{box-sizing:border-box;flex:none;gap:6px!important;padding:calc(6px + var(--dsh-sat)) max(8px,var(--dsh-sar)) 6px max(8px,var(--dsh-sal))!important}
+        .fv-title{display:none!important}
+        .fv-root-select{flex:none;max-width:38vw!important}
+        .fv-icon-button{width:40px!important;height:40px!important;flex:none}
+        .fv-tree,.fv-content{padding-bottom:max(12px,var(--dsh-sab))!important;overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important}
+        .fv-row{min-height:40px!important}
+        .fv-pager{padding-bottom:max(8px,var(--dsh-sab))!important}
+        .fv-pager .fv-button,.fv-note .fv-button{min-height:40px!important}
+        .fv-table th,.fv-table td{max-width:60vw!important}
         .VOzbGW_nav{box-sizing:border-box;width:100%!important;flex:none;gap:0!important;padding:calc(44px + var(--dsh-sat)) 0 0!important;display:flex;flex-direction:column}
         .VOzbGW_navTitle{box-sizing:border-box;position:absolute;z-index:3;top:var(--dsh-sat);right:72px;left:72px;width:auto;height:44px;padding:0;color:var(--dsw-alias-label-primary);font-weight:600;display:flex;align-items:center;justify-content:center;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}
         .VOzbGW_navList{box-sizing:border-box;width:auto!important;max-width:calc(100vw - 32px)!important;height:44px;min-height:44px;margin:4px max(16px,var(--dsh-sar)) 12px max(16px,var(--dsh-sal))!important;padding:4px!important;border-radius:14px!important;background:var(--dsw-alias-bg-module-platform,rgba(0,0,0,.04))!important;display:inline-flex!important;flex-direction:row!important;gap:4px!important;overflow-x:auto!important;overflow-y:hidden;overscroll-behavior-x:contain;scroll-behavior:smooth;scrollbar-width:none!important;-webkit-overflow-scrolling:touch!important}

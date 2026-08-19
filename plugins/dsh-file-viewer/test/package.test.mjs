@@ -105,7 +105,7 @@ test('the client bundle registers through the module loader with declared deps',
   assert.deepEqual(client.inject, ['slots', 'connection'])
   assert.equal(client.internals.RPC_CHANNEL, '/dsh-file-viewer')
   assert.equal(client.internals.OVERLAY_SLOT, 'shell.overlay')
-  assert.equal(client.internals.ACTION_SLOT, 'sidebar.footer.action')
+  assert.equal(client.internals.HEADER_SLOT, 'conversation.session.header.utilities')
 })
 
 test('the client bundle polyfills randomUUID for insecure contexts', () => {
@@ -253,22 +253,31 @@ test('viewers remount per file and never render a partial preview', () => {
   assert.match(source, /metaTicket\.current !== ticket/)
 })
 
-test('the sidebar entry adapts to the wide and collapsed column', () => {
+test('the viewer opens as a right-hand drawer with no sidebar entry', () => {
   const source = read('lib/client.js')
 
-  // Regression: the entry reused the 30px round icon button for both states, so
-  // in the wide column the label wrapped inside the circle and overflowed onto
-  // the settings row below.
-  assert.match(source, /const wide = props !== undefined && props\.wide === true/)
-  assert.match(source, /wide \? "fv-entry" : "fv-entry fv-entry-rail"/)
-  assert.match(source, /wide \? react\.createElement\("span", \{ className: "fv-entry-label" \}/)
-  assert.doesNotMatch(source, /className: "fv-icon-button",\s*\n\s*title: "文件查看器"/)
+  // The conversation header is the only entry; the sidebar button is gone
+  // along with its styles and slot registration.
+  assert.doesNotMatch(source, /sidebar\.footer\.action/)
+  assert.doesNotMatch(source, /ViewerAction\b/)
+  assert.doesNotMatch(source, /fv-entry/)
+  assert(!manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar'))
+  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-sidebar'], undefined)
 
-  // The wide row matches the settings control's 42px full-width geometry, and
-  // the rail state is a 36px circle with no label.
-  assert.match(source, /\.fv-entry\{[^}]*width:100%[^}]*height:42px/)
-  assert.match(source, /\.fv-entry-rail\{[^}]*width:36px;height:36px[^}]*border-radius:50%\}/)
-  assert.match(source, /\.fv-entry-label\{[^}]*white-space:nowrap/)
+  // A drawer, not a centred dialog: the scrim pins the panel to the trailing
+  // edge and the panel is full height with only a left border.
+  assert.match(source, /\.fv-scrim\{[^}]*justify-content:flex-end/)
+  assert.doesNotMatch(source, /\.fv-scrim\{[^}]*justify-content:center/)
+  assert.match(source, /\.fv-shell\{[^}]*width:min\(64vw,1100px\)/)
+  assert.match(source, /\.fv-shell\{[^}]*border-left:1px solid/)
+  assert.doesNotMatch(source, /\.fv-shell\{[^}]*border-radius:14px/)
+
+  // It slides in from the right, and honours reduced-motion.
+  assert.match(source, /@keyframes fv-slide\{from\{transform:translateX\(100%\)\}/)
+  assert.match(source, /prefers-reduced-motion:reduce/)
+
+  // Below the mobile-adapter breakpoint the drawer is full width.
+  assert.match(source, /@media\(max-width:768px\)\{\s*\n?\s*\.fv-shell\{width:100%/)
 })
 
 test('the tree expands in place and loads children lazily', () => {
@@ -335,6 +344,5 @@ test('registering in a conversation slot is declared in the manifest', () => {
   // The slot must exist before registration runs, which is what `dsh.client.inject`
   // guarantees; without this the header entry silently never appears.
   assert(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-conversation'))
-  assert(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar'))
   assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-conversation'], '^0.1.0-rc.6')
 })

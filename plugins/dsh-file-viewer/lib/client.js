@@ -27,7 +27,6 @@ window.__ModuleLoader__.load({
 
     const RPC_CHANNEL = "/dsh-file-viewer";
     const OVERLAY_SLOT = "shell.overlay";
-    const ACTION_SLOT = "sidebar.footer.action";
     // Session-scoped utilities sit at the far right of the conversation header;
     // the contract reserves `actions` for context and lineage controls, so an
     // optional tool belongs here and cannot disturb their order.
@@ -37,8 +36,11 @@ window.__ModuleLoader__.load({
     const inject = ["slots", "connection"];
 
     const css = `
-      .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:center;padding:24px;background:color-mix(in srgb,#000 42%,transparent);pointer-events:auto;color-scheme:light dark}
-      .fv-shell{display:flex;flex-direction:column;width:100%;max-width:1440px;min-height:0;overflow:hidden;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-base);box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary)}
+      .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:color-mix(in srgb,#000 32%,transparent);pointer-events:auto;color-scheme:light dark;animation:fv-fade .16s ease-out}
+      .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1)}
+      @keyframes fv-fade{from{opacity:0}to{opacity:1}}
+      @keyframes fv-slide{from{transform:translateX(100%)}to{transform:translateX(0)}}
+      @media(prefers-reduced-motion:reduce){.fv-scrim,.fv-shell{animation:none}}
       .fv-head{display:flex;flex:none;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}
       .fv-title{flex:none;font:var(--dsw-font-m-16);font-weight:600}
       .fv-root-select{max-width:280px;height:30px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
@@ -49,11 +51,6 @@ window.__ModuleLoader__.load({
       .fv-icon-button{display:inline-grid;flex:none;place-items:center;width:30px;height:30px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer}
       .fv-icon-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-icon-button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-      .fv-entry{box-sizing:border-box;display:flex;flex:none;align-items:center;gap:8px;width:100%;height:42px;padding:0 10px 0 8px;border:none;border-radius:12px;background:none;color:var(--dsw-alias-label-primary);font-family:inherit;font-size:14px;line-height:22px;text-align:left;cursor:pointer;overflow:hidden}
-      .fv-entry:hover{background:var(--dsw-alias-interactive-bg-hover)}
-      .fv-entry-icon{display:inline-grid;flex:none;place-items:center;width:16px;height:16px}
-      .fv-entry-label{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-      .fv-entry-rail{justify-content:center;gap:0;width:36px;height:36px;padding:0;border-radius:50%}
       .fv-body{display:flex;flex:1 1 auto;min-height:0}
       .fv-tree{display:flex;flex:none;flex-direction:column;width:280px;min-height:0;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:6px;gap:1px;overscroll-behavior:contain}
       .fv-row{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
@@ -88,9 +85,11 @@ window.__ModuleLoader__.load({
       .fv-table th,.fv-table td{max-width:320px;padding:5px 9px;border:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-align:left;white-space:pre-wrap;vertical-align:top;word-break:break-word}
       .fv-table th{position:sticky;top:0;z-index:1;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-secondary);font-weight:600}
       .fv-table th:first-child,.fv-table td:first-child{position:sticky;left:0;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-base));color:var(--dsw-alias-label-caption);text-align:right}
-      @media(max-width:860px){
-        .fv-scrim{padding:0}
-        .fv-shell{max-width:none;border:none;border-radius:0}
+      @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
+      /* Below the mobile-adapter breakpoint the drawer takes the full width and
+         the two panes swap instead of sitting side by side. */
+      @media(max-width:768px){
+        .fv-shell{width:100%;border-left:none}
         .fv-tree{width:100%;border-right:none}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}
         .fv-crumbs{font-size:11px}
@@ -757,28 +756,6 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Sidebar entry. Mirrors the settings control in the same foot area: a
-       * full-width labelled row while the column is wide, a round icon in the
-       * collapsed rail. A fixed-size icon button cannot hold the label — the
-       * text wraps inside the circle and overflows onto the row below.
-       */
-      function ViewerAction(props) {
-        const wide = props !== undefined && props.wide === true;
-        return react.createElement("button", {
-          type: "button",
-          className: wide ? "fv-entry" : "fv-entry fv-entry-rail",
-          title: "文件查看器",
-          "aria-label": "文件查看器",
-          // No session context in the sidebar, so this opens the first workspace.
-          onClick: () => openStore.set(openStore.get() === null ? {} : null),
-        },
-          react.createElement("span", { className: "fv-entry-icon", "aria-hidden": "true" }, IconFolderOutline16
-            ? react.createElement(IconFolderOutline16, { size: 16 })
-            : "\u{1F5C1}"),
-          wide ? react.createElement("span", { className: "fv-entry-label" }, "文件") : null);
-      }
-
-      /**
        * Conversation header entry. Session-scoped, so it can name the session
        * and have the host open the viewer on that session's project directory.
        */
@@ -808,19 +785,13 @@ window.__ModuleLoader__.load({
         order: 20,
       }, ViewerHeaderAction));
 
-      ctx.slots.inject(ACTION_SLOT, () => ctx.slots.register({
-        name: ACTION_SLOT,
-        id: "file-viewer",
-        order: 30,
-      }, ViewerAction));
-
       return { openStore };
     }
 
     exports.apply = apply;
     exports.inject = inject;
     exports.internals = {
-      RPC_CHANNEL, OVERLAY_SLOT, ACTION_SLOT, HEADER_SLOT, STYLE_ID, WINDOW_LINES, css,
+      RPC_CHANNEL, OVERLAY_SLOT, HEADER_SLOT, STYLE_ID, WINDOW_LINES, css,
       ERROR_COPY, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
     };
