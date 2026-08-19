@@ -153,6 +153,27 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Write the draft straight to the composer's textarea.
+     *
+     * The bridge on the composer seat is the clean path, but it only works when
+     * the host hands that seat the input props. Where it does not, the button
+     * would disappear entirely, so fall back to the element itself: React tracks
+     * the value on the node, hence the prototype setter plus a synthetic event
+     * rather than a plain assignment, which React would overwrite on the next
+     * render.
+     */
+    function writeDraftToDom(doc, text) {
+      const area = doc && doc.querySelector("[data-composer-card] textarea, textarea");
+      if (!area) return false;
+      const proto = Object.getPrototypeOf(area);
+      const setter = Object.getOwnPropertyDescriptor(proto, "value");
+      if (setter && typeof setter.set === "function") setter.set.call(area, text);
+      else area.value = text;
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    }
+
+    /**
      * Minimal subscribable store. The sidebar button and the overlay live in
      * separate slots, so open state cannot be React state inside either one.
      */
@@ -679,17 +700,27 @@ window.__ModuleLoader__.load({
         // Soft wrap for source views. Off by default: code is written with
         // meaningful line breaks and wrapping obscures them.
         const [wrap, setWrap] = react.useState(false);
-        const composer = useStore(composerStore);
+        // Subscribed so the drawer re-renders when the bridge appears and the
+        // clean setDraft path takes over from the DOM fallback.
+        useStore(composerStore);
 
         /**
          * Append a reference to the composer and close the drawer, so the draft
          * is visible and can be sent without a second gesture.
          */
         const mention = (entry) => {
-          const target = composerStore.get();
-          if (target === null) return;
           const shown = entry.displayPath === undefined ? entry.path : entry.displayPath;
-          target.setDraft(appendMention(target.draft, shown));
+          const target = composerStore.get();
+          if (target !== null) {
+            target.setDraft(appendMention(target.draft, shown));
+            openStore.set(null);
+            return;
+          }
+          // No bridge on this host, so read the current text off the element and
+          // append to that instead of the snapshot the bridge would have carried.
+          const doc = typeof document === "undefined" ? null : document;
+          const area = doc && doc.querySelector("[data-composer-card] textarea, textarea");
+          if (!writeDraftToDom(doc, appendMention(area ? area.value : "", shown))) return;
           openStore.set(null);
         };
         const [error, setError] = react.useState(null);
@@ -890,7 +921,10 @@ window.__ModuleLoader__.load({
                 selected: meta === null ? "" : meta.path,
                 onToggle: toggleDirectory,
                 onSelect: selectFile,
-                onMention: composer === null ? undefined : mention,
+                // Always offered: the DOM fallback covers hosts that leave the
+                // bridge without input props, where gating on the store made the
+                // button vanish with no way to reach it.
+                onMention: mention,
               }),
               react.createElement("div", { className: "fv-main" },
                 react.createElement("div", { className: "fv-main-head" },

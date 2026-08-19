@@ -491,11 +491,8 @@ test('tree rows can reference a file into the composer', () => {
   // Folders are referenceable too, so the button is not gated on entry type.
   assert.doesNotMatch(source, /onMention[\s\S]{0,120}isDirectory \? null/)
 
-  // Offered only when a composer is actually present.
-  assert.match(source, /onMention: composer === null \? undefined : mention/)
-
   // Closing after inserting leaves the draft visible and sendable.
-  assert.match(source, /target\.setDraft\(appendMention\(target\.draft, shown\)\);\s*openStore\.set\(null\)/)
+  assert.match(source, /target\.setDraft\(appendMention\(target\.draft, shown\)\);\s*openStore\.set\(null\);/)
 
   // Never gated behind hover. Hiding it that way made it unreachable wherever
   // hover is unreliable, including phones with a paired mouse where
@@ -530,4 +527,19 @@ test('an existing stylesheet is refreshed rather than left stale', () => {
   // Checked on every open, not only at startup: apply() runs once while the
   // stylesheet can outlive the module across a client reload.
   assert.match(source, /if \(!open\) return;\s*ensureStyles\(/)
+})
+
+test('the mention button survives a host that gives the bridge no input props', () => {
+  const source = read('lib/client.js')
+
+  // Gating on the store made the button vanish outright wherever the composer
+  // seat arrives without inputActions, with nothing the user could do about it.
+  assert.doesNotMatch(source, /onMention: composer === null \? undefined : mention/)
+  assert.match(source, /onMention: mention,/)
+
+  // React tracks the value on the node, so a plain assignment is overwritten on
+  // the next render — hence the prototype setter and the synthetic event.
+  assert.match(source, /function writeDraftToDom\(doc, text\)/)
+  assert.match(source, /Object\.getOwnPropertyDescriptor\(proto, "value"\)/)
+  assert.match(source, /area\.dispatchEvent\(new Event\("input", \{ bubbles: true \}\)\)/)
 })
