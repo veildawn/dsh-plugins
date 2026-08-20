@@ -1,0 +1,4 @@
+# Cordis bundle patch: mounts the terminal plugin's host half.
+- insert:
+    - id: terminal
+      name: dsh-terminal

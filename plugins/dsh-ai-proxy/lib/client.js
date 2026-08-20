@@ -27,12 +27,23 @@ window.__ModuleLoader__.load({
     const AUTH_RPC_CHANNEL = "/ai-proxy-auth";
     const SETTINGS_SLOT = "settings.section";
     const inject = ["slots", "connection", "remote"];
+
+    const API_FORMATS = [
+      { id: "chat/completions", label: "Chat/completions (OpenAI 兼容)", endpointSuffix: "/v1/chat/completions" },
+      { id: "anthropic-messages", label: "Anthropic messages", endpointSuffix: "/v1/messages" },
+      { id: "responses", label: "Responses (OpenAI Responses)", endpointSuffix: "/v1/responses" },
+    ];
+
     const uiCss = `
       .ai-proxy-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:720px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
       .ai-proxy-settings h2{margin:0;font:var(--dsw-font-l-20)}.ai-proxy-intro{margin:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14)}
       .ai-proxy-field{display:flex;flex-direction:column;gap:6px}.ai-proxy-label{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14);font-weight:500}
       .ai-proxy-input{box-sizing:border-box;width:100%;height:36px;padding:0 12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
       .ai-proxy-input:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.ai-proxy-input:disabled{opacity:.6}
+      .ai-proxy-select{box-sizing:border-box;width:100%;height:36px;padding:0 12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer}
+      .ai-proxy-select:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.ai-proxy-select:disabled{opacity:.6;cursor:default}
+      .ai-proxy-endpoint-preview{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--dsw-radius-s,6px);background:var(--dsw-alias-background-muted,var(--dsw-alias-bg-module-platform));color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px;word-break:break-all}
+      .ai-proxy-endpoint-tag{flex:none;padding:1px 6px;border-radius:4px;background:var(--dsw-alias-background-subtle,rgba(128,128,128,0.15));color:var(--dsw-alias-label-secondary);font-size:11px;font-weight:600}
       .ai-proxy-status{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14)}
       .ai-proxy-dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-caption))}.ai-proxy-dot[data-active=true]{background:var(--dsw-alias-state-success-primary)}
       .ai-proxy-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.ai-proxy-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-decoration:none;cursor:pointer}.ai-proxy-button:disabled{cursor:default;opacity:.4}.ai-proxy-button-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}
@@ -46,7 +57,19 @@ window.__ModuleLoader__.load({
     `;
 
     function normalizeGateway(value) {
-      return value.trim().replace(/\/+$/, "");
+      return (value || "").trim().replace(/\/+$/, "");
+    }
+
+    function computeEndpoint(baseURL, apiFormat) {
+      let base = normalizeGateway(baseURL);
+      if (!base) return "";
+      base = base.replace(/\/v1\/(chat\/completions|messages|responses)\/?$/i, "/v1");
+      base = base.replace(/\/(chat\/completions|messages|responses)\/?$/i, "");
+      let suffix = "/chat/completions";
+      if (apiFormat === "anthropic-messages") suffix = "/messages";
+      else if (apiFormat === "responses") suffix = "/responses";
+      if (base.endsWith("/v1")) return base + suffix;
+      return base + "/v1" + suffix;
     }
 
     function gatewayError(value) {
@@ -73,23 +96,31 @@ window.__ModuleLoader__.load({
       };
       function AiProxySettings(props) {
         const [gateway, setGateway] = react.useState("");
-        const [saved, setSaved] = react.useState("");
+        const [apiFormat, setApiFormat] = react.useState("chat/completions");
+        const [savedGateway, setSavedGateway] = react.useState("");
+        const [savedApiFormat, setSavedApiFormat] = react.useState("chat/completions");
         const [loaded, setLoaded] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
         const [auth, setAuth] = react.useState({ state: "checking", message: "正在检查登录状态…" });
         const normalizedGateway = normalizeGateway(gateway);
         const invalidGateway = gatewayError(gateway);
-        const gatewayChanged = loaded && normalizedGateway !== saved;
+        const configChanged = loaded && (normalizedGateway !== savedGateway || apiFormat !== savedApiFormat);
         const pending = busy || auth.state === "authorizing" || auth.state === "checking";
 
         const [manualInput, setManualInput] = react.useState("");
+
+        const predictedEndpoint = computeEndpoint(gateway, apiFormat);
 
         react.useEffect(() => {
           let active = true;
           props.authRequest("config").then((value) => {
             if (!active || typeof value?.baseURL !== "string") return;
             setGateway(value.baseURL);
-            setSaved(normalizeGateway(value.baseURL));
+            setSavedGateway(normalizeGateway(value.baseURL));
+            if (value?.apiFormat) {
+              setApiFormat(value.apiFormat);
+              setSavedApiFormat(value.apiFormat);
+            }
             setLoaded(true);
           }, () => { if (active) setLoaded(true); });
           const refresh = () => props.authRequest("status").then(
@@ -144,11 +175,15 @@ window.__ModuleLoader__.load({
 
         const commitGateway = async () => {
           if (invalidGateway) throw new Error(invalidGateway);
-          if (!gatewayChanged) return;
-          const value = await props.authRequest("setBaseURL", { baseURL: normalizedGateway });
+          if (!configChanged) return;
+          const value = await props.authRequest("setGateway", { baseURL: normalizedGateway, apiFormat });
           if (typeof value?.baseURL === "string") {
             setGateway(value.baseURL);
-            setSaved(normalizeGateway(value.baseURL));
+            setSavedGateway(normalizeGateway(value.baseURL));
+          }
+          if (value?.apiFormat) {
+            setApiFormat(value.apiFormat);
+            setSavedApiFormat(value.apiFormat);
           }
         };
         const withBusy = async (action, prefix) => {
@@ -194,6 +229,20 @@ window.__ModuleLoader__.load({
             }),
             invalidGateway && gateway.length > 0 ? react.createElement("p", { className: "ai-proxy-error" }, invalidGateway) : null
           ),
+          react.createElement("label", { className: "ai-proxy-field" },
+            react.createElement("span", { className: "ai-proxy-label" }, "API 格式"),
+            react.createElement("select", {
+              className: "ai-proxy-select", value: apiFormat, disabled: pending || !loaded,
+              "aria-label": "API 格式",
+              onChange: (event) => setApiFormat(event.target.value),
+            },
+              ...API_FORMATS.map((fmt) => react.createElement("option", { key: fmt.id, value: fmt.id }, fmt.label))
+            ),
+            predictedEndpoint ? react.createElement("div", { className: "ai-proxy-endpoint-preview" },
+              react.createElement("span", { className: "ai-proxy-endpoint-tag" }, "匹配请求地址"),
+              react.createElement("span", null, predictedEndpoint)
+            ) : null
+          ),
           react.createElement("div", { className: "ai-proxy-status", role: "status", "aria-live": "polite" },
             react.createElement("span", { className: "ai-proxy-dot", "data-active": auth.state === "signed-in" }),
             react.createElement("span", null, auth.message)
@@ -227,9 +276,9 @@ window.__ModuleLoader__.load({
             )
           ) : null,
           react.createElement("div", { className: "ai-proxy-actions" },
-            auth.state === "signed-in" && gatewayChanged && !invalidGateway ? react.createElement("button", {
+            auth.state === "signed-in" && configChanged && !invalidGateway ? react.createElement("button", {
               className: "ai-proxy-button", type: "button", disabled: pending,
-              onClick: () => withBusy(commitGateway, "保存网关地址失败: "),
+              onClick: () => withBusy(commitGateway, "保存配置失败: "),
             }, "保存") : null,
             auth.state === "signed-in" ? react.createElement("button", {
               className: "ai-proxy-button", type: "button", disabled: pending,

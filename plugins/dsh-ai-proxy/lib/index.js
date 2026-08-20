@@ -3,12 +3,12 @@
  *
  * The gateway is an OAuth 2.0 authorization server (RFC 8414 discovery,
  * authorization code + mandatory PKCE S256, public clients, loopback
- * redirects) and an OpenAI-compatible /v1 surface whose model list carries
- * per-plan models with context windows, modalities and per-model reasoning
- * effort ladders ("effort_levels"). This plugin:
+ * redirects) and an OpenAI/Anthropic-compatible surface whose model list
+ * carries per-plan models with context windows, modalities and per-model
+ * reasoning effort ladders ("effort_levels"). This plugin:
  *
- *   - registers the "ai-proxy" provider route (LlmAdapter over
- *     POST /v1/chat/completions, SSE -> StreamChunk),
+ *   - registers the "ai-proxy" provider route (LlmAdapter supporting
+ *     chat/completions, Anthropic messages, and Responses API formats),
  *   - runs OAuth through a Host-only authentication interface, stores
  *     access/refresh tokens through the credentials seam, refreshes with
  *     rotation, and revokes on logout,
@@ -16,11 +16,6 @@
  *     exposing each model's effort ladder as DSH reasoning efforts,
  *   - exposes stable provider settings while login/logout/status travel over
  *     a loopback-only Host RPC channel and never enter settings.yaml.
- *
- * Wire shape: OpenAI chat/completions. Reasoning effort is passed through
- * verbatim as the "reasoning_effort" request field; the gateway translates
- * and clamps it per upstream provider. Replayed reasoning content is NOT
- * sent (the gateway sanitizes it per provider itself).
  *
  * @module dsh-ai-proxy
  */
@@ -64,6 +59,18 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300000
 
 export const DEFAULT_API_KEY_ENV = 'AIPROXY_ACCESS_TOKEN'
 
+export const API_FORMAT_CHAT_COMPLETIONS = 'chat/completions'
+export const API_FORMAT_ANTHROPIC_MESSAGES = 'anthropic-messages'
+export const API_FORMAT_RESPONSES = 'responses'
+
+export const API_FORMATS = [
+  API_FORMAT_CHAT_COMPLETIONS,
+  API_FORMAT_ANTHROPIC_MESSAGES,
+  API_FORMAT_RESPONSES,
+]
+
+export const DEFAULT_API_FORMAT = API_FORMAT_CHAT_COMPLETIONS
+
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 
 // ── pure helpers (exported for tests) ──────────────────────────────────────
@@ -75,6 +82,56 @@ export function effortName(id) {
     high: 'High', xhigh: 'X-High', ultra: 'Ultra', max: 'Max', turbo: 'Turbo',
   }
   return names[id] ?? id
+}
+
+/** Normalize API format string to canonical identifier. */
+export function normalizeApiFormat(raw) {
+  if (!raw || typeof raw !== 'string') return DEFAULT_API_FORMAT
+  const val = raw.trim().toLowerCase()
+  if (val === 'anthropic-messages' || val === 'anthropic messages' || val === 'messages' || val === 'anthropic') {
+    return API_FORMAT_ANTHROPIC_MESSAGES
+  }
+  if (val === 'responses' || val === 'openai-responses') {
+    return API_FORMAT_RESPONSES
+  }
+  return API_FORMAT_CHAT_COMPLETIONS
+}
+
+/**
+ * Intelligent endpoint resolution based on base URL and API format.
+ * Strips any mismatched endpoints and returns the correct path.
+ */
+export function resolveInferenceEndpoint(baseURL, apiFormat = DEFAULT_API_FORMAT) {
+  let base = (baseURL || '').trim().replace(/\/+$/, '')
+  if (!base) base = DEFAULT_BASE_URL
+
+  // Strip known trailing endpoint subpaths
+  base = base.replace(/\/v1\/(chat\/completions|messages|responses)\/?$/i, '/v1')
+  base = base.replace(/\/(chat\/completions|messages|responses)\/?$/i, '')
+
+  const format = normalizeApiFormat(apiFormat)
+  let suffix = '/chat/completions'
+  if (format === API_FORMAT_ANTHROPIC_MESSAGES) suffix = '/messages'
+  else if (format === API_FORMAT_RESPONSES) suffix = '/responses'
+
+  if (base.endsWith('/v1')) {
+    return base + suffix
+  }
+  return base + '/v1' + suffix
+}
+
+/** Resolve /v1/models endpoint from base URL. */
+export function resolveModelsEndpoint(baseURL) {
+  let base = (baseURL || '').trim().replace(/\/+$/, '')
+  if (!base) base = DEFAULT_BASE_URL
+
+  base = base.replace(/\/v1\/(chat\/completions|messages|responses)\/?$/i, '/v1')
+  base = base.replace(/\/(chat\/completions|messages|responses)\/?$/i, '')
+
+  if (base.endsWith('/v1')) {
+    return base + '/models'
+  }
+  return base + '/v1/models'
 }
 
 /**
@@ -125,11 +182,6 @@ export async function serializeUserContent(content, attachments) {
  * Serialize harness messages into standard OpenAI chat/completions wire
  * messages. Assistant reasoning is deliberately NOT replayed: the gateway
  * sanitizes replayed reasoning_content per provider itself.
- *
- * Image blocks are carried only where the OpenAI dialect can represent them —
- * user content parts. An image in a system or assistant message, or inside a
- * tool result, is rejected instead of silently flattened away; the harness
- * only produces user-content images today, so those are programmer errors.
  */
 export async function serializeMessages(messages, attachments) {
   const wire = []
@@ -183,14 +235,8 @@ export async function serializeMessages(messages, attachments) {
   return wire
 }
 
-/**
- * Build the full OpenAI chat/completions request. Always streaming; no
- * stream_options (the gateway rejects fields it cannot preserve, and usage
- * is optional for the harness). reasoning_effort passes through verbatim;
- * session-title requests omit it. attachments is the durable attachment
- * service, required only when the conversation carries an image.
- */
-export async function serializeRequest(options, attachments) {
+/** Build Chat Completions request body. */
+export async function serializeChatCompletionsRequest(options, attachments) {
   const messages = []
   if (options.system !== undefined) messages.push({ role: 'system', content: options.system })
   messages.push(...await serializeMessages(options.messages, attachments))
@@ -216,12 +262,217 @@ export async function serializeRequest(options, attachments) {
   }
 }
 
+/** Build Anthropic Messages request body. */
+export async function serializeAnthropicRequest(options, attachments) {
+  let system = options.system
+  const messages = []
+
+  for (const message of options.messages) {
+    if (message.role === 'system') {
+      const text = flattenText(message.content)
+      system = system ? system + '\n\n' + text : text
+      continue
+    }
+
+    if (message.role === 'user') {
+      const content = []
+      const toolResults = message.content.filter((b) => b.type === 'tool-result')
+
+      for (const block of message.content) {
+        if (block.type === 'text') {
+          if (block.text.length > 0) content.push({ type: 'text', text: block.text })
+        } else if (block.type === 'image') {
+          const stored = await attachments.readImage(block.attachment)
+          content.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: stored.ref.mediaType || 'image/png',
+              data: Buffer.from(stored.data).toString('base64'),
+            },
+          })
+        } else if (block.type === 'tool-result') {
+          const text = flattenText(block.content)
+          content.push({
+            type: 'tool_result',
+            tool_use_id: block.toolCallId,
+            content: text || '(no output)',
+          })
+        }
+      }
+
+      if (content.length === 1 && content[0].type === 'text' && toolResults.length === 0) {
+        messages.push({ role: 'user', content: content[0].text })
+      } else if (content.length > 0) {
+        messages.push({ role: 'user', content })
+      }
+      continue
+    }
+
+    if (message.role === 'assistant') {
+      const content = []
+      for (const block of message.content) {
+        if (block.type === 'text') {
+          if (block.text.length > 0) content.push({ type: 'text', text: block.text })
+        } else if (block.type === 'tool-call') {
+          let input = {}
+          try { input = JSON.parse(block.arguments || '{}') } catch {}
+          content.push({
+            type: 'tool_use',
+            id: block.id,
+            name: block.name,
+            input,
+          })
+        }
+      }
+      if (content.length === 1 && content[0].type === 'text') {
+        messages.push({ role: 'assistant', content: content[0].text })
+      } else if (content.length > 0) {
+        messages.push({ role: 'assistant', content })
+      }
+      continue
+    }
+  }
+
+  const tools = options.tools?.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.parameters || { type: 'object', properties: {} },
+  }))
+
+  const body = {
+    model: options.model,
+    messages,
+    max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+    stream: true,
+    ...(system !== undefined ? { system } : {}),
+    ...(tools !== undefined && tools.length > 0 ? { tools } : {}),
+    ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+    ...(options.stop !== undefined ? { stop_sequences: options.stop } : {}),
+  }
+
+  if (options.purpose !== 'session-title' && options.reasoningEffort !== undefined && options.reasoningEffort !== 'none' && options.reasoningEffort !== '') {
+    body.thinking = { type: 'adaptive' }
+  }
+
+  return body
+}
+
+/** Build OpenAI Responses request body. */
+export async function serializeResponsesRequest(options, attachments) {
+  const input = []
+  if (options.system !== undefined) {
+    input.push({ role: 'system', content: options.system })
+  }
+
+  for (const message of options.messages) {
+    if (message.role === 'system') {
+      const text = flattenText(message.content)
+      input.push({ role: 'system', content: text })
+      continue
+    }
+
+    if (message.role === 'user') {
+      const content = []
+      const toolResults = message.content.filter((b) => b.type === 'tool-result')
+
+      for (const block of message.content) {
+        if (block.type === 'text') {
+          if (block.text.length > 0) content.push({ type: 'input_text', text: block.text })
+        } else if (block.type === 'image') {
+          const stored = await attachments.readImage(block.attachment)
+          const dataUrl = imageDataUrl(stored)
+          content.push({ type: 'input_image', image_url: dataUrl })
+        }
+      }
+
+      if (content.length > 0) {
+        input.push({ role: 'user', content })
+      }
+
+      for (const result of toolResults) {
+        const text = flattenText(result.content)
+        input.push({
+          type: 'function_call_output',
+          call_id: result.toolCallId,
+          output: text || '(no output)',
+        })
+      }
+      continue
+    }
+
+    if (message.role === 'assistant') {
+      const text = flattenText(message.content)
+      const toolCalls = message.content.filter((b) => b.type === 'tool-call')
+
+      if (text.length > 0) {
+        input.push({
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text }],
+          status: 'completed',
+        })
+      }
+
+      for (const call of toolCalls) {
+        input.push({
+          type: 'function_call',
+          call_id: call.id,
+          name: call.name,
+          arguments: call.arguments,
+        })
+      }
+      continue
+    }
+  }
+
+  const tools = options.tools?.map((tool) => ({
+    type: 'function',
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+  }))
+
+  return {
+    model: options.model,
+    input,
+    stream: true,
+    ...(options.purpose !== 'session-title' && options.reasoningEffort !== undefined
+      ? { reasoning: { effort: options.reasoningEffort } }
+      : {}),
+    ...(tools !== undefined && tools.length > 0 ? { tools } : {}),
+    ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+    ...(options.maxTokens !== undefined ? { max_output_tokens: options.maxTokens } : {}),
+  }
+}
+
+/** Master serializeRequest dispatcher. */
+export async function serializeRequest(options, attachments, apiFormat = DEFAULT_API_FORMAT) {
+  const format = normalizeApiFormat(apiFormat)
+  if (format === API_FORMAT_ANTHROPIC_MESSAGES) {
+    return serializeAnthropicRequest(options, attachments)
+  }
+  if (format === API_FORMAT_RESPONSES) {
+    return serializeResponsesRequest(options, attachments)
+  }
+  return serializeChatCompletionsRequest(options, attachments)
+}
+
 /** Map the wire finish_reason vocabulary to the harness FinishReason. */
 export function mapFinishReason(reason) {
   switch (reason) {
-    case 'stop': return { kind: 'stop' }
-    case 'tool_calls': return { kind: 'tool-calls' }
-    case 'length': return { kind: 'max-tokens' }
+    case 'stop':
+    case 'end_turn':
+    case 'stop_sequence':
+    case 'completed':
+      return { kind: 'stop' }
+    case 'tool_calls':
+    case 'tool_use':
+      return { kind: 'tool-calls' }
+    case 'length':
+    case 'max_tokens':
+    case 'incomplete':
+      return { kind: 'max-tokens' }
     default:
       return { kind: 'error', failure: { message: 'model stopped: ' + reason, code: String(reason ?? 'unknown').toUpperCase() } }
   }
@@ -232,11 +483,13 @@ export function mapFinishReason(reason) {
  * subtracted out of inputTokens (billed input = input + cacheRead).
  */
 export function mapUsage(usage) {
-  const cacheRead = usage.prompt_tokens_details?.cached_tokens
-  const reasoning = usage.completion_tokens_details?.reasoning_tokens
+  const promptTokens = usage.prompt_tokens ?? usage.input_tokens ?? 0
+  const cacheRead = usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens
+  const reasoning = usage.completion_tokens_details?.reasoning_tokens ?? usage.output_tokens_details?.thinking_tokens
+  const completionTokens = usage.completion_tokens ?? usage.output_tokens ?? 0
   return {
-    inputTokens: (usage.prompt_tokens ?? 0) - (cacheRead ?? 0),
-    outputTokens: usage.completion_tokens ?? 0,
+    inputTokens: promptTokens - (cacheRead ?? 0),
+    outputTokens: completionTokens,
     ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
     ...(reasoning !== undefined ? { reasoningTokens: reasoning } : {}),
   }
@@ -260,12 +513,9 @@ export function closeBlock(block) {
 }
 
 /**
- * Consume SSE data payloads (ending with [DONE]) and yield StreamChunks.
- * Block indexes correlate interleaved deltas; block-end, usage and finish
- * are deferred to the [DONE] sentinel. A stop with no opened blocks is a
- * degenerate completion and maps to an EMPTY_RESPONSE error finish.
+ * Consume SSE data payloads for OpenAI Chat Completions and yield StreamChunks.
  */
-export async function* translate(payloads) {
+export async function* translateChatCompletions(payloads) {
   let nextIndex = 0
   let textBlock
   let reasoningBlock
@@ -281,7 +531,8 @@ export async function* translate(payloads) {
   }
 
   for await (const payload of payloads) {
-    if (payload === '[DONE]') {
+    const raw = typeof payload === 'string' ? payload : payload?.data
+    if (raw === '[DONE]') {
       for (const block of order) {
         yield { type: 'block-end', index: block.index, block: closeBlock(block) }
       }
@@ -297,7 +548,7 @@ export async function* translate(payloads) {
     }
     let chunk
     try {
-      chunk = JSON.parse(payload)
+      chunk = JSON.parse(raw)
     } catch {
       throw new LlmError('provider returned malformed SSE JSON', 'MALFORMED_RESPONSE')
     }
@@ -348,14 +599,269 @@ export async function* translate(payloads) {
   throw new LlmError('SSE payload stream ended without [DONE]', 'STREAM_CLOSED')
 }
 
-/** Parse an SSE byte stream into data payloads, [DONE]-terminated. */
+/**
+ * Consume SSE data events for Anthropic Messages and yield StreamChunks.
+ */
+export async function* translateAnthropic(events) {
+  let nextIndex = 0
+  const blockMap = new Map()
+  const order = []
+  let pendingUsage = null
+  let pendingFinish = null
+
+  for await (const event of events) {
+    if (!event) continue
+    const raw = typeof event === 'string' ? event : event.data
+    if (raw === '[DONE]') {
+      break
+    }
+    let data
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      throw new LlmError('provider returned malformed SSE JSON', 'MALFORMED_RESPONSE')
+    }
+
+    const type = data.type || (typeof event === 'object' ? event.event : undefined)
+    if (type === 'message_start') {
+      if (data.message?.usage) {
+        pendingUsage = mapUsage(data.message.usage)
+      }
+    } else if (type === 'content_block_start') {
+      const idx = data.index ?? nextIndex++
+      const cb = data.content_block || {}
+      if (cb.type === 'text') {
+        const block = { index: idx, kind: 'text', text: cb.text || '' }
+        blockMap.set(idx, block)
+        order.push(block)
+        yield { type: 'block-start', index: idx, blockType: 'text' }
+      } else if (cb.type === 'thinking' || cb.type === 'redacted_thinking') {
+        const block = { index: idx, kind: 'reasoning', text: cb.thinking || '' }
+        blockMap.set(idx, block)
+        order.push(block)
+        yield { type: 'block-start', index: idx, blockType: 'reasoning' }
+      } else if (cb.type === 'tool_use') {
+        const block = { index: idx, kind: 'tool-call', callId: cb.id, name: cb.name, text: '' }
+        blockMap.set(idx, block)
+        order.push(block)
+        yield { type: 'block-start', index: idx, blockType: 'tool-call' }
+      }
+    } else if (type === 'content_block_delta') {
+      const idx = data.index
+      const block = blockMap.get(idx)
+      const delta = data.delta || {}
+      if (block) {
+        if (delta.type === 'text_delta') {
+          block.text += delta.text
+          yield { type: 'text-delta', index: idx, text: delta.text }
+        } else if (delta.type === 'thinking_delta') {
+          block.text += delta.thinking
+          yield { type: 'reasoning-delta', index: idx, text: delta.thinking }
+        } else if (delta.type === 'input_json_delta') {
+          block.text += delta.partial_json
+          yield {
+            type: 'tool-call-delta',
+            index: idx,
+            id: CallId(block.callId ?? ''),
+            name: block.name ?? '',
+            argumentsDelta: delta.partial_json,
+          }
+        }
+      }
+    } else if (type === 'content_block_stop') {
+      const idx = data.index
+      const block = blockMap.get(idx)
+      if (block) {
+        yield { type: 'block-end', index: idx, block: closeBlock(block) }
+      }
+    } else if (type === 'message_delta') {
+      if (data.usage) {
+        const u = data.usage
+        const inputTokens = pendingUsage?.inputTokens ?? 0
+        const cacheReadTokens = pendingUsage?.cacheReadTokens
+        const reasoningTokens = u.output_tokens_details?.thinking_tokens
+        pendingUsage = {
+          inputTokens,
+          outputTokens: u.output_tokens ?? pendingUsage?.outputTokens ?? 0,
+          ...(cacheReadTokens ? { cacheReadTokens } : {}),
+          ...(reasoningTokens ? { reasoningTokens } : {}),
+        }
+      }
+      if (data.delta?.stop_reason) {
+        pendingFinish = mapFinishReason(data.delta.stop_reason)
+      }
+    } else if (type === 'message_stop') {
+      if (pendingUsage) yield { type: 'usage', usage: pendingUsage }
+      const reason = pendingFinish ?? { kind: 'stop' }
+      yield {
+        type: 'finish',
+        reason: reason.kind === 'stop' && order.length === 0
+          ? { kind: 'error', failure: { message: 'provider returned an empty response', code: EMPTY_RESPONSE_CODE } }
+          : reason,
+      }
+      return
+    }
+  }
+
+  for (const block of order) {
+    // If not ended
+  }
+  if (pendingUsage) yield { type: 'usage', usage: pendingUsage }
+  const reason = pendingFinish ?? { kind: 'stop' }
+  yield {
+    type: 'finish',
+    reason: reason.kind === 'stop' && order.length === 0
+      ? { kind: 'error', failure: { message: 'provider returned an empty response', code: EMPTY_RESPONSE_CODE } }
+      : reason,
+  }
+}
+
+/**
+ * Consume SSE data events for OpenAI Responses and yield StreamChunks.
+ */
+export async function* translateResponses(events) {
+  let nextIndex = 0
+  const itemMap = new Map()
+  const order = []
+  let pendingUsage = null
+  let pendingFinish = null
+
+  for await (const event of events) {
+    if (!event) continue
+    const raw = typeof event === 'string' ? event : event.data
+    if (raw === '[DONE]') {
+      for (const block of order) {
+        yield { type: 'block-end', index: block.index, block: closeBlock(block) }
+      }
+      if (pendingUsage) yield { type: 'usage', usage: pendingUsage }
+      const reason = pendingFinish ?? { kind: 'stop' }
+      yield {
+        type: 'finish',
+        reason: reason.kind === 'stop' && order.length === 0
+          ? { kind: 'error', failure: { message: 'provider returned an empty response', code: EMPTY_RESPONSE_CODE } }
+          : reason,
+      }
+      return
+    }
+
+    let data
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      throw new LlmError('provider returned malformed SSE JSON', 'MALFORMED_RESPONSE')
+    }
+
+    const type = data.type || (typeof event === 'object' ? event.event : undefined)
+
+    if (type === 'response.output_item.added') {
+      const item = data.item || {}
+      const idx = data.output_index ?? nextIndex++
+      if (item.type === 'message') {
+        const block = { index: idx, kind: 'text', text: '' }
+        itemMap.set(idx, block)
+        order.push(block)
+        yield { type: 'block-start', index: idx, blockType: 'text' }
+      } else if (item.type === 'reasoning' || item.type === 'thinking') {
+        const block = { index: idx, kind: 'reasoning', text: '' }
+        itemMap.set(idx, block)
+        order.push(block)
+        yield { type: 'block-start', index: idx, blockType: 'reasoning' }
+      } else if (item.type === 'function_call') {
+        const block = { index: idx, kind: 'tool-call', callId: item.call_id || item.id, name: item.name || '', text: item.arguments || '' }
+        itemMap.set(idx, block)
+        order.push(block)
+        yield { type: 'block-start', index: idx, blockType: 'tool-call' }
+      }
+    } else if (type === 'response.text.delta' || type === 'response.output_text.delta') {
+      const idx = data.output_index ?? 0
+      let block = itemMap.get(idx)
+      if (!block) {
+        block = { index: idx, kind: 'text', text: '' }
+        itemMap.set(idx, block)
+        order.push(block)
+        yield { type: 'block-start', index: idx, blockType: 'text' }
+      }
+      const delta = data.delta ?? ''
+      block.text += delta
+      yield { type: 'text-delta', index: idx, text: delta }
+    } else if (type === 'response.reasoning.delta' || type === 'response.reasoning_text.delta' || type === 'response.thinking.delta') {
+      const idx = data.output_index ?? 0
+      let block = itemMap.get(idx)
+      if (!block) {
+        block = { index: idx, kind: 'reasoning', text: '' }
+        itemMap.set(idx, block)
+        order.push(block)
+        yield { type: 'block-start', index: idx, blockType: 'reasoning' }
+      }
+      const delta = data.delta ?? ''
+      block.text += delta
+      yield { type: 'reasoning-delta', index: idx, text: delta }
+    } else if (type === 'response.function_call_arguments.delta') {
+      const idx = data.output_index ?? 0
+      const block = itemMap.get(idx)
+      if (block && block.kind === 'tool-call') {
+        const delta = data.delta ?? ''
+        block.text += delta
+        yield {
+          type: 'tool-call-delta',
+          index: idx,
+          id: CallId(block.callId ?? ''),
+          name: block.name ?? '',
+          argumentsDelta: delta,
+        }
+      }
+    } else if (type === 'response.output_item.done') {
+      const idx = data.output_index ?? 0
+      const block = itemMap.get(idx)
+      if (block) {
+        yield { type: 'block-end', index: idx, block: closeBlock(block) }
+      }
+    } else if (type === 'response.completed' || type === 'response.done') {
+      const resp = data.response || {}
+      if (resp.usage) {
+        pendingUsage = mapUsage(resp.usage)
+      }
+      const hasToolCalls = Array.from(itemMap.values()).some((b) => b.kind === 'tool-call')
+      if (hasToolCalls) {
+        pendingFinish = { kind: 'tool-calls' }
+      } else if (resp.status) {
+        pendingFinish = mapFinishReason(resp.status)
+      }
+    }
+  }
+
+  for (const block of order) {
+    yield { type: 'block-end', index: block.index, block: closeBlock(block) }
+  }
+  if (pendingUsage) yield { type: 'usage', usage: pendingUsage }
+  const reason = pendingFinish ?? { kind: 'stop' }
+  yield {
+    type: 'finish',
+    reason: reason.kind === 'stop' && order.length === 0
+      ? { kind: 'error', failure: { message: 'provider returned an empty response', code: EMPTY_RESPONSE_CODE } }
+      : reason,
+  }
+}
+
+/** Master translate dispatcher. */
+export async function* translate(events, apiFormat = DEFAULT_API_FORMAT) {
+  const format = normalizeApiFormat(apiFormat)
+  if (format === API_FORMAT_ANTHROPIC_MESSAGES) {
+    yield* translateAnthropic(events)
+  } else if (format === API_FORMAT_RESPONSES) {
+    yield* translateResponses(events)
+  } else {
+    yield* translateChatCompletions(events)
+  }
+}
+
+/** Parse an SSE byte stream into event objects/data payloads. */
 export async function* parseSse(stream, onComment) {
   const events = stream.pipeThrough(new TextDecoderStream()).pipeThrough(new EventSourceParserStream({ onComment }))
-  for await (const { data } of events) {
-    yield data
-    if (data === '[DONE]') return
+  for await (const event of events) {
+    yield event
+    if (event.data === '[DONE]') return
   }
-  throw new LlmError('SSE stream ended without [DONE]', 'STREAM_CLOSED')
 }
 
 export function providerRetryAfterMs(value) {
@@ -373,7 +879,7 @@ export function requestId(headers) {
   return value === null || value.length === 0 ? undefined : ProviderRequestId(value)
 }
 
-/** Map an HTTP status and OpenAI-shaped error body to a stable LlmError code. */
+/** Map an HTTP status and error body to a stable LlmError code. */
 export function httpErrorCode(status, error) {
   if (status === 401 || status === 403) return 'AUTH'
   const detail = [error?.code, error?.type, error?.message].filter(Boolean).join(' ')
@@ -436,8 +942,7 @@ class AiProxyApi {
 
   /**
    * Resolve the bearer token for one operation: stored OAuth access token
-   * when fresh, a rotated one after refresh, or the static API key. Never
-   * caches across operations — a changed credential reaches the next request.
+   * when fresh, a rotated one after refresh, or the static API key.
    */
   async resolveCredential({ force } = {}) {
     const oauth = await this.oauth.resolve({ force })
@@ -459,34 +964,45 @@ class AiProxyApi {
     return this.oauth.status()
   }
 
-  /**
-   * Current gateway facts for the settings page. The browser settings
-   * transport only exposes namespaces of registered configurable providers,
-   * so while logged out this Host-side read is the page's only source.
-   */
+  /** Current gateway facts for the settings page. */
   gateway() {
     const opts = this.options()
-    return { baseURL: opts.baseURL, clientId: opts.clientId }
+    return {
+      baseURL: opts.baseURL,
+      clientId: opts.clientId,
+      apiFormat: opts.apiFormat,
+      endpoint: resolveInferenceEndpoint(opts.baseURL, opts.apiFormat),
+    }
   }
 
-  /**
-   * Validate and persist one gateway address through the Host settings seam
-   * (never exposure-filtered), then drop the cached catalog.
-   */
-  async setGateway(baseURL) {
-    const value = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : ''
-    if (value === '') throw new LlmError('网关地址不能为空', 'INVALID_REQUEST')
-    let url
-    try {
-      url = new URL(value)
-    } catch {
-      throw new LlmError('网关地址格式无效', 'INVALID_REQUEST')
+  /** Validate and persist gateway configuration through the Host settings seam. */
+  async setGateway(params) {
+    let baseURL = typeof params === 'string' ? params : params?.baseURL
+    const apiFormat = typeof params === 'object' && params?.apiFormat ? normalizeApiFormat(params.apiFormat) : undefined
+
+    const mutations = []
+    if (baseURL !== undefined) {
+      const value = typeof baseURL === 'string' ? baseURL.trim().replace(/\/+$/, '') : ''
+      if (value === '') throw new LlmError('网关地址不能为空', 'INVALID_REQUEST')
+      let url
+      try {
+        url = new URL(value)
+      } catch {
+        throw new LlmError('网关地址格式无效', 'INVALID_REQUEST')
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new LlmError('网关地址必须使用 http 或 https', 'INVALID_REQUEST')
+      }
+      mutations.push({ op: 'set', path: ['baseURL'], value })
     }
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new LlmError('网关地址必须使用 http 或 https', 'INVALID_REQUEST')
+    if (apiFormat !== undefined) {
+      mutations.push({ op: 'set', path: ['apiFormat'], value: apiFormat })
     }
-    await this.ctx.settings.mutate(NS, [{ op: 'set', path: ['baseURL'], value }])
-    this.invalidateModels()
+
+    if (mutations.length > 0) {
+      await this.ctx.settings.mutate(NS, mutations)
+      this.invalidateModels()
+    }
     return this.gateway()
   }
 
@@ -519,9 +1035,7 @@ class AiProxyApi {
   }
 
   /**
-   * The per-plan model catalog, cached for modelCacheTtlMs. Falls back to
-   * the configured static catalog when there is no credential or the
-   * gateway is unreachable — the catalog is advisory, not a whitelist.
+   * The per-plan model catalog, cached for modelCacheTtlMs.
    */
   async catalog() {
     const opts = this.options()
@@ -544,7 +1058,8 @@ class AiProxyApi {
       throw error
     }
     try {
-      const res = await fetch(opts.baseURL + '/v1/models', {
+      const modelsUrl = resolveModelsEndpoint(opts.baseURL)
+      const res = await fetch(modelsUrl, {
         headers: { authorization: 'Bearer ' + credential.token },
       })
       if (!res.ok) throw await errorFromResponse(res)
@@ -566,7 +1081,7 @@ class AiProxyApi {
   /** Model discovery for the Models page "ask the endpoint" action. */
   async discover(request) {
     const opts = this.options()
-    const base = (request.baseURL ?? opts.baseURL).replace(/\/+$/, '')
+    const modelsUrl = resolveModelsEndpoint(request.baseURL ?? opts.baseURL)
     let token = request.apiKey
     if (token === undefined) {
       try {
@@ -575,7 +1090,7 @@ class AiProxyApi {
         throw new LlmError('请先完成 OAuth 登录,或在此提供一次性 API key', 'MISSING_CREDENTIAL')
       }
     }
-    const res = await fetch(base + '/v1/models', {
+    const res = await fetch(modelsUrl, {
       headers: { authorization: 'Bearer ' + token },
       signal: request.signal,
     })
@@ -666,12 +1181,6 @@ class AiProxyAdapter extends LlmAdapter {
       this.api.options().streamIdleTimeoutMs,
       STREAM_IDLE_TIMEOUT_CODE,
     )
-    // One image anywhere in the conversation flips both gates below. The model
-    // gate re-reads the catalog entry (same cache the picker resolved from):
-    // only a DECLARED text-only model is refused here — an unknown entry stays
-    // permissive, matching the gateway's own optimistic routing. The model gate
-    // runs first: a refused capability is more actionable than a missing
-    // service, and both must be true before any image bytes are read.
     const containsImage = options.messages.some((message) => contentHasImage(message.content))
     if (containsImage) {
       const entry = await this.api.findModel(options.model)
@@ -713,20 +1222,22 @@ class AiProxyAdapter extends LlmAdapter {
 
   async *request(options, signal, onComment, attachments) {
     const opts = this.api.options()
-    const body = await serializeRequest(options, attachments)
+    const format = normalizeApiFormat(opts.apiFormat)
+    const body = await serializeRequest(options, attachments, format)
     const payload = JSON.stringify(body)
-    const base = opts.baseURL.replace(/\/+$/, '')
+    const endpointUrl = resolveInferenceEndpoint(opts.baseURL, format)
     const buildHeaders = (token) => ({
       authorization: 'Bearer ' + token,
       'content-type': 'application/json',
       accept: 'text/event-stream',
       ...attributionHeaders(),
       'x-ai-proxy-client': 'dsh',
+      ...(format === API_FORMAT_ANTHROPIC_MESSAGES ? { 'anthropic-version': '2023-06-01' } : {}),
       ...(options.sessionId !== undefined ? { 'x-ai-proxy-session-id': String(options.sessionId) } : {}),
     })
     const post = async (token) => {
       try {
-        return await fetch(base + '/v1/chat/completions', {
+        return await fetch(endpointUrl, {
           method: 'POST',
           headers: buildHeaders(token),
           body: payload,
@@ -734,7 +1245,7 @@ class AiProxyAdapter extends LlmAdapter {
         })
       } catch (error) {
         if (signal.aborted) throw error
-        throw new LlmError('AI Proxy API request to ' + base + ' failed', 'TRANSPORT', { cause: error })
+        throw new LlmError('AI Proxy API request to ' + endpointUrl + ' failed', 'TRANSPORT', { cause: error })
       }
     }
     let credential = await this.api.resolveCredential()
@@ -749,7 +1260,7 @@ class AiProxyAdapter extends LlmAdapter {
     }
     if (!response.ok) throw await errorFromResponse(response)
     if (!response.body) throw new LlmError('AI Proxy API returned no response body', 'EMPTY_RESPONSE')
-    yield* translate(parseSse(response.body, onComment))
+    yield* translate(parseSse(response.body, onComment), format)
   }
 }
 
@@ -766,6 +1277,7 @@ const catalogModel = z.object({
 /** Plugin config; doubles as the ai-proxy settings-section shape. */
 export const Config = z.object({
   baseURL: z.string().default(DEFAULT_BASE_URL),
+  apiFormat: z.union(API_FORMATS).default(DEFAULT_API_FORMAT),
   clientId: z.string().default(DEFAULT_CLIENT_ID),
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   defaultReasoningEffort: z.string().default(''),
@@ -778,10 +1290,7 @@ export const Config = z.object({
 })
 
 /**
- * One explicit resolve step from raw config to validated options. The
- * settings schema already validates, but programmatic construction may not;
- * re-judge every bound here — fail loud at load, keep the last good
- * snapshot afterwards.
+ * One explicit resolve step from raw config to validated options.
  */
 export function resolveOptions(raw) {
   if (typeof raw.baseURL === 'string' && raw.baseURL.trim() === '') throw new Error(name + ': baseURL must not be empty')
@@ -801,6 +1310,7 @@ export function resolveOptions(raw) {
   if (!Number.isInteger(defaultContextWindow) || defaultContextWindow <= 0) throw new Error(name + ': defaultContextWindow must be a positive integer')
   return {
     baseURL: (raw.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, ''),
+    apiFormat: normalizeApiFormat(raw.apiFormat),
     clientId,
     apiKeyEnv: raw.apiKeyEnv ?? DEFAULT_API_KEY_ENV,
     defaultReasoningEffort: raw.defaultReasoningEffort ?? '',
@@ -864,6 +1374,9 @@ export async function handleAuthRpc(api, method, payload) {
         }
         return { ok: true, value: await api.setGateway(payload.baseURL) }
       }
+      case 'setGateway': {
+        return { ok: true, value: await api.setGateway(payload) }
+      }
       default: return badAuthRequest('Unknown AI Proxy authentication method: ' + method)
     }
   } catch (error) {
@@ -880,8 +1393,7 @@ export async function handleAuthRpc(api, method, payload) {
 
 /**
  * Register the provider route, stable settings, the Host authentication and
- * gateway interface, and model discovery. OAuth actions and display state
- * never enter settings.
+ * gateway interface, and model discovery.
  */
 export function apply(ctx, config) {
   let current = () => config ?? {}
@@ -905,13 +1417,8 @@ export function apply(ctx, config) {
   }
 
   const api = new AiProxyApi(ctx, options)
-  // The durable attachment service is optional (headless compositions may
-  // lack it): image serialization resolves it lazily and fails with a clear
-  // error only when a conversation actually carries an image.
   const adapter = new AiProxyAdapter(api, () => ctx.get('attachments'))
 
-  // Keep the adapter out of the Models settings page until DSH exposes a
-  // public third-party provider editor; its models still use the model picker.
   const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
   let registeredPolicy = options().retryPolicy
   const ensureRegistrationFacts = () => {
@@ -929,9 +1436,6 @@ export function apply(ctx, config) {
     ensureRegistrationFacts()
   })
 
-  // Connection is optional for headless compositions. When present, the
-  // browser receives a dedicated command channel instead of
-  // writing transient actions into the settings document.
   ctx.inject(['connection'], (connectionCtx) => {
     connectionCtx.connection.rpc.handle(
       AUTH_RPC_CHANNEL,
@@ -940,8 +1444,6 @@ export function apply(ctx, config) {
     )
   })
 
-  // Remove fields persisted by versions that used settings as an OAuth
-  // command/status bus. Path mutation preserves every unrelated user field.
   const stored = ctx.settings.describe().find((entry) => entry.ns === NS)?.user
   const hasLegacyOAuthFields = stored !== null && typeof stored === 'object'
     && (Object.hasOwn(stored, 'oauth') || Object.hasOwn(stored, 'oauthStatus'))
@@ -962,4 +1464,14 @@ export function apply(ctx, config) {
 }
 
 // Re-exported pure helpers for unit tests.
-export const internals = { AiProxyApi, AiProxyAdapter, OAuthSession, serializeMessages, serializeUserContent, serializeRequest, imageDataUrl, inputModalitiesOf, translate, parseSse, pkcePair, base64url, effortName, mapUsage, mapFinishReason, httpErrorCode, discoverEndpoints, tokenRequest, startCallbackListener, handleAuthRpc }
+export const internals = {
+  AiProxyApi, AiProxyAdapter, OAuthSession,
+  serializeMessages, serializeUserContent, serializeRequest,
+  serializeChatCompletionsRequest, serializeAnthropicRequest, serializeResponsesRequest,
+  imageDataUrl, inputModalitiesOf,
+  translate, translateChatCompletions, translateAnthropic, translateResponses,
+  parseSse, pkcePair, base64url, effortName, mapUsage, mapFinishReason, httpErrorCode,
+  discoverEndpoints, tokenRequest, startCallbackListener, handleAuthRpc,
+  normalizeApiFormat, resolveInferenceEndpoint, resolveModelsEndpoint,
+  API_FORMAT_CHAT_COMPLETIONS, API_FORMAT_ANTHROPIC_MESSAGES, API_FORMAT_RESPONSES, API_FORMATS, DEFAULT_API_FORMAT,
+}

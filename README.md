@@ -12,7 +12,8 @@
 | **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.5) |
 | **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接与 LLM Provider 插件（OAuth 2.0 PKCE 认证、Token 刷新、模型与推理等级阶梯拉取、局域网登录放行、专属 API 终端图标） | [`v0.2.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.2.4) |
 | **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相机相册上传按钮、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、创造/PTC/标准/极简模式状态、文件查看器抽屉适配） | [`v0.1.12`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.12) |
-| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（文件/目录右键菜单复制相对/绝对路径及@引用、会话头部抽屉入口、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.1`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.1) |
+| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（文件/目录右键菜单复制相对/绝对路径及@引用、会话头部抽屉入口、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.2`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.2) |
+| **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（统一对话框底部工具箱入口、文件查看器/终端二合一选择、多标签并发、移动端触控辅助键盘） | [`v0.1.3`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.3) |
 
 ---
 
@@ -34,7 +35,10 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.12/dsh-mobile-adapter-0.1.12.tgz
 
 # 5. 安装文件查看器插件 (会话头部抽屉浏览工作区文件)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.1/dsh-file-viewer-0.1.1.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.2/dsh-file-viewer-0.1.2.tgz
+
+# 6. 安装本地终端插件 (跨平台原生终端调用与移动端适配)
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.0/dsh-terminal-0.1.0.tgz
 
 # 重启服务即可生效
 dsh service restart --profile web
@@ -64,6 +68,7 @@ dsh service restart --profile web
 ./scripts/release.sh dsh-ai-proxy 0.2.4
 ./scripts/release.sh dsh-mobile-adapter 0.1.12
 ./scripts/release.sh dsh-file-viewer 0.1.1
+./scripts/release.sh dsh-terminal 0.1.0
 ```
 脚本会自动：
 1. 运行对应插件的单元测试；

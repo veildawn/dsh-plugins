@@ -6,7 +6,7 @@ DeepSeek Harness 的 AI Proxy LLM Provider 插件。`0.2.0` 起只负责 AI Prox
 
 ## 功能
 
-- 注册 `ai-proxy` LLM Provider，调用 OpenAI 兼容的 `/v1/chat/completions` 流式接口。
+- 注册 `ai-proxy` LLM Provider，支持 `Chat/completions`、`Anthropic messages` 和 `Responses` 三种 API 格式，后台根据所选格式智能匹配 API 路径与协议。
 - OAuth 2.0 Authorization Code + PKCE S256 登录、刷新令牌轮换与登出撤销。
 - access/refresh/expiry 只写入 DSH 凭据仓，不写入 `settings.yaml`。
 - 使用账号凭据请求 `/v1/models`，同步套餐允许的模型、上下文窗口、输入模态和
@@ -19,7 +19,7 @@ DeepSeek Harness 的 AI Proxy LLM Provider 插件。`0.2.0` 起只负责 AI Prox
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-ai-proxy-0.2.4.tgz
+dsh plugin --profile web add ./dsh-ai-proxy-0.2.5.tgz
 dsh service restart
 ```
 
@@ -70,6 +70,7 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `baseURL` | `http://localhost:18080` | OAuth、模型目录和推理共用网关地址 |
+| `apiFormat` | `chat/completions` | API 格式：`chat/completions`、`anthropic-messages`、`responses` |
 | `clientId` | `dsh` | OAuth public client id |
 | `apiKeyEnv` | `AIPROXY_ACCESS_TOKEN` | 静态密钥凭据引用 |
 | `defaultReasoningEffort` | `''` | 空值使用模型 ladder 第一档 |

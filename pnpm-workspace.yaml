@@ -1,2 +1,5 @@
 packages:
   - 'plugins/*'
+allowBuilds:
+  esbuild: true
+  node-pty: true

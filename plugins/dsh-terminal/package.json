@@ -1,18 +1,20 @@
 {
-  "name": "dsh-file-viewer",
-  "version": "0.1.2",
-  "description": "Workspace file viewer for DeepSeek Harness: file tree, syntax-highlighted code, images, PDF, Excel and Word",
+  "name": "dsh-terminal",
+  "version": "0.1.3",
+  "description": "Cross-platform local terminal plugin for DeepSeek Harness (Windows, Linux, macOS) with mobile adaptation",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./core": "./lib/core.js",
+    "./shell": "./lib/shell.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/core.js",
+    "lib/shell.js",
     "lib/client.js",
     "README.md",
     "cordis.patch.yml"
@@ -24,23 +26,25 @@
   "keywords": [
     "deepseek-harness",
     "dsh",
-    "file-viewer",
-    "explorer",
-    "preview"
+    "terminal",
+    "pty",
+    "xterm",
+    "powershell",
+    "bash",
+    "mobile"
   ],
   "dependencies": {
-    "exceljs": "4.4.0",
-    "mammoth": "1.12.1"
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.2.0-beta.15"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/schemastery": "^3.18.1",
     "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-fs": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dsh": {
     "bundle": {
@@ -55,5 +59,8 @@
       ],
       "platform": "web"
     }
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

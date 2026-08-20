@@ -1,5 +1,12 @@
 # 开发规范
 
+## 【最高优先级】禁止擅自在本机部署插件与重启服务
+
+**严禁在修改插件代码后擅自执行部署（如 `dsh plugin add`）或重启本机服务（如 `scripts/dsh-web.cmd restart` / `scripts/dsh-web.ps1 restart`）。**
+
+- **仅当用户的明确指令中明确要求安装/部署到本机或重启服务验证时**，才允许执行部署和重启操作。
+- 在日常开发、修复 bug、功能实现或重构中，默认只在插件目录内完成代码修改、编译打包（如 `npm test`、`node build.mjs`、`npm pack`）和测试用例验证，不得擅自触碰本机 DSH 运行环境及 Profile。
+
 ## 部署/安装插件到本地 DSH Profile：必须走 `dsh plugin add`
 
 **禁止**手动把源码文件（`lib/client.js`、`lib/index.js` 等）直接复制/覆盖到
@@ -14,7 +21,7 @@ plugins” 报错时发现，部署目录下的 `lib/client.js` 只是仓库源�
 这类问题只有对着两份文件做字节级 diff 才能定位，排查成本很高，而且没有任何
 机制（版本号、lockfile、哈希）能提前发现文件被改动过。
 
-正确流程（每次改动某个插件源码后，要在本机验证效果时）：
+正确流程（**仅在用户明确指令要求在本机部署/验证时执行**）：
 
 ```bash
 # 1. 跑该插件的单元测试
@@ -27,8 +34,7 @@ npm pack
 # 3. 通过官方 CLI 安装/更新到目标 profile
 dsh plugin add --profile web ./plugins/<plugin>/<plugin>-<version>.tgz
 
-# 4. 重启服务生效
-dsh service restart --profile web
+# 4. 重启服务生效（Windows 下使用 scripts/dsh-web.cmd 或 scripts/dsh-web.ps1，见下文）
 ```
 
 - `dsh plugin add` 会走 pnpm 完整安装链路，`package.json`/`pnpm-lock.yaml`
@@ -46,21 +52,26 @@ dsh service restart --profile web
 执行会直接报 `error: too many arguments. Expected 0 arguments but got 2: service,
 restart.`。
 
-Windows 下改用本仓库的 `scripts/dsh-service.ps1`，支持 `start` / `stop` / `restart` /
-`status` 四个子命令：
+Windows 下使用统一控制脚本 `scripts/dsh-web.cmd`（或 `scripts/dsh-web.ps1`），支持 `start` / `stop` / `restart` / `status` 四个子命令：
 
 ```powershell
-powershell -File scripts/dsh-service.ps1 status -Profile web
-powershell -File scripts/dsh-service.ps1 restart -Profile web
-# 后台运行、把 stdout/stderr 落到 $DSH_HOME/logs：
-powershell -File scripts/dsh-service.ps1 restart -Profile web -Background
+# 检查运行状态与端口
+.\scripts\dsh-web.ps1 status
+# 或 cmd:
+scripts\dsh-web.cmd status
+
+# 重启 dsh web 服务
+.\scripts\dsh-web.ps1 restart
+# 或 cmd:
+scripts\dsh-web.cmd restart
+
+# 启动 / 停止
+.\scripts\dsh-web.ps1 start
+.\scripts\dsh-web.ps1 stop
 ```
 
-脚本原理：用 `Get-CimInstance Win32_Process` 找到当前 `dsh.cmd <profile>` 对应的
-`node.exe` 进程（命令行里包含 `@deepseek-ai\dsh\lib\bin.js` 且以该 profile 名结尾），
-`Stop-Process -Force` 结束它，再用 `dsh.cmd`（不是裸的 `dsh`，PowerShell 的
-`Start-Process` 无法直接执行 POSIX shim）重新拉起一份。
+脚本原理：查找当前运行中包含 `@deepseek-ai\dsh` 或 `dsh\lib\bin.js` 的 `node.exe` 进程，停止旧进程，并使用 `dsh.cmd web` 在后台拉起新实例，同时显示监听端口。
 
-**改完任何插件源码、需要让本机运行中的 DSH 服务生效时，必须先按上面「走
+**改完任何插件源码、且用户明确要求让本机运行中的 DSH 服务生效时，必须先按上面「走
 `dsh plugin add`」的流程重新安装，再执行这个重启脚本**——两步缺一都会导致
 运行中的服务和仓库源码不一致。

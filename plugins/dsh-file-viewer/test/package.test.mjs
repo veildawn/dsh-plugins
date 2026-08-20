@@ -706,7 +706,7 @@ test('tree rows support right-click context menu with relative/absolute path cop
   assert.match(source, /\.fv-toast\{/)
 
   // Context menu handles onContextMenu on tree rows
-  assert.match(source, /onContextMenu:\s*\(event\)\s*=>/)
+  assert.match(source, /onContextMenu:\s*(?:\(event\)\s*=>|handleContextMenu)/)
   assert.match(source, /复制相对路径/)
   assert.match(source, /复制绝对路径/)
   assert.match(source, /引用到输入框 \(@\)/)

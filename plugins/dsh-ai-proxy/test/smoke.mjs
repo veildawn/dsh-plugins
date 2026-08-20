@@ -170,6 +170,35 @@ function mockGateway() {
       })
       return
     }
+    if (url.pathname === '/v1/messages') {
+      void readBody().then((body) => {
+        const parsed = JSON.parse(body)
+        requests.push({ path: url.pathname, auth, body: parsed })
+        res.writeHead(200, { 'content-type': 'text/event-stream' })
+        res.write('event: message_start\ndata: ' + JSON.stringify({ type: 'message_start', message: { usage: { input_tokens: 12 } } }) + '\n\n')
+        res.write('event: content_block_start\ndata: ' + JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) + '\n\n')
+        res.write('event: content_block_delta\ndata: ' + JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello from anthropic' } }) + '\n\n')
+        res.write('event: content_block_stop\ndata: ' + JSON.stringify({ type: 'content_block_stop', index: 0 }) + '\n\n')
+        res.write('event: message_delta\ndata: ' + JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 6 } }) + '\n\n')
+        res.write('event: message_stop\ndata: ' + JSON.stringify({ type: 'message_stop' }) + '\n\n')
+        res.end()
+      })
+      return
+    }
+    if (url.pathname === '/v1/responses') {
+      void readBody().then((body) => {
+        const parsed = JSON.parse(body)
+        requests.push({ path: url.pathname, auth, body: parsed })
+        res.writeHead(200, { 'content-type': 'text/event-stream' })
+        res.write('event: response.output_item.added\ndata: ' + JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: { type: 'message' } }) + '\n\n')
+        res.write('event: response.text.delta\ndata: ' + JSON.stringify({ type: 'response.text.delta', output_index: 0, delta: 'hello from responses' }) + '\n\n')
+        res.write('event: response.output_item.done\ndata: ' + JSON.stringify({ type: 'response.output_item.done', output_index: 0 }) + '\n\n')
+        res.write('event: response.completed\ndata: ' + JSON.stringify({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 15, output_tokens: 8 } } }) + '\n\n')
+        res.write('data: [DONE]\n\n')
+        res.end()
+      })
+      return
+    }
     if (url.pathname === '/oauth/revoke') {
       requests.push({ path: url.pathname })
       res.end('')
@@ -400,7 +429,12 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
     const handler = connection.registration().handler
     assert.deepEqual(await handler('config', {}), {
       ok: true,
-      value: { baseURL: 'http://localhost:18080', clientId: 'dsh' },
+      value: {
+        baseURL: 'http://localhost:18080',
+        clientId: 'dsh',
+        apiFormat: 'chat/completions',
+        endpoint: 'http://localhost:18080/v1/chat/completions',
+      },
     })
     const written = await handler('setBaseURL', { baseURL: gw.url + '/' })
     assert.equal(written.ok, true)
@@ -455,6 +489,51 @@ test('401 on stream rotates the token once and retries', async () => {
     assert.equal(calls[1].auth, 'Bearer acc-new')
     assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), 'acc-new')
     assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-new')
+  } finally {
+    gw.close()
+  }
+})
+test('stream: Anthropic messages format route and streaming', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds } = makeCtx()
+  try {
+    creds.store.set('AIPROXY_API_KEY', 'sk-test')
+    await ctx.plugin(plugin, { baseURL: gw.url, apiFormat: 'anthropic-messages', clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
+    const out = await collect(ctx.llm.stream({
+      provider: 'ai-proxy',
+      model: 'claude-sonnet-4-5',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi anthropic' }] }],
+    }))
+    const text = out.filter((c) => c.type === 'text-delta').map((c) => c.text).join('')
+    assert.equal(text, 'hello from anthropic')
+    assert.equal(out.at(-1).type, 'finish')
+    assert.equal(out.at(-1).reason.kind, 'stop')
+    const call = gw.requests.find((r) => r.path === '/v1/messages')
+    assert(call, 'request went to /v1/messages')
+    assert.equal(call.body.messages[0].content, 'hi anthropic')
+  } finally {
+    gw.close()
+  }
+})
+
+test('stream: OpenAI Responses format route and streaming', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds } = makeCtx()
+  try {
+    creds.store.set('AIPROXY_API_KEY', 'sk-test')
+    await ctx.plugin(plugin, { baseURL: gw.url, apiFormat: 'responses', clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
+    const out = await collect(ctx.llm.stream({
+      provider: 'ai-proxy',
+      model: 'claude-sonnet-4-5',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi responses' }] }],
+    }))
+    const text = out.filter((c) => c.type === 'text-delta').map((c) => c.text).join('')
+    assert.equal(text, 'hello from responses')
+    assert.equal(out.at(-1).type, 'finish')
+    assert.equal(out.at(-1).reason.kind, 'stop')
+    const call = gw.requests.find((r) => r.path === '/v1/responses')
+    assert(call, 'request went to /v1/responses')
+    assert.equal(call.body.input[0].role, 'user')
   } finally {
     gw.close()
   }

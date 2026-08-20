@@ -248,3 +248,163 @@ test('translate: malformed JSON aborts with MALFORMED_RESPONSE', async () => {
     (error) => error instanceof LlmError && error.code === 'MALFORMED_RESPONSE',
   )
 })
+test('resolveInferenceEndpoint & normalizeApiFormat: smart matching for all formats', () => {
+  const { normalizeApiFormat, resolveInferenceEndpoint, resolveModelsEndpoint } = internals
+  
+  assert.equal(normalizeApiFormat('chat/completions'), 'chat/completions')
+  assert.equal(normalizeApiFormat('anthropic-messages'), 'anthropic-messages')
+  assert.equal(normalizeApiFormat('messages'), 'anthropic-messages')
+  assert.equal(normalizeApiFormat('responses'), 'responses')
+  assert.equal(normalizeApiFormat('openai-responses'), 'responses')
+  assert.equal(normalizeApiFormat('unknown'), 'chat/completions')
+  assert.equal(normalizeApiFormat(undefined), 'chat/completions')
+
+  // Standard root baseURL
+  assert.equal(resolveInferenceEndpoint('http://localhost:18080', 'chat/completions'), 'http://localhost:18080/v1/chat/completions')
+  assert.equal(resolveInferenceEndpoint('http://localhost:18080', 'anthropic-messages'), 'http://localhost:18080/v1/messages')
+  assert.equal(resolveInferenceEndpoint('http://localhost:18080', 'responses'), 'http://localhost:18080/v1/responses')
+
+  // /v1 suffix baseURL
+  assert.equal(resolveInferenceEndpoint('http://localhost:18080/v1', 'chat/completions'), 'http://localhost:18080/v1/chat/completions')
+  assert.equal(resolveInferenceEndpoint('http://localhost:18080/v1', 'anthropic-messages'), 'http://localhost:18080/v1/messages')
+  assert.equal(resolveInferenceEndpoint('http://localhost:18080/v1', 'responses'), 'http://localhost:18080/v1/responses')
+
+  // Already carrying another endpoint path -> cleanly stripped & matched
+  assert.equal(resolveInferenceEndpoint('http://localhost:18080/v1/chat/completions', 'anthropic-messages'), 'http://localhost:18080/v1/messages')
+  assert.equal(resolveInferenceEndpoint('http://localhost:18080/v1/messages', 'responses'), 'http://localhost:18080/v1/responses')
+  assert.equal(resolveInferenceEndpoint('http://localhost:18080/v1/responses', 'chat/completions'), 'http://localhost:18080/v1/chat/completions')
+
+  // resolveModelsEndpoint
+  assert.equal(resolveModelsEndpoint('http://localhost:18080'), 'http://localhost:18080/v1/models')
+  assert.equal(resolveModelsEndpoint('http://localhost:18080/v1/chat/completions'), 'http://localhost:18080/v1/models')
+})
+
+test('serializeAnthropicRequest: messages format, system prompt, thinking, tool calls and results', async () => {
+  const { serializeAnthropicRequest } = internals
+  const req = await serializeAnthropicRequest({
+    model: 'claude-3-7-sonnet',
+    system: 'system instructions',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'question' }] },
+      { role: 'assistant', content: [
+        { type: 'text', text: 'calling tool' },
+        { type: 'tool-call', id: 'call_1', name: 'calc', arguments: '{"expr":"2+2"}' }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool-result', toolCallId: 'call_1', content: [{ type: 'text', text: '4' }] },
+        { type: 'text', text: 'and then?' }
+      ] },
+    ],
+    tools: [{ name: 'calc', description: 'calculate', parameters: { type: 'object' } }],
+    reasoningEffort: 'high',
+    maxTokens: 2048,
+    temperature: 0.7,
+  })
+
+  assert.equal(req.model, 'claude-3-7-sonnet')
+  assert.equal(req.system, 'system instructions')
+  assert.equal(req.max_tokens, 2048)
+  assert.equal(req.stream, true)
+  assert.deepEqual(req.thinking, { type: 'adaptive' })
+  assert.equal(req.messages.length, 3)
+  assert.equal(req.messages[0].role, 'user')
+  assert.equal(req.messages[0].content, 'question')
+  assert.equal(req.messages[1].role, 'assistant')
+  assert.deepEqual(req.messages[1].content, [
+    { type: 'text', text: 'calling tool' },
+    { type: 'tool_use', id: 'call_1', name: 'calc', input: { expr: '2+2' } },
+  ])
+  assert.equal(req.messages[2].role, 'user')
+  assert.deepEqual(req.messages[2].content, [
+    { type: 'tool_result', tool_use_id: 'call_1', content: '4' },
+    { type: 'text', text: 'and then?' },
+  ])
+  assert.deepEqual(req.tools, [
+    { name: 'calc', description: 'calculate', input_schema: { type: 'object' } },
+  ])
+})
+
+test('serializeResponsesRequest: responses format, input list, reasoning effort', async () => {
+  const { serializeResponsesRequest } = internals
+  const req = await serializeResponsesRequest({
+    model: 'gpt-4o',
+    system: 'system instructions',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+      { role: 'assistant', content: [
+        { type: 'text', text: 'executing' },
+        { type: 'tool-call', id: 'call_1', name: 'search', arguments: '{"q":"dsh"}' }
+      ] },
+      { role: 'user', content: [
+        { type: 'tool-result', toolCallId: 'call_1', content: [{ type: 'text', text: 'found' }] },
+      ] },
+    ],
+    tools: [{ name: 'search', description: 'search web', parameters: { type: 'object' } }],
+    reasoningEffort: 'medium',
+    maxTokens: 1024,
+  })
+
+  assert.equal(req.model, 'gpt-4o')
+  assert.equal(req.stream, true)
+  assert.deepEqual(req.reasoning, { effort: 'medium' })
+  assert.equal(req.max_output_tokens, 1024)
+  assert.deepEqual(req.input, [
+    { role: 'system', content: 'system instructions' },
+    { role: 'user', content: [{ type: 'input_text', text: 'hello' }] },
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'executing' }], status: 'completed' },
+    { type: 'function_call', call_id: 'call_1', name: 'search', arguments: '{"q":"dsh"}' },
+    { type: 'function_call_output', call_id: 'call_1', output: 'found' },
+  ])
+})
+
+test('translateAnthropic: text, thinking, tool calls, usage, stop reason', async () => {
+  const { translateAnthropic } = internals
+  const events = [
+    { event: 'message_start', data: JSON.stringify({ type: 'message_start', message: { usage: { input_tokens: 20, cache_read_input_tokens: 5 } } }) },
+    { event: 'content_block_start', data: JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }) },
+    { event: 'content_block_delta', data: JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Let me think' } }) },
+    { event: 'content_block_stop', data: JSON.stringify({ type: 'content_block_stop', index: 0 }) },
+    { event: 'content_block_start', data: JSON.stringify({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }) },
+    { event: 'content_block_delta', data: JSON.stringify({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Hello world' } }) },
+    { event: 'content_block_stop', data: JSON.stringify({ type: 'content_block_stop', index: 1 }) },
+    { event: 'message_delta', data: JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 10, output_tokens_details: { thinking_tokens: 4 } } }) },
+    { event: 'message_stop', data: JSON.stringify({ type: 'message_stop' }) },
+  ]
+
+  const chunks = await collect(translateAnthropic(payloads(events)))
+  assert.equal(chunks.some(c => c.type === 'block-start' && c.blockType === 'reasoning'), true)
+  assert.equal(chunks.some(c => c.type === 'reasoning-delta' && c.text === 'Let me think'), true)
+  assert.equal(chunks.some(c => c.type === 'text-delta' && c.text === 'Hello world'), true)
+  const usageChunk = chunks.find(c => c.type === 'usage')
+  assert.deepEqual(usageChunk.usage, {
+    inputTokens: 15,
+    outputTokens: 10,
+    cacheReadTokens: 5,
+    reasoningTokens: 4,
+  })
+  const finishChunk = chunks.at(-1)
+  assert.deepEqual(finishChunk, { type: 'finish', reason: { kind: 'stop' } })
+})
+
+test('translateResponses: message, reasoning, function_call, usage', async () => {
+  const { translateResponses } = internals
+  const events = [
+    { data: JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning' } }) },
+    { data: JSON.stringify({ type: 'response.reasoning.delta', output_index: 0, delta: 'pondering' }) },
+    { data: JSON.stringify({ type: 'response.output_item.done', output_index: 0 }) },
+    { data: JSON.stringify({ type: 'response.output_item.added', output_index: 1, item: { type: 'message' } }) },
+    { data: JSON.stringify({ type: 'response.text.delta', output_index: 1, delta: 'answering' }) },
+    { data: JSON.stringify({ type: 'response.output_item.done', output_index: 1 }) },
+    { data: JSON.stringify({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 30, output_tokens: 15 } } }) },
+    { data: '[DONE]' },
+  ]
+
+  const chunks = await collect(translateResponses(payloads(events)))
+  assert.equal(chunks.some(c => c.type === 'block-start' && c.blockType === 'reasoning'), true)
+  assert.equal(chunks.some(c => c.type === 'reasoning-delta' && c.text === 'pondering'), true)
+  assert.equal(chunks.some(c => c.type === 'text-delta' && c.text === 'answering'), true)
+  const usageChunk = chunks.find(c => c.type === 'usage')
+  assert.deepEqual(usageChunk.usage, { inputTokens: 30, outputTokens: 15 })
+  const finishChunk = chunks.at(-1)
+  assert.deepEqual(finishChunk, { type: 'finish', reason: { kind: 'stop' } })
+})

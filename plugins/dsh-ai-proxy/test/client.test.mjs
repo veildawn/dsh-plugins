@@ -72,7 +72,8 @@ class ConnectionService extends Service {
     this.calls = []
     this.rpc = { call: async (channel, method, payload) => {
       this.calls.push({ channel, method, payload })
-      if (method === 'config') return { ok: true, value: { baseURL: 'http://gateway.test', clientId: 'dsh' } }
+      if (method === 'config') return { ok: true, value: { baseURL: 'http://gateway.test', clientId: 'dsh', apiFormat: 'chat/completions', endpoint: 'http://gateway.test/v1/chat/completions' } }
+      if (method === 'setGateway') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh', apiFormat: payload.apiFormat || 'chat/completions', endpoint: 'http://gateway.test/v1/chat/completions' } }
       if (method === 'setBaseURL') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh' } }
       return {
         ok: true,
@@ -142,11 +143,16 @@ test('browser client registers only the AI Proxy OAuth settings section', async 
   let view = render(section.component, props)
   const gateway = findElement(view, (node) => node?.type === 'input' && node.props['aria-label'] === '网关地址')
   assert.equal(gateway.props.value, 'http://gateway.test')
+  
+  const apiFormatSelect = findElement(view, (node) => node?.type === 'select' && node.props['aria-label'] === 'API 格式')
+  assert.equal(apiFormatSelect.props.value, 'chat/completions')
+  assert.equal(apiFormatSelect.props.children.length, 3)
+
   gateway.props.onChange({ target: { value: 'http://gateway-2.test/' } })
   view = render(section.component, props)
   await findElement(view, (node) => node?.type === 'button' && node.props.children.includes('登录')).props.onClick()
   assert.deepEqual(connection.calls.at(-2), {
-    channel: '/ai-proxy-auth', method: 'setBaseURL', payload: { baseURL: 'http://gateway-2.test' },
+    channel: '/ai-proxy-auth', method: 'setGateway', payload: { baseURL: 'http://gateway-2.test', apiFormat: 'chat/completions' },
   })
   assert.deepEqual(connection.calls.at(-1), { channel: '/ai-proxy-auth', method: 'login', payload: {} })
   assert.equal(openedWindows.at(-1).location.href, 'https://gateway.test/oauth/authorize?state=local-state')

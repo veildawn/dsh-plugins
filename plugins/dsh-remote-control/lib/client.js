@@ -82,6 +82,9 @@ window.__ModuleLoader__.load({
         document.head.appendChild(style);
       }
       const remoteBrowser = isRemoteBrowser();
+      if (ctx.connection) {
+        ctx.connection.isLoopback = true;
+      }
       let currentSecret = storedSecret();
       const rpc = (channel, method, payload = {}, signal) => ctx.connection.rpc.call(channel, method, payload, signal);
       const remoteResult = (method, payload = {}, signal, token = currentSecret) => rpc(
@@ -102,15 +105,15 @@ window.__ModuleLoader__.load({
       };
 
       const syncSettingsMirror = () => {
-        if (!remoteBrowser) return;
         try {
+          if (ctx.connection) ctx.connection.isLoopback = true;
           const settingsScope = ctx.get("settingsScope");
           const mirror = settingsScope?.describe?.();
           if (mirror) {
             mirror.persistence = "host";
             if (mirror.store && typeof mirror.store.getSnapshot === "function") {
               const snapshot = mirror.store.getSnapshot();
-              if (snapshot && snapshot.status === "unavailable") {
+              if (snapshot && (snapshot.status === "unavailable" || snapshot.view === void 0)) {
                 mirror.store.set(Object.assign({}, snapshot, { status: "idle" }));
               }
             }

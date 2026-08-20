@@ -92,8 +92,8 @@ window.__ModuleLoader__.load({
       .fv-wrap-glyph{font-size:15px;line-height:1}
       .fv-body{display:flex;flex:1 1 auto;min-height:0}
       .fv-tree{box-sizing:border-box;display:flex;flex:none;flex-direction:column;width:280px;min-height:0;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:6px;gap:1px;overscroll-behavior:contain}
-      .fv-row{display:flex;align-items:center;gap:8px;min-width:0;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
-      .fv-row-seat{position:relative;display:flex;align-items:center;gap:2px;width:100%;min-width:0;max-width:100%}
+      .fv-row{display:flex;align-items:center;gap:8px;min-width:0;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+      .fv-row-seat{position:relative;display:flex;align-items:center;gap:2px;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;width:100%;min-width:0;max-width:100%}
       .fv-row-seat>.fv-row{flex:1 1 auto;min-width:0}
       /* Always visible rather than revealed on hover. Hiding it behind hover
          made it unreachable wherever hover is unreliable — touch screens, but
@@ -142,15 +142,16 @@ window.__ModuleLoader__.load({
       .fv-content[data-wrap="on"] div[class*="_line_"]{align-items:flex-start}
       .fv-content[data-wrap="on"] span[class*="_gutter_"]{flex:none;white-space:pre}
       .fv-content[data-wrap="on"] span[class*="_content_"]{min-width:0;flex:1 1 auto;white-space:pre-wrap;overflow-wrap:anywhere}
-      .fv-context-menu{position:fixed;z-index:100;min-width:180px;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base)));box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:13px;display:flex;flex-direction:column;gap:2px;animation:fv-menu-in .1s cubic-bezier(.2,.8,.2,1)}
+      .fv-context-backdrop{position:fixed;inset:0;z-index:99;background:transparent;touch-action:none}
+      .fv-context-menu{position:fixed;z-index:100;min-width:190px;padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base)));box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:13px;display:flex;flex-direction:column;gap:3px;animation:fv-menu-in .12s cubic-bezier(.2,.8,.2,1);touch-action:manipulation}
       @keyframes fv-menu-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
-      .fv-context-item{display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 8px;border:none;border-radius:6px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;user-select:none}
+      .fv-context-item{display:flex;align-items:center;gap:10px;width:100%;height:34px;padding:0 10px;border:none;border-radius:8px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
       .fv-context-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-context-item:active{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
-      .fv-context-item-icon{display:inline-grid;place-items:center;width:16px;height:16px;flex:none;color:var(--dsw-alias-label-secondary);font-size:13px}
-      .fv-context-item-label{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .fv-context-item-icon{display:inline-grid;place-items:center;width:18px;height:18px;flex:none;color:var(--dsw-alias-label-secondary);font-size:14px}
+      .fv-context-item-label{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
       .fv-context-divider{height:1px;margin:3px 4px;background:var(--dsw-alias-border-l1)}
-      .fv-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:110;padding:6px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-button-floating-fill,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:12px;font-weight:500;box-shadow:var(--dsw-shadow-lv3);pointer-events:none;animation:fv-toast-in .15s ease-out}
+      .fv-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:110;padding:8px 18px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-button-floating-fill,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;box-shadow:var(--dsw-shadow-lv3);pointer-events:none;animation:fv-toast-in .15s ease-out}
       @keyframes fv-toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
       .fv-float-entry{display:none}
       @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
@@ -188,6 +189,11 @@ window.__ModuleLoader__.load({
         .fv-tree{width:100%;border-right:none}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}
         .fv-crumbs{font-size:11px}
+        .fv-context-backdrop{background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:fv-fade .16s ease-out}
+        .fv-context-menu{position:fixed!important;bottom:max(16px,var(--dsh-sab,0px))!important;left:max(16px,var(--dsh-sal,0px))!important;right:max(16px,var(--dsh-sar,0px))!important;top:auto!important;width:auto!important;max-width:none!important;border-radius:18px!important;padding:8px!important;box-shadow:var(--dsw-shadow-lv3)!important;animation:fv-menu-slide-up .2s cubic-bezier(.2,.8,.2,1)!important}
+        @keyframes fv-menu-slide-up{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
+        .fv-context-item{height:46px!important;font-size:15px!important;padding:0 14px!important;border-radius:12px!important}
+        .fv-context-item-icon{width:22px!important;height:22px!important;font-size:16px!important}
       }
     `;
 
@@ -506,6 +512,110 @@ window.__ModuleLoader__.load({
        * listing, and a directory's children are requested the first time it
        * opens, so opening the viewer costs one listing regardless of tree size.
        */
+      function TreeRow({ row, selected, onToggle, onSelect, onMention, onContextMenu }) {
+        const entry = row.entry;
+        const isDirectory = entry.type === "directory";
+        const indent = { paddingLeft: 8 + row.depth * 14 + "px" };
+        const timerRef = react.useRef(null);
+        const startPos = react.useRef(null);
+        const longPressedRef = react.useRef(false);
+
+        const clearLongPress = () => {
+          if (timerRef.current !== null) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+          }
+          startPos.current = null;
+        };
+
+        const handlePointerDown = (event) => {
+          if (event.button !== 0 && event.button !== undefined) return;
+          longPressedRef.current = false;
+          startPos.current = { x: event.clientX, y: event.clientY };
+          if (timerRef.current !== null) clearTimeout(timerRef.current);
+          timerRef.current = setTimeout(() => {
+            longPressedRef.current = true;
+            clearLongPress();
+            if (onContextMenu) {
+              onContextMenu({ x: event.clientX, y: event.clientY, entry });
+            }
+          }, 450);
+        };
+
+        const handlePointerMove = (event) => {
+          if (!startPos.current) return;
+          const dist = Math.abs(event.clientX - startPos.current.x) + Math.abs(event.clientY - startPos.current.y);
+          if (dist > 10) clearLongPress();
+        };
+
+        const handleClick = (event) => {
+          if (longPressedRef.current) {
+            longPressedRef.current = false;
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+          clearLongPress();
+          if (isDirectory) onToggle(entry.path);
+          else onSelect(entry);
+        };
+
+        const handleContextMenu = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          clearLongPress();
+          if (onContextMenu) {
+            onContextMenu({ x: event.clientX, y: event.clientY, entry });
+          }
+        };
+
+        return react.createElement("div", {
+          className: "fv-row-seat",
+          role: "treeitem",
+          "aria-level": row.depth + 1,
+          ...(isDirectory ? { "aria-expanded": row.expanded ? "true" : "false" } : {}),
+          "aria-current": !isDirectory && entry.path === selected ? "true" : undefined,
+          onContextMenu: handleContextMenu,
+        },
+          react.createElement("button", {
+            type: "button",
+            className: "fv-row",
+            style: indent,
+            title: entry.name,
+            onPointerDown: handlePointerDown,
+            onPointerMove: handlePointerMove,
+            onPointerUp: (e) => {
+              if (longPressedRef.current) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+              clearLongPress();
+            },
+            onPointerCancel: clearLongPress,
+            onClick: handleClick,
+          },
+            react.createElement("span", {
+              className: row.expanded ? "fv-glyph fv-glyph-open" : "fv-glyph",
+              "aria-hidden": "true",
+            }, isDirectory ? "▸" : "·"),
+            react.createElement("span", { className: "fv-row-name" }, entry.name),
+            typeof entry.size === "number" && !isDirectory
+              ? react.createElement("span", { className: "fv-row-size" }, formatBytes(entry.size))
+              : null),
+          onMention === undefined
+            ? null
+            : react.createElement("button", {
+              type: "button",
+              className: "fv-mention",
+              title: "引用到输入框",
+              "aria-label": "引用 " + entry.name + " 到输入框",
+              onClick: (event) => {
+                event.stopPropagation();
+                onMention(entry);
+              },
+            }, react.createElement("span", { "aria-hidden": "true" }, "@")));
+      }
+
       function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu }) {
         const children = rows.map((row) => {
           const indent = { paddingLeft: 8 + row.depth * 14 + "px" };
@@ -519,54 +629,15 @@ window.__ModuleLoader__.load({
               style: indent,
             }, copy);
           }
-          const entry = row.entry;
-          const isDirectory = entry.type === "directory";
-          // A wrapper rather than a button, so it can hold the mention control:
-          // a button cannot nest inside another button.
-          return react.createElement("div", {
+          return react.createElement(TreeRow, {
             key: row.key,
-            className: "fv-row-seat",
-            role: "treeitem",
-            "aria-level": row.depth + 1,
-            ...(isDirectory ? { "aria-expanded": row.expanded ? "true" : "false" } : {}),
-            "aria-current": !isDirectory && entry.path === selected ? "true" : undefined,
-            onContextMenu: (event) => {
-              if (onContextMenu) {
-                event.preventDefault();
-                event.stopPropagation();
-                onContextMenu({ x: event.clientX, y: event.clientY, entry });
-              }
-            },
-          },
-            react.createElement("button", {
-              type: "button",
-              className: "fv-row",
-              style: indent,
-              title: entry.name,
-              onClick: () => (isDirectory ? onToggle(entry.path) : onSelect(entry)),
-            },
-              react.createElement("span", {
-                className: row.expanded ? "fv-glyph fv-glyph-open" : "fv-glyph",
-                "aria-hidden": "true",
-              }, isDirectory ? "▸" : "·"),
-              react.createElement("span", { className: "fv-row-name" }, entry.name),
-              typeof entry.size === "number" && !isDirectory
-                ? react.createElement("span", { className: "fv-row-size" }, formatBytes(entry.size))
-                : null),
-            onMention === undefined
-              ? null
-              : react.createElement("button", {
-                type: "button",
-                className: "fv-mention",
-                title: "引用到输入框",
-                "aria-label": "引用 " + entry.name + " 到输入框",
-                onClick: (event) => {
-                  // Otherwise the row's own click also fires and would expand the
-                  // directory or switch the preview.
-                  event.stopPropagation();
-                  onMention(entry);
-                },
-              }, react.createElement("span", { "aria-hidden": "true" }, "@")));
+            row,
+            selected,
+            onToggle,
+            onSelect,
+            onMention,
+            onContextMenu,
+          });
         });
         return react.createElement("div", {
           className: "fv-tree", role: "tree", "aria-label": "文件树",
@@ -818,21 +889,28 @@ window.__ModuleLoader__.load({
       /** Right-click context menu for file and directory items. */
       function ContextMenu({ menu, rootPath, onClose, onMention, onToast }) {
         const ref = react.useRef(null);
+        const mountTimeRef = react.useRef(Date.now());
         react.useEffect(() => {
+          mountTimeRef.current = Date.now();
           const handlePointerDown = (e) => {
+            if (Date.now() - mountTimeRef.current < 400) return;
             if (ref.current && !ref.current.contains(e.target)) onClose();
           };
           const handleKeyDown = (e) => {
             if (e.key === "Escape") onClose();
           };
+          const handleWindowScroll = (e) => {
+            if (Date.now() - mountTimeRef.current < 400) return;
+            if (e.target === window || e.target === document || e.target === document.body) onClose();
+          };
           window.addEventListener("pointerdown", handlePointerDown);
           window.addEventListener("keydown", handleKeyDown);
-          window.addEventListener("scroll", onClose, true);
+          window.addEventListener("scroll", handleWindowScroll);
           window.addEventListener("resize", onClose);
           return () => {
             window.removeEventListener("pointerdown", handlePointerDown);
             window.removeEventListener("keydown", handleKeyDown);
-            window.removeEventListener("scroll", onClose, true);
+            window.removeEventListener("scroll", handleWindowScroll);
             window.removeEventListener("resize", onClose);
           };
         }, [onClose]);
@@ -873,39 +951,54 @@ window.__ModuleLoader__.load({
         const top = Math.max(8, Math.min(y, winH - 140)) + "px";
         const left = Math.max(8, Math.min(x, winW - 190)) + "px";
 
-        return react.createElement("div", {
-          ref,
-          className: "fv-context-menu",
-          style: { top, left },
-          role: "menu",
-          "aria-label": "文件操作",
-          onContextMenu: (e) => e.preventDefault(),
-        },
-          react.createElement("button", {
-            type: "button",
-            className: "fv-context-item",
-            role: "menuitem",
-            onClick: handleCopyRel,
+        return react.createElement(react.Fragment, null,
+          react.createElement("div", {
+            className: "fv-context-backdrop",
+            onClick: (e) => {
+              e.stopPropagation();
+              if (Date.now() - mountTimeRef.current < 400) return;
+              onClose();
+            },
+            onContextMenu: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (Date.now() - mountTimeRef.current < 400) return;
+              onClose();
+            },
+          }),
+          react.createElement("div", {
+            ref,
+            className: "fv-context-menu",
+            style: { top, left },
+            role: "menu",
+            "aria-label": "文件操作",
+            onContextMenu: (e) => e.preventDefault(),
           },
-            react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "📋"),
-            react.createElement("span", { className: "fv-context-item-label" }, "复制相对路径")),
-          react.createElement("button", {
-            type: "button",
-            className: "fv-context-item",
-            role: "menuitem",
-            onClick: handleCopyAbs,
-          },
-            react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "📁"),
-            react.createElement("span", { className: "fv-context-item-label" }, "复制绝对路径")),
-          react.createElement("div", { className: "fv-context-divider", "aria-hidden": "true" }),
-          react.createElement("button", {
-            type: "button",
-            className: "fv-context-item",
-            role: "menuitem",
-            onClick: handleMention,
-          },
-            react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "@"),
-            react.createElement("span", { className: "fv-context-item-label" }, "引用到输入框 (@)")));
+            react.createElement("button", {
+              type: "button",
+              className: "fv-context-item",
+              role: "menuitem",
+              onClick: handleCopyRel,
+            },
+              react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "📋"),
+              react.createElement("span", { className: "fv-context-item-label" }, "复制相对路径")),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-context-item",
+              role: "menuitem",
+              onClick: handleCopyAbs,
+            },
+              react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "📁"),
+              react.createElement("span", { className: "fv-context-item-label" }, "复制绝对路径")),
+            react.createElement("div", { className: "fv-context-divider", "aria-hidden": "true" }),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-context-item",
+              role: "menuitem",
+              onClick: handleMention,
+            },
+              react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "@"),
+              react.createElement("span", { className: "fv-context-item-label" }, "引用到输入框 (@)"))));
       }
 
       /** Transient toast notification. */
@@ -1438,6 +1531,11 @@ window.__ModuleLoader__.load({
         id: "file-viewer",
         order: -10,
       }, ViewerHeaderAction));
+
+      if (typeof window !== "undefined") {
+        window.__dsh_open_file_viewer = (payload) => openStore.set(payload || { sessionId: sessionStore.get() });
+        window.addEventListener("dsh:open-file-viewer", (e) => openStore.set(e.detail || { sessionId: sessionStore.get() }));
+      }
 
       return { openStore };
     }
