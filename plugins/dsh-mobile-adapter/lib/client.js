@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
     const MOBILE_QUERY = '(max-width: 768px)'
 
     const css = `
-      .dsh-mobile-bar,.dsh-mobile-backdrop{display:none}
+      .dsh-mobile-bar,.dsh-mobile-backdrop,.dsh-mobile-tools-backdrop,.dsh-mobile-tools-menu{display:none}
       @media (max-width:768px){
         html,body,#root,[data-slot="root"]{box-sizing:border-box;width:100%;height:100%;min-height:0;overflow:hidden;overscroll-behavior:none}
         #root{height:100dvh}
@@ -81,6 +81,7 @@ window.__ModuleLoader__.load({
         .uV2eYG_add{display:none!important}
         /* Unified Mobile Action Button Spec (32x32 round circle, subtle background, clean border, centered icon) */
         .dsh-mobile-upload-btn,
+        .dsh-mobile-tools-btn,
         .Sh0Q9G_trigger,
         .term-composer-btn,
         ._7KE1Ra_trigger,
@@ -107,6 +108,7 @@ window.__ModuleLoader__.load({
           -webkit-tap-highlight-color:transparent!important;
         }
         .dsh-mobile-upload-btn:hover,.dsh-mobile-upload-btn:active,
+        .dsh-mobile-tools-btn:hover,.dsh-mobile-tools-btn:active,
         .Sh0Q9G_trigger:hover,.Sh0Q9G_trigger:active,
         .term-composer-btn:hover,.term-composer-btn:active,
         ._7KE1Ra_trigger:hover,._7KE1Ra_trigger:active,
@@ -132,6 +134,16 @@ window.__ModuleLoader__.load({
         ._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron{display:none!important}
         ._7KE1Ra_trigger::before{content:"";width:16px;height:16px;display:block;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat}
         .dsh-mobile-composer-info{box-sizing:border-box;width:100%;padding:4px 12px 2px;font-size:11px;line-height:14px;color:var(--dsw-alias-label-tertiary);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.2px}
+        .dsh-mobile-tools-backdrop:not([hidden]){display:block;position:fixed;inset:0;z-index:1340;background:transparent}
+        /* 这条规则必须压过上面的 [role="menu"]{z-index:1300!important}：
+           本菜单也带 role="menu"，被那条 !important 压到 1300 后会低于自己的
+           遮罩(1340)，于是遮罩盖在菜单上，点“选项”实际点到透明遮罩 → 面板
+           一点就消失、选项永远点不到。选择器加倍类名提高特异性并显式 !important。 */
+        .dsh-mobile-tools-menu.dsh-mobile-tools-menu:not([hidden]){display:flex!important;position:fixed!important;top:var(--dsh-tools-anchor-top,auto)!important;left:var(--dsh-tools-anchor-left,auto)!important;right:auto!important;bottom:auto!important;z-index:1360!important;min-width:180px!important;max-width:calc(100vw - 24px)!important;max-height:none!important;width:max-content;padding:6px!important;border:1px solid var(--dsw-alias-border-l2)!important;border-radius:14px!important;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-base)))!important;box-shadow:var(--dsw-shadow-lv3)!important;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:14px;flex-direction:column!important;gap:2px;overflow:visible!important;animation:dsh-mobile-tools-pop .14s cubic-bezier(0.2,0.8,0.2,1)}
+        @keyframes dsh-mobile-tools-pop{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+        .dsh-mobile-tools-item{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;border:none;border-radius:10px;background:none;color:inherit;font:inherit;font-weight:500;text-align:left;cursor:pointer;user-select:none;white-space:nowrap;-webkit-tap-highlight-color:transparent;touch-action:manipulation;-webkit-user-select:none}
+        .dsh-mobile-tools-item:hover,.dsh-mobile-tools-item:active{background:var(--dsw-alias-interactive-bg-hover-solid,rgba(0,0,0,0.1))}
+        .dsh-mobile-tools-icon{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;font-size:15px}
         .JObwrW_root{width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}
         [data-composer-card] textarea{box-sizing:border-box;min-height:44px;max-height:160px;font-size:16px!important}
         .md-code-block button,[role="dialog"] button{min-width:44px;min-height:44px}
@@ -358,8 +370,141 @@ window.__ModuleLoader__.load({
         fileInput.value = ''
       })
 
+      const toolsBtn = doc.createElement('button')
+      toolsBtn.type = 'button'
+      toolsBtn.className = 'dsh-mobile-tools-btn'
+      toolsBtn.setAttribute('aria-label', '工作区工具')
+      toolsBtn.title = '工作区工具（文件查看器 / 本地终端）'
+      toolsBtn.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 2.5h5v5H2zM9 2.5h5v5H9zM2 9.5h5v5H2zM9 9.5h5v5H9z" fill="currentColor"/></svg>'
+
+      const toolsBackdrop = doc.createElement('div')
+      toolsBackdrop.className = 'dsh-mobile-tools-backdrop'
+      toolsBackdrop.hidden = true
+
+      const toolsMenu = doc.createElement('div')
+      toolsMenu.className = 'dsh-mobile-tools-menu'
+      toolsMenu.setAttribute('role', 'menu')
+      toolsMenu.setAttribute('aria-label', '工作区工具')
+      toolsMenu.hidden = true
+
+      const closeToolsMenu = () => {
+        toolsMenu.hidden = true
+        toolsBackdrop.hidden = true
+      }
+
+      // 打开动作放到 setTimeout(0)：pointerdown 事件完全结束后再触发 React 状态更新，
+      // 否则部分移动端浏览器会因事件中断而丢失 openStore.set 引发的重渲染。
+      const invokeOpen = (fn) => {
+        setTimeout(() => {
+          try {
+            if (typeof fn === 'function') fn()
+            else if (typeof win.__dsh_open_file_viewer === 'function') win.__dsh_open_file_viewer()
+            else if (typeof win.__dsh_open_terminal === 'function') win.__dsh_open_terminal()
+          } catch (_) {}
+        }, 0)
+      }
+      const openFileViewer = () => {
+        closeToolsMenu()
+        invokeOpen(win.__dsh_open_file_viewer)
+      }
+
+      const openTerminal = () => {
+        closeToolsMenu()
+        invokeOpen(win.__dsh_open_terminal)
+      }
+
+      const toggleToolsMenu = (e) => {
+        e?.stopPropagation()
+        const hasFv = typeof win.__dsh_open_file_viewer === 'function' || doc.querySelector('button[aria-label="查看项目文件"], button[title="查看项目文件"]') != null
+        const hasTerm = typeof win.__dsh_open_terminal === 'function' || doc.querySelector('button[aria-label="打开本地终端"], button[title="打开本地终端"]') != null
+
+        if (hasFv && !hasTerm) {
+          openFileViewer()
+          return
+        }
+        if (hasTerm && !hasFv) {
+          openTerminal()
+          return
+        }
+
+        if (!toolsMenu.hidden) {
+          closeToolsMenu()
+          return
+        }
+
+        while (toolsMenu.firstChild) toolsMenu.removeChild(toolsMenu.firstChild)
+
+        // 关键：绝不能在 pointerdown 阶段关闭菜单。
+        // 一旦在按下时就隐藏菜单与遮罩，手指抬起时该坐标下已经换成了输入框，
+        // 合成出的 click 会落到输入框上（表现为“还没点到选项面板就消失、点终端
+        // 结果点进了输入框”）。因此按下只拦冒泡、不做任何事，动作留给 click。
+        const holdGesture = (e) => e.stopPropagation()
+        const runItem = (e, action) => {
+          e.stopPropagation()
+          action()
+        }
+
+        if (hasFv) {
+          const itemFv = doc.createElement('button')
+          itemFv.type = 'button'
+          itemFv.className = 'dsh-mobile-tools-item'
+          itemFv.setAttribute('role', 'menuitem')
+          itemFv.innerHTML = '<span class="dsh-mobile-tools-icon">📁</span><span>文件查看器</span>'
+          itemFv.addEventListener('pointerdown', holdGesture)
+          itemFv.addEventListener('touchstart', holdGesture, { passive: true })
+          itemFv.addEventListener('click', (e) => runItem(e, openFileViewer))
+          toolsMenu.append(itemFv)
+        }
+
+        if (hasTerm) {
+          const itemTerm = doc.createElement('button')
+          itemTerm.type = 'button'
+          itemTerm.className = 'dsh-mobile-tools-item'
+          itemTerm.setAttribute('role', 'menuitem')
+          itemTerm.innerHTML = '<span class="dsh-mobile-tools-icon" style="font-family:monospace;font-weight:700">&gt;_</span><span>本地终端</span>'
+          itemTerm.addEventListener('pointerdown', holdGesture)
+          itemTerm.addEventListener('touchstart', holdGesture, { passive: true })
+          itemTerm.addEventListener('click', (e) => runItem(e, openTerminal))
+          toolsMenu.append(itemTerm)
+        }
+
+        if (toolsMenu.children.length > 0) {
+          // 兜底定位：默认贴在按钮上方、右边缘对齐，避免定位失败导致菜单不可见
+          toolsMenu.style.setProperty('--dsh-tools-anchor-top', 'auto')
+          toolsMenu.style.setProperty('--dsh-tools-anchor-left', 'auto')
+          toolsMenu.style.bottom = ''
+          toolsMenu.style.right = ''
+          toolsMenu.hidden = false
+          toolsBackdrop.hidden = false
+          // 等菜单渲染后再精确定位（rAF），并钳制在视口内
+          try {
+            win.requestAnimationFrame(() => {
+              const rect = toolsBtn.getBoundingClientRect()
+              const vw = win.innerWidth || 0
+              const menuW = toolsMenu.offsetWidth || 180
+              const menuH = toolsMenu.offsetHeight || 96
+              const gap = 8
+              const left = Math.max(12, Math.min(rect.left || 0, vw - menuW - 12))
+              let top = (rect.top || 0) - menuH - gap
+              const vh = (win.visualViewport && win.visualViewport.height) || win.innerHeight || 0
+              if (top < 12) top = Math.min((rect.bottom || 0) + gap, Math.max(12, vh - menuH - 12))
+              toolsMenu.style.setProperty('--dsh-tools-anchor-top', Math.round(top) + 'px')
+              toolsMenu.style.setProperty('--dsh-tools-anchor-left', Math.round(left) + 'px')
+            })
+          } catch (_) {}
+        }
+      }
+
+      toolsBtn.addEventListener('click', toggleToolsMenu)
+      // 菜单容器自身拦截指针事件冒泡，杜绝 doc 级监听器误关闭
+      toolsMenu.addEventListener('pointerdown', (e) => e.stopPropagation())
+      toolsMenu.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true })
+      toolsMenu.addEventListener('click', (e) => e.stopPropagation())
+      // backdrop 仅用 click 关闭：pointerdown/touchstart 关闭会让“点菜单项”手势穿透误关
+      toolsBackdrop.addEventListener('click', closeToolsMenu)
+
       doc.head.append(style)
-      doc.body.append(bar, backdrop, fileInput)
+      doc.body.append(bar, backdrop, fileInput, toolsBackdrop, toolsMenu)
 
       const media = win.matchMedia(MOBILE_QUERY)
       const frameOf = () => doc.querySelector('[data-slot="root"]>div')
@@ -403,8 +548,28 @@ window.__ModuleLoader__.load({
 
         if (mobile) {
           const toolsEl = doc.querySelector('[data-composer-card] .uV2eYG_tools')
-          if (toolsEl && !toolsEl.contains(uploadBtn)) {
-            toolsEl.prepend(uploadBtn)
+          if (toolsEl) {
+            if (!toolsEl.contains(uploadBtn)) toolsEl.prepend(uploadBtn)
+            const hasFv = typeof win.__dsh_open_file_viewer === 'function' || doc.querySelector('button[aria-label="查看项目文件"], button[title="查看项目文件"]') != null
+            const hasTerm = typeof win.__dsh_open_terminal === 'function' || doc.querySelector('button[aria-label="打开本地终端"], button[title="打开本地终端"]') != null
+            if (hasFv || hasTerm) {
+              // 位置：盾牌右侧。但不能插进盾牌所在的 .uV2eYG_modes —— 那是
+              // .uV2eYG_tools 的子容器，插进去后工具箱吃内层 gap、上传按钮吃外层
+              // gap，跨容器边界会让两档间距在视觉上不齐。
+              // 因此插在 .uV2eYG_tools 这一层、紧跟 modes 之后：工具箱与上传按钮
+              // 同级，所有间距统一由外层 gap:4px 决定，且位置仍在盾牌右侧。
+              const shield = doc.querySelector('[data-composer-card] .Sh0Q9G_trigger')
+              const modes = shield?.parentElement ?? null
+              const anchor = modes != null && modes.parentElement === toolsEl ? modes : uploadBtn
+              const misplaced = toolsBtn.parentElement !== toolsEl
+                || toolsBtn.previousElementSibling !== anchor
+              if (misplaced) {
+                if (anchor.nextSibling) toolsEl.insertBefore(toolsBtn, anchor.nextSibling)
+                else toolsEl.append(toolsBtn)
+              }
+            } else {
+              toolsBtn.remove()
+            }
           }
           const modelName = doc.querySelector('._7KE1Ra_triggerLabel')?.textContent?.trim()
           const effort = doc.querySelector('._7KE1Ra_triggerEffort')?.textContent?.trim()
@@ -421,6 +586,8 @@ window.__ModuleLoader__.load({
           }
         } else {
           uploadBtn.remove()
+          toolsBtn.remove()
+          closeToolsMenu()
           infoEl.remove()
         }
       }
@@ -444,11 +611,28 @@ window.__ModuleLoader__.load({
         sync()
       })
 
+      // 记录"按下时是否在工具箱之外"，配合 pointerup 判定真正的外部点击
+      let toolsPressedOutside = false
+      // 判断点击是否落在工具箱（按钮或菜单）内部；closest 兼容任意 target（SVG、emoji 等）
+      const insideTools = (target) => {
+        if (!target) return false
+        if (typeof target.closest === 'function') {
+          return target.closest('.dsh-mobile-tools-menu, .dsh-mobile-tools-btn') !== null
+        }
+        return toolsMenu.contains(target) || toolsBtn.contains(target)
+      }
       const onClick = (event) => {
+        if (!toolsMenu.hidden && !insideTools(event.target)) {
+          closeToolsMenu()
+        }
         if (media.matches && event.target?.closest?.('[data-slot="sidebar"] [role="treeitem"]')) close()
       }
       const onKeyDown = (event) => {
         if (event.key !== 'Escape') return
+        if (!toolsMenu.hidden) {
+          closeToolsMenu()
+          return
+        }
         if (trajectoryOf()?.getAttribute('aria-selected') === 'true') {
           chatOf()?.click()
           sync()
@@ -457,6 +641,9 @@ window.__ModuleLoader__.load({
       }
       let gesture
       const onPointerDown = (event) => {
+        // 只记录按下位置是否在工具箱外，绝不在此关闭菜单：
+        // 按下即关会让菜单在手指抬起前消失，click 落到下层元素（输入框）。
+        toolsPressedOutside = !toolsMenu.hidden && !insideTools(event.target)
         if (!media.matches || event.isPrimary === false) return
         const open = isOpen()
         if (!open && event.clientX > 24) return
@@ -464,6 +651,11 @@ window.__ModuleLoader__.load({
         gesture = { x: event.clientX, y: event.clientY, open }
       }
       const onPointerUp = (event) => {
+        // 按下与抬起都落在工具箱之外，才算真正的"点击外部"，此时关闭菜单。
+        if (toolsPressedOutside && !toolsMenu.hidden && !insideTools(event.target)) {
+          closeToolsMenu()
+        }
+        toolsPressedOutside = false
         if (!gesture) return
         const dx = event.clientX - gesture.x
         const dy = Math.abs(event.clientY - gesture.y)
@@ -557,6 +749,9 @@ window.__ModuleLoader__.load({
         backdrop.remove()
         fileInput.remove()
         uploadBtn.remove()
+        toolsBtn.remove()
+        toolsBackdrop.remove()
+        toolsMenu.remove()
         infoEl.remove()
       }
     }

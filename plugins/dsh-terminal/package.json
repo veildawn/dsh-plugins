@@ -1,6 +1,6 @@
 {
   "name": "dsh-terminal",
-  "version": "0.1.6",
+  "version": "0.1.9",
   "description": "Cross-platform local terminal plugin for DeepSeek Harness (Windows, Linux, macOS) with mobile adaptation",
   "type": "module",
   "main": "lib/index.js",

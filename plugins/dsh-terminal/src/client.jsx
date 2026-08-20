@@ -957,6 +957,13 @@ export function apply(ctx) {
     const [tabs, setTabs] = useState([])
     const [activeId, setActiveId] = useState(null)
     const [isFullscreen, setIsFullscreen] = useState(false)
+    // 抽屉挂载时刻。遮罩铺满全屏后，打开这次抽屉的那一次触摸/点击的尾部事件
+    // （touchend 合成的 click）会落在刚出现的遮罩上，若不设防会立刻自关。
+    const openedAtRef = useRef(0)
+
+    useEffect(() => {
+      if (isOpen) openedAtRef.current = Date.now()
+    }, [isOpen])
 
     // Spawn first terminal session when opened and empty
     useEffect(() => {
@@ -999,7 +1006,15 @@ export function apply(ctx) {
     if (!isOpen) return null
 
     return (
-      <div className="term-scrim" onClick={() => openStore.set(null)}>
+      <div
+        className="term-scrim"
+        onClick={(e) => {
+          // 只有点击遮罩本身才关闭（点抽屉内部不关），并忽略开启手势的尾部事件
+          if (e.target !== e.currentTarget) return
+          if (Date.now() - openedAtRef.current < 400) return
+          openStore.set(null)
+        }}
+      >
         <div
           className={'term-drawer' + (isFullscreen ? ' term-fullscreen' : '')}
           onClick={(e) => e.stopPropagation()}
@@ -1243,19 +1258,7 @@ export function apply(ctx) {
     )
   )
 
-  // 3. Mount Clean Toolbar Trigger inside Composer (Mobile & Desktop native bar, zero floating ball clutter)
-  ctx.slots.inject(COMPOSER_SLOT, () =>
-    ctx.slots.register(
-      {
-        name: COMPOSER_SLOT,
-        id: 'terminal-composer-action',
-        order: 10,
-      },
-      TerminalComposerAction
-    )
-  )
-
-  // 4. Session Reporter
+  // 3. Session Reporter
   ctx.slots.inject(SESSION_SLOT, () =>
     ctx.slots.register(
       {
@@ -1266,6 +1269,15 @@ export function apply(ctx) {
       SessionReporter
     )
   )
+
+  if (typeof window !== 'undefined') {
+    const triggerOpen = (payload) => {
+      const sid = (payload && payload.sessionId) || sessionStore.get()
+      openStore.set({ ...(payload || {}), sessionId: sid, _t: Date.now() })
+    }
+    window.__dsh_open_terminal = triggerOpen
+    window.addEventListener('dsh:open-terminal', (e) => triggerOpen(e.detail))
+  }
 }
 
 export const inject = ['slots', 'connection']

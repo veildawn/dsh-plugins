@@ -697,3 +697,52 @@ test('the file viewer drawer clears the mobile bar', async () => {
   assert.match(css, /\.pI_x6G_overlayLayer:has\(\.fv-scrim\)\{z-index:1100!important\}/)
   assert.match(css, /\.dsh-mobile-bar\{[^}]*z-index:900/)
 })
+
+test('the tools menu outranks its own backdrop despite the role="menu" rule', () => {
+  const css = client.internals.css
+
+  // 回归：本菜单带 role="menu"，会被 [role="menu"]{z-index:1300!important} 命中，
+  // 被压到 1300 后低于自己的遮罩(1340)，遮罩便盖在菜单之上。透明遮罩看不见，
+  // 用户点“选项”实际点在遮罩上，遮罩关闭菜单 —— 表现为面板一点就消失、选项
+  // 永远点不到、点终端位置还会穿透到下方输入框。菜单层级必须高于遮罩。
+  const menu = css.match(/\.dsh-mobile-tools-menu\.dsh-mobile-tools-menu:not\(\[hidden\]\)\{[^}]*\}/)
+  assert.ok(menu, 'tools menu rule must use a doubled class for specificity')
+  const menuZ = Number(menu[0].match(/z-index:(\d+)/)[1])
+
+  const backdrop = css.match(/\.dsh-mobile-tools-backdrop:not\(\[hidden\]\)\{[^}]*\}/)
+  assert.ok(backdrop, 'tools backdrop rule must exist')
+  const backdropZ = Number(backdrop[0].match(/z-index:(\d+)/)[1])
+
+  const roleMenu = css.match(/\[role="menu"\][^{]*\{[^}]*\}/)
+  const roleMenuZ = Number(roleMenu[0].match(/z-index:(\d+)/)[1])
+
+  assert.ok(menuZ > backdropZ, `menu z-index ${menuZ} must exceed backdrop ${backdropZ}`)
+  assert.ok(menuZ > roleMenuZ, `menu z-index ${menuZ} must exceed [role=menu] ${roleMenuZ}`)
+  assert.match(menu[0], /z-index:\d+!important/)
+})
+
+test('the tools button sits after the shield at the same level as upload', async () => {
+  // 工具箱位置在盾牌右侧，但必须与上传按钮同级挂在 .uV2eYG_tools 上，
+  // 而不是插进盾牌所在的子容器 .uV2eYG_modes。插进子容器会让工具箱吃内层
+  // gap、上传按钮吃外层 gap，跨容器边界导致两档间距视觉不齐。
+  // 同级挂载后所有间距统一由外层 gap:4px 决定，也就不需要任何 margin 补偿。
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.match(source, /const modes = shield\?\.parentElement \?\? null/)
+  assert.match(source, /const anchor = modes != null && modes\.parentElement === toolsEl \? modes : uploadBtn/)
+  assert.match(source, /toolsBtn\.parentElement !== toolsEl/)
+  assert.match(source, /toolsBtn\.previousElementSibling !== anchor/)
+
+  const css = client.internals.css
+  assert.doesNotMatch(css, /\.dsh-mobile-tools-btn\{[^}]*margin/)
+  assert.match(css, /\.uV2eYG_tools\{[^}]*gap:4px!important/)
+})
+
+test('the tools menu keeps its items tappable through the whole gesture', async () => {
+  // 配套：按下阶段不得关闭菜单，否则手指抬起时该坐标已换成输入框，
+  // 合成的 click 会落到输入框上。动作留给 click，外部关闭判定留给 pointerup。
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.match(source, /addEventListener\('pointerdown', holdGesture\)/)
+  assert.match(source, /addEventListener\('click', \(e\) => runItem\(e, openFileViewer\)\)/)
+  assert.match(source, /addEventListener\('click', \(e\) => runItem\(e, openTerminal\)\)/)
+  assert.match(source, /if \(toolsPressedOutside && !toolsMenu\.hidden && !insideTools\(event\.target\)\)/)
+})

@@ -714,3 +714,21 @@ test('tree rows support right-click context menu with relative/absolute path cop
   assert.match(source, /copyToClipboard\(absPath\)/)
 })
 
+test('the drawer scrim ignores the gesture that opened it', () => {
+  // 回归：抽屉遮罩铺满全屏后，打开抽屉那一次触摸的尾部事件会落在新出现的遮罩
+  // 上。缺少 target 守卫与挂载防抖时，抽屉会在同一次触摸里立刻自关，表现为
+  // “点了工具箱选项，面板关了但抽屉没出来”。
+  const source = read('lib/client.js')
+  assert.match(source, /openedAtRef/)
+  assert.match(source, /if \(event\.target !== event\.currentTarget\) return/)
+  assert.match(source, /Date\.now\(\) - openedAtRef\.current < 400/)
+})
+
+test('the back-gesture handler ignores the gesture that opened the drawer', () => {
+  // 回归：抽屉打开时 pushState 压入历史项，移动端会在同一次触摸里把它判成可
+  // 回退并立刻派发 popstate，抽屉在渲染出来之前就被关掉（表现为“点了选项，
+  // 面板消失且没有任何其它反应”）。
+  const source = read('lib/client.js')
+  assert.match(source, /const onPopState = \(\) => \{[\s\S]{0,200}openedAtRef\.current < 400/)
+})
+

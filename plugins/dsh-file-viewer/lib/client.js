@@ -1011,6 +1011,12 @@ window.__ModuleLoader__.load({
       function ViewerOverlay(props) {
         const request_ = useStore(openStore);
         const open = request_ !== null;
+        // 抽屉挂载时刻：遮罩铺满全屏后，开启这次抽屉的那一次触摸的尾部事件
+        // 会落在刚出现的遮罩上，若不设防会立刻自关（表现为“点了选项但抽屉没出来”）。
+        const openedAtRef = react.useRef(0);
+        react.useEffect(() => {
+          if (open) openedAtRef.current = Date.now();
+        }, [open]);
         const [roots, setRoots] = react.useState([]);
         const [root, setRoot] = react.useState("");
         // The tree is an expansion set plus a per-directory listing cache; a
@@ -1133,7 +1139,13 @@ window.__ModuleLoader__.load({
         react.useEffect(() => {
           if (!open) return undefined;
           window.history.pushState({ fileViewer: true }, "");
-          const onPopState = () => openStore.set(null);
+          // 忽略开启手势尾部引发的 popstate：移动端在同一次触摸里把刚压入的
+          // 历史项判成可回退时，抽屉会在渲染出来之前就被关掉（表现为“点了选项
+          // 面板消失、没有任何其它反应”）。
+          const onPopState = () => {
+            if (Date.now() - openedAtRef.current < 400) return;
+            openStore.set(null);
+          };
           window.addEventListener("popstate", onPopState);
           return () => {
             window.removeEventListener("popstate", onPopState);
@@ -1201,7 +1213,9 @@ window.__ModuleLoader__.load({
           "aria-modal": "true",
           "aria-label": "文件查看器",
           onMouseDown: (event) => {
-            if (event.target === event.currentTarget) openStore.set(null);
+            if (event.target !== event.currentTarget) return;
+            if (Date.now() - openedAtRef.current < 400) return;
+            openStore.set(null);
           },
         },
           react.createElement("div", { className: "fv-shell" },

@@ -9208,7 +9208,6 @@ ${h2.join(`
   var RPC_CHANNEL = "/dsh-terminal";
   var OVERLAY_SLOT = "shell.overlay";
   var HEADER_SLOT = "conversation.session.header.utilities";
-  var COMPOSER_SLOT = "conversation.input.left";
   var SESSION_SLOT = "conversation.input.overlay";
   var STYLE_ID = "dsh-terminal-styles";
   var XTERM_CSS = `/**
@@ -10110,6 +10109,10 @@ ${h2.join(`
       const [tabs, setTabs] = (0, import_react.useState)([]);
       const [activeId, setActiveId] = (0, import_react.useState)(null);
       const [isFullscreen, setIsFullscreen] = (0, import_react.useState)(false);
+      const openedAtRef = (0, import_react.useRef)(0);
+      (0, import_react.useEffect)(() => {
+        if (isOpen) openedAtRef.current = Date.now();
+      }, [isOpen]);
       (0, import_react.useEffect)(() => {
         if (isOpen && tabs.length === 0) {
           createTab();
@@ -10146,77 +10149,88 @@ ${h2.join(`
         });
       };
       if (!isOpen) return null;
-      return /* @__PURE__ */ import_react.default.createElement("div", { className: "term-scrim", onClick: () => openStore.set(null) }, /* @__PURE__ */ import_react.default.createElement(
+      return /* @__PURE__ */ import_react.default.createElement(
         "div",
         {
-          className: "term-drawer" + (isFullscreen ? " term-fullscreen" : ""),
-          onClick: (e) => e.stopPropagation()
+          className: "term-scrim",
+          onClick: (e) => {
+            if (e.target !== e.currentTarget) return;
+            if (Date.now() - openedAtRef.current < 400) return;
+            openStore.set(null);
+          }
         },
-        /* @__PURE__ */ import_react.default.createElement("div", { className: "term-head" }, /* @__PURE__ */ import_react.default.createElement(
-          "button",
-          {
-            type: "button",
-            className: "term-mobile-back-btn",
-            onClick: () => openStore.set(null)
-          },
-          "\u2039 \u8FD4\u56DE"
-        ), /* @__PURE__ */ import_react.default.createElement("div", { className: "term-tabs" }, tabs.map((tab, idx) => /* @__PURE__ */ import_react.default.createElement(
+        /* @__PURE__ */ import_react.default.createElement(
           "div",
           {
-            key: tab.id,
-            className: "term-tab",
-            "aria-selected": activeId === tab.id,
-            onClick: () => setActiveId(tab.id)
+            className: "term-drawer" + (isFullscreen ? " term-fullscreen" : ""),
+            onClick: (e) => e.stopPropagation()
           },
-          /* @__PURE__ */ import_react.default.createElement("span", { className: "term-tab-title" }, ">_ " + (tab.shell || "Terminal") + " #" + (idx + 1)),
-          /* @__PURE__ */ import_react.default.createElement(
+          /* @__PURE__ */ import_react.default.createElement("div", { className: "term-head" }, /* @__PURE__ */ import_react.default.createElement(
             "button",
             {
               type: "button",
-              className: "term-tab-close",
-              onClick: (e) => closeTab(tab.id, e)
+              className: "term-mobile-back-btn",
+              onClick: () => openStore.set(null)
             },
-            "\u2715"
-          )
-        )), /* @__PURE__ */ import_react.default.createElement(
-          "button",
-          {
-            type: "button",
-            className: "term-tab-add",
-            title: "\u65B0\u5EFA\u7EC8\u7AEF\u6807\u7B7E",
-            onClick: createTab
-          },
-          "+"
-        )), /* @__PURE__ */ import_react.default.createElement("div", { className: "term-head-actions" }, /* @__PURE__ */ import_react.default.createElement(
-          "button",
-          {
-            type: "button",
-            className: "term-btn",
-            title: isFullscreen ? "\u8FD8\u539F\u7A97\u53E3" : "\u5168\u5C4F\u5C55\u5F00",
-            onClick: () => setIsFullscreen(!isFullscreen)
-          },
-          /* @__PURE__ */ import_react.default.createElement(import_dsh_client_ui_primitives.IconFullscreenOutline16, { size: 16 })
-        ), /* @__PURE__ */ import_react.default.createElement(
-          "button",
-          {
-            type: "button",
-            className: "term-btn",
-            title: "\u5173\u95ED\u7EC8\u7AEF\u5E76\u8FD4\u56DE",
-            onClick: () => openStore.set(null)
-          },
-          /* @__PURE__ */ import_react.default.createElement(import_dsh_client_ui_primitives.IconCloseOutline16, { size: 16 })
-        ))),
-        tabs.map((tab) => /* @__PURE__ */ import_react.default.createElement(
-          TerminalTabContent,
-          {
-            key: tab.id,
-            session: tab,
-            active: activeId === tab.id,
-            isFullscreen,
-            onClose: () => openStore.set(null)
-          }
-        ))
-      ));
+            "\u2039 \u8FD4\u56DE"
+          ), /* @__PURE__ */ import_react.default.createElement("div", { className: "term-tabs" }, tabs.map((tab, idx) => /* @__PURE__ */ import_react.default.createElement(
+            "div",
+            {
+              key: tab.id,
+              className: "term-tab",
+              "aria-selected": activeId === tab.id,
+              onClick: () => setActiveId(tab.id)
+            },
+            /* @__PURE__ */ import_react.default.createElement("span", { className: "term-tab-title" }, ">_ " + (tab.shell || "Terminal") + " #" + (idx + 1)),
+            /* @__PURE__ */ import_react.default.createElement(
+              "button",
+              {
+                type: "button",
+                className: "term-tab-close",
+                onClick: (e) => closeTab(tab.id, e)
+              },
+              "\u2715"
+            )
+          )), /* @__PURE__ */ import_react.default.createElement(
+            "button",
+            {
+              type: "button",
+              className: "term-tab-add",
+              title: "\u65B0\u5EFA\u7EC8\u7AEF\u6807\u7B7E",
+              onClick: createTab
+            },
+            "+"
+          )), /* @__PURE__ */ import_react.default.createElement("div", { className: "term-head-actions" }, /* @__PURE__ */ import_react.default.createElement(
+            "button",
+            {
+              type: "button",
+              className: "term-btn",
+              title: isFullscreen ? "\u8FD8\u539F\u7A97\u53E3" : "\u5168\u5C4F\u5C55\u5F00",
+              onClick: () => setIsFullscreen(!isFullscreen)
+            },
+            /* @__PURE__ */ import_react.default.createElement(import_dsh_client_ui_primitives.IconFullscreenOutline16, { size: 16 })
+          ), /* @__PURE__ */ import_react.default.createElement(
+            "button",
+            {
+              type: "button",
+              className: "term-btn",
+              title: "\u5173\u95ED\u7EC8\u7AEF\u5E76\u8FD4\u56DE",
+              onClick: () => openStore.set(null)
+            },
+            /* @__PURE__ */ import_react.default.createElement(import_dsh_client_ui_primitives.IconCloseOutline16, { size: 16 })
+          ))),
+          tabs.map((tab) => /* @__PURE__ */ import_react.default.createElement(
+            TerminalTabContent,
+            {
+              key: tab.id,
+              session: tab,
+              active: activeId === tab.id,
+              isFullscreen,
+              onClose: () => openStore.set(null)
+            }
+          ))
+        )
+      );
     }
     function TerminalHeaderAction(props) {
       const sessionId = props?.sessionId;
@@ -10355,17 +10369,6 @@ ${h2.join(`
       )
     );
     ctx.slots.inject(
-      COMPOSER_SLOT,
-      () => ctx.slots.register(
-        {
-          name: COMPOSER_SLOT,
-          id: "terminal-composer-action",
-          order: 10
-        },
-        TerminalComposerAction
-      )
-    );
-    ctx.slots.inject(
       SESSION_SLOT,
       () => ctx.slots.register(
         {
@@ -10376,6 +10379,14 @@ ${h2.join(`
         SessionReporter
       )
     );
+    if (typeof window !== "undefined") {
+      const triggerOpen = (payload) => {
+        const sid = payload && payload.sessionId || sessionStore.get();
+        openStore.set({ ...payload || {}, sessionId: sid, _t: Date.now() });
+      };
+      window.__dsh_open_terminal = triggerOpen;
+      window.addEventListener("dsh:open-terminal", (e) => triggerOpen(e.detail));
+    }
   }
   var inject = ["slots", "connection"];
   return __toCommonJS(client_exports);

@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { TerminalSession, SessionManager } from '../lib/core.js'
 
 describe('TerminalSession output buffering and reading', () => {
@@ -78,5 +79,17 @@ describe('TerminalSession output buffering and reading', () => {
     assert.equal(ok, true)
     assert.equal(killed, true)
     assert.equal(mgr.list().length, 0)
+  })
+})
+
+describe('drawer scrim dismissal', () => {
+  it('ignores the gesture that opened the drawer', () => {
+    // 回归：抽屉遮罩铺满全屏后，打开抽屉那一次触摸的尾部事件（touchend 合成的
+    // click）会落在新出现的遮罩上。缺少 target 守卫与挂载防抖时，抽屉会在同一次
+    // 触摸里立刻自关，表现为“点了工具箱选项，面板关了但终端没出来”。
+    const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+    assert.match(source, /openedAtRef/)
+    assert.match(source, /e\.target !== e\.currentTarget/)
+    assert.match(source, /Date\.now\(\) - openedAtRef\.current < 400/)
   })
 })
