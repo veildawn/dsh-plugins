@@ -73,6 +73,7 @@ window.__ModuleLoader__.load({
         globalThis.localStorage?.removeItem(LEGACY_STORAGE_KEY);
       } catch {}
     }
+
     function apply(ctx) {
       if (typeof document !== "undefined" && !document.getElementById("dsh-remote-control-styles")) {
         const style = document.createElement("style");
@@ -100,12 +101,37 @@ window.__ModuleLoader__.load({
         return result.value;
       };
 
+      const syncSettingsMirror = () => {
+        if (!remoteBrowser) return;
+        try {
+          const settingsScope = ctx.get("settingsScope");
+          const mirror = settingsScope?.describe?.();
+          if (mirror) {
+            mirror.persistence = "host";
+            if (mirror.store && typeof mirror.store.getSnapshot === "function") {
+              const snapshot = mirror.store.getSnapshot();
+              if (snapshot && snapshot.status === "unavailable") {
+                mirror.store.set(Object.assign({}, snapshot, { status: "idle" }));
+              }
+            }
+            mirror.load?.();
+          }
+        } catch (err) {
+          console.error("[dsh-remote-control] failed to sync settings mirror:", err);
+        }
+      };
+
+      ctx.inject(["settingsScope"], () => {
+        syncSettingsMirror();
+      });
+
       let disposeGate;
       let initialGateError = "";
       const unlock = () => {
         const dispose = disposeGate;
         disposeGate = undefined;
         dispose?.();
+        syncSettingsMirror();
       };
 
       function UnlockScreen() {
@@ -270,6 +296,7 @@ window.__ModuleLoader__.load({
           currentSecret = token;
           saveSecret(token);
           setRemote(Object.assign({}, result.value, { message: "远程控制已认证" }));
+          syncSettingsMirror();
         };
         const save = () => withBusy(async () => {
           if (secret.trim()) await props.configRequest("setSecret", { secret: secret.trim() });
