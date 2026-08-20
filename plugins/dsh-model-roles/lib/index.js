@@ -37,6 +37,7 @@ import {
   continuousGoalOwnedByPlugin,
   continuousGoalRequest,
   imageBlocksOf,
+  isContinuationTask,
   isSubagent,
   isSelectableRole,
   modelRolesActive,
@@ -51,6 +52,7 @@ import {
   routeForRole,
   sessionPresetOf,
   taskTextOf,
+  todosToCarryIntoContinuation,
   unfinishedTodosForTurn,
   withoutImageBlocks,
 } from './core.js'
@@ -73,6 +75,7 @@ export {
   continuousGoalOwnedByPlugin,
   continuousGoalRequest,
   imageBlocksOf,
+  isContinuationTask,
   isSubagent,
   isSelectableRole,
   modelRolesActive,
@@ -87,6 +90,7 @@ export {
   routeForRole,
   sessionPresetOf,
   taskTextOf,
+  todosToCarryIntoContinuation,
   unfinishedTodosForTurn,
   withoutImageBlocks,
 }
@@ -94,7 +98,7 @@ export {
 export const name = 'model-roles'
 export const inject = [
   'settings', 'commands', 'llm', 'subagents', 'sessions', 'agentPresets',
-  'agents', 'goals', 'systemPrompt',
+  'agents', 'goals', 'systemPrompt', 'tools',
 ]
 export const NS = 'model-roles'
 export const SETTINGS_RPC_CHANNEL = '/model-roles-settings'
@@ -267,6 +271,50 @@ function actionableAdvice(text) {
   return text !== '' && !/^\s*(?:ok|no advice)[.!]?\s*$/iu.test(text)
 }
 
+function userMessageText(message) {
+  return Array.isArray(message?.content)
+    ? message.content
+      .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text)
+      .join('\n')
+      .trim()
+    : ''
+}
+
+const INVALID_SANDBOX_JUSTIFICATION = 'invalid justification: expected a non-empty sentence'
+
+function needsSandboxJustificationRecovery(exec, result) {
+  if (!modelRolesActive(exec?.agent) || isSubagent(exec?.agent) || result?.isError !== true) return false
+  if (result.error?.message !== INVALID_SANDBOX_JUSTIFICATION) return false
+  const args = exec.arguments
+  return args !== null
+    && typeof args === 'object'
+    && typeof args.sandbox_permissions === 'string'
+    && args.sandbox_permissions.trim() !== ''
+    && typeof args.justification === 'string'
+    && args.justification.trim() === ''
+}
+
+function sandboxJustificationRecoveryContext() {
+  return createUserMessage({
+    content: [{
+      type: 'text',
+      text: [
+        'The sandbox escalation failed only because justification was blank; this is recoverable and must not end the task.',
+        'Retry the same denied operation at most once.',
+        'If there was no immediately preceding sandbox denial for that exact operation, omit both sandbox_permissions and justification.',
+        'If there was such a denial, keep the narrowest sufficient sandbox_permissions value and provide a non-empty sentence explaining why that exact operation needs wider access.',
+      ].join(' '),
+    }],
+    source: {
+      kind: 'plugin',
+      plugin: NS,
+      form: 'notice',
+      summary: 'Repair sandbox escalation',
+    },
+  })
+}
+
 /** Run the lightweight model that automatically chooses a main-task role. */
 export async function classifyAutomaticRole(ctx, agent, table, signal) {
   const classifierRoute = table.get('tiny') ?? table.get('smol')
@@ -323,6 +371,10 @@ export async function apply(ctx, config = {}) {
   const reviewedTurns = new WeakMap()
   const classifiedTurns = new WeakMap()
   const visionFallbackTurns = new WeakMap()
+  const pausedDescendants = new WeakMap()
+  const userStopped = new WeakSet()
+  const stopTasks = new WeakMap()
+  const cancelBridgeDisposers = new Map()
 
   function synchronizeContinuousGoal(agent, shouldArm) {
     const current = ctx.goals.get(agent)
@@ -331,12 +383,163 @@ export async function apply(ctx, config = {}) {
       if (current.activation === 'armed') ctx.goals.disarm(agent)
       return
     }
-    if (current.phase === 'active'
-      && current.activation === 'disarmed'
+    if ((current.phase === 'paused'
+      || (current.phase === 'active' && current.activation === 'disarmed'))
       && current.roundsStarted < current.maxGoalRounds) {
       ctx.goals.resume(agent, { id: current.id, revision: current.revision })
     }
   }
+
+  async function pauseContinuousWork(agent) {
+    try {
+      const current = ctx.goals.get(agent)
+      if (current !== undefined && continuousGoalOwnedByPlugin(agent.session.events, current.id)) {
+        if (current.phase === 'active') {
+          ctx.goals.pause(agent, { id: current.id, revision: current.revision })
+        } else if (current.activation === 'armed') {
+          ctx.goals.disarm(agent)
+        }
+      }
+    } catch (error) {
+      ctx.logger.warn('model-roles: could not pause the continuous-work goal')
+      ctx.logger.warn(error)
+    }
+
+    let descendants
+    try {
+      descendants = await ctx.subagents.listDescendants(agent.session.id)
+    } catch (error) {
+      ctx.logger.warn('model-roles: could not enumerate subagents while stopping continuous work')
+      ctx.logger.warn(error)
+      return
+    }
+
+    const running = descendants
+      .filter((entry) => entry?.kind === 'child' && entry.activity === 'running')
+      .sort((left, right) => right.depth - left.depth)
+    const continuable = []
+    const settling = []
+    for (const child of running) {
+      if (child.mode === 'continuable') {
+        try {
+          ctx.subagents.interrupt(child.id, {
+            kind: 'ancestor',
+            agent,
+          })
+          continuable.push(child)
+        } catch (error) {
+          ctx.logger.warn(`model-roles: could not pause subagent ${child.id}`)
+          ctx.logger.warn(error)
+        }
+      } else {
+        const childAgent = ctx.agents.get(child.id)
+        if (childAgent !== undefined) {
+          childAgent.cancel({ kind: 'parent' })
+          settling.push(childAgent.whenIdle())
+        }
+      }
+    }
+    if (continuable.length > 0) pausedDescendants.set(agent, continuable)
+    const liveContinuable = continuable
+      .map((child) => ctx.agents.get(child.id))
+      .filter((child) => child !== undefined)
+    settling.push(...liveContinuable.map((child) => child.whenIdle()))
+    await Promise.allSettled(settling)
+  }
+
+  async function resumeContinuousDescendants(agent) {
+    const children = pausedDescendants.get(agent)
+    if (!Array.isArray(children) || children.length === 0) return
+    const failed = []
+    for (const child of [...children].sort((left, right) => right.depth - left.depth)) {
+      const parent = ctx.agents.get(child.parentId)
+      if (parent === undefined) {
+        failed.push(child)
+        continue
+      }
+      try {
+        await ctx.subagents.followup(parent, child.id, [{
+          type: 'text',
+          text: 'The user resumed the parent task. Re-read your durable context and resume your assigned work; verify it before reporting back.',
+        }], {
+          source: {
+            kind: 'plugin',
+            plugin: NS,
+            form: 'notice',
+            summary: 'Resume delegated work',
+          },
+          signal: AbortSignal.timeout(5_000),
+        })
+      } catch (error) {
+        failed.push(child)
+        ctx.logger.warn(`model-roles: could not resume subagent ${child.id}`)
+        ctx.logger.warn(error)
+      }
+    }
+    if (failed.length > 0) pausedDescendants.set(agent, failed)
+    else pausedDescendants.delete(agent)
+  }
+
+  function requestUserStop(agent) {
+    const existing = stopTasks.get(agent)
+    if (existing !== undefined) return existing
+    if (userStopped.has(agent)) return Promise.resolve()
+    userStopped.add(agent)
+    const task = pauseContinuousWork(agent)
+      .catch((error) => {
+        ctx.logger.warn('model-roles: could not pause all continuous work after a user stop')
+        ctx.logger.warn(error)
+      })
+      .finally(() => stopTasks.delete(agent))
+    stopTasks.set(agent, task)
+    return task
+  }
+
+  function installCancelBridge(agent) {
+    if (cancelBridgeDisposers.has(agent) || typeof agent?.cancel !== 'function') return
+    const ownDescriptor = Object.getOwnPropertyDescriptor(agent, 'cancel')
+    const original = agent.cancel
+    // Agent.cancel() is intentionally an idle no-op and emits no turn/end, but
+    // continuable children may still be running while their parent is idle.
+    // Bridge the public stop boundary so a user stop reaches that whole tree.
+    const wrapped = function wrappedContinuousCancel(cause, options) {
+      const result = Reflect.apply(original, this, [cause, options])
+      if (cause?.kind === 'user'
+        && settings.continuous.enabled
+        && modelRolesActive(this)
+        && !isSubagent(this)) {
+        void requestUserStop(this)
+      }
+      return result
+    }
+    try {
+      Object.defineProperty(agent, 'cancel', {
+        configurable: true,
+        writable: true,
+        value: wrapped,
+      })
+    } catch (error) {
+      ctx.logger.warn(`model-roles: could not bridge stop for agent ${agent.id}`)
+      ctx.logger.warn(error)
+      return
+    }
+    cancelBridgeDisposers.set(agent, () => {
+      if (agent.cancel !== wrapped) return
+      if (ownDescriptor === undefined) delete agent.cancel
+      else Object.defineProperty(agent, 'cancel', ownDescriptor)
+    })
+  }
+
+  for (const agent of ctx.agents.list()) installCancelBridge(agent)
+  ctx.on('agent/created', ({ agent }) => installCancelBridge(agent))
+  ctx.on('agent/disposed', ({ agent }) => {
+    cancelBridgeDisposers.get(agent)?.()
+    cancelBridgeDisposers.delete(agent)
+  })
+  ctx.effect(() => () => {
+    for (const dispose of cancelBridgeDisposers.values()) dispose()
+    cancelBridgeDisposers.clear()
+  }, 'model-roles: continuous stop bridge')
 
   scope.watch((next) => {
     try {
@@ -498,6 +701,109 @@ export async function apply(ctx, config = {}) {
     return { ...assembled, sections }
   })
 
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const recovery = needsSandboxJustificationRecovery(exec, result)
+      ? sandboxJustificationRecoveryContext()
+      : undefined
+    const downstream = await next()
+    if (recovery === undefined) return downstream
+    return {
+      ...downstream,
+      additionalContexts: [recovery, ...(downstream.additionalContexts ?? [])],
+    }
+  })
+
+  ctx.on('session/event', async (session, event) => {
+    if (event?.type !== 'turn/end'
+      || event.data?.reason?.kind !== 'aborted'
+      || event.data.reason.reason?.kind !== 'user') return
+    // A user stop is the lifecycle boundary for the whole continuous-work tree,
+    // not only the parent turn.
+    await Promise.resolve()
+    const agent = ctx.agents.get(session.id)
+    if (agent === undefined || agent.session !== session || isSubagent(agent)) return
+    if (!settings.continuous.enabled || !modelRolesActiveForSession(session)) return
+    await requestUserStop(agent)
+  })
+
+  ctx.on('goal/changed', ({ agent, change }) => {
+    if (change?.operation !== 'resume'
+      || !userStopped.delete(agent)
+      || !settings.continuous.enabled
+      || !modelRolesActive(agent)
+      || isSubagent(agent)) return
+    void resumeContinuousDescendants(agent).catch((error) => {
+      ctx.logger.warn('model-roles: could not resume delegated work after Goal resume')
+      ctx.logger.warn(error)
+    })
+  })
+
+  ctx.on('session/event', async (session, event) => {
+    if (event?.type !== 'user/message') return
+    const source = event.data?.source
+    const goalRound = source?.kind === 'goal'
+    const humanMessage = source?.kind === 'user'
+    const humanContinue = humanMessage && isContinuationTask(userMessageText(event.data))
+    if (!goalRound && !humanMessage) return
+    // Every continuation is a new turn, which intentionally clears DSH's
+    // standing todo projection. Restore the plan after the publication fence.
+    await Promise.resolve()
+    const agent = ctx.agents.get(session.id)
+    if (agent === undefined || agent.session !== session || isSubagent(agent)) return
+    if (humanMessage) {
+      const wasStopped = userStopped.delete(agent)
+      if (!humanContinue) {
+        pausedDescendants.delete(agent)
+        if (wasStopped) {
+          try {
+            const stoppedGoal = ctx.goals.get(agent)
+            if (stoppedGoal !== undefined
+              && continuousGoalOwnedByPlugin(session.events, stoppedGoal.id)
+              && stoppedGoal.phase !== 'complete') {
+              ctx.goals.clear(agent, { id: stoppedGoal.id, revision: stoppedGoal.revision })
+            }
+          } catch (error) {
+            ctx.logger.warn('model-roles: could not clear abandoned continuous work')
+            ctx.logger.warn(error)
+          }
+        }
+        return
+      }
+    }
+    if (!settings.continuous.enabled || !modelRolesActiveForSession(session)) return
+    const current = ctx.goals.get(agent)
+    const owned = current !== undefined && continuousGoalOwnedByPlugin(session.events, current.id)
+    if (goalRound && (!owned || source.goalId !== current.id)) return
+    const todos = todosToCarryIntoContinuation(session.events)
+    if (humanContinue && owned
+      && (current.phase === 'paused'
+        || (current.phase === 'active' && current.activation === 'disarmed'))
+      && current.roundsStarted < current.maxGoalRounds) {
+      try {
+        ctx.goals.resume(agent, { id: current.id, revision: current.revision })
+      } catch (error) {
+        ctx.logger.warn('model-roles: could not resume the continuous-work goal')
+        ctx.logger.warn(error)
+      }
+    }
+    if (todos.length > 0) {
+      try {
+        session.append('todo/write', { todos })
+      } catch (error) {
+        ctx.logger.warn('model-roles: could not restore the task plan for the next turn')
+        ctx.logger.warn(error)
+      }
+    }
+    if (humanContinue) {
+      try {
+        await resumeContinuousDescendants(agent)
+      } catch (error) {
+        ctx.logger.warn('model-roles: could not resume delegated continuous work')
+        ctx.logger.warn(error)
+      }
+    }
+  })
+
   ctx.on('session/event', async (session, event) => {
     if (event?.type !== 'agent-preset/selected') return
     // Session observers run inside append's non-reentrant publication fence.
@@ -515,6 +821,7 @@ export async function apply(ctx, config = {}) {
   })
 
   ctx.on('agent/turn-stopping', async ({ agent, turn, signal }) => {
+    if (signal.aborted) return
     const goalRequest = continuousGoalRequest(agent, turn, settings.continuous)
     if (goalRequest !== undefined) {
       try {

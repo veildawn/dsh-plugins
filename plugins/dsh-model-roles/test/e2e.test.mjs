@@ -10,7 +10,7 @@ import { GoalService } from '@deepseek-ai/dsh-goal'
 import * as goalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
-import { ToolRuntime } from '@deepseek-ai/dsh-tools'
+import { defineTool, ToolRuntime } from '@deepseek-ai/dsh-tools'
 import * as spawnInProcess from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import * as modelRoles from '../lib/index.js'
 
@@ -477,6 +477,18 @@ test('unfinished smart-mode work arms one native goal and advertises the continu
   assert.equal(goalCreates.length, 1)
   const standardAssembly = await ctx.systemPrompt.assemble({ agent: standard, scope: ctx })
   assert.equal(standardAssembly.sections.some((section) => section.name === 'model-roles:continuous-work'), false)
+
+  const abortedSession = ctx.sessions.create('continuous-work-aborted', { meta: modelRolesMeta() })
+  abortedSession.append('turn/start', { turn: 1 })
+  abortedSession.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Do not continue after I stop.' }], source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  abortedSession.append('todo/write', { todos: [
+    { content: 'Must remain stopped', status: 'in_progress' },
+  ] })
+  await agentEvents(ctx, { ctx, session: abortedSession, options: {} })
+    .serial('agent/turn-stopping', { turn: 1, signal: AbortSignal.abort() })
+  assert.equal(goalCreates.length, 1)
 })
 
 test('continuous work hands the unfinished objective to the real DSH goal-round driver', async () => {
@@ -540,6 +552,162 @@ test('continuous work hands the unfinished objective to the real DSH goal-round 
     assert.equal(queued[0].source.round, 1)
     assert.match(queued[0].content[0].text, /Round: 1\/12/u)
     assert.match(queued[0].content[0].text, /Finish the integration audit/u)
+
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('turn/start', { turn: 2 })
+    session.append('user/message', queued[0], { surfaceOp: 'append' })
+    await new Promise((resolve) => setImmediate(resolve))
+    const carriedTodos = session.events.slice().reverse()
+      .find((event) => event.type === 'todo/write')?.data.todos
+    assert.deepEqual(carriedTodos, [
+      { content: 'Inspect boundaries', status: 'completed' },
+      { content: 'Verify findings', status: 'in_progress' },
+    ])
+    assert.equal(session.events.at(-1).type, 'todo/write')
+  } finally {
+    unregister()
+  }
+})
+
+test('smart mode recovers a blank sandbox-escalation justification without ending the task', async () => {
+  const { ctx } = await createRuntime([])
+  ctx.tools.register(defineTool({
+    name: 'bash',
+    description: 'Reproduce the host sandbox validation boundary.',
+    parameters: {
+      command: { type: 'string', required: true },
+      sandbox_permissions: { type: 'string' },
+      justification: { type: 'string' },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    execute() {
+      throw new Error('invalid justification: expected a non-empty sentence')
+    },
+  }))
+  const session = ctx.sessions.create('continuous-work-invalid-justification', {
+    meta: modelRolesMeta(),
+  })
+  const agent = { ctx, session, options: {} }
+
+  const result = await ctx.tools.execute({
+    callId: 'invalid-justification-call',
+    name: 'bash',
+    arguments: {
+      command: 'git status',
+      sandbox_permissions: 'danger-full-access',
+      justification: '',
+    },
+    agent,
+    signal: AbortSignal.timeout(5_000),
+  })
+
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /invalid justification/u)
+  assert.equal(result.additionalContexts?.length, 1)
+  assert.equal(result.additionalContexts[0].source.kind, 'plugin')
+  assert.match(result.additionalContexts[0].content[0].text, /Retry the same denied operation/iu)
+  assert.match(result.additionalContexts[0].content[0].text, /non-empty sentence/iu)
+})
+
+test('user stop pauses continuous work and its subagents, while continue restores the plan', async () => {
+  const { ctx } = await createRuntime([], {
+    continuous: { enabled: true, maxGoalRounds: 12 },
+  }, { nativeGoals: true })
+  const session = ctx.sessions.create('continuous-work-stop-resume', { meta: modelRolesMeta() })
+  session.append('turn/start', { turn: 1 })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Finish the release audit.' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('todo/write', { todos: [
+    { content: 'Inspect release state', status: 'completed' },
+    { content: 'Fix remaining issue', status: 'in_progress' },
+    { content: 'Verify release', status: 'pending' },
+  ] })
+  const parent = {
+    id: session.id,
+    ctx,
+    session,
+    options: {},
+    status: 'running',
+    followup() {},
+    whenIdle() { return Promise.resolve() },
+    cancel() {},
+  }
+  const unregister = ctx.agents.register(parent)
+  const interrupted = []
+  const resumedChildren = []
+  ctx.subagents.listDescendants = async () => [
+    {
+      kind: 'child', id: 'continuable-child', parentId: session.id, depth: 1,
+      mode: 'continuable', activity: 'running', hasChildren: false, label: 'worker',
+    },
+    {
+      kind: 'child', id: 'inactive-child', parentId: session.id, depth: 1,
+      mode: 'continuable', activity: 'inactive', hasChildren: false, label: 'idle worker',
+    },
+  ]
+  ctx.subagents.interrupt = (childId, authority) => {
+    interrupted.push({ childId, authority })
+  }
+  ctx.subagents.followup = async (agent, childId, content, options) => {
+    resumedChildren.push({ agent, childId, content, options })
+    return `message-${childId}`
+  }
+  try {
+    await agentEvents(ctx, parent).serial('agent/turn-stopping', {
+      turn: 1,
+      signal: AbortSignal.timeout(5_000),
+    })
+    const created = ctx.goals.get(parent)
+    assert.equal(created.phase, 'active')
+    assert.equal(created.activation, 'armed')
+
+    parent.status = 'idle'
+    parent.cancel({ kind: 'user' })
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    const paused = ctx.goals.get(parent)
+    assert.equal(paused.phase, 'paused')
+    assert.equal(paused.activation, 'disarmed')
+    assert.deepEqual(interrupted, [{
+      childId: 'continuable-child',
+      authority: { kind: 'ancestor', agent: parent },
+    }])
+
+    session.append('turn/start', { turn: 2 })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '继续' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    const resumed = ctx.goals.get(parent)
+    assert.equal(resumed.phase, 'active')
+    assert.equal(resumed.activation, 'armed')
+    assert.equal(resumedChildren.length, 1)
+    assert.equal(resumedChildren[0].agent, parent)
+    assert.equal(resumedChildren[0].childId, 'continuable-child')
+    assert.match(resumedChildren[0].content[0].text, /resume your assigned work/iu)
+    assert.equal(session.events.at(-1).type, 'todo/write')
+    assert.deepEqual(session.events.at(-1).data.todos, [
+      { content: 'Inspect release state', status: 'completed' },
+      { content: 'Fix remaining issue', status: 'in_progress' },
+      { content: 'Verify release', status: 'pending' },
+    ])
+
+    parent.cancel({ kind: 'user' })
+    await new Promise((resolve) => setImmediate(resolve))
+    const pausedAgain = ctx.goals.get(parent)
+    assert.equal(pausedAgain.phase, 'paused')
+    ctx.goals.resume(parent, { id: pausedAgain.id, revision: pausedAgain.revision })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(resumedChildren.length, 2)
   } finally {
     unregister()
   }

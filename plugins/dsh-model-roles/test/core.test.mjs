@@ -25,6 +25,7 @@ import {
   routeForRole,
   sessionPresetOf,
   taskTextOf,
+  todosToCarryIntoContinuation,
   unfinishedTodosForTurn,
 } from '../lib/core.js'
 
@@ -175,6 +176,17 @@ test('continuous work converts only current-turn unfinished todos into a bounded
   ], 'goal-smart'), true)
   assert.equal(continuousGoalOwnedByPlugin(events, 'goal-smart'), false)
   assert.match(CONTINUOUS_WORK_SYSTEM, /unfinished todo/iu)
+  const nextTurn = [
+    ...events,
+    { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/start', data: { turn: 2 } },
+    { type: 'user/message', data: { source: { kind: 'goal' } } },
+  ]
+  assert.deepEqual(todosToCarryIntoContinuation(nextTurn), events[1].data.todos)
+  assert.deepEqual(todosToCarryIntoContinuation([
+    ...nextTurn,
+    { type: 'todo/write', data: { todos: [{ content: 'Replanned', status: 'in_progress' }] } },
+  ]), [])
 
   const completed = agent({
     header: { agentPreset: 'model-roles' },

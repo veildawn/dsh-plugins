@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-roles",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Opt-in continuous-work and OMP-style model-role routing for DeepSeek Harness through the 智选模式 Agent Preset",
   "type": "module",
   "main": "lib/index.js",
@@ -42,11 +42,12 @@
     "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-session": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-subagent": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-subagent": "^0.1.0-rc.8"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-goal": "0.1.0-rc.6",

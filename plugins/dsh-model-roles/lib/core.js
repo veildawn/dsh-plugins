@@ -34,6 +34,7 @@ export const CONTINUOUS_WORK_SYSTEM = [
   '- An unfinished todo is a commitment, not decoration. Do not give a final answer while a current-turn todo is pending or in progress.',
   '- Resolve discoverable facts with the available read, search, and inspection tools. Do not ask the user for paths or facts you can discover safely.',
   '- Diagnose recoverable tool failures and try a safe alternative instead of stopping.',
+  '- For a sandbox escalation, set sandbox_permissions only after the same operation was denied, and always pair it with a non-empty one-sentence justification. If justification validation fails, retry once: remove both fields when there was no denial, otherwise keep the requested permission and provide the required sentence.',
   '- If an unfinished todo reaches the end of a turn, Smart Mode may create a bounded native Goal so work can continue in later rounds.',
   '- During Goal Rounds, follow the goal-tool policy: complete only after all work is verified, and report blocked only for a genuine persistent blocker.',
   '- Do not invent extra work. Once the objective and every todo are verified complete, conclude promptly.',
@@ -233,6 +234,27 @@ export function unfinishedTodosForTurn(events = [], turn) {
   return latest.filter((todo) => todo !== null
     && typeof todo === 'object'
     && (todo.status === 'pending' || todo.status === 'in_progress'))
+}
+
+/** Carry the previous standing plan into a continuation turn unless it was already replanned. */
+export function todosToCarryIntoContinuation(events = []) {
+  let turnStart = -1
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index]?.type === 'turn/start') {
+      turnStart = index
+      break
+    }
+  }
+  if (turnStart < 0) return []
+  if (events.slice(turnStart + 1).some((event) => event?.type === 'todo/write')) return []
+
+  for (let index = turnStart - 1; index >= 0; index -= 1) {
+    const todos = events[index]?.type === 'todo/write' ? events[index].data?.todos : undefined
+    if (!Array.isArray(todos)) continue
+    if (!todos.some((todo) => todo?.status === 'pending' || todo?.status === 'in_progress')) return []
+    return todos.map((todo) => ({ content: todo.content, status: todo.status }))
+  }
+  return []
 }
 
 /** Build the native Goal request that keeps unfinished Smart Mode work alive. */
