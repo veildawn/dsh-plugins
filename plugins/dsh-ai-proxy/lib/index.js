@@ -847,6 +847,17 @@ export async function handleAuthRpc(api, method, payload) {
         if (method === 'logout') return { ok: true, value: await api.logout() }
         return { ok: true, value: api.gateway() }
       }
+      case 'callback': {
+        if (!payload || typeof payload !== 'object' || !payload.code || !payload.state) {
+          return badAuthRequest('AI Proxy callback requests must carry code and state')
+        }
+        return { ok: true, value: await api.oauth.handleCallback({
+          code: payload.code,
+          state: payload.state,
+          error: payload.error,
+          errorDescription: payload.errorDescription || payload.error_description,
+        }) }
+      }
       case 'setBaseURL': {
         if (keys.length !== 1 || !Object.hasOwn(payload, 'baseURL')) {
           return badAuthRequest('AI Proxy setBaseURL requests must carry exactly one baseURL field')

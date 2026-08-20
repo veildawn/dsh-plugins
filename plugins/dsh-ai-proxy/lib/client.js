@@ -37,6 +37,10 @@ window.__ModuleLoader__.load({
       .ai-proxy-dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-caption))}.ai-proxy-dot[data-active=true]{background:var(--dsw-alias-state-success-primary)}
       .ai-proxy-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.ai-proxy-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-decoration:none;cursor:pointer}.ai-proxy-button:disabled{cursor:default;opacity:.4}.ai-proxy-button-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}
       .ai-proxy-error{min-height:18px;margin:0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.ai-proxy-details{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+      .ai-proxy-callback-box{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px dashed var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform))}
+      .ai-proxy-callback-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}
+      .ai-proxy-callback-row{display:flex;gap:8px;align-items:center}
+      .ai-proxy-callback-btn{white-space:nowrap;padding:0 16px;height:36px;font-weight:500}
       button:has([data-settings-nav-label="ai-proxy"]) > svg:first-child{display:none}
       .ai-proxy-nav-label{display:inline-flex;align-items:center;gap:8px}
     `;
@@ -78,6 +82,8 @@ window.__ModuleLoader__.load({
         const gatewayChanged = loaded && normalizedGateway !== saved;
         const pending = busy || auth.state === "authorizing" || auth.state === "checking";
 
+        const [manualInput, setManualInput] = react.useState("");
+
         react.useEffect(() => {
           let active = true;
           props.authRequest("config").then((value) => {
@@ -103,6 +109,38 @@ window.__ModuleLoader__.load({
           timer.unref?.();
           return () => clearInterval(timer);
         }, [auth.state]);
+
+        const submitCallback = async (text) => {
+          const raw = text.trim();
+          if (!raw) return;
+          let code = "";
+          let state = "";
+          try {
+            if (raw.startsWith("http://") || raw.startsWith("https://") || raw.includes("?")) {
+              const u = new URL(raw.startsWith("http") ? raw : "http://dummy/?" + raw);
+              code = u.searchParams.get("code") || "";
+              state = u.searchParams.get("state") || "";
+            } else if (raw.includes("code=")) {
+              const params = new URLSearchParams(raw);
+              code = params.get("code") || "";
+              state = params.get("state") || "";
+            }
+          } catch {}
+          if (!code || !state) {
+            setAuth({ state: "error", message: "输入的链接格式不正确，缺少 code 或 state" });
+            return;
+          }
+          setBusy(true);
+          try {
+            const next = await props.authRequest("callback", { code, state });
+            setAuth(next);
+            setManualInput("");
+          } catch (error) {
+            setAuth({ state: "error", message: "手动授权失败: " + (error instanceof Error ? error.message : String(error)) });
+          } finally {
+            setBusy(false);
+          }
+        };
 
         const commitGateway = async () => {
           if (invalidGateway) throw new Error(invalidGateway);
@@ -160,10 +198,34 @@ window.__ModuleLoader__.load({
             react.createElement("span", { className: "ai-proxy-dot", "data-active": auth.state === "signed-in" }),
             react.createElement("span", null, auth.message)
           ),
-          auth.state === "authorizing" && typeof auth.authorizeUrl === "string" ? react.createElement("a", {
-            className: "ai-proxy-button ai-proxy-button-primary", href: auth.authorizeUrl,
-            target: "_blank", rel: "noopener noreferrer",
-          }, "点击前往授权") : null,
+          auth.state === "authorizing" && typeof auth.authorizeUrl === "string" ? react.createElement("div", {
+            style: { display: "flex", flexDirection: "column", gap: "10px", marginTop: "4px" }
+          },
+            react.createElement("a", {
+              className: "ai-proxy-button ai-proxy-button-primary", href: auth.authorizeUrl,
+              target: "_blank", rel: "noopener noreferrer",
+              style: { width: "fit-content" }
+            }, "① 点击前往授权页面"),
+            react.createElement("div", { className: "ai-proxy-callback-box" },
+              react.createElement("p", { className: "ai-proxy-callback-desc" }, "② 授权完成后，请将浏览器地址栏跳转出的回调 URL (包含 code 与 state) 粘贴至下方："),
+              react.createElement("div", { className: "ai-proxy-callback-row" },
+                react.createElement("input", {
+                  className: "ai-proxy-input",
+                  placeholder: "http://127.0.0.1:.../callback?code=...&state=...",
+                  value: manualInput,
+                  disabled: busy,
+                  onChange: (e) => setManualInput(e.target.value),
+                  onKeyDown: (e) => { if (e.key === "Enter") submitCallback(manualInput); },
+                }),
+                react.createElement("button", {
+                  className: "ai-proxy-button ai-proxy-button-primary ai-proxy-callback-btn",
+                  type: "button",
+                  disabled: busy || !manualInput.trim(),
+                  onClick: () => submitCallback(manualInput),
+                }, busy ? "验证中…" : "完成授权 ✓")
+              )
+            )
+          ) : null,
           react.createElement("div", { className: "ai-proxy-actions" },
             auth.state === "signed-in" && gatewayChanged && !invalidGateway ? react.createElement("button", {
               className: "ai-proxy-button", type: "button", disabled: pending,

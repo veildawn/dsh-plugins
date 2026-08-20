@@ -281,6 +281,23 @@ export class OAuthSession {
     return flow.exchange
   }
 
+  async handleCallback({ code, state, error, errorDescription }) {
+    const flow = this.loginFlow
+    if (!flow) {
+      throw new LlmError('未在等待授权或授权已结束，请重新点击登录', 'INVALID_REQUEST')
+    }
+    if (error) {
+      this.failLogin(flow, new Error(errorDescription ?? error))
+      throw new LlmError('授权被拒绝: ' + (errorDescription ?? error), 'AUTH')
+    }
+    if (state !== flow.state || !code) {
+      throw new LlmError('授权回调校验失败(state 不匹配或缺少授权码)', 'INVALID_REQUEST')
+    }
+    flow.listener?.close()
+    await this.exchangeLogin(flow, code)
+    return this.status()
+  }
+
   async doExchangeLogin(flow, code) {
     try {
       const body = await tokenRequest(flow.tokenEndpoint, {
