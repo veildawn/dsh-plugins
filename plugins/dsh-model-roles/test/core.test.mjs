@@ -3,11 +3,15 @@ import assert from 'node:assert/strict'
 import {
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
+  MODEL_ROLES_PRESET_ID,
+  MODEL_ROLES_PRESET_NAME,
   OMP_ROLES,
   advisorEnabledOf,
   agentHasImage,
   applyRoleRoute,
   contentHasImage,
+  modelRolesActive,
+  modelRolesActiveForSession,
   normalizeRoleId,
   parseAutomaticRole,
   planModeActive,
@@ -15,6 +19,7 @@ import {
   roleForAgent,
   routeAgentRequest,
   routeForRole,
+  sessionPresetOf,
   taskTextOf,
 } from '../lib/core.js'
 
@@ -46,6 +51,8 @@ const table = resolveRoleTable({
 })
 
 test('the complete OMP vocabulary is the only built-in role set', () => {
+  assert.equal(MODEL_ROLES_PRESET_ID, 'model-roles')
+  assert.equal(MODEL_ROLES_PRESET_NAME, '智选模式')
   assert.deepEqual(OMP_ROLES, [
     'default', 'smol', 'slow', 'vision', 'plan', 'designer', 'commit', 'tiny', 'task', 'advisor',
   ])
@@ -53,6 +60,22 @@ test('the complete OMP vocabulary is the only built-in role set', () => {
   assert.deepEqual(CONFIGURABLE_ROLES, [
     'smol', 'slow', 'vision', 'plan', 'designer', 'commit', 'tiny', 'task', 'advisor',
   ])
+})
+
+test('model roles activate only for the opt-in preset and follow live selection events', () => {
+  const standard = agent({ header: { agentPreset: 'standard' } })
+  const active = agent({ header: { agentPreset: 'model-roles' } })
+  const liveStandard = agent({ header: { agentPreset: 'model-roles' }, livePreset: 'standard' })
+  const switched = agent({
+    header: { agentPreset: 'standard' },
+    events: [{ type: 'agent-preset/selected', data: { agentPreset: 'model-roles' } }],
+  })
+  assert.equal(modelRolesActive(standard), false)
+  assert.equal(modelRolesActive(active), true)
+  assert.equal(modelRolesActive(liveStandard), false)
+  assert.equal(modelRolesActive(switched), true)
+  assert.equal(modelRolesActiveForSession(switched.session), true)
+  assert.equal(sessionPresetOf(switched.session), 'model-roles')
 })
 
 test('role ids normalize, legacy default routes are ignored, and invalid tables fail loud', () => {
@@ -130,25 +153,30 @@ test('successful advisor commands fold a session override over settings', () => 
   assert.equal(advisorEnabledOf(advisorCommand('1', 'status'), true), true)
 })
 
-test('role precedence is internal runtime, plan, preset, task, then default', () => {
+test('role routing is opt-in and precedence is internal runtime, plan, task, then default', () => {
   assert.equal(roleForAgent(agent({
     options: { modelRole: 'advisor' },
     messages: [{ role: 'user', content: [{ type: 'image' }] }],
     events: [{ type: 'plan/mode', data: { active: true } }],
+    header: { agentPreset: 'model-roles' },
   }), table), 'advisor')
   assert.equal(roleForAgent(agent({
     messages: [{ role: 'user', content: [{ type: 'image' }] }],
     events: [{ type: 'plan/mode', data: { active: true } }],
-    header: { origin: 'subagent', agentPreset: 'designer' },
+    header: { origin: 'subagent', agentPreset: 'model-roles' },
   }), table), 'plan')
   assert.equal(roleForAgent(agent({
     events: [{ type: 'plan/mode', data: { active: true } }],
-    header: { origin: 'subagent', agentPreset: 'designer' },
+    header: { origin: 'subagent', agentPreset: 'model-roles' },
   }), table), 'plan')
   assert.equal(roleForAgent(agent({
-    header: { origin: 'subagent', agentPreset: 'standard' }, livePreset: 'designer',
-  }), table), 'designer')
-  assert.equal(roleForAgent(agent({ header: { parentSession: 'parent' } }), table), 'task')
+    header: { origin: 'subagent', agentPreset: 'model-roles' },
+  }), table), 'task')
+  assert.equal(roleForAgent(agent({
+    options: { modelRole: 'advisor' },
+    events: [{ type: 'plan/mode', data: { active: true } }],
+    header: { parentSession: 'parent', agentPreset: 'standard' },
+  }), table), 'default')
   assert.equal(roleForAgent(agent(), table), 'default')
 })
 
@@ -170,6 +198,7 @@ test('routing replaces provider/model/effort while preserving other request cont
   }
   assert.deepEqual(routeAgentRequest(agent({
     events: [{ type: 'plan/mode', data: { active: true } }],
+    header: { agentPreset: 'model-roles' },
   }), current, table), {
     role: 'plan',
     route: { provider: 'proxy', model: 'reasoner', reasoningEffort: 'high' },

@@ -25,6 +25,8 @@ const BUILTIN_ROLE_SET = new Set(BUILTIN_ROLES)
 export const CONFIGURABLE_ROLES = Object.freeze(OMP_ROLES.filter((role) => role !== 'default'))
 export const ROLE_ID_PATTERN = /^[a-z][a-z0-9_-]*$/u
 export const ADVISOR_COMMAND = 'advisor'
+export const MODEL_ROLES_PRESET_ID = 'model-roles'
+export const MODEL_ROLES_PRESET_NAME = '智选模式'
 export const AUTOMATIC_TASK_ROLES = Object.freeze([
   'default',
   'smol',
@@ -235,7 +237,23 @@ export function isSubagent(agent) {
     || (Number.isSafeInteger(agent?.options?.subagentDepth) && agent.options.subagentDepth > 0)
 }
 
-/** Resolve the live preset id, falling back to the creation header. */
+/** Resolve the selected preset from a durable session header and event log. */
+export function sessionPresetOf(session) {
+  const events = session?.events ?? []
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]
+    if (event?.type === 'agent-preset/selected' && typeof event.data?.agentPreset === 'string') {
+      const selected = event.data.agentPreset.trim().toLowerCase()
+      if (selected !== '') return selected
+    }
+  }
+  const recorded = session?.header?.agentPreset
+  return typeof recorded === 'string' && recorded.trim()
+    ? recorded.trim().toLowerCase()
+    : undefined
+}
+
+/** Resolve the live preset id, falling back to the durable session selection. */
 export function presetOf(agent) {
   try {
     const roster = agent?.ctx?.get?.('agentPresets')
@@ -244,10 +262,16 @@ export function presetOf(agent) {
   } catch {
     // An optional service lookup must never make model routing fail.
   }
-  const recorded = agent?.session?.header?.agentPreset
-  return typeof recorded === 'string' && recorded.trim()
-    ? recorded.trim().toLowerCase()
-    : undefined
+  return sessionPresetOf(agent?.session)
+}
+
+/** Whether this agent/session explicitly selected the opt-in routing preset. */
+export function modelRolesActive(agent) {
+  return presetOf(agent) === MODEL_ROLES_PRESET_ID
+}
+
+export function modelRolesActiveForSession(session) {
+  return sessionPresetOf(session) === MODEL_ROLES_PRESET_ID
 }
 
 /** Whether a role can be selected even before it has a dedicated route. */
@@ -258,18 +282,18 @@ export function isSelectableRole(role, table) {
 /**
  * Select the requested role for one conversation request.
  *
- * Plan mode wins over an exact preset, delegated task work, and the
- * automatically classified main task. Image work is delegated before this
- * boundary to a one-shot subagent whose explicit runtime role is `vision`.
+ * Routing is available only inside the opt-in Agent Preset. Plan mode wins
+ * over delegated task work and the automatically classified main task. Image
+ * work is delegated before this boundary to a one-shot subagent whose
+ * explicit runtime role is `vision`.
  */
 export function roleForAgent(agent, table) {
+  if (!modelRolesActive(agent)) return 'default'
   const runtimeRole = typeof agent?.options?.modelRole === 'string'
     ? agent.options.modelRole.trim().toLowerCase()
     : undefined
   if (runtimeRole !== undefined && isSelectableRole(runtimeRole, table)) return runtimeRole
   if (planModeActive(agent?.session?.events)) return 'plan'
-  const preset = presetOf(agent)
-  if (preset !== undefined && isSelectableRole(preset, table)) return preset
   if (isSubagent(agent)) return 'task'
   return 'default'
 }

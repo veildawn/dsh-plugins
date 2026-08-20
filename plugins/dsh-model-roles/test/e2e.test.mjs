@@ -70,7 +70,7 @@ async function collect(stream) {
   return chunks
 }
 
-function createRuntime(roles, settingsSection = {}) {
+async function createRuntime(roles, settingsSection = {}) {
   const ctx = new Context()
   new LlmRuntime(ctx)
   new SessionStore(ctx)
@@ -83,10 +83,21 @@ function createRuntime(roles, settingsSection = {}) {
   })
   settings.publish(settings.doc)
   new CommandRuntime(ctx)
+  ctx.provide('agentPresets', {
+    authorable: true,
+    async list() { return [{ id: modelRoles.MODEL_ROLES_PRESET_ID }] },
+    async copy() { throw new Error('model-roles preset already exists') },
+    composedPreset() { return undefined },
+    composeFrom() { return modelRoles.MODEL_ROLES_PRESET_ID },
+  })
   const adapter = new RecordingAdapter()
   ctx.llm.registerAdapter(['e2e'], adapter)
-  modelRoles.apply(ctx)
+  await modelRoles.apply(ctx)
   return { ctx, adapter }
+}
+
+function modelRolesMeta(meta = {}) {
+  return { ...meta, agentPreset: modelRoles.MODEL_ROLES_PRESET_ID }
 }
 
 async function requestThroughHarness(ctx, agent, { turn = 1, step = 1 } = {}) {
@@ -114,7 +125,7 @@ test('all conversation roles traverse DSH session, agent/request, and llm/stream
     'default', 'smol', 'slow', 'vision', 'plan',
     'designer', 'commit', 'task', 'advisor',
   ]
-  const { ctx, adapter } = createRuntime([...conversationRoles.filter((role) => role !== 'default'), 'tiny'].map((role) => ({
+  const { ctx, adapter } = await createRuntime([...conversationRoles.filter((role) => role !== 'default'), 'tiny'].map((role) => ({
     role,
     provider: 'e2e',
     model: `${role}-model`,
@@ -132,9 +143,9 @@ test('all conversation roles traverse DSH session, agent/request, and llm/stream
   }
 
   for (const [index, role] of conversationRoles.entries()) {
-    const session = ctx.sessions.create(`role-e2e-${String(index)}`, role === 'task'
-      ? { meta: { origin: 'subagent', delegationDepth: 1 } }
-      : undefined)
+    const session = ctx.sessions.create(`role-e2e-${String(index)}`, {
+      meta: modelRolesMeta(role === 'task' ? { origin: 'subagent', delegationDepth: 1 } : {}),
+    })
     const agent = {
       ctx,
       session,
@@ -170,11 +181,11 @@ test('all conversation roles traverse DSH session, agent/request, and llm/stream
 })
 
 test('automatic task classification runs once per agent turn across tool-loop steps', async () => {
-  const { ctx, adapter } = createRuntime([
+  const { ctx, adapter } = await createRuntime([
     { role: 'smol', provider: 'e2e', model: 'smol-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
   ])
-  const session = ctx.sessions.create('automatic-role-turn-cache')
+  const session = ctx.sessions.create('automatic-role-turn-cache', { meta: modelRolesMeta() })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Perform a mechanical rename in one file.' }],
     source: { kind: 'user' },
@@ -193,11 +204,11 @@ test('automatic task classification runs once per agent turn across tool-loop st
 })
 
 test('continuation-only turns retain the substantive task role after an agent reload', async () => {
-  const { ctx, adapter } = createRuntime([
+  const { ctx, adapter } = await createRuntime([
     { role: 'slow', provider: 'e2e', model: 'slow-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
   ])
-  const session = ctx.sessions.create('automatic-role-continuation')
+  const session = ctx.sessions.create('automatic-role-continuation', { meta: modelRolesMeta() })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Resolve this architecture tradeoff with a rigorous analysis.' }],
     source: { kind: 'user' },
@@ -219,7 +230,7 @@ test('continuation-only turns retain the substantive task role after an agent re
 })
 
 test('image input runs once in a vision subagent and returns text-only analysis to the main agent', async () => {
-  const { ctx, adapter } = createRuntime([
+  const { ctx, adapter } = await createRuntime([
     { role: 'vision', provider: 'e2e', model: 'vision-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
   ])
@@ -232,7 +243,7 @@ test('image input runs once in a vision subagent and returns text-only analysis 
     async start(request) {
       starts.push(request)
       const childSession = ctx.sessions.create(`vision-e2e-child-${String(childIndex++)}`, {
-        meta: { origin: 'subagent', delegationDepth: 1 },
+        meta: modelRolesMeta({ origin: 'subagent', delegationDepth: 1 }),
       })
       childSession.append('user/message', createUserMessage({
         content: request.prompt,
@@ -252,7 +263,7 @@ test('image input runs once in a vision subagent and returns text-only analysis 
     },
   })
 
-  const session = ctx.sessions.create('vision-main-parent')
+  const session = ctx.sessions.create('vision-main-parent', { meta: modelRolesMeta() })
   const parent = { ctx, session, options: {} }
   const imageMessage = createUserMessage({
     content: [
@@ -293,7 +304,7 @@ test('image input runs once in a vision subagent and returns text-only analysis 
 })
 
 test('/advisor drives the real DSH spawn provider and steers actionable advice', async () => {
-  const { ctx, adapter } = createRuntime([
+  const { ctx, adapter } = await createRuntime([
     { role: 'advisor', provider: 'e2e', model: 'advisor-model' },
   ], {
     advisor: { enabled: false, provider: 'advisor-e2e', subagents: false },
@@ -303,7 +314,7 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
     async createAgent(ownerCtx, options) {
       created.push(options)
       const childSession = ctx.sessions.create(options.sessionId, {
-        meta: options.meta,
+        meta: modelRolesMeta(options.meta),
         seed: options.seed,
       })
       let activity = Promise.resolve()
@@ -352,7 +363,7 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
   })
   spawnInProcess.apply(ctx, { providerName: 'advisor-e2e' })
 
-  const session = ctx.sessions.create('advisor-e2e-parent')
+  const session = ctx.sessions.create('advisor-e2e-parent', { meta: modelRolesMeta() })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Implement the change.' }],
     source: { kind: 'user' },
@@ -365,13 +376,13 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
     steer(message) { steered.push(message) },
   }
 
-  const enabled = await ctx.commands.execute(parent, '/advisor on', AbortSignal.timeout(5_000))
+  const enabled = await ctx.commands.execute(parent, '/advisor on', [], AbortSignal.timeout(5_000))
   assert.equal(enabled?.result.kind, 'success')
 
   const stopping = { turn: 1, signal: AbortSignal.timeout(5_000) }
   await agentEvents(ctx, parent).serial('agent/turn-stopping', stopping)
   await agentEvents(ctx, parent).serial('agent/turn-stopping', stopping)
-  const disabled = await ctx.commands.execute(parent, '/advisor off', AbortSignal.timeout(5_000))
+  const disabled = await ctx.commands.execute(parent, '/advisor off', [], AbortSignal.timeout(5_000))
   assert.equal(disabled?.result.kind, 'success')
   await agentEvents(ctx, parent).serial('agent/turn-stopping', {
     turn: 2,
@@ -392,17 +403,19 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
 })
 
 test('tiny role routes real DSH title and compaction LLM calls', async () => {
-  const { ctx, adapter } = createRuntime([
+  const { ctx, adapter } = await createRuntime([
     { role: 'smol', provider: 'e2e', model: 'smol-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model', reasoningEffort: 'low' },
   ])
 
+  const session = ctx.sessions.create('tiny-auxiliary-routing', { meta: modelRolesMeta() })
   for (const purpose of ['session-title', 'compaction']) {
     await collect(ctx.llm.stream({
       provider: 'e2e',
       model: 'default-model',
       reasoningEffort: 'high',
       messages: [{ role: 'user', content: [{ type: 'text', text: purpose }] }],
+      sessionId: session.id,
       purpose,
     }))
   }
@@ -413,4 +426,27 @@ test('tiny role routes real DSH title and compaction LLM calls', async () => {
     { model: 'tiny-model', reasoningEffort: 'low', purpose: 'session-title' },
     { model: 'tiny-model', reasoningEffort: 'low', purpose: 'compaction' },
   ])
+})
+
+test('standard mode leaves conversation and auxiliary requests untouched', async () => {
+  const { ctx, adapter } = await createRuntime([
+    { role: 'smol', provider: 'e2e', model: 'smol-model' },
+    { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
+  ])
+  const session = ctx.sessions.create('standard-mode-routing', {
+    meta: { agentPreset: 'standard' },
+  })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Perform a mechanical rename in one file.' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  await requestThroughHarness(ctx, { ctx, session, options: {} })
+  await collect(ctx.llm.stream({
+    provider: 'e2e',
+    model: 'default-model',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'title' }] }],
+    sessionId: session.id,
+    purpose: 'session-title',
+  }))
+  assert.deepEqual(adapter.requests.map(({ model }) => model), ['unrouted-model', 'default-model'])
 })

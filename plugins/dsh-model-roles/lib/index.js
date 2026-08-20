@@ -6,9 +6,10 @@
  * Harness-owned LLM work (titles and compaction) is routed through `tiny` at
  * the public `llm/stream` boundary. Main-session requests are classified once
  * per turn by the configured `tiny` (or `smol`) model after deterministic
- * Harness facts are applied:
+ * Harness facts are applied. The router is opt-in and runs only when the
+ * session selects the provisioned `model-roles` Agent Preset:
  *
- *   internal runtime > plan mode > exact Agent Preset > task >
+ *   internal runtime > plan mode > task >
  *   automatic default/smol/slow/designer/commit classification.
  *
  * An absent specialized role preserves the model selected for the current
@@ -23,6 +24,8 @@ import {
   AUTOMATIC_TASK_ROLES,
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
+  MODEL_ROLES_PRESET_ID,
+  MODEL_ROLES_PRESET_NAME,
   OMP_ROLES,
   ROLE_ID_PATTERN,
   advisorEnabledOf,
@@ -32,6 +35,8 @@ import {
   imageBlocksOf,
   isSubagent,
   isSelectableRole,
+  modelRolesActive,
+  modelRolesActiveForSession,
   normalizeRoleId,
   parseAutomaticRole,
   planModeActive,
@@ -40,6 +45,7 @@ import {
   roleForAgent,
   routeAgentRequest,
   routeForRole,
+  sessionPresetOf,
   taskTextOf,
   withoutImageBlocks,
 } from './core.js'
@@ -49,6 +55,8 @@ export {
   AUTOMATIC_TASK_ROLES,
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
+  MODEL_ROLES_PRESET_ID,
+  MODEL_ROLES_PRESET_NAME,
   OMP_ROLES,
   ROLE_ID_PATTERN,
   advisorEnabledOf,
@@ -58,6 +66,8 @@ export {
   imageBlocksOf,
   isSubagent,
   isSelectableRole,
+  modelRolesActive,
+  modelRolesActiveForSession,
   normalizeRoleId,
   parseAutomaticRole,
   planModeActive,
@@ -66,12 +76,13 @@ export {
   roleForAgent,
   routeAgentRequest,
   routeForRole,
+  sessionPresetOf,
   taskTextOf,
   withoutImageBlocks,
 }
 
 export const name = 'model-roles'
-export const inject = ['settings', 'commands', 'llm', 'subagents']
+export const inject = ['settings', 'commands', 'llm', 'subagents', 'sessions', 'agentPresets']
 export const NS = 'model-roles'
 export const SETTINGS_RPC_CHANNEL = '/model-roles-settings'
 export const VISION_SUBAGENT_PROVIDER = 'spawn'
@@ -265,11 +276,29 @@ export async function classifyAutomaticRole(ctx, agent, table, signal) {
   return parseAutomaticRole(output) ?? 'default'
 }
 
+/** Ensure the opt-in Agent Preset exists as a full copy of Standard Mode. */
+export async function ensureModelRolesPreset(agentPresets) {
+  const exists = presets => presets.some(preset => preset?.id === MODEL_ROLES_PRESET_ID)
+  if (exists(await agentPresets.list())) return false
+  if (!agentPresets.authorable) {
+    throw new Error(`model-roles: cannot create Agent Preset "${MODEL_ROLES_PRESET_ID}" without a writable preset root`)
+  }
+  try {
+    await agentPresets.copy('standard', MODEL_ROLES_PRESET_ID, MODEL_ROLES_PRESET_NAME)
+  } catch (error) {
+    // A concurrent hot-reload may win the same id between list() and copy().
+    if (exists(await agentPresets.list())) return false
+    throw error
+  }
+  return true
+}
+
 /**
  * Register settings and the request router. Settings watchers keep the last
  * good table if a hand-edited document introduces duplicate/invalid role ids.
  */
-export function apply(ctx, config = {}) {
+export async function apply(ctx, config = {}) {
+  await ensureModelRolesPreset(ctx.agentPresets)
   const scope = ctx.settings.register(NS, Config, { base: config })
   let settings = scope.get()
   let table = resolveRoleTable(settings)
@@ -305,6 +334,9 @@ export function apply(ctx, config = {}) {
     description: '查看、开启或关闭当前会话的顾问模型复核',
     input: { hint: '[on|off|status]' },
     handler: ({ agent, rawInput }) => {
+      if (!modelRolesActive(agent)) {
+        return { kind: 'error', text: `顾问复核仅在「${MODEL_ROLES_PRESET_NAME}」中可用。` }
+      }
       const candidate = rawInput.trim().toLowerCase()
       const active = advisorEnabledOf(agent.session.events, settings.advisor.enabled)
       const assigned = table.has('advisor')
@@ -327,6 +359,7 @@ export function apply(ctx, config = {}) {
 
   ctx.on('agent/pre-step', async ({ agent, turn, signal }, next) => {
     const decision = await next()
+    if (!modelRolesActive(agent)) return decision
     if (decision.kind !== 'enter' || !table.has('vision')) return decision
     if (agent?.options?.modelRole === 'vision') return decision
     if (!decision.messages.some((message) => contentHasImage(message?.content))) return decision
@@ -370,6 +403,7 @@ export function apply(ctx, config = {}) {
 
   ctx.on('agent/request', async ({ agent, turn, signal }, next) => {
     const current = await next()
+    if (!modelRolesActive(agent)) return current
     if (visionFallbackTurns.get(agent)?.has(turn)) {
       return applyRoleRoute(current, routeForRole(table, 'vision'))
     }
@@ -397,6 +431,8 @@ export function apply(ctx, config = {}) {
     if (options?.purpose !== 'session-title' && options?.purpose !== 'compaction') {
       return next()
     }
+    const session = typeof options.sessionId === 'string' ? ctx.sessions.get(options.sessionId) : undefined
+    if (!modelRolesActiveForSession(session)) return next()
     const rerouted = applyRoleRoute(options, routeForRole(table, 'tiny'))
     if (rerouted === options) return next()
     reroutedAuxiliaryRequests.add(rerouted)
@@ -404,6 +440,7 @@ export function apply(ctx, config = {}) {
   }, { global: true, prepend: true })
 
   ctx.on('agent/turn-stopping', async ({ agent, turn, signal }) => {
+    if (!modelRolesActive(agent)) return
     if (!table.has('advisor')) return
     if (!advisorEnabledOf(agent.session.events, settings.advisor.enabled)) return
     if (agent?.options?.modelRole === 'advisor') return
