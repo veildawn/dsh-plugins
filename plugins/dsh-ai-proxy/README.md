@@ -19,7 +19,7 @@ DeepSeek Harness 的 AI Proxy LLM Provider 插件。`0.2.0` 起只负责 AI Prox
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-ai-proxy-0.2.1.tgz
+dsh plugin --profile web add ./dsh-ai-proxy-0.2.4.tgz
 dsh service restart
 ```
 
@@ -89,7 +89,7 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 `localStorage`，也不会挂载 Unlock Screen。需要远程设置/凭据桥接时单独安装：
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-control-0.1.2.tgz
+dsh plugin --profile web add ./dsh-remote-control-0.1.5.tgz
 ```
 
 OAuth 认证接口 `/ai-proxy-auth` 使用连接默认访问策略，可由局域网客户端直接调用；远程控制

@@ -19,7 +19,7 @@ DSH 特权 API。
 插件自带 `cordis.patch.yml`，安装后会插入 `remote-control` Cordis 行，默认关闭远程访问：
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-control-0.1.2.tgz
+dsh plugin --profile web add ./dsh-remote-control-0.1.5.tgz
 dsh service restart
 ```
 
@@ -36,7 +36,7 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 
 ```sh
 cd ~/.dsh/profiles/web
-pnpm add /path/to/dsh-remote-control-0.1.2.tgz
+pnpm add /path/to/dsh-remote-control-0.1.5.tgz
 ```
 
 对应的手动 Cordis 配置为：
@@ -85,6 +85,58 @@ DSH_REMOTE_CONTROL_SECRET='replace-with-a-long-random-secret'
 
 `/dsh-remote-control-config` 是单独的 loopback-only 配置通道。公网通道不能启用远程访问，
 也不能替换 Host 密钥。
+
+## 无桌面 Linux 主机：直接编辑配置文件
+
+远程设置页走的是 loopback-only RPC，无桌面浏览器的服务器上打不开。可以跳过设置页，直接
+改 DSH 的两个配置文件；两者默认都开着文件监听（约 100ms debounce），改完立即热加载，
+不需要重启 `dsh web` 进程。
+
+先确定 `$DSH_HOME`（默认 `~/.dsh`，可被环境变量 `DSH_HOME` 覆盖）：
+
+```sh
+DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
+mkdir -p "$DSH_HOME" && chmod 700 "$DSH_HOME"
+```
+
+**1. 密钥写入 `.credentials.yaml`**——扁平 `KEY: value` 映射，没有命名空间包装，key 是
+`DSH_REMOTE_CONTROL_SECRET` 字面值：
+
+```sh
+printf 'DSH_REMOTE_CONTROL_SECRET: %s\n' "$(openssl rand -base64 32)" >> "$DSH_HOME/.credentials.yaml"
+chmod 600 "$DSH_HOME/.credentials.yaml"
+```
+
+文件必须是 `600`、父目录 `700`，否则启动时会直接拒绝加载并报错要求先 `chmod`；值不能是
+空字符串（留空要删整行，不要写 `''`）。如果文件里已有其它插件的凭据，用 `>>` 追加，不要
+整体覆盖。
+
+**2. 开关写入 `settings.yaml`**——按插件命名空间分节，本插件的分节键是 `remote-control`：
+
+```yaml
+remote-control:
+  enabled: true
+```
+
+用编辑器把这一段合并进已有文件（有其它插件分节时不要整体覆盖），或者直接新建文件都可以，
+不存在时 DSH 不会因此报错。**不要**在这里写 `secret` 字段——技术上能生效，但明文存放且没有
+`.credentials.yaml` 的权限校验，只应作为“无法用凭据仓时”的最后回退，参见上面的取值优先级。
+
+**3. 校验生效**：语法错误在进程启动时是硬失败（拒绝加载插件），运行中的无效编辑只会打警告
+并保留上一份有效配置，不会让进程崩溃，但也不会应用改动。建议改完后跑一次 YAML 语法自查，
+再用 `status` 方法确认：
+
+```sh
+curl -s -X POST http://127.0.0.1:<port>/dsh-remote-control-config \
+  -H 'content-type: application/json' \
+  -d '{"type":"client-request","rpcId":"check","method":"status","payload":{}}'
+```
+
+返回里 `enabled` 和 `secretConfigured` 均为 `true` 即为生效；此通道是 loopback-only，只能在
+宿主机本地（或 SSH 隧道转发到本机端口后）调用，公网域名访问会被拒绝。
+
+这一步只解决"密钥怎么写进去"，不替代 [安装](#安装) 一节里的 `--trusted-host` 声明和
+[安全边界](#安全边界) 里要求的 HTTPS 反向代理；三者缺一，远程访问都不算配置完整。
 
 ## RPC 协议
 
