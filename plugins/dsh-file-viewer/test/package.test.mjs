@@ -696,3 +696,21 @@ test('the entry can be dragged without the release opening the drawer', () => {
   // The reduce block has to cover transitions too, not just animations.
   assert.match(source, /prefers-reduced-motion:reduce\)\{[\s\S]*?\.fv-float-entry[^{]*\{transition:none/)
 })
+
+test('tree rows support right-click context menu with relative/absolute path copy and mention', () => {
+  const source = read('lib/client.js')
+
+  // Context menu elements and styling
+  assert.match(source, /\.fv-context-menu\{/)
+  assert.match(source, /\.fv-context-item\{/)
+  assert.match(source, /\.fv-toast\{/)
+
+  // Context menu handles onContextMenu on tree rows
+  assert.match(source, /onContextMenu:\s*\(event\)\s*=>/)
+  assert.match(source, /复制相对路径/)
+  assert.match(source, /复制绝对路径/)
+  assert.match(source, /引用到输入框 \(@\)/)
+  assert.match(source, /copyToClipboard\(relPath\)/)
+  assert.match(source, /copyToClipboard\(absPath\)/)
+})
+

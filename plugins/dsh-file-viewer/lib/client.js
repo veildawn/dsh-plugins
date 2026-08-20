@@ -23,7 +23,30 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
     const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
-    const { ReadBlock, MarkdownText, JsonTree, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16 } = primitives;
+    const { ReadBlock, MarkdownText, JsonTree, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16, writeClipboard } = primitives;
+
+    async function copyToClipboard(text) {
+      if (typeof writeClipboard === "function") {
+        try { const ok = await writeClipboard(text); if (ok) return true; } catch (_) {}
+      }
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        try { await navigator.clipboard.writeText(text); return true; } catch (_) {}
+      }
+      if (typeof document !== "undefined") {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand("copy");
+          ta.remove();
+          return ok;
+        } catch (_) {}
+      }
+      return false;
+    }
 
     const RPC_CHANNEL = "/dsh-file-viewer";
     const OVERLAY_SLOT = "shell.overlay";
@@ -119,6 +142,16 @@ window.__ModuleLoader__.load({
       .fv-content[data-wrap="on"] div[class*="_line_"]{align-items:flex-start}
       .fv-content[data-wrap="on"] span[class*="_gutter_"]{flex:none;white-space:pre}
       .fv-content[data-wrap="on"] span[class*="_content_"]{min-width:0;flex:1 1 auto;white-space:pre-wrap;overflow-wrap:anywhere}
+      .fv-context-menu{position:fixed;z-index:100;min-width:180px;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base)));box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:13px;display:flex;flex-direction:column;gap:2px;animation:fv-menu-in .1s cubic-bezier(.2,.8,.2,1)}
+      @keyframes fv-menu-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+      .fv-context-item{display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 8px;border:none;border-radius:6px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;user-select:none}
+      .fv-context-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-context-item:active{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
+      .fv-context-item-icon{display:inline-grid;place-items:center;width:16px;height:16px;flex:none;color:var(--dsw-alias-label-secondary);font-size:13px}
+      .fv-context-item-label{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .fv-context-divider{height:1px;margin:3px 4px;background:var(--dsw-alias-border-l1)}
+      .fv-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:110;padding:6px 16px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-button-floating-fill,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:12px;font-weight:500;box-shadow:var(--dsw-shadow-lv3);pointer-events:none;animation:fv-toast-in .15s ease-out}
+      @keyframes fv-toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
       .fv-float-entry{display:none}
       @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
       /* Below the mobile-adapter breakpoint the drawer takes the full width and
@@ -473,7 +506,7 @@ window.__ModuleLoader__.load({
        * listing, and a directory's children are requested the first time it
        * opens, so opening the viewer costs one listing regardless of tree size.
        */
-      function Tree({ rows, selected, onToggle, onSelect, onMention }) {
+      function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu }) {
         const children = rows.map((row) => {
           const indent = { paddingLeft: 8 + row.depth * 14 + "px" };
           if (row.kind === "status") {
@@ -497,6 +530,13 @@ window.__ModuleLoader__.load({
             "aria-level": row.depth + 1,
             ...(isDirectory ? { "aria-expanded": row.expanded ? "true" : "false" } : {}),
             "aria-current": !isDirectory && entry.path === selected ? "true" : undefined,
+            onContextMenu: (event) => {
+              if (onContextMenu) {
+                event.preventDefault();
+                event.stopPropagation();
+                onContextMenu({ x: event.clientX, y: event.clientY, entry });
+              }
+            },
           },
             react.createElement("button", {
               type: "button",
@@ -775,6 +815,105 @@ window.__ModuleLoader__.load({
         return react.createElement(TextView, { key, meta, root, wrap });
       }
 
+      /** Right-click context menu for file and directory items. */
+      function ContextMenu({ menu, rootPath, onClose, onMention, onToast }) {
+        const ref = react.useRef(null);
+        react.useEffect(() => {
+          const handlePointerDown = (e) => {
+            if (ref.current && !ref.current.contains(e.target)) onClose();
+          };
+          const handleKeyDown = (e) => {
+            if (e.key === "Escape") onClose();
+          };
+          window.addEventListener("pointerdown", handlePointerDown);
+          window.addEventListener("keydown", handleKeyDown);
+          window.addEventListener("scroll", onClose, true);
+          window.addEventListener("resize", onClose);
+          return () => {
+            window.removeEventListener("pointerdown", handlePointerDown);
+            window.removeEventListener("keydown", handleKeyDown);
+            window.removeEventListener("scroll", onClose, true);
+            window.removeEventListener("resize", onClose);
+          };
+        }, [onClose]);
+
+        if (!menu) return null;
+        const { x, y, entry } = menu;
+        const relPath = entry.displayPath || entry.path;
+        const absPath = rootPath
+          ? (rootPath.includes("\\")
+            ? (rootPath.replace(/[\\/]+$/, "") + "\\" + relPath.replace(/\//g, "\\"))
+            : (rootPath.replace(/[\\/]+$/, "") + "/" + relPath.replace(/\\/g, "/")))
+          : relPath;
+
+        const handleCopyRel = (e) => {
+          e.stopPropagation();
+          copyToClipboard(relPath).then((ok) => {
+            if (onToast) onToast(ok ? "已复制相对路径" : "复制失败");
+            onClose();
+          });
+        };
+
+        const handleCopyAbs = (e) => {
+          e.stopPropagation();
+          copyToClipboard(absPath).then((ok) => {
+            if (onToast) onToast(ok ? "已复制绝对路径" : "复制失败");
+            onClose();
+          });
+        };
+
+        const handleMention = (e) => {
+          e.stopPropagation();
+          if (onMention) onMention(entry);
+          onClose();
+        };
+
+        const winW = typeof window !== "undefined" ? window.innerWidth : 1000;
+        const winH = typeof window !== "undefined" ? window.innerHeight : 800;
+        const top = Math.max(8, Math.min(y, winH - 140)) + "px";
+        const left = Math.max(8, Math.min(x, winW - 190)) + "px";
+
+        return react.createElement("div", {
+          ref,
+          className: "fv-context-menu",
+          style: { top, left },
+          role: "menu",
+          "aria-label": "文件操作",
+          onContextMenu: (e) => e.preventDefault(),
+        },
+          react.createElement("button", {
+            type: "button",
+            className: "fv-context-item",
+            role: "menuitem",
+            onClick: handleCopyRel,
+          },
+            react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "📋"),
+            react.createElement("span", { className: "fv-context-item-label" }, "复制相对路径")),
+          react.createElement("button", {
+            type: "button",
+            className: "fv-context-item",
+            role: "menuitem",
+            onClick: handleCopyAbs,
+          },
+            react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "📁"),
+            react.createElement("span", { className: "fv-context-item-label" }, "复制绝对路径")),
+          react.createElement("div", { className: "fv-context-divider", "aria-hidden": "true" }),
+          react.createElement("button", {
+            type: "button",
+            className: "fv-context-item",
+            role: "menuitem",
+            onClick: handleMention,
+          },
+            react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "@"),
+            react.createElement("span", { className: "fv-context-item-label" }, "引用到输入框 (@)")));
+      }
+
+      /** Transient toast notification. */
+      function ToastView({ toast }) {
+        if (!toast) return null;
+        return react.createElement("div", { className: "fv-toast", role: "status" }, toast);
+      }
+
       /** The overlay page: root picker, breadcrumbs, tree and viewer. */
       function ViewerOverlay(props) {
         const request_ = useStore(openStore);
@@ -791,6 +930,14 @@ window.__ModuleLoader__.load({
         // Soft wrap for source views. Off by default: code is written with
         // meaningful line breaks and wrapping obscures them.
         const [wrap, setWrap] = react.useState(false);
+        const [contextMenu, setContextMenu] = react.useState(null);
+        const [toast, setToast] = react.useState(null);
+        const toastTimer = react.useRef(null);
+        const showToast = react.useCallback((msg) => {
+          setToast(msg);
+          if (toastTimer.current) clearTimeout(toastTimer.current);
+          toastTimer.current = setTimeout(() => setToast(null), 2000);
+        }, []);
         // Subscribed so the drawer re-renders when the bridge appears and the
         // clean setDraft path takes over from the DOM fallback.
         useStore(composerStore);
@@ -1016,19 +1163,30 @@ window.__ModuleLoader__.load({
                 // bridge without input props, where gating on the store made the
                 // button vanish with no way to reach it.
                 onMention: mention,
+                onContextMenu: (ctx) => setContextMenu(ctx),
               }),
               react.createElement("div", { className: "fv-main" },
                 react.createElement("div", { className: "fv-main-head" },
                   react.createElement("button", {
                     type: "button", className: "fv-icon-button", "aria-label": "返回文件列表", onClick: () => setPane("tree"),
-                  }, react.createElement("span", { "aria-hidden": "true" }, "\u2039")),
+                  }, react.createElement("span", { "aria-hidden": "true" }, "‹")),
                   react.createElement("span", { className: "fv-main-name" }, meta === null ? "未选择文件" : meta.name),
                   meta !== null && typeof meta.size === "number"
                     ? react.createElement("span", null, formatBytes(meta.size))
                     : null),
                 error !== null && meta === null
                   ? react.createElement("div", { className: "fv-note fv-error" }, messageOf(error))
-                  : react.createElement(FileView, { meta, root, api: props.api, wrap })))));
+                  : react.createElement(FileView, { meta, root, api: props.api, wrap }))),
+            contextMenu !== null
+              ? react.createElement(ContextMenu, {
+                menu: contextMenu,
+                rootPath: activeRoot ? (activeRoot.path || activeRoot.id) : root,
+                onClose: () => setContextMenu(null),
+                onMention: mention,
+                onToast: showToast,
+              })
+              : null,
+            toast !== null ? react.createElement(ToastView, { toast }) : null));
       }
 
       /**
