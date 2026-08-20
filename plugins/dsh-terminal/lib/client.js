@@ -10236,9 +10236,31 @@ ${h2.join(`
       const currentSessionId = useStore(sessionStore);
       const [menuOpen, setMenuOpen] = (0, import_react.useState)(false);
       const isTermOpen = useStore(openStore) !== null;
+      const wrapRef = (0, import_react.useRef)(null);
       (0, import_react.useEffect)(() => {
         ensureStyles(typeof document === "undefined" ? null : document);
       }, []);
+      (0, import_react.useEffect)(() => {
+        if (!menuOpen) return;
+        const handleOutsidePointer = (e) => {
+          if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+            setMenuOpen(false);
+          }
+        };
+        const handleKeyDown = (e) => {
+          if (e.key === "Escape") setMenuOpen(false);
+        };
+        window.addEventListener("pointerdown", handleOutsidePointer, true);
+        window.addEventListener("touchstart", handleOutsidePointer, { capture: true, passive: true });
+        window.addEventListener("keydown", handleKeyDown);
+        window.addEventListener("scroll", handleOutsidePointer, true);
+        return () => {
+          window.removeEventListener("pointerdown", handleOutsidePointer, true);
+          window.removeEventListener("touchstart", handleOutsidePointer, true);
+          window.removeEventListener("keydown", handleKeyDown);
+          window.removeEventListener("scroll", handleOutsidePointer, true);
+        };
+      }, [menuOpen]);
       const openTerminal = (e) => {
         e?.stopPropagation();
         setMenuOpen(false);
@@ -10265,7 +10287,7 @@ ${h2.join(`
           if (btn) btn.click();
         }
       };
-      return /* @__PURE__ */ import_react.default.createElement("div", { className: "term-composer-wrap" }, /* @__PURE__ */ import_react.default.createElement(
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "term-composer-wrap", ref: wrapRef }, /* @__PURE__ */ import_react.default.createElement(
         "button",
         {
           type: "button",
@@ -10280,7 +10302,24 @@ ${h2.join(`
           }
         },
         /* @__PURE__ */ import_react.default.createElement("svg", { viewBox: "0 0 16 16", width: "15", height: "15", fill: "none", xmlns: "http://www.w3.org/2000/svg" }, /* @__PURE__ */ import_react.default.createElement("rect", { x: "2", y: "2.5", width: "12", height: "11", rx: "2", stroke: "currentColor", strokeWidth: "1.3" }), /* @__PURE__ */ import_react.default.createElement("path", { d: "M4.5 6L6.5 7.5L4.5 9M8.5 9H11.5", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" }))
-      ), menuOpen && /* @__PURE__ */ import_react.default.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { className: "term-tools-backdrop", onClick: () => setMenuOpen(false) }), /* @__PURE__ */ import_react.default.createElement("div", { className: "term-tools-menu", role: "menu", "aria-label": "\u5DE5\u4F5C\u533A\u5DE5\u5177" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "term-tools-item", role: "menuitem", onClick: openFiles }, /* @__PURE__ */ import_react.default.createElement("span", { className: "term-tools-item-icon", "aria-hidden": "true" }, "\u{1F4C1}"), /* @__PURE__ */ import_react.default.createElement("span", null, "\u6587\u4EF6\u67E5\u770B\u5668")), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "term-tools-item", role: "menuitem", onClick: openTerminal }, /* @__PURE__ */ import_react.default.createElement("span", { className: "term-tools-item-icon", "aria-hidden": "true", style: { fontFamily: "monospace", fontWeight: 700 } }, ">_"), /* @__PURE__ */ import_react.default.createElement("span", null, "\u672C\u5730\u7EC8\u7AEF")))));
+      ), menuOpen && /* @__PURE__ */ import_react.default.createElement(import_react.Fragment, null, /* @__PURE__ */ import_react.default.createElement(
+        "div",
+        {
+          className: "term-tools-backdrop",
+          onPointerDown: (e) => {
+            e.stopPropagation();
+            setMenuOpen(false);
+          },
+          onTouchStart: (e) => {
+            e.stopPropagation();
+            setMenuOpen(false);
+          },
+          onClick: (e) => {
+            e.stopPropagation();
+            setMenuOpen(false);
+          }
+        }
+      ), /* @__PURE__ */ import_react.default.createElement("div", { className: "term-tools-menu", role: "menu", "aria-label": "\u5DE5\u4F5C\u533A\u5DE5\u5177" }, /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "term-tools-item", role: "menuitem", onClick: openFiles }, /* @__PURE__ */ import_react.default.createElement("span", { className: "term-tools-item-icon", "aria-hidden": "true" }, "\u{1F4C1}"), /* @__PURE__ */ import_react.default.createElement("span", null, "\u6587\u4EF6\u67E5\u770B\u5668")), /* @__PURE__ */ import_react.default.createElement("button", { type: "button", className: "term-tools-item", role: "menuitem", onClick: openTerminal }, /* @__PURE__ */ import_react.default.createElement("span", { className: "term-tools-item-icon", "aria-hidden": "true", style: { fontFamily: "monospace", fontWeight: 700 } }, ">_"), /* @__PURE__ */ import_react.default.createElement("span", null, "\u672C\u5730\u7EC8\u7AEF")))));
     }
     function SessionReporter(props) {
       const sessionId = props?.sessionId;

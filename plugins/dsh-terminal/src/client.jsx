@@ -1100,10 +1100,33 @@ export function apply(ctx) {
     const currentSessionId = useStore(sessionStore)
     const [menuOpen, setMenuOpen] = useState(false)
     const isTermOpen = useStore(openStore) !== null
+    const wrapRef = useRef(null)
 
     useEffect(() => {
       ensureStyles(typeof document === 'undefined' ? null : document)
     }, [])
+
+    useEffect(() => {
+      if (!menuOpen) return
+      const handleOutsidePointer = (e) => {
+        if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+          setMenuOpen(false)
+        }
+      }
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') setMenuOpen(false)
+      }
+      window.addEventListener('pointerdown', handleOutsidePointer, true)
+      window.addEventListener('touchstart', handleOutsidePointer, { capture: true, passive: true })
+      window.addEventListener('keydown', handleKeyDown)
+      window.addEventListener('scroll', handleOutsidePointer, true)
+      return () => {
+        window.removeEventListener('pointerdown', handleOutsidePointer, true)
+        window.removeEventListener('touchstart', handleOutsidePointer, true)
+        window.removeEventListener('keydown', handleKeyDown)
+        window.removeEventListener('scroll', handleOutsidePointer, true)
+      }
+    }, [menuOpen])
 
     const openTerminal = (e) => {
       e?.stopPropagation()
@@ -1132,7 +1155,7 @@ export function apply(ctx) {
     }
 
     return (
-      <div className="term-composer-wrap">
+      <div className="term-composer-wrap" ref={wrapRef}>
         <button
           type="button"
           className="term-composer-btn"
@@ -1153,7 +1176,21 @@ export function apply(ctx) {
 
         {menuOpen && (
           <Fragment>
-            <div className="term-tools-backdrop" onClick={() => setMenuOpen(false)} />
+            <div
+              className="term-tools-backdrop"
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                setMenuOpen(false)
+              }}
+              onTouchStart={(e) => {
+                e.stopPropagation()
+                setMenuOpen(false)
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setMenuOpen(false)
+              }}
+            />
             <div className="term-tools-menu" role="menu" aria-label="工作区工具">
               <button type="button" className="term-tools-item" role="menuitem" onClick={openFiles}>
                 <span className="term-tools-item-icon" aria-hidden="true">📁</span>
