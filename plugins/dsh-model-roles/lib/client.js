@@ -43,7 +43,8 @@ window.__ModuleLoader__.load({
       task: { title: "任务", detail: "DSH 委派创建的子代理自动使用；未配置时使用当前会话模型。" },
       advisor: { title: "顾问", detail: "顾问复核开启后，DSH 会启动独立子代理评审每个已完成回合，并将重要建议送回主会话。" },
     };
-    const INTRO_TEXT = "只有选择 Agent Preset「智选模式」时才会自动路由模型；其他模式完全保留 DSH 原生模型选择。";
+    const INTRO_TEXT = "只有选择 Agent Preset「智选模式」时才会自动路由模型并持续完成未结任务；其他模式完全保留 DSH 原生行为。";
+    const CONTINUOUS_HELP_TEXT = "回合结束时如果仍有未完成待办，自动创建 DSH 原生 Goal 续跑；完成、用户中止、持续阻塞或达到轮次上限时停止。";
     const ADVISOR_HELP_TEXT = "请先为顾问选择模型。";
     const css = `
       .mr-page{display:flex;flex-direction:column;gap:14px;width:100%;max-width:780px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
@@ -54,8 +55,8 @@ window.__ModuleLoader__.load({
       .mr-select:focus-visible,.mr-input:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.mr-select:disabled,.mr-input:disabled{opacity:.55}
       .mr-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}.mr-button{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:18px;background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer}.mr-button:disabled{cursor:default;opacity:.45}.mr-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff}.mr-danger{color:var(--dsw-alias-state-error-primary)}
       .mr-feedback{padding:9px 11px;border-radius:8px;font-size:12px;line-height:18px}.mr-feedback.mr-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}.mr-status{min-height:18px;color:var(--dsw-alias-label-tertiary);font-size:12px}.mr-warning{padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d98e00) 10%,transparent);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
-      .mr-advisor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.mr-check{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-secondary);font-size:13px}
-      @media(max-width:640px){.mr-grid,.mr-advisor{grid-template-columns:1fr}.mr-card-head{flex-direction:column}.mr-actions{justify-content:stretch}.mr-button{flex:1}}
+      .mr-runtime,.mr-advisor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.mr-check{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-secondary);font-size:13px}
+      @media(max-width:640px){.mr-grid,.mr-runtime,.mr-advisor{grid-template-columns:1fr}.mr-card-head{flex-direction:column}.mr-actions{justify-content:stretch}.mr-button{flex:1}}
     `;
     const navCss = 'button:has([data-settings-nav-label="model-roles"]) > svg:first-child{display:none}';
 
@@ -147,6 +148,7 @@ window.__ModuleLoader__.load({
         const [groups, setGroups] = react.useState([]);
         const [failures, setFailures] = react.useState([]);
         const [roles, setRoles] = react.useState([]);
+        const [continuous, setContinuous] = react.useState({ enabled: true, maxGoalRounds: 32 });
         const [advisor, setAdvisor] = react.useState({ enabled: false, subagents: false, provider: "spawn", maxTranscriptChars: 60000 });
         const [saved, setSaved] = react.useState("");
         const [saving, setSaving] = react.useState(false);
@@ -164,13 +166,17 @@ window.__ModuleLoader__.load({
               enabled: false, subagents: false, provider: "spawn", maxTranscriptChars: 60000,
               ...(settingsView.value?.advisor || {}),
             };
+            const nextContinuous = {
+              enabled: true, maxGoalRounds: 32, ...(settingsView.value?.continuous || {}),
+            };
             setWritable(settingsView.writable);
             setRevision(settingsView.revision);
             setGroups(modelsResponse.result.value.groups || []);
             setFailures(modelsResponse.result.value.failures || []);
             setRoles(next);
+            setContinuous(nextContinuous);
             setAdvisor(nextAdvisor);
-            setSaved(JSON.stringify({ roles: next, advisor: nextAdvisor }));
+            setSaved(JSON.stringify({ roles: next, continuous: nextContinuous, advisor: nextAdvisor }));
             setStatus("ready");
           } catch (cause) {
             setStatus("error");
@@ -191,7 +197,7 @@ window.__ModuleLoader__.load({
 
         const byRole = routeMap(roles);
         const modelRows = rowsFromGroups(groups);
-        const dirty = JSON.stringify({ roles, advisor }) !== saved;
+        const dirty = JSON.stringify({ roles, continuous, advisor }) !== saved;
         const validation = validateRoles(roles);
         const feedback = error || validation;
         const statusText = statusMessage(status, writable, dirty);
@@ -228,7 +234,7 @@ window.__ModuleLoader__.load({
               reasoningEffort: route.reasoningEffort || "",
             }));
             await settingsRequest("replace", {
-              section: { roles: normalized, advisor }, expectedRevision: revision,
+              section: { roles: normalized, continuous, advisor }, expectedRevision: revision,
             }, props.api);
             await load();
           } catch (cause) {
@@ -283,6 +289,17 @@ window.__ModuleLoader__.load({
           feedback ? react.createElement("div", { className: "mr-feedback mr-error", role: "alert" }, feedback) : null,
           react.createElement("section", { className: "mr-card" },
             react.createElement("div", null,
+              react.createElement("h3", { className: "mr-title" }, "持续工作运行时"),
+              react.createElement("p", { className: "mr-detail" }, CONTINUOUS_HELP_TEXT)),
+            react.createElement("div", { className: "mr-runtime" },
+              react.createElement("label", { className: "mr-check" },
+                react.createElement("input", { type: "checkbox", checked: continuous.enabled, disabled: saving, onChange: (event) => setContinuous((current) => ({ ...current, enabled: event.target.checked })) }),
+                "未完成待办自动续跑"),
+              react.createElement("label", { className: "mr-field" },
+                react.createElement("span", { className: "mr-label" }, "最大 Goal 轮次"),
+                react.createElement("input", { className: "mr-input", type: "number", min: 1, max: 256, step: 1, value: continuous.maxGoalRounds, disabled: saving || !continuous.enabled, onChange: (event) => setContinuous((current) => ({ ...current, maxGoalRounds: Math.min(256, Math.max(1, Number(event.target.value) || 32)) })) })))),
+          react.createElement("section", { className: "mr-card" },
+            react.createElement("div", null,
               react.createElement("h3", { className: "mr-title" }, "顾问复核运行时"),
               react.createElement("p", { className: "mr-detail" }, ADVISOR_HELP_TEXT)),
             react.createElement("div", { className: "mr-advisor" },
@@ -322,7 +339,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, ADVISOR_HELP_TEXT, modelKey, parseModelKey, normalizeRole, configurableRoutes, rowsFromGroups, routeMap, validateRoles, statusMessage, css, createSettingsRequest };
+    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, CONTINUOUS_HELP_TEXT, ADVISOR_HELP_TEXT, modelKey, parseModelKey, normalizeRole, configurableRoutes, rowsFromGroups, routeMap, validateRoles, statusMessage, css, createSettingsRequest };
     return module.exports;
   }
 });

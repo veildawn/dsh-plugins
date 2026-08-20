@@ -6,6 +6,8 @@ import { createAssistantMessage, createUserMessage, LlmAdapter, LlmRuntime } fro
 import { SessionStore } from '@deepseek-ai/dsh-session'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import { CommandRuntime } from '@deepseek-ai/dsh-commands'
+import { GoalService } from '@deepseek-ai/dsh-goal'
+import * as goalRoundDriver from '@deepseek-ai/dsh-goal-round-driver'
 import { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
@@ -70,7 +72,7 @@ async function collect(stream) {
   return chunks
 }
 
-async function createRuntime(roles, settingsSection = {}) {
+async function createRuntime(roles, settingsSection = {}, runtimeOptions = {}) {
   const ctx = new Context()
   new LlmRuntime(ctx)
   new SessionStore(ctx)
@@ -83,6 +85,26 @@ async function createRuntime(roles, settingsSection = {}) {
   })
   settings.publish(settings.doc)
   new CommandRuntime(ctx)
+  const goalCreates = []
+  const goalViews = new WeakMap()
+  if (runtimeOptions.nativeGoals) {
+    new GoalService(ctx, { defaultMaxGoalRounds: 32 })
+    goalRoundDriver.apply(ctx)
+  } else {
+    ctx.provide('goals', {
+      get(agent) { return goalViews.get(agent) },
+      create(agent, request) {
+        goalCreates.push({ agent, request })
+        const goal = {
+          id: `goal-${String(goalCreates.length)}`, revision: 1,
+          objective: request.objective, phase: 'active', activation: 'armed',
+          roundsStarted: 0, maxGoalRounds: request.maxGoalRounds,
+        }
+        goalViews.set(agent, goal)
+        return goal
+      },
+    })
+  }
   ctx.provide('agentPresets', {
     authorable: true,
     async list() { return [{ id: modelRoles.MODEL_ROLES_PRESET_ID }] },
@@ -93,7 +115,7 @@ async function createRuntime(roles, settingsSection = {}) {
   const adapter = new RecordingAdapter()
   ctx.llm.registerAdapter(['e2e'], adapter)
   await modelRoles.apply(ctx)
-  return { ctx, adapter }
+  return { ctx, adapter, goalCreates, goalViews }
 }
 
 function modelRolesMeta(meta = {}) {
@@ -408,6 +430,119 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
     form: 'notice',
     summary: 'Advisor review',
   })
+})
+
+test('unfinished smart-mode work arms one native goal and advertises the continuous-work policy', async () => {
+  const { ctx, goalCreates } = await createRuntime([], {
+    continuous: { enabled: true, maxGoalRounds: 24 },
+  })
+  const session = ctx.sessions.create('continuous-work-parent', { meta: modelRolesMeta() })
+  session.append('turn/start', { turn: 1 })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Review and repair the integration architecture.' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('todo/write', { todos: [
+    { content: 'Inspect the module', status: 'completed' },
+    { content: 'Fix the boundary', status: 'in_progress' },
+    { content: 'Verify the result', status: 'pending' },
+  ] })
+  const parent = { ctx, session, options: {} }
+  const stopping = { turn: 1, signal: AbortSignal.timeout(5_000) }
+
+  await agentEvents(ctx, parent).serial('agent/turn-stopping', stopping)
+  await agentEvents(ctx, parent).serial('agent/turn-stopping', stopping)
+
+  assert.equal(goalCreates.length, 1)
+  assert.equal(goalCreates[0].agent, parent)
+  assert.deepEqual(goalCreates[0].request, {
+    objective: 'Review and repair the integration architecture.',
+    maxGoalRounds: 24,
+  })
+  const assembly = await ctx.systemPrompt.assemble({ agent: parent, scope: ctx })
+  assert(assembly.sections.some((section) => section.name === 'model-roles:continuous-work'))
+
+  const standardSession = ctx.sessions.create('continuous-work-standard', {
+    meta: { agentPreset: 'standard' },
+  })
+  standardSession.append('turn/start', { turn: 1 })
+  standardSession.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Keep working.' }], source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  standardSession.append('todo/write', { todos: [
+    { content: 'Still open', status: 'in_progress' },
+  ] })
+  const standard = { ctx, session: standardSession, options: {} }
+  await agentEvents(ctx, standard).serial('agent/turn-stopping', stopping)
+  assert.equal(goalCreates.length, 1)
+  const standardAssembly = await ctx.systemPrompt.assemble({ agent: standard, scope: ctx })
+  assert.equal(standardAssembly.sections.some((section) => section.name === 'model-roles:continuous-work'), false)
+})
+
+test('continuous work hands the unfinished objective to the real DSH goal-round driver', async () => {
+  const { ctx } = await createRuntime([], {
+    continuous: { enabled: true, maxGoalRounds: 12 },
+  }, { nativeGoals: true })
+  const session = ctx.sessions.create('continuous-work-native-goal', { meta: modelRolesMeta() })
+  session.append('turn/start', { turn: 1 })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Finish the integration audit and verify every finding.' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('todo/write', { todos: [
+    { content: 'Inspect boundaries', status: 'completed' },
+    { content: 'Verify findings', status: 'in_progress' },
+  ] })
+  const queued = []
+  const parent = {
+    id: session.id,
+    ctx,
+    session,
+    options: {},
+    status: 'running',
+    followup(message) { queued.push(message) },
+    whenIdle() { return Promise.resolve() },
+    cancel() {},
+  }
+  const unregister = ctx.agents.register(parent)
+  try {
+    await agentEvents(ctx, parent).serial('agent/turn-stopping', {
+      turn: 1,
+      signal: AbortSignal.timeout(5_000),
+    })
+    const goal = ctx.goals.get(parent)
+    assert.equal(goal.phase, 'active')
+    assert.equal(goal.activation, 'armed')
+    assert.equal(goal.maxGoalRounds, 12)
+    assert.equal(goal.objective, 'Finish the integration audit and verify every finding.')
+    assert(session.events.some((event) => event.type === modelRoles.CONTINUOUS_GOAL_EVENT
+      && event.data.goalId === goal.id))
+
+    session.append('agent-preset/selected', { agentPreset: 'standard' })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(ctx.goals.get(parent).activation, 'disarmed')
+    parent.status = 'idle'
+    agentEvents(ctx, parent).emit('agent/status', { status: 'idle' })
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(queued.length, 0)
+
+    session.append('agent-preset/selected', { agentPreset: modelRoles.MODEL_ROLES_PRESET_ID })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(modelRoles.sessionPresetOf(session), modelRoles.MODEL_ROLES_PRESET_ID)
+    assert.equal(modelRoles.continuousGoalOwnedByPlugin(session.events, goal.id), true)
+    assert.equal(ctx.goals.get(parent).activation, 'armed')
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(queued.length, 1)
+    assert.equal(queued[0].source.kind, 'goal')
+    assert.equal(queued[0].source.round, 1)
+    assert.match(queued[0].content[0].text, /Round: 1\/12/u)
+    assert.match(queued[0].content[0].text, /Finish the integration audit/u)
+  } finally {
+    unregister()
+  }
 })
 
 test('tiny role routes real DSH title and compaction LLM calls', async () => {

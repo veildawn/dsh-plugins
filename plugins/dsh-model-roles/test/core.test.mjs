@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import {
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
+  CONTINUOUS_GOAL_EVENT,
+  CONTINUOUS_WORK_SYSTEM,
   MODEL_ROLES_PRESET_ID,
   MODEL_ROLES_PRESET_NAME,
   OMP_ROLES,
@@ -10,6 +12,8 @@ import {
   agentHasImage,
   applyRoleRoute,
   contentHasImage,
+  continuousGoalOwnedByPlugin,
+  continuousGoalRequest,
   modelRolesActive,
   modelRolesActiveForSession,
   normalizeRoleId,
@@ -21,6 +25,7 @@ import {
   routeForRole,
   sessionPresetOf,
   taskTextOf,
+  unfinishedTodosForTurn,
 } from '../lib/core.js'
 
 function agent({ events = [], header = {}, options = {}, livePreset, messages } = {}) {
@@ -137,6 +142,65 @@ test('automatic task routing reads the latest substantive user task and accepts 
   assert.equal(parseAutomaticRole('`slow`\n'), 'slow')
   assert.equal(parseAutomaticRole('task'), undefined)
   assert.equal(parseAutomaticRole('designer or slow'), undefined)
+})
+
+test('continuous work converts only current-turn unfinished todos into a bounded goal request', () => {
+  const events = [
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'todo/write', data: { todos: [
+      { content: 'Inspect the module', status: 'completed' },
+      { content: 'Fix the boundary', status: 'in_progress' },
+      { content: 'Verify the result', status: 'pending' },
+    ] } },
+  ]
+  const active = agent({
+    header: { agentPreset: 'model-roles' },
+    events,
+    messages: [{
+      role: 'user', source: { kind: 'user' },
+      content: [{ type: 'text', text: 'Review and repair the integration architecture.' }],
+    }],
+  })
+
+  assert.deepEqual(unfinishedTodosForTurn(events, 1).map(({ content }) => content), [
+    'Fix the boundary', 'Verify the result',
+  ])
+  assert.deepEqual(continuousGoalRequest(active, 1, { enabled: true, maxGoalRounds: 24 }), {
+    objective: 'Review and repair the integration architecture.',
+    maxGoalRounds: 24,
+  })
+  assert.equal(CONTINUOUS_GOAL_EVENT, 'model-roles/continuous-goal')
+  assert.equal(continuousGoalOwnedByPlugin([
+    { type: CONTINUOUS_GOAL_EVENT, data: { goalId: 'goal-smart' } },
+  ], 'goal-smart'), true)
+  assert.equal(continuousGoalOwnedByPlugin(events, 'goal-smart'), false)
+  assert.match(CONTINUOUS_WORK_SYSTEM, /unfinished todo/iu)
+
+  const completed = agent({
+    header: { agentPreset: 'model-roles' },
+    events: [...events, { type: 'todo/write', data: { todos: [
+      { content: 'Inspect the module', status: 'completed' },
+      { content: 'Fix the boundary', status: 'completed' },
+      { content: 'Verify the result', status: 'completed' },
+    ] } }],
+    messages: active.session.deriveMessages(),
+  })
+  const stale = agent({
+    header: { agentPreset: 'model-roles' },
+    events: [...events, { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/start', data: { turn: 2 } }],
+    messages: active.session.deriveMessages(),
+  })
+  assert.equal(continuousGoalRequest(completed, 1, { enabled: true, maxGoalRounds: 24 }), undefined)
+  assert.equal(continuousGoalRequest(stale, 2, { enabled: true, maxGoalRounds: 24 }), undefined)
+  assert.equal(continuousGoalRequest(agent({
+    header: { agentPreset: 'standard' }, events, messages: active.session.deriveMessages(),
+  }), 1, { enabled: true, maxGoalRounds: 24 }), undefined)
+  assert.equal(continuousGoalRequest(agent({
+    header: { agentPreset: 'model-roles', origin: 'subagent' }, events,
+    messages: active.session.deriveMessages(),
+  }), 1, { enabled: true, maxGoalRounds: 24 }), undefined)
+  assert.equal(continuousGoalRequest(active, 1, { enabled: false, maxGoalRounds: 24 }), undefined)
 })
 
 test('successful advisor commands fold a session override over settings', () => {

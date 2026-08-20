@@ -5,6 +5,9 @@
       name: dsh-model-roles
       config:
         roles: []
+        continuous:
+          enabled: true
+          maxGoalRounds: 32
         advisor:
           enabled: false
           subagents: false

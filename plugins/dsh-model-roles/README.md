@@ -2,13 +2,14 @@
 
 为 DeepSeek Harness 提供类似 [Oh My Pi（OMP）](https://github.com/can1357/oh-my-pi)
 `modelRoles` 的角色模型路由。对话角色接入 DSH 官方 `agent/request`，`tiny` 接入
-`llm/stream`，`advisor` 接入 `subagents`、回合停止事件与 steering 收件箱；主会话再通过
+`llm/stream`，持续工作接入 DSH 原生 Goal Round，`advisor` 接入 `subagents`、回合停止事件与
+steering 收件箱；主会话再通过
 `tiny`（未配置时为 `smol`）每回合自动判断任务角色。生效的对话路由会进入 `request/header`，
 因此轨迹显示和模型响应来源看到的都是实际使用的模型。
 
 插件首次启动时会以 DSH **标准模式** 为模板创建 Agent Preset **智选模式**
 （ID: `model-roles`）。只有用户在新会话或会话顶部主动选择 **智选模式** 时，本插件才会接管
-该会话的识图、计划、子代理、自动分类、轻量后台与顾问路由。标准模式、PTC 模式、极简模式和
+该会话的持续执行、识图、计划、子代理、自动分类、轻量后台与顾问路由。标准模式、PTC 模式、极简模式和
 创造模式都完全保留 DSH 原生模型选择。
 
 ## 支持的角色
@@ -47,6 +48,16 @@
 具体角色由图片、计划模式、子代理类型与分类模型自动决定。分类模型失败或输出非法角色时，
 安全回退到当前会话模型。
 
+### 持续工作
+
+「智选模式」会向主 Agent 加入持续工作策略：多步任务先维护待办，可安全发现的信息由 Agent 自行
+读取和搜索，工具失败时先诊断并尝试安全替代方案。如果一个回合准备结束时，当前回合最新待办仍有
+`pending` 或 `in_progress` 项，插件会从最新实质用户任务创建并激活 DSH 原生 Goal。
+
+Goal Round 会在同一会话中持续排入后续工作，直到整体目标经验证完成。已完成的待办不会触发续跑；
+暂停或阻塞的既有 Goal 也不会被插件擅自恢复。用户中止、DSH 判定同一阻塞持续至少 3 个 Goal Round，
+或达到可配置的最大轮次时停止。默认上限是 32 轮，可在 **设置 → 模型角色 → 持续工作运行时** 修改或关闭。
+
 ### 顾问复核
 
 在 **智选模式** 中为 `advisor` 配置模型并开启顾问后，每个主会话回合停止前都会通过 DSH
@@ -68,7 +79,7 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-model-roles-0.5.1.tgz
+dsh plugin --profile web add ./dsh-model-roles-0.6.0.tgz
 dsh service restart
 ```
 
@@ -93,6 +104,9 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
       name: dsh-model-roles
       config:
         roles: []
+        continuous:
+          enabled: true
+          maxGoalRounds: 32
         advisor:
           enabled: false
           subagents: false
@@ -107,6 +121,9 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 
 ```yaml
 model-roles:
+  continuous:
+    enabled: true
+    maxGoalRounds: 32
   roles:
     - role: plan
       provider: ai-proxy
@@ -162,6 +179,7 @@ DSH 对话框中的模型选择就是该会话的默认模型，不在模型角�
 
 ## 与 DSH 的融合边界
 
+- 持续工作复用 DSH 原生 Goal Service 和 Goal Round Driver；插件只在智选模式的主 Agent 当前回合存在未完成待办时创建目标，不自建第二套调度器。
 - 除 `default` 外的九个 OMP 专用角色可以独立选择模型；`default` 始终来自当前会话；`vision` 通过一次性 DSH 子代理触发，`plan`、`task` 使用 DSH 原生会话事实自动触发，
   `tiny` 接管自动任务分类、DSH 会话标题与压缩 LLM 调用，`advisor` 使用 DSH 子代理和 steering
   通道完成复核。
@@ -185,5 +203,6 @@ npm pack --dry-run
 
 端到端测试使用真实的 Cordis、DSH Settings、Commands、Session、Agent 事件、LLM Runtime 与
 Subagent Runtime；只在最外层模型 Provider 使用可观测测试 Adapter。测试会证明只有 **智选模式**
-会触发路由，标准模式保留原生模型；同时覆盖九个专用角色、自动任务分类、同回合分类缓存、顾问建议回注以及
+会触发路由和持续工作，标准模式保留原生行为；同时覆盖九个专用角色、自动任务分类、同回合分类缓存、未完成待办创建原生 Goal、
+真实 Goal Round Driver 续跑、顾问建议回注以及
 `tiny` 标题/压缩路由。提供真实模型映射后，还要在实际 DSH Profile 中逐角色执行联网模型验收。

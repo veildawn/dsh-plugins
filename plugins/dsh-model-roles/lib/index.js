@@ -24,6 +24,8 @@ import {
   AUTOMATIC_TASK_ROLES,
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
+  CONTINUOUS_GOAL_EVENT,
+  CONTINUOUS_WORK_SYSTEM,
   MODEL_ROLES_PRESET_ID,
   MODEL_ROLES_PRESET_NAME,
   OMP_ROLES,
@@ -32,6 +34,8 @@ import {
   agentHasImage,
   applyRoleRoute,
   contentHasImage,
+  continuousGoalOwnedByPlugin,
+  continuousGoalRequest,
   imageBlocksOf,
   isSubagent,
   isSelectableRole,
@@ -47,6 +51,7 @@ import {
   routeForRole,
   sessionPresetOf,
   taskTextOf,
+  unfinishedTodosForTurn,
   withoutImageBlocks,
 } from './core.js'
 
@@ -55,6 +60,8 @@ export {
   AUTOMATIC_TASK_ROLES,
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
+  CONTINUOUS_GOAL_EVENT,
+  CONTINUOUS_WORK_SYSTEM,
   MODEL_ROLES_PRESET_ID,
   MODEL_ROLES_PRESET_NAME,
   OMP_ROLES,
@@ -63,6 +70,8 @@ export {
   agentHasImage,
   applyRoleRoute,
   contentHasImage,
+  continuousGoalOwnedByPlugin,
+  continuousGoalRequest,
   imageBlocksOf,
   isSubagent,
   isSelectableRole,
@@ -78,11 +87,15 @@ export {
   routeForRole,
   sessionPresetOf,
   taskTextOf,
+  unfinishedTodosForTurn,
   withoutImageBlocks,
 }
 
 export const name = 'model-roles'
-export const inject = ['settings', 'commands', 'llm', 'subagents', 'sessions', 'agentPresets']
+export const inject = [
+  'settings', 'commands', 'llm', 'subagents', 'sessions', 'agentPresets',
+  'agents', 'goals', 'systemPrompt',
+]
 export const NS = 'model-roles'
 export const SETTINGS_RPC_CHANNEL = '/model-roles-settings'
 export const VISION_SUBAGENT_PROVIDER = 'spawn'
@@ -169,6 +182,10 @@ const roleEntry = z.object({
 /** Settings section and Cordis entry configuration. */
 export const Config = z.object({
   roles: z.array(roleEntry).default([]),
+  continuous: z.object({
+    enabled: z.boolean().default(true),
+    maxGoalRounds: z.number().step(1).min(1).max(256).default(32),
+  }).default({}),
   advisor: z.object({
     enabled: z.boolean().default(false),
     subagents: z.boolean().default(false),
@@ -307,11 +324,38 @@ export async function apply(ctx, config = {}) {
   const classifiedTurns = new WeakMap()
   const visionFallbackTurns = new WeakMap()
 
+  function synchronizeContinuousGoal(agent, shouldArm) {
+    const current = ctx.goals.get(agent)
+    if (current === undefined || !continuousGoalOwnedByPlugin(agent.session.events, current.id)) return
+    if (!shouldArm) {
+      if (current.activation === 'armed') ctx.goals.disarm(agent)
+      return
+    }
+    if (current.phase === 'active'
+      && current.activation === 'disarmed'
+      && current.roundsStarted < current.maxGoalRounds) {
+      ctx.goals.resume(agent, { id: current.id, revision: current.revision })
+    }
+  }
+
   scope.watch((next) => {
     try {
       const nextTable = resolveRoleTable(next)
+      const continuousChanged = settings.continuous.enabled !== next.continuous.enabled
       settings = next
       table = nextTable
+      if (continuousChanged) {
+        void Promise.resolve().then(() => {
+          for (const agent of ctx.agents.list()) {
+            try {
+              synchronizeContinuousGoal(agent, settings.continuous.enabled && modelRolesActive(agent))
+            } catch (error) {
+              ctx.logger.warn('model-roles: could not synchronize continuous work after a settings update')
+              ctx.logger.warn(error)
+            }
+          }
+        })
+      }
     } catch (error) {
       ctx.logger.error('model-roles: keeping the last good role table after an invalid settings update')
       ctx.logger.error(error)
@@ -439,7 +483,57 @@ export async function apply(ctx, config = {}) {
     return ctx.llm.stream(rerouted)
   }, { global: true, prepend: true })
 
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const assembled = await next()
+    const agent = context?.agent
+    if (!settings.continuous.enabled || !modelRolesActive(agent) || isSubagent(agent)) return assembled
+    const section = {
+      name: 'model-roles:continuous-work',
+      order: 180,
+      text: CONTINUOUS_WORK_SYSTEM,
+    }
+    const sections = [...assembled.sections]
+    const at = sections.findIndex((candidate) => candidate.order > section.order)
+    sections.splice(at < 0 ? sections.length : at, 0, section)
+    return { ...assembled, sections }
+  })
+
+  ctx.on('session/event', async (session, event) => {
+    if (event?.type !== 'agent-preset/selected') return
+    // Session observers run inside append's non-reentrant publication fence.
+    // Defer goal mutations, then re-read every live fact after that fence.
+    await Promise.resolve()
+    const agent = ctx.agents.get(session.id)
+    if (agent === undefined || agent.session !== session) return
+    try {
+      synchronizeContinuousGoal(agent,
+        settings.continuous.enabled && modelRolesActiveForSession(session))
+    } catch (error) {
+      ctx.logger.warn('model-roles: could not synchronize continuous work with the selected preset')
+      ctx.logger.warn(error)
+    }
+  })
+
   ctx.on('agent/turn-stopping', async ({ agent, turn, signal }) => {
+    const goalRequest = continuousGoalRequest(agent, turn, settings.continuous)
+    if (goalRequest !== undefined) {
+      try {
+        const current = ctx.goals.get(agent)
+        if (current === undefined || current.phase === 'complete') {
+          const created = ctx.goals.create(agent, goalRequest)
+          try {
+            agent.session.append(CONTINUOUS_GOAL_EVENT, { goalId: created.id })
+          } catch (error) {
+            ctx.goals.disarm(agent)
+            throw error
+          }
+        }
+      } catch (error) {
+        ctx.logger.warn('model-roles: could not arm continuous work goal')
+        ctx.logger.warn(error)
+      }
+    }
+
     if (!modelRolesActive(agent)) return
     if (!table.has('advisor')) return
     if (!advisorEnabledOf(agent.session.events, settings.advisor.enabled)) return
