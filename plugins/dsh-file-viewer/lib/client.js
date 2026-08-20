@@ -75,7 +75,7 @@ window.__ModuleLoader__.load({
 
     const css = `
       .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:color-mix(in srgb,#000 32%,transparent);pointer-events:auto;color-scheme:light dark;animation:fv-fade .16s ease-out}
-      .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1)}
+      .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1)}
       @keyframes fv-fade{from{opacity:0}to{opacity:1}}
       @keyframes fv-slide{from{transform:translateX(100%)}to{transform:translateX(0)}}
       @media(prefers-reduced-motion:reduce){.fv-scrim,.fv-shell{animation:none}}

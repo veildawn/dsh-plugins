@@ -217,8 +217,8 @@ window.__ModuleLoader__.load({
            takes the whole screen. Height tracks the visual viewport instead of
            100dvh, which some mobile browsers report before the address bar
            settles, and both edges respect the safe-area insets. */
-        .fv-scrim{box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw!important;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-base)!important;animation:none!important}
-        .fv-shell{box-sizing:border-box;width:100vw!important;height:100%!important;max-width:none!important;border:0!important;border-radius:0!important;box-shadow:none!important;animation:none!important}
+        .fv-scrim{box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw!important;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff))!important;animation:none!important}
+        .fv-shell{box-sizing:border-box;width:100vw!important;height:100%!important;max-width:none!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff))!important;animation:none!important}
         .fv-head{box-sizing:border-box;flex:none;gap:6px!important;padding:calc(6px + var(--dsh-sat)) max(8px,var(--dsh-sar)) 6px max(8px,var(--dsh-sal))!important}
         .fv-title{display:none!important}
         .fv-root-select{flex:none;max-width:38vw!important}

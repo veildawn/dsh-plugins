@@ -11,8 +11,8 @@
 | **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.7`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.7) |
 | **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.5) |
 | **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接与 LLM Provider 插件（支持 Chat/completions、Anthropic messages、Responses 多格式智能匹配、OAuth 2.0 PKCE 认证、Token 刷新与阶梯推理） | [`v0.2.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.2.5) |
-| **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出） | [`v0.1.25`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.25) |
-| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.5) |
+| **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出） | [`v0.1.26`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.26) |
+| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.6`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.6) |
 | **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.9`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.9) |
 
 ---
@@ -32,10 +32,10 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz
 
 # 4. 安装移动端适配插件 (手机浏览器访问必备)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.25/dsh-mobile-adapter-0.1.25.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.26/dsh-mobile-adapter-0.1.26.tgz
 
 # 5. 安装文件查看器插件 (会话头部抽屉浏览工作区文件)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.5/dsh-file-viewer-0.1.5.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.6/dsh-file-viewer-0.1.6.tgz
 
 # 6. 安装本地终端插件 (跨平台原生终端调用与移动端适配)
 dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz
