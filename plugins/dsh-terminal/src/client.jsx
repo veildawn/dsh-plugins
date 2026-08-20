@@ -465,16 +465,13 @@ const CUSTOM_CSS = `
     color: #f0f6fc;
   }
 
-  /* Composer toolbar button & tools popover */
+  /* Composer toolbar button & tools popover (Hidden on PC desktop, displayed ONLY on mobile) */
   .term-composer-wrap {
+    display: none !important;
     position: relative;
-    display: inline-flex;
     align-items: center;
     justify-content: center;
   }
-  .term-composer-btn {
-    box-sizing: border-box;
-    display: inline-grid;
     place-items: center;
     width: 32px;
     height: 32px;
@@ -689,15 +686,59 @@ const CUSTOM_CSS = `
       border: 1px solid #30363d;
       border-radius: 8px;
     }
+    .term-composer-wrap {
+      display: inline-flex !important;
+    }
+    .term-tools-backdrop {
+      z-index: 1340 !important;
+      background: rgba(0, 0, 0, 0.4) !important;
+      -webkit-backdrop-filter: blur(3px) !important;
+      backdrop-filter: blur(3px) !important;
+    }
+    .term-tools-menu {
+      position: fixed !important;
+      bottom: max(16px, var(--dsh-sab, 0px)) !important;
+      left: max(16px, var(--dsh-sal, 0px)) !important;
+      right: max(16px, var(--dsh-sar, 0px)) !important;
+      top: auto !important;
+      width: auto !important;
+      max-width: none !important;
+      border-radius: 18px !important;
+      padding: 8px !important;
+      z-index: 1350 !important;
+      box-shadow: var(--dsw-shadow-lv3) !important;
+      animation: term-tools-slide-up 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+    }
+    @keyframes term-tools-slide-up {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .term-tools-item {
+      height: 46px !important;
+      font-size: 15px !important;
+      padding: 0 14px !important;
+      border-radius: 12px !important;
+    }
+    .term-tools-item-icon {
+      width: 22px !important;
+      height: 22px !important;
+      font-size: 16px !important;
+    }
   }
 `
 
 function ensureStyles(doc) {
   const target = doc || (typeof document !== 'undefined' ? document : null)
-  if (!target || target.getElementById(STYLE_ID)) return
+  if (!target) return
+  const fullCss = XTERM_CSS + '\n' + CUSTOM_CSS
+  const existing = target.getElementById(STYLE_ID)
+  if (existing) {
+    if (existing.textContent !== fullCss) existing.textContent = fullCss
+    return
+  }
   const el = target.createElement('style')
   el.id = STYLE_ID
-  el.textContent = XTERM_CSS + '\n' + CUSTOM_CSS
+  el.textContent = fullCss
   target.head.appendChild(el)
 }
 
@@ -1059,6 +1100,10 @@ export function apply(ctx) {
     const currentSessionId = useStore(sessionStore)
     const [menuOpen, setMenuOpen] = useState(false)
     const isTermOpen = useStore(openStore) !== null
+
+    useEffect(() => {
+      ensureStyles(typeof document === 'undefined' ? null : document)
+    }, [])
 
     const openTerminal = (e) => {
       e?.stopPropagation()

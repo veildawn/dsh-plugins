@@ -9665,16 +9665,13 @@ ${h2.join(`
     color: #f0f6fc;
   }
 
-  /* Composer toolbar button & tools popover */
+  /* Composer toolbar button & tools popover (Hidden on PC desktop, displayed ONLY on mobile) */
   .term-composer-wrap {
+    display: none !important;
     position: relative;
-    display: inline-flex;
     align-items: center;
     justify-content: center;
   }
-  .term-composer-btn {
-    box-sizing: border-box;
-    display: inline-grid;
     place-items: center;
     width: 32px;
     height: 32px;
@@ -9889,14 +9886,58 @@ ${h2.join(`
       border: 1px solid #30363d;
       border-radius: 8px;
     }
+    .term-composer-wrap {
+      display: inline-flex !important;
+    }
+    .term-tools-backdrop {
+      z-index: 1340 !important;
+      background: rgba(0, 0, 0, 0.4) !important;
+      -webkit-backdrop-filter: blur(3px) !important;
+      backdrop-filter: blur(3px) !important;
+    }
+    .term-tools-menu {
+      position: fixed !important;
+      bottom: max(16px, var(--dsh-sab, 0px)) !important;
+      left: max(16px, var(--dsh-sal, 0px)) !important;
+      right: max(16px, var(--dsh-sar, 0px)) !important;
+      top: auto !important;
+      width: auto !important;
+      max-width: none !important;
+      border-radius: 18px !important;
+      padding: 8px !important;
+      z-index: 1350 !important;
+      box-shadow: var(--dsw-shadow-lv3) !important;
+      animation: term-tools-slide-up 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+    }
+    @keyframes term-tools-slide-up {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .term-tools-item {
+      height: 46px !important;
+      font-size: 15px !important;
+      padding: 0 14px !important;
+      border-radius: 12px !important;
+    }
+    .term-tools-item-icon {
+      width: 22px !important;
+      height: 22px !important;
+      font-size: 16px !important;
+    }
   }
 `;
   function ensureStyles(doc) {
     const target = doc || (typeof document !== "undefined" ? document : null);
-    if (!target || target.getElementById(STYLE_ID)) return;
+    if (!target) return;
+    const fullCss = XTERM_CSS + "\n" + CUSTOM_CSS;
+    const existing = target.getElementById(STYLE_ID);
+    if (existing) {
+      if (existing.textContent !== fullCss) existing.textContent = fullCss;
+      return;
+    }
     const el2 = target.createElement("style");
     el2.id = STYLE_ID;
-    el2.textContent = XTERM_CSS + "\n" + CUSTOM_CSS;
+    el2.textContent = fullCss;
     target.head.appendChild(el2);
   }
   function createStore(initial) {
@@ -10195,6 +10236,9 @@ ${h2.join(`
       const currentSessionId = useStore(sessionStore);
       const [menuOpen, setMenuOpen] = (0, import_react.useState)(false);
       const isTermOpen = useStore(openStore) !== null;
+      (0, import_react.useEffect)(() => {
+        ensureStyles(typeof document === "undefined" ? null : document);
+      }, []);
       const openTerminal = (e) => {
         e?.stopPropagation();
         setMenuOpen(false);
@@ -10203,12 +10247,22 @@ ${h2.join(`
       const openFiles = (e) => {
         e?.stopPropagation();
         setMenuOpen(false);
-        if (typeof window !== "undefined") {
-          if (typeof window.__dsh_open_file_viewer === "function") {
+        if (typeof window !== "undefined" && typeof window.__dsh_open_file_viewer === "function") {
+          try {
             window.__dsh_open_file_viewer({ sessionId: currentSessionId });
-          } else {
-            window.dispatchEvent(new CustomEvent("dsh:open-file-viewer", { detail: { sessionId: currentSessionId } }));
+            return;
+          } catch (_2) {
           }
+        }
+        if (typeof window !== "undefined") {
+          try {
+            window.dispatchEvent(new CustomEvent("dsh:open-file-viewer", { detail: { sessionId: currentSessionId } }));
+          } catch (_2) {
+          }
+        }
+        if (typeof document !== "undefined") {
+          const btn = document.querySelector('button[aria-label="\u67E5\u770B\u9879\u76EE\u6587\u4EF6"], button[title="\u67E5\u770B\u9879\u76EE\u6587\u4EF6"], .fv-float-entry');
+          if (btn) btn.click();
         }
       };
       return /* @__PURE__ */ import_react.default.createElement("div", { className: "term-composer-wrap" }, /* @__PURE__ */ import_react.default.createElement(

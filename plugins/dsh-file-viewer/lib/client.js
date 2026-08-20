@@ -1533,8 +1533,12 @@ window.__ModuleLoader__.load({
       }, ViewerHeaderAction));
 
       if (typeof window !== "undefined") {
-        window.__dsh_open_file_viewer = (payload) => openStore.set(payload || { sessionId: sessionStore.get() });
-        window.addEventListener("dsh:open-file-viewer", (e) => openStore.set(e.detail || { sessionId: sessionStore.get() }));
+        const triggerOpen = (payload) => {
+          const sid = (payload && payload.sessionId) || sessionStore.get();
+          openStore.set({ ...(payload || {}), sessionId: sid, _t: Date.now() });
+        };
+        window.__dsh_open_file_viewer = triggerOpen;
+        window.addEventListener("dsh:open-file-viewer", (e) => triggerOpen(e.detail));
       }
 
       return { openStore };
