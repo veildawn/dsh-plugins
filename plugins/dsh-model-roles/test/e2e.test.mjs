@@ -120,6 +120,14 @@ async function requestThroughHarness(ctx, agent, { turn = 1, step = 1 } = {}) {
   }))
 }
 
+function executeCommand(commands, agent, line, signal) {
+  // dsh-commands rc.8 added an images argument; keep the integration test
+  // compatible with the rc.7 runtime still used by the release workflow.
+  return commands.execute.length >= 4
+    ? commands.execute(agent, line, [], signal)
+    : commands.execute(agent, line, signal)
+}
+
 test('all conversation roles traverse DSH session, agent/request, and llm/stream', async () => {
   const conversationRoles = [
     'default', 'smol', 'slow', 'vision', 'plan',
@@ -376,13 +384,13 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
     steer(message) { steered.push(message) },
   }
 
-  const enabled = await ctx.commands.execute(parent, '/advisor on', [], AbortSignal.timeout(5_000))
+  const enabled = await executeCommand(ctx.commands, parent, '/advisor on', AbortSignal.timeout(5_000))
   assert.equal(enabled?.result.kind, 'success')
 
   const stopping = { turn: 1, signal: AbortSignal.timeout(5_000) }
   await agentEvents(ctx, parent).serial('agent/turn-stopping', stopping)
   await agentEvents(ctx, parent).serial('agent/turn-stopping', stopping)
-  const disabled = await ctx.commands.execute(parent, '/advisor off', [], AbortSignal.timeout(5_000))
+  const disabled = await executeCommand(ctx.commands, parent, '/advisor off', AbortSignal.timeout(5_000))
   assert.equal(disabled?.result.kind, 'success')
   await agentEvents(ctx, parent).serial('agent/turn-stopping', {
     turn: 2,

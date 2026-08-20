@@ -68,7 +68,7 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-model-roles-0.5.0.tgz
+dsh plugin --profile web add ./dsh-model-roles-0.5.1.tgz
 dsh service restart
 ```
 
