@@ -22,13 +22,29 @@ dsh plugin add --profile web <release-tgz-url>
 dsh service restart
 ```
 
+`dsh service restart` 依赖宿主打包的 systemd/launchd 单元；**`@deepseek-ai/dsh` CLI 本身没有
+`service` 子命令**（`dsh --help` 只列出根命令、`web`、`plugin`），Windows 等没有那层封装的环境执行
+会报 `error: too many arguments`。Windows 下改用本仓库的
+[`scripts/dsh-service.ps1`](../../scripts/dsh-service.ps1)：
+
+```powershell
+powershell -File scripts/dsh-service.ps1 restart -Profile web
+```
+
 装完确认 profile 的 `dsh.profile.bundles` 里有 `dsh-file-viewer`，否则插件不会加载。
 
 ## 使用
 
 在会话标题栏右侧点击文件夹按钮，抽屉会从右侧滑出，并直接定位到本会话所在项目的工作目录。`Esc` 或点击抽屉外部关闭。
 
-顶部可切换工作区、刷新、显示或隐藏点文件。目录在树中原地展开，子级首次展开时才加载。手机端抽屉占满全屏，文件列表与内容单列切换（左上角 `‹` 返回列表）。
+顶部可切换工作区、刷新、显示或隐藏点文件。目录在树中原地展开，子级首次展开时才加载。
+
+文件树支持**右键上下文菜单**：
+- **复制相对路径**：复制文件/目录相对于工作区根目录的路径；
+- **复制绝对路径**：复制文件/目录在操作系统中的完整物理路径；
+- **引用到输入框 (@)**：以 `@path` 格式将文件/目录直接插入当前会话的对话输入框。
+
+手机端抽屉占满全屏，文件列表与内容单列切换（左上角 `‹` 返回列表）。
 
 ## 访问边界
 

@@ -67,6 +67,15 @@ dsh plugin --profile web add ./dsh-model-roles-0.4.11.tgz
 dsh service restart
 ```
 
+`dsh service restart` 依赖宿主打包的 systemd/launchd 单元；**`@deepseek-ai/dsh` CLI 本身没有
+`service` 子命令**（`dsh --help` 只列出根命令、`web`、`plugin`），Windows 等没有那层封装的环境执行
+会报 `error: too many arguments`。Windows 下改用本仓库的
+[`scripts/dsh-service.ps1`](../../scripts/dsh-service.ps1)：
+
+```powershell
+powershell -File scripts/dsh-service.ps1 restart -Profile web
+```
+
 升级插件时必须先等待所有运行中的会话结束再重启 DSH；重启活跃服务会让尚未关闭的回合以
 `interrupted` 结束。仅修改角色设置不需要重启，保存后会从下一次请求即时生效。
 

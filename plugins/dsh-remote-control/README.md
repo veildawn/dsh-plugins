@@ -23,6 +23,15 @@ dsh plugin --profile web add ./dsh-remote-control-0.1.2.tgz
 dsh service restart
 ```
 
+`dsh service restart` 依赖宿主打包的 systemd/launchd 单元；**`@deepseek-ai/dsh` CLI 本身没有
+`service` 子命令**（`dsh --help` 只列出根命令、`web`、`plugin`），Windows 等没有那层封装的环境执行
+会报 `error: too many arguments`。Windows 下改用本仓库的
+[`scripts/dsh-service.ps1`](../../scripts/dsh-service.ps1)：
+
+```powershell
+powershell -File scripts/dsh-service.ps1 restart -Profile web
+```
+
 手动安装时：
 
 ```sh

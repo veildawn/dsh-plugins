@@ -12,7 +12,7 @@
 | **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标） | [`v0.1.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.4) |
 | **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接与 LLM Provider 插件（OAuth 2.0 PKCE 认证、Token 刷新、模型与推理等级阶梯拉取、局域网登录放行、专属 API 终端图标） | [`v0.2.3`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.2.3) |
 | **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相机相册上传按钮、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、创造/PTC/标准/极简模式状态、文件查看器抽屉适配） | [`v0.1.11`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.11) |
-| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（会话头部抽屉入口、懒加载目录树、语法高亮代码、Markdown/JSON、图片、PDF、Excel、Word；限工作区边界的 RPC 读取，不开放 HTTP 端点） | [`v0.1.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.0) |
+| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（文件/目录右键菜单复制相对/绝对路径及@引用、会话头部抽屉入口、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.1`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.1) |
 
 ---
 
@@ -39,6 +39,16 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 # 重启服务即可生效
 dsh service restart --profile web
 ```
+
+> **Windows 用户注意**：`dsh service restart` 依赖宿主打包的 systemd/launchd 单元，`@deepseek-ai/dsh`
+> CLI 本身没有 `service` 子命令（`dsh --help` 只列出根命令、`web`、`plugin`），在 Windows 上执行会直接
+> 报 `error: too many arguments`。请改用本仓库自带的重启脚本：
+>
+> ```powershell
+> powershell -File scripts/dsh-service.ps1 restart -Profile web
+> ```
+>
+> 该脚本还支持 `start` / `stop` / `status`，详见脚本内注释。
 
 ---
 

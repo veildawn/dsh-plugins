@@ -23,6 +23,15 @@ dsh plugin --profile web add ./dsh-ai-proxy-0.2.1.tgz
 dsh service restart
 ```
 
+`dsh service restart` 依赖宿主打包的 systemd/launchd 单元；**这套 CLI（`@deepseek-ai/dsh`）
+本身并不提供 `service` 子命令**（见 `dsh --help`，只有根命令、`web`、`plugin`），在没有那层封装的
+环境——包括 Windows——执行会直接报错 `error: too many arguments`。Windows 下改用本仓库的
+[`scripts/dsh-service.ps1`](../../scripts/dsh-service.ps1)：
+
+```powershell
+powershell -File scripts/dsh-service.ps1 restart -Profile web
+```
+
 插件自带 `cordis.patch.yml`。手动 Cordis 配置等价于：
 
 ```yaml
