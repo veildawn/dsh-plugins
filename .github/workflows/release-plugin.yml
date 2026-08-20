@@ -61,6 +61,15 @@ jobs:
         with:
           version: 11
 
+      # Several plugins/*/node_modules entries are checked in as symlinks to
+      # a maintainer's local dev profile (e.g. /Users/.../. dsh/profiles/node_modules),
+      # which does not exist on the runner. pnpm then fails trying to create
+      # files under that dangling target. Removing the symlink here is safe:
+      # it only affects this checkout, and pnpm recreates a real node_modules
+      # in its place.
+      - name: Remove local-dev node_modules symlinks
+        run: find plugins -maxdepth 2 -name node_modules -type l -delete
+
       # pnpm-lock.yaml is intentionally gitignored in this repo, so a frozen
       # install is not available here.
       - name: Install Dependencies
