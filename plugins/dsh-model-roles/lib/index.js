@@ -282,9 +282,71 @@ function userMessageText(message) {
 }
 
 const INVALID_SANDBOX_JUSTIFICATION = 'invalid justification: expected a non-empty sentence'
+const SEARCH_RAW_OUTPUT_OVERFLOW = 'SEARCH_RAW_OUTPUT_OVERFLOW'
+
+function smartSandboxJustification(toolName, args) {
+  const mode = typeof args?.sandbox_permissions === 'string'
+    ? args.sandbox_permissions.trim()
+    : ''
+  const description = typeof args?.description === 'string'
+    ? args.description.trim().replace(/[.!。！]+$/gu, '')
+    : ''
+  const operation = description === '' ? `the requested ${toolName} operation` : description
+  return `Smart Mode requests ${mode || 'wider'} sandbox access for this operation: ${operation}.`
+}
+
+/**
+ * Wrap a sandbox-aware tool so a model-supplied blank approval reason cannot
+ * fail before the host approval service gets a chance to show its prompt.
+ * The outer call and its durable arguments stay unchanged; the wrapped tool's
+ * public contract explicitly derives the missing sentence for its delegated
+ * sandbox approval request.
+ */
+export function withSmartSandboxApproval(definition) {
+  const properties = definition?.parameters?.properties
+  if (properties === null || typeof properties !== 'object'
+    || properties.sandbox_permissions === undefined
+    || properties.justification === undefined
+    || typeof definition?.execute !== 'function') return definition
+
+  const justification = properties.justification
+  const detail = typeof justification?.description === 'string'
+    ? justification.description.trim()
+    : ''
+  const description = [
+    detail,
+    'In Smart Mode, an omitted or blank value is replaced with a clear sentence derived from this operation before approval is requested.',
+  ].filter(Boolean).join(' ')
+
+  return {
+    ...definition,
+    parameters: {
+      ...definition.parameters,
+      properties: {
+        ...properties,
+        justification: { ...justification, description },
+      },
+    },
+    async execute(args, exec) {
+      const sandboxPermissions = typeof args?.sandbox_permissions === 'string'
+        ? args.sandbox_permissions.trim()
+        : ''
+      const supplied = typeof args?.justification === 'string'
+        ? args.justification.trim()
+        : ''
+      if (sandboxPermissions === '' || supplied !== '') {
+        return definition.execute(args, exec)
+      }
+      return definition.execute({
+        ...args,
+        justification: smartSandboxJustification(definition.name, args),
+      }, exec)
+    },
+  }
+}
 
 function needsSandboxJustificationRecovery(exec, result) {
-  if (!modelRolesActive(exec?.agent) || isSubagent(exec?.agent) || result?.isError !== true) return false
+  if (!modelRolesActive(exec?.agent) || result?.isError !== true) return false
   if (result.error?.message !== INVALID_SANDBOX_JUSTIFICATION) return false
   const args = exec.arguments
   return args !== null
@@ -311,6 +373,32 @@ function sandboxJustificationRecoveryContext() {
       plugin: NS,
       form: 'notice',
       summary: 'Repair sandbox escalation',
+    },
+  })
+}
+
+function needsSearchNarrowingRecovery(exec, result) {
+  if (!modelRolesActive(exec?.agent) || result?.isError !== true) return false
+  if (result.error?.info?.code === SEARCH_RAW_OUTPUT_OVERFLOW) return true
+  return typeof result.error?.message === 'string'
+    && /produced more raw output than the subprocess seam retained/iu.test(result.error.message)
+}
+
+function searchNarrowingRecoveryContext() {
+  return createUserMessage({
+    content: [{
+      type: 'text',
+      text: [
+        'The file search exceeded its raw-output safety limit; this is recoverable and must not end the task.',
+        'Do not repeat the same broad search.',
+        'Narrow the path to the most relevant source directory and narrow the pattern or include filter to the likely filenames and file types, then retry and continue the plan.',
+      ].join(' '),
+    }],
+    source: {
+      kind: 'plugin',
+      plugin: NS,
+      form: 'notice',
+      summary: 'Narrow overflowing file search',
     },
   })
 }
@@ -375,6 +463,7 @@ export async function apply(ctx, config = {}) {
   const userStopped = new WeakSet()
   const stopTasks = new WeakMap()
   const cancelBridgeDisposers = new Map()
+  const sandboxApprovalDisposers = new Map()
 
   function synchronizeContinuousGoal(agent, shouldArm) {
     const current = ctx.goals.get(agent)
@@ -530,16 +619,66 @@ export async function apply(ctx, config = {}) {
     })
   }
 
-  for (const agent of ctx.agents.list()) installCancelBridge(agent)
-  ctx.on('agent/created', ({ agent }) => installCancelBridge(agent))
+  function installSandboxApprovalBridge(agent) {
+    if (sandboxApprovalDisposers.has(agent)
+      || isSubagent(agent)
+      || agent?.ctx?.agent !== agent
+      || agent.ctx.tools === undefined) return
+    const disposers = []
+    try {
+      for (const schema of agent.ctx.tools.schemas(agent)) {
+        const definition = agent.ctx.tools.get(schema.name, agent)
+        const wrapped = withSmartSandboxApproval(definition)
+        if (wrapped !== definition) disposers.push(agent.ctx.tools.register(wrapped))
+      }
+      sandboxApprovalDisposers.set(agent, disposers)
+    } catch (error) {
+      for (const dispose of disposers.reverse()) dispose()
+      ctx.logger.warn(`model-roles: could not prepare sandbox approvals for agent ${agent.id}`)
+      ctx.logger.warn(error)
+    }
+  }
+
+  function uninstallSandboxApprovalBridge(agent) {
+    const disposers = sandboxApprovalDisposers.get(agent)
+    if (disposers === undefined) return
+    sandboxApprovalDisposers.delete(agent)
+    try {
+      for (const dispose of [...disposers].reverse()) dispose()
+    } catch (error) {
+      ctx.logger.warn(`model-roles: could not remove sandbox approval bridge for agent ${agent.id}`)
+      ctx.logger.warn(error)
+    }
+  }
+
+  function synchronizeSandboxApprovalBridge(agent, active = modelRolesActive(agent)) {
+    if (active) installSandboxApprovalBridge(agent)
+    else uninstallSandboxApprovalBridge(agent)
+  }
+
+  for (const agent of ctx.agents.list()) {
+    installCancelBridge(agent)
+    synchronizeSandboxApprovalBridge(agent)
+  }
+  ctx.on('agent/created', ({ agent }) => {
+    installCancelBridge(agent)
+    synchronizeSandboxApprovalBridge(agent)
+  })
   ctx.on('agent/disposed', ({ agent }) => {
     cancelBridgeDisposers.get(agent)?.()
     cancelBridgeDisposers.delete(agent)
+    uninstallSandboxApprovalBridge(agent)
   })
   ctx.effect(() => () => {
     for (const dispose of cancelBridgeDisposers.values()) dispose()
     cancelBridgeDisposers.clear()
   }, 'model-roles: continuous stop bridge')
+  ctx.effect(() => () => {
+    for (const disposers of sandboxApprovalDisposers.values()) {
+      for (const dispose of [...disposers].reverse()) dispose()
+    }
+    sandboxApprovalDisposers.clear()
+  }, 'model-roles: sandbox approval bridge')
 
   scope.watch((next) => {
     try {
@@ -702,14 +841,18 @@ export async function apply(ctx, config = {}) {
   })
 
   ctx.on('tools/post-execute', async (exec, result, next) => {
-    const recovery = needsSandboxJustificationRecovery(exec, result)
-      ? sandboxJustificationRecoveryContext()
-      : undefined
+    const recoveries = []
+    if (needsSandboxJustificationRecovery(exec, result)) {
+      recoveries.push(sandboxJustificationRecoveryContext())
+    }
+    if (needsSearchNarrowingRecovery(exec, result)) {
+      recoveries.push(searchNarrowingRecoveryContext())
+    }
     const downstream = await next()
-    if (recovery === undefined) return downstream
+    if (recoveries.length === 0) return downstream
     return {
       ...downstream,
-      additionalContexts: [recovery, ...(downstream.additionalContexts ?? [])],
+      additionalContexts: [...recoveries, ...(downstream.additionalContexts ?? [])],
     }
   })
 
@@ -812,6 +955,7 @@ export async function apply(ctx, config = {}) {
     const agent = ctx.agents.get(session.id)
     if (agent === undefined || agent.session !== session) return
     try {
+      synchronizeSandboxApprovalBridge(agent, modelRolesActiveForSession(session))
       synchronizeContinuousGoal(agent,
         settings.continuous.enabled && modelRolesActiveForSession(session))
     } catch (error) {

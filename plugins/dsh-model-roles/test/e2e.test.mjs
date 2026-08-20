@@ -610,6 +610,115 @@ test('smart mode recovers a blank sandbox-escalation justification without endin
   assert.equal(result.additionalContexts[0].source.kind, 'plugin')
   assert.match(result.additionalContexts[0].content[0].text, /Retry the same denied operation/iu)
   assert.match(result.additionalContexts[0].content[0].text, /non-empty sentence/iu)
+
+  const childSession = ctx.sessions.create('continuous-work-invalid-justification-child', {
+    meta: modelRolesMeta({
+      origin: 'subagent',
+      parentSession: session.id,
+      delegationDepth: 1,
+    }),
+  })
+  const childResult = await ctx.tools.execute({
+    callId: 'invalid-justification-child-call',
+    name: 'bash',
+    arguments: {
+      command: 'git status',
+      sandbox_permissions: 'danger-full-access',
+      justification: '',
+    },
+    agent: { ctx, session: childSession, options: { subagentDepth: 1 } },
+    signal: AbortSignal.timeout(5_000),
+  })
+  assert.equal(childResult.additionalContexts?.length, 1)
+  assert.match(childResult.additionalContexts[0].content[0].text, /must not end the task/iu)
+})
+
+test('smart mode derives a non-empty approval reason before sandbox validation', async () => {
+  const { ctx } = await createRuntime([])
+  let executedArgs
+  const base = defineTool({
+    name: 'bash',
+    description: 'Reproduce the host sandbox approval boundary.',
+    parameters: {
+      command: { type: 'string', required: true },
+      description: { type: 'string', required: true },
+      sandbox_permissions: { type: 'string' },
+      justification: { type: 'string' },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    execute(args) {
+      if (args.sandbox_permissions !== undefined && args.justification?.trim() === '') {
+        throw new Error('invalid justification: expected a non-empty sentence')
+      }
+      executedArgs = args
+      return 'approval reached'
+    },
+  })
+  ctx.tools.register(modelRoles.withSmartSandboxApproval(base))
+  const session = ctx.sessions.create('continuous-work-sandbox-approval', {
+    meta: modelRolesMeta(),
+  })
+  const agent = { ctx, session, options: {} }
+
+  const result = await ctx.tools.execute({
+    callId: 'sandbox-approval-call',
+    name: 'bash',
+    arguments: {
+      command: 'git status --short',
+      description: 'Show working tree status',
+      sandbox_permissions: 'workspace-write',
+      justification: '',
+    },
+    agent,
+    signal: AbortSignal.timeout(5_000),
+  })
+
+  assert.equal(result.isError, false)
+  assert.equal(result.content[0].text, 'approval reached')
+  assert.equal(executedArgs.command, 'git status --short')
+  assert.equal(executedArgs.sandbox_permissions, 'workspace-write')
+  assert.match(executedArgs.justification, /workspace-write/iu)
+  assert.match(executedArgs.justification, /Show working tree status/iu)
+})
+
+test('smart mode tells the agent to narrow and retry an overflowing file search', async () => {
+  const { ctx } = await createRuntime([])
+  ctx.tools.register(defineTool({
+    name: 'glob',
+    description: 'Reproduce the host raw search-output limit.',
+    parameters: {
+      path: { type: 'string', required: true },
+      pattern: { type: 'string', required: true },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    execute() {
+      throw new Error('glob produced more raw output than the subprocess seam retained within the 20000000-byte cap; narrow pattern, path, or include and retry')
+    },
+  }))
+  const session = ctx.sessions.create('continuous-work-search-overflow', {
+    meta: modelRolesMeta(),
+  })
+  const agent = { ctx, session, options: {} }
+
+  const result = await ctx.tools.execute({
+    callId: 'search-overflow-call',
+    name: 'glob',
+    arguments: { path: '/workspace', pattern: '*' },
+    agent,
+    signal: AbortSignal.timeout(5_000),
+  })
+
+  assert.equal(result.isError, true)
+  assert.equal(result.additionalContexts?.length, 1)
+  assert.match(result.additionalContexts[0].content[0].text, /must not end the task/iu)
+  assert.match(result.additionalContexts[0].content[0].text, /narrow/iu)
+  assert.match(result.additionalContexts[0].content[0].text, /Do not repeat/iu)
 })
 
 test('user stop pauses continuous work and its subagents, while continue restores the plan', async () => {

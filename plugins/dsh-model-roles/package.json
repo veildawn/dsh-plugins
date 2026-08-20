@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-roles",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Opt-in continuous-work and OMP-style model-role routing for DeepSeek Harness through the 智选模式 Agent Preset",
   "type": "module",
   "main": "lib/index.js",
