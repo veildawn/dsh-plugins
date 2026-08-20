@@ -47,20 +47,11 @@ echo "🧪 正在运行 $PLUGIN 自动化测试..."
 # 2. 打包生成 tgz
 echo "📦 打包 tgz..."
 (cd "$PLUGIN_DIR" && npm pack)
-TGZ_FILE="$PLUGIN_DIR/${PLUGIN}-${VERSION}.tgz"
-if [ ! -f "$TGZ_FILE" ]; then
-  echo "❌ 错误: 期望生成 $TGZ_FILE，实际包列表："
-  ls -1 "$PLUGIN_DIR"/*.tgz 2>/dev/null || true
-  exit 1
-fi
+TGZ_FILE=$(ls "$PLUGIN_DIR"/*.tgz | head -n 1)
 
 # 3. 创建 Git Tag 并推送到 GitHub，触发独立 Release
 echo "🏷️ 创建 Git Tag 并推送..."
-if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-  echo "❌ 错误: Tag $TAG 已存在，拒绝重复发布。"
-  exit 1
-fi
-git tag -a "$TAG" -m "Release $TAG"
+git tag -a "$TAG" -m "Release $TAG" || true
 git push origin "$TAG"
 
 # 4. 同时通过 GitHub CLI 直接发布 Release 并上传 assets
@@ -71,8 +62,8 @@ gh release create "$TAG" "$TGZ_FILE" \
 
 #### 💻 安装命令 (Installation)
 \`\`\`bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/$TAG/$(basename "$TGZ_FILE")
-dsh service restart --profile web
+dsh profile --name web plugin add https://github.com/veildawn/dsh-plugins/releases/download/$TAG/$(basename "$TGZ_FILE")
+dsh service restart
 \`\`\`"
 
 # 清理本地打包 tgz

@@ -2,12 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import {
-  MODEL_ROLES_PRESET_ID,
-  MODEL_ROLES_PRESET_NAME,
   SETTINGS_RPC_CHANNEL,
   apply as applyHost,
   contentHasImage,
-  ensureModelRolesPreset,
   handleSettingsRpc,
 } from '../lib/index.js'
 
@@ -52,7 +49,7 @@ test('browser bundle loads with the expected client services', async () => {
     designer: '设计', commit: '提交', tiny: '轻量后台', task: '任务', advisor: '顾问',
   })
   assert.equal(client.internals.copy.tiny.detail, '用于自动任务分类、会话标题和压缩等 DSH 后台调用。')
-  assert.equal(client.internals.INTRO_TEXT, '只有选择 Agent Preset「智选模式」时才会自动路由模型；其他模式完全保留 DSH 原生模型选择。')
+  assert.equal(client.internals.INTRO_TEXT, '系统会自动为任务选择合适模型；未命中已配置角色时使用当前会话选择的模型。')
   assert.equal(client.internals.ADVISOR_HELP_TEXT, '请先为顾问选择模型。')
   assert.equal(client.internals.statusMessage('ready', true, false), '')
   assert.equal(client.internals.statusMessage('loading', true, false), '正在读取模型与角色配置…')
@@ -115,8 +112,6 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   assert(manifest.files.includes('lib/core.js'))
   assert.equal(manifest.scripts['test:live'], 'node scripts/live-ai-proxy-e2e.mjs')
   assert(manifest.files.includes('scripts/live-ai-proxy-e2e.mjs'))
-  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-agent-presets'], '^0.1.0-rc.6')
-  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-session'], '^0.1.0-rc.6')
   assert.match(patch, /name: dsh-model-roles/)
   assert.match(host, /ctx\.on\('agent\/request'/)
   assert.match(host, /ctx\.commands\.register/)
@@ -126,25 +121,6 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   assert.match(client, /connectionRpc\.call/)
   assert.match(client, /api\.settings\.(?:describe|replace)/)
   assert.doesNotMatch(client, /conversation\.input\.left|ModelRoleSelect|ROLE_SLOT|"subagent"|子代理角色（兼容）/)
-})
-
-test('the opt-in preset is provisioned once as a named copy of Standard Mode', async () => {
-  const copies = []
-  let presets = [{ id: 'standard' }]
-  const roster = {
-    authorable: true,
-    async list() { return presets },
-    async copy(from, id, name) {
-      copies.push({ from, id, name })
-      presets = [...presets, { id }]
-    },
-  }
-  assert.equal(await ensureModelRolesPreset(roster), true)
-  assert.deepEqual(copies, [{
-    from: 'standard', id: MODEL_ROLES_PRESET_ID, name: MODEL_ROLES_PRESET_NAME,
-  }])
-  assert.equal(await ensureModelRolesPreset(roster), false)
-  assert.equal(copies.length, 1)
 })
 
 test('loopback settings RPC exposes and revision-checks the plugin namespace', async () => {
@@ -205,13 +181,7 @@ test('host registers advisor control and delegates image requests before main ro
     advisor: { enabled: false, subagents: false, provider: 'spawn', maxTranscriptChars: 60000 },
   }
   const ctx = {
-    logger: { error() {}, warn() {} },
-    agentPresets: {
-      authorable: true,
-      async list() { return [{ id: 'model-roles' }] },
-      async copy() { assert.fail('existing model-roles preset must not be copied') },
-    },
-    sessions: { get() { return undefined } },
+    logger: { error() {} },
     settings: {
       writable: true,
       describe: () => [{ ns: 'model-roles', value: section, revision: 0 }],
@@ -260,7 +230,7 @@ test('host registers advisor control and delegates image requests before main ro
       return () => {}
     },
   }
-  await applyHost(ctx)
+  applyHost(ctx)
   assert.equal(typeof watcher, 'function')
   const requestListener = listeners.get('agent/request')
   const preStepListener = listeners.get('agent/pre-step')
@@ -272,7 +242,6 @@ test('host registers advisor control and delegates image requests before main ro
     options: {},
     session: {
       events: [],
-      header: { agentPreset: 'model-roles' },
       deriveMessages: () => [{ role: 'user', content: [{ type: 'image' }] }],
     },
   }
@@ -297,24 +266,6 @@ test('host registers advisor control and delegates image requests before main ro
     provider: 'native', model: 'text', maxTokens: 100,
   })), {
     provider: 'native', model: 'text', maxTokens: 100,
-  })
-
-  const standardAgent = {
-    options: {},
-    session: { events: [], header: { agentPreset: 'standard' } },
-  }
-  const standardDecision = await preStepListener({
-    agent: standardAgent,
-    turn: 1,
-    signal: AbortSignal.timeout(5_000),
-  }, async () => ({
-    kind: 'enter',
-    messages: [{ role: 'user', content: [{ type: 'image' }] }],
-  }))
-  assert.equal(starts.length, 1)
-  assert.equal(contentHasImage(standardDecision.messages[0].content), true)
-  assert.deepEqual(commands.get('advisor').handler({ agent: standardAgent, rawInput: 'on' }), {
-    kind: 'error', text: '顾问复核仅在「智选模式」中可用。',
   })
 })
 test('client settingsRequest falls back to api.settings on HTTP 403', async () => {

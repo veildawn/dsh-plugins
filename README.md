@@ -8,7 +8,7 @@
 
 | 插件名称 | 目录 | 说明 | 最新独立版本 |
 | :--- | :--- | :--- | :--- |
-| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 通过「智选模式」按需启用模型角色路由、自动分工、识图子代理、计划模式与顾问复核 | [`v0.5.1`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.5.1) |
+| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.7`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.7) |
 | **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.5) |
 | **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接与 LLM Provider 插件（支持 Chat/completions、Anthropic messages、Responses 多格式智能匹配、OAuth 2.0 PKCE 认证、Token 刷新与阶梯推理） | [`v0.2.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.2.5) |
 | **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相机相册上传按钮、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、创造/PTC/标准/极简模式状态、文件查看器抽屉适配） | [`v0.1.12`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.12) |
@@ -23,7 +23,7 @@
 
 ```bash
 # 1. 安装模型角色分工插件 (多模型智能路由与识图子代理)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.5.1/dsh-model-roles-0.5.1.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.7/dsh-model-roles-0.4.7.tgz
 
 # 2. 安装远程安全通道插件 (推荐所有公网/局域网部署安装)
 dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.5/dsh-remote-control-0.1.5.tgz
@@ -63,7 +63,7 @@ dsh service restart --profile web
 ### 方式 1：使用一键发布脚本 (推荐)
 ```bash
 # 格式: ./scripts/release.sh <插件目录名> [版本号(可选)]
-./scripts/release.sh dsh-model-roles 0.5.1
+./scripts/release.sh dsh-model-roles 0.4.7
 ./scripts/release.sh dsh-remote-control 0.1.5
 ./scripts/release.sh dsh-ai-proxy 0.2.4
 ./scripts/release.sh dsh-mobile-adapter 0.1.12

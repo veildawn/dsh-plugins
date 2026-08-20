@@ -43,7 +43,7 @@ window.__ModuleLoader__.load({
       task: { title: "任务", detail: "DSH 委派创建的子代理自动使用；未配置时使用当前会话模型。" },
       advisor: { title: "顾问", detail: "顾问复核开启后，DSH 会启动独立子代理评审每个已完成回合，并将重要建议送回主会话。" },
     };
-    const INTRO_TEXT = "只有选择 Agent Preset「智选模式」时才会自动路由模型；其他模式完全保留 DSH 原生模型选择。";
+    const INTRO_TEXT = "系统会自动为任务选择合适模型；未命中已配置角色时使用当前会话选择的模型。";
     const ADVISOR_HELP_TEXT = "请先为顾问选择模型。";
     const css = `
       .mr-page{display:flex;flex-direction:column;gap:14px;width:100%;max-width:780px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
@@ -190,6 +190,7 @@ window.__ModuleLoader__.load({
         }, []);
 
         const byRole = routeMap(roles);
+        const custom = roles.filter((route) => !BUILTIN.includes(route.role));
         const modelRows = rowsFromGroups(groups);
         const dirty = JSON.stringify({ roles, advisor }) !== saved;
         const validation = validateRoles(roles);
@@ -218,6 +219,17 @@ window.__ModuleLoader__.load({
           });
         };
 
+        const addPreset = () => {
+          let suffix = 1;
+          while (byRole.has(`preset-${suffix}`)) suffix++;
+          setRoles((current) => [...current, { role: `preset-${suffix}`, provider: "", model: "", reasoningEffort: "" }]);
+        };
+
+        const renameCustom = (oldRole, nextValue) => {
+          const nextRole = normalizeRole(nextValue);
+          setRoles((current) => current.map((entry) => entry.role === oldRole ? { ...entry, role: nextRole } : entry));
+        };
+
         const save = async () => {
           if (validation || !dirty || !writable) return;
           setSaving(true);
@@ -236,12 +248,12 @@ window.__ModuleLoader__.load({
           } finally { setSaving(false); }
         };
 
-        function RoleCard({ role }) {
+        function RoleCard({ role, customRole }) {
           const route = byRole.get(role);
           const selected = route ? modelRows.find(({ group, model }) => group.id === route.provider && model.id === route.model) : null;
           const efforts = selected?.model?.reasoning?.efforts || [];
-          const title = copy[role].title;
-          const detail = copy[role].detail;
+          const title = customRole ? "Preset" : copy[role].title;
+          const detail = customRole ? "当 Agent Preset ID 与此角色 ID 相同时自动使用。" : copy[role].detail;
           const modelOptions = groups.map((group) => react.createElement("optgroup", { label: group.name, key: group.id },
             ...group.models.map((model) => {
               const visionUnsupported = role === "vision" && Array.isArray(model.inputModalities) && !model.inputModalities.includes("image");
@@ -256,7 +268,11 @@ window.__ModuleLoader__.load({
             react.createElement("div", { className: "mr-card-head" },
               react.createElement("div", null,
                 react.createElement("h3", { className: "mr-title" }, title),
-                react.createElement("p", { className: "mr-detail" }, detail))),
+                react.createElement("p", { className: "mr-detail" }, detail)),
+              customRole ? react.createElement("button", { className: "mr-button mr-danger", type: "button", disabled: saving, onClick: () => setRoute(role, null) }, "删除") : null),
+            customRole ? react.createElement("label", { className: "mr-field" },
+              react.createElement("span", { className: "mr-label" }, "角色 ID（须与 Agent Preset ID 一致）"),
+              react.createElement("input", { className: "mr-input", value: role, disabled: saving, onChange: (event) => renameCustom(role, event.target.value), "aria-label": `${role} 角色 ID` })) : null,
             react.createElement("div", { className: "mr-grid" },
               react.createElement("label", { className: "mr-field" },
                 react.createElement("span", { className: "mr-label" }, "模型"),
@@ -300,8 +316,10 @@ window.__ModuleLoader__.load({
                 react.createElement("input", { className: "mr-input", type: "number", min: 1000, max: 1000000, step: 1000, value: advisor.maxTranscriptChars, disabled: saving, onChange: (event) => setAdvisor((current) => ({ ...current, maxTranscriptChars: Math.min(1000000, Math.max(1000, Number(event.target.value) || 60000)) })) })))),
           failures.length ? react.createElement("div", { className: "mr-warning" }, `有 ${failures.length} 个模型 Provider 目录加载失败；其余 Provider 仍可配置。`) : null,
           react.createElement("div", { className: "mr-list" },
-            ...BUILTIN.map((role) => react.createElement(RoleCard, { role, key: role }))),
+            ...BUILTIN.map((role) => react.createElement(RoleCard, { role, key: role })),
+            ...custom.map((route) => react.createElement(RoleCard, { role: route.role, customRole: true, key: route.role }))),
           react.createElement("div", { className: "mr-actions" },
+            react.createElement("button", { className: "mr-button", type: "button", disabled: saving || !writable, onClick: addPreset }, "添加 Preset"),
             react.createElement("button", { className: "mr-button", type: "button", disabled: saving || !dirty, onClick: load }, "撤销"),
             react.createElement("button", { className: "mr-button mr-primary", type: "button", disabled: saving || !writable || !dirty || Boolean(validation), onClick: save }, saving ? "保存中…" : "保存")),
           statusText ? react.createElement("p", { className: "mr-status", role: "status", "aria-live": "polite" }, statusText) : null);
