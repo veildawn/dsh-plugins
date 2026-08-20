@@ -52,8 +52,7 @@ test('browser bundle loads with the expected client services', async () => {
     designer: '设计', commit: '提交', tiny: '轻量后台', task: '任务', advisor: '顾问',
   })
   assert.equal(client.internals.copy.tiny.detail, '用于自动任务分类、会话标题和压缩等 DSH 后台调用。')
-  assert.equal(client.internals.INTRO_TEXT, '只有选择 Agent Preset「智选模式」时才会自动路由模型并持续完成未结任务；其他模式完全保留 DSH 原生行为。')
-  assert.match(client.internals.CONTINUOUS_HELP_TEXT, /DSH 原生 Goal/u)
+  assert.equal(client.internals.INTRO_TEXT, '只有选择 Agent Preset「智选模式」时才会自动路由模型；其他模式完全保留 DSH 原生模型选择。')
   assert.equal(client.internals.ADVISOR_HELP_TEXT, '请先为顾问选择模型。')
   assert.equal(client.internals.statusMessage('ready', true, false), '')
   assert.equal(client.internals.statusMessage('loading', true, false), '正在读取模型与角色配置…')
@@ -117,13 +116,8 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   assert.equal(manifest.scripts['test:live'], 'node scripts/live-ai-proxy-e2e.mjs')
   assert(manifest.files.includes('scripts/live-ai-proxy-e2e.mjs'))
   assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-agent-presets'], '^0.1.0-rc.6')
-  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-goal'], '^0.1.0-rc.6')
   assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-session'], '^0.1.0-rc.6')
-  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-system-prompt'], '^0.1.0-rc.6')
-  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-tools'], '^0.1.0-rc.6')
-  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-subagent'], '^0.1.0-rc.8')
   assert.match(patch, /name: dsh-model-roles/)
-  assert.match(patch, /continuous:\n\s+enabled: true\n\s+maxGoalRounds: 32/u)
   assert.match(host, /ctx\.on\('agent\/request'/)
   assert.match(host, /ctx\.commands\.register/)
   assert.match(host, /llm\/stream/)
@@ -233,7 +227,6 @@ test('host registers advisor control and delegates image requests before main ro
     commands: {
       register(definition) { commands.set(definition.name, definition); return () => {} },
     },
-    agents: { list: () => [], get: () => undefined },
     llm: { stream() { throw new Error('not exercised') } },
     subagents: {
       async start(provider, request) {
@@ -264,10 +257,6 @@ test('host registers advisor control and delegates image requests before main ro
     },
     on(name, listener) {
       listeners.set(name, listener)
-      return () => {}
-    },
-    effect(install) {
-      install()
       return () => {}
     },
   }

@@ -27,18 +27,6 @@ export const ROLE_ID_PATTERN = /^[a-z][a-z0-9_-]*$/u
 export const ADVISOR_COMMAND = 'advisor'
 export const MODEL_ROLES_PRESET_ID = 'model-roles'
 export const MODEL_ROLES_PRESET_NAME = '智选模式'
-export const CONTINUOUS_GOAL_EVENT = 'model-roles/continuous-goal'
-export const CONTINUOUS_WORK_SYSTEM = [
-  'Smart Mode continuous-work policy:',
-  '- For a multi-step objective, use todo_write and keep working until every item is completed.',
-  '- An unfinished todo is a commitment, not decoration. Do not give a final answer while a current-turn todo is pending or in progress.',
-  '- Resolve discoverable facts with the available read, search, and inspection tools. Do not ask the user for paths or facts you can discover safely.',
-  '- Diagnose recoverable tool failures and try a safe alternative instead of stopping.',
-  '- For a sandbox escalation, set sandbox_permissions only after the same operation was denied, and always pair it with a non-empty one-sentence justification. If justification validation fails, retry once: remove both fields when there was no denial, otherwise keep the requested permission and provide the required sentence.',
-  '- If an unfinished todo reaches the end of a turn, Smart Mode may create a bounded native Goal so work can continue in later rounds.',
-  '- During Goal Rounds, follow the goal-tool policy: complete only after all work is verified, and report blocked only for a genuine persistent blocker.',
-  '- Do not invent extra work. Once the objective and every todo are verified complete, conclude promptly.',
-].join('\n')
 export const AUTOMATIC_TASK_ROLES = Object.freeze([
   'default',
   'smol',
@@ -207,72 +195,6 @@ export function taskTextOf(agent) {
     return text
   }
   return continuation
-}
-
-/** Latest unfinished checklist written inside one still-open physical turn. */
-export function unfinishedTodosForTurn(events = [], turn) {
-  if (!Number.isSafeInteger(turn) || turn < 1) return []
-  let inside = false
-  let latest
-  for (const event of events) {
-    if (event?.type === 'turn/start') {
-      if (event.data?.turn === turn) {
-        inside = true
-        latest = undefined
-      } else if (inside) {
-        break
-      }
-      continue
-    }
-    if (!inside) continue
-    if (event?.type === 'turn/end' && event.data?.turn === turn) break
-    if (event?.type === 'todo/write' && Array.isArray(event.data?.todos)) {
-      latest = event.data.todos
-    }
-  }
-  if (!Array.isArray(latest)) return []
-  return latest.filter((todo) => todo !== null
-    && typeof todo === 'object'
-    && (todo.status === 'pending' || todo.status === 'in_progress'))
-}
-
-/** Carry the previous standing plan into a continuation turn unless it was already replanned. */
-export function todosToCarryIntoContinuation(events = []) {
-  let turnStart = -1
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    if (events[index]?.type === 'turn/start') {
-      turnStart = index
-      break
-    }
-  }
-  if (turnStart < 0) return []
-  if (events.slice(turnStart + 1).some((event) => event?.type === 'todo/write')) return []
-
-  for (let index = turnStart - 1; index >= 0; index -= 1) {
-    const todos = events[index]?.type === 'todo/write' ? events[index].data?.todos : undefined
-    if (!Array.isArray(todos)) continue
-    if (!todos.some((todo) => todo?.status === 'pending' || todo?.status === 'in_progress')) return []
-    return todos.map((todo) => ({ content: todo.content, status: todo.status }))
-  }
-  return []
-}
-
-/** Build the native Goal request that keeps unfinished Smart Mode work alive. */
-export function continuousGoalRequest(agent, turn, continuous = {}) {
-  if (continuous.enabled !== true || !modelRolesActive(agent) || isSubagent(agent)) return undefined
-  if (unfinishedTodosForTurn(agent?.session?.events, turn).length === 0) return undefined
-  const objective = taskTextOf(agent).trim()
-  if (objective === '') return undefined
-  const maxGoalRounds = continuous.maxGoalRounds
-  if (!Number.isSafeInteger(maxGoalRounds) || maxGoalRounds < 1) return undefined
-  return { objective, maxGoalRounds }
-}
-
-/** Whether the exact native Goal was created by this plugin's continuous-work policy. */
-export function continuousGoalOwnedByPlugin(events = [], goalId) {
-  if (typeof goalId !== 'string' || goalId === '') return false
-  return events.some((event) => event?.type === CONTINUOUS_GOAL_EVENT
-    && event.data?.goalId === goalId)
 }
 
 /** Accept only one exact, classifier-owned main-task role token. */
