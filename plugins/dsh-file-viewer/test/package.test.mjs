@@ -481,6 +481,24 @@ test('source views can be soft wrapped from the toolbar', () => {
   assert.match(source, /\.fv-icon-button\[aria-pressed="true"\]\{background:/)
 })
 
+test('drawer supports fullscreen toggle on PC and hides it on mobile', () => {
+  const source = read('lib/client.js')
+
+  // Fullscreen state
+  assert.match(source, /const \[fullscreen, setFullscreen\] = react\.useState\(false\)/)
+
+  // Fullscreen button in header
+  assert.match(source, /className: "fv-icon-button fv-btn-fullscreen"/)
+  assert.match(source, /"aria-label": fullscreen \? "退出全屏" : "全屏"/)
+  assert.match(source, /"aria-pressed": fullscreen \? "true" : "false"/)
+
+  // PC CSS attributes & transitions
+  assert.match(source, /\.fv-shell\[data-fullscreen="true"\]\{width:100vw;border-left:none\}/)
+
+  // Hidden on mobile
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-btn-fullscreen\{display:none!important\}/)
+})
+
 test('the phone entry survives a session with no messages', () => {
   const source = read('lib/client.js')
 

@@ -23,7 +23,25 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
     const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
-    const { ReadBlock, MarkdownText, JsonTree, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16, writeClipboard } = primitives;
+    const { ReadBlock, MarkdownText, JsonTree, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16, IconFullscreenOutline16, writeClipboard } = primitives;
+
+    const IconFullscreenExitOutline16 = ({ size = 16, className }) => react.createElement("svg", {
+      width: size,
+      height: size,
+      className,
+      viewBox: "0 0 16 16",
+      fill: "none",
+      xmlns: "http://www.w3.org/2000/svg",
+    },
+      react.createElement("path", {
+        d: "M6.59167 8.33777L2.58875 12.3407L1.19324 10.9452V15.8906H6.13854V14.4951L1.79869 14.4951L5.80162 10.4922L6.87291 11.5625L6.59167 8.33777Z",
+        fill: "currentColor",
+      }),
+      react.createElement("path", {
+        d: "M9.40808 7.66296L13.411 3.66003L14.8065 5.05457V0.109238H9.86121V1.50475L14.2011 1.50475L10.1981 5.50768L9.12684 4.43737L9.40808 7.66296Z",
+        fill: "currentColor",
+      })
+    );
 
     async function copyToClipboard(text) {
       if (typeof writeClipboard === "function") {
@@ -75,7 +93,8 @@ window.__ModuleLoader__.load({
 
     const css = `
       .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:color-mix(in srgb,#000 32%,transparent);pointer-events:auto;color-scheme:light dark;animation:fv-fade .16s ease-out}
-      .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1)}
+      .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1);transition:width .2s cubic-bezier(.2,.8,.2,1)}
+      .fv-shell[data-fullscreen="true"]{width:100vw;border-left:none}
       @keyframes fv-fade{from{opacity:0}to{opacity:1}}
       @keyframes fv-slide{from{transform:translateX(100%)}to{transform:translateX(0)}}
       @media(prefers-reduced-motion:reduce){.fv-scrim,.fv-shell{animation:none}}
@@ -185,7 +204,8 @@ window.__ModuleLoader__.load({
         }
         /* 44px is the smallest comfortable touch target. */
         .fv-mention{width:44px;height:44px;margin-right:2px;opacity:1}
-        .fv-shell{width:100%;border-left:none}
+        .fv-shell{width:100%!important;border-left:none!important}
+        .fv-btn-fullscreen{display:none!important}
         .fv-tree{width:100%;border-right:none}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}
         .fv-crumbs{font-size:11px}
@@ -1029,6 +1049,7 @@ window.__ModuleLoader__.load({
         // Soft wrap for source views. Off by default: code is written with
         // meaningful line breaks and wrapping obscures them.
         const [wrap, setWrap] = react.useState(false);
+        const [fullscreen, setFullscreen] = react.useState(false);
         const [contextMenu, setContextMenu] = react.useState(null);
         const [toast, setToast] = react.useState(null);
         const toastTimer = react.useRef(null);
@@ -1218,7 +1239,7 @@ window.__ModuleLoader__.load({
             openStore.set(null);
           },
         },
-          react.createElement("div", { className: "fv-shell" },
+          react.createElement("div", { className: "fv-shell", "data-fullscreen": fullscreen ? "true" : "false" },
             react.createElement("div", { className: "fv-head" },
               react.createElement("span", { className: "fv-title" }, "文件"),
               roots.length > 1
@@ -1255,6 +1276,16 @@ window.__ModuleLoader__.load({
                 title: hidden ? "隐藏点文件" : "显示点文件",
                 onClick: () => setHidden((current) => !current),
               }, react.createElement("span", { "aria-hidden": "true" }, "\u00B7*")),
+              react.createElement("button", {
+                type: "button",
+                className: "fv-icon-button fv-btn-fullscreen",
+                "aria-pressed": fullscreen ? "true" : "false",
+                "aria-label": fullscreen ? "退出全屏" : "全屏",
+                title: fullscreen ? "退出全屏" : "全屏",
+                onClick: () => setFullscreen((current) => !current),
+              }, fullscreen
+                ? (typeof IconFullscreenExitOutline16 === "function" ? react.createElement(IconFullscreenExitOutline16, { size: 16 }) : react.createElement("span", { "aria-hidden": "true" }, "\u2922"))
+                : (IconFullscreenOutline16 ? react.createElement(IconFullscreenOutline16, { size: 16 }) : react.createElement("span", { "aria-hidden": "true" }, "\u26F6"))),
               react.createElement("button", {
                 type: "button", className: "fv-icon-button", "aria-label": "关闭", onClick: () => openStore.set(null),
               }, IconCloseOutline16
