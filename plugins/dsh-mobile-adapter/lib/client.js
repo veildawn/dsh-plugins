@@ -266,6 +266,51 @@ window.__ModuleLoader__.load({
       }
     `
 
+    const PERMISSION_I18N = {
+      'workspace-write': '工作区写入',
+      'Workspace Write': '工作区写入',
+      'read-only': '只读',
+      'Read Only': '只读',
+      'danger-full-access': '完全访问',
+      'Full access': '完全访问',
+      'Full Access': '完全访问',
+      'custom': '自定义',
+      'Custom': '自定义',
+    }
+
+    function localizePermission(text) {
+      if (!text) return ''
+      return PERMISSION_I18N[text] || text
+    }
+
+    function localizeDomPermissions(doc) {
+      try {
+        // 1. 输入栏权限按钮文案
+        const labels = doc.querySelectorAll('.Sh0Q9G_triggerLabel, [data-composer-card] button[class*="triggerLabel"]')
+        for (const el of labels) {
+          const t = el.textContent?.trim()
+          if (t && PERMISSION_I18N[t]) el.textContent = PERMISSION_I18N[t]
+        }
+        // 2. 设置页面中的权限选择器按钮文案
+        const selectors = doc.querySelectorAll('.oY77xG_selector, [data-slot*="permission"] select, [data-slot*="permission"] button')
+        for (const el of selectors) {
+          const child = el.firstChild
+          if (child && child.nodeType === 3) {
+            const t = child.nodeValue?.trim()
+            if (t && PERMISSION_I18N[t]) child.nodeValue = PERMISSION_I18N[t] + ' '
+          }
+        }
+        // 3. 弹出的权限选项菜单
+        const menuItems = doc.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] li, [role="menu"] span')
+        for (const el of menuItems) {
+          if (el.children.length === 0) {
+            const t = el.textContent?.trim()
+            if (t && PERMISSION_I18N[t]) el.textContent = PERMISSION_I18N[t]
+          }
+        }
+      } catch (_) {}
+    }
+
     function titleOf(doc) {
       const current = doc.querySelector('[data-slot="conversation.session.header"] nav button:disabled')
       return current?.textContent?.trim() || '新会话'
@@ -277,9 +322,10 @@ window.__ModuleLoader__.load({
       const preset = (doc.querySelector('[data-slot="conversation.session.header"] .SVAs4q_label')
         || doc.querySelector('[data-slot="conversation.hero.agentPreset"]'))?.textContent?.trim().replace(/\s+/g, ' ')
       const permissionTrigger = doc.querySelector('.Sh0Q9G_trigger, [data-composer-card] button[aria-label*="权限"], [data-composer-card] button[aria-label*="permission" i]')
-      const permission = doc.querySelector('.Sh0Q9G_triggerLabel')?.textContent?.trim()
+      const rawPermission = doc.querySelector('.Sh0Q9G_triggerLabel')?.textContent?.trim()
         || permissionTrigger?.textContent?.trim()
         || permissionTrigger?.getAttribute('aria-label')?.replace(/^(?:权限|permission)\s*[:：]?\s*/i, '').trim()
+      const permission = localizePermission(rawPermission)
       const placeholder = doc.querySelector('[data-composer-card] textarea')?.getAttribute('placeholder') || ''
       const plan = doc.querySelector('.rS3zOq_chip') != null || /(计划|plan)/i.test(placeholder)
       return {
@@ -529,6 +575,7 @@ window.__ModuleLoader__.load({
         status.dataset.running = state.running ? 'true' : 'false'
         status.dataset.plan = state.plan ? 'true' : 'false'
         status.dataset.preset = state.preset || ''
+        localizeDomPermissions(doc)
         view.hidden = !mobile || trajectory == null
         if (view.textContent !== (inTrajectory ? '← 对话' : '⌁ 轨迹')) view.textContent = inTrajectory ? '← 对话' : '⌁ 轨迹'
         const nextViewLabel = inTrajectory ? '关闭轨迹，返回对话' : '查看轨迹'

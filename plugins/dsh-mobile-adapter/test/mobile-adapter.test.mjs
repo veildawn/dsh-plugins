@@ -483,6 +483,16 @@ test('Agent preset is extracted from active headers and new-session hero seats',
   active.permission.textContent = '完全访问'
   assert.equal(client.internals.statusOf(active).text, '运行中 · PTC 模式 · 完全访问')
 
+  // English fallback from host 0.1.1-rc.2 (Workspace Write / Read Only / Full access)
+  active.permission.textContent = 'Workspace Write'
+  assert.equal(client.internals.statusOf(active).text, '运行中 · PTC 模式 · 工作区写入')
+
+  active.permission.textContent = 'Read Only'
+  assert.equal(client.internals.statusOf(active).text, '运行中 · PTC 模式 · 只读')
+
+  active.permission.textContent = 'Full access'
+  assert.equal(client.internals.statusOf(active).text, '运行中 · PTC 模式 · 完全访问')
+
   active.sessionPreset = '  创造模式  '
   active.plan = true
   assert.equal(client.internals.statusOf(active).text, '运行中 · 创造模式 · 完全访问 [计划]')
