@@ -131,6 +131,53 @@ window.__ModuleLoader__.load({
       };
     }
 
+    function RoleCard(props) {
+      const {
+        role, customRole, route, modelRows, groups, saving,
+        onSetRoute, onChangeModel, onRenameCustom,
+      } = props;
+      const selected = route ? modelRows.find(({ group, model }) => group.id === route.provider && model.id === route.model) : null;
+      const efforts = selected?.model?.reasoning?.efforts || [];
+      const title = customRole ? "Preset" : copy[role].title;
+      const detail = customRole ? "当 Agent Preset ID 与此角色 ID 相同时自动使用。" : copy[role].detail;
+      const modelOptions = groups.map((group) => react.createElement("optgroup", { label: group.name, key: group.id },
+        ...group.models.map((model) => {
+          const visionUnsupported = role === "vision" && Array.isArray(model.inputModalities) && !model.inputModalities.includes("image");
+          return react.createElement("option", {
+            key: model.id, value: modelKey(group.id, model.id), disabled: visionUnsupported,
+          }, visionUnsupported ? `${model.name}（不支持图片）` : model.name);
+        })));
+      const effortOptions = efforts.map((effort) => react.createElement("option", {
+        key: effort.id, value: effort.id,
+      }, effort.name));
+      return react.createElement("section", { className: "mr-card", key: role },
+        react.createElement("div", { className: "mr-card-head" },
+          react.createElement("div", null,
+            react.createElement("h3", { className: "mr-title" }, title),
+            react.createElement("p", { className: "mr-detail" }, detail)),
+          customRole ? react.createElement("button", { className: "mr-button mr-danger", type: "button", disabled: saving, onClick: () => onSetRoute(role, null) }, "删除") : null),
+        customRole ? react.createElement("label", { className: "mr-field" },
+          react.createElement("span", { className: "mr-label" }, "角色 ID（须与 Agent Preset ID 一致）"),
+          react.createElement("input", { className: "mr-input", value: role, disabled: saving, onChange: (event) => onRenameCustom(role, event.target.value), "aria-label": `${role} 角色 ID` })) : null,
+        react.createElement("div", { className: "mr-grid" },
+          react.createElement("label", { className: "mr-field" },
+            react.createElement("span", { className: "mr-label" }, "模型"),
+            react.createElement("select", {
+              className: "mr-select", value: route ? modelKey(route.provider, route.model) : "", disabled: saving,
+              onChange: (event) => onChangeModel(role, event.target.value), "aria-label": `${role} 模型`,
+            },
+            react.createElement("option", { value: "" }, role === "tiny" ? "继承快速角色 / 使用会话模型" : "使用当前会话模型"),
+            ...modelOptions)),
+          react.createElement("label", { className: "mr-field" },
+            react.createElement("span", { className: "mr-label" }, "思考档位"),
+            react.createElement("select", {
+              className: "mr-select", value: route?.reasoningEffort || "", disabled: !route || efforts.length === 0 || saving,
+              onChange: (event) => onSetRoute(role, { reasoningEffort: event.target.value }), "aria-label": `${role} 思考档位`,
+            },
+            react.createElement("option", { value: "" }, "模型默认"),
+            ...effortOptions))));
+    }
+
     function apply(ctx) {
       if (typeof document !== "undefined" && !document.getElementById(NAV_STYLE_ID)) {
         const style = document.createElement("style");
@@ -150,10 +197,13 @@ window.__ModuleLoader__.load({
         const [advisor, setAdvisor] = react.useState({ enabled: false, subagents: false, provider: "spawn", maxTranscriptChars: 60000 });
         const [saved, setSaved] = react.useState("");
         const [saving, setSaving] = react.useState(false);
+        const dirtyRef = react.useRef(false);
 
-        const load = async () => {
-          setStatus("loading");
-          setError("");
+        const load = async (silent = false) => {
+          if (!silent) {
+            setStatus("loading");
+            setError("");
+          }
           try {
             const [settingsView, modelsResponse] = await Promise.all([
               settingsRequest("describe", {}, props.api), props.api.llm.models({}),
@@ -168,20 +218,24 @@ window.__ModuleLoader__.load({
             setRevision(settingsView.revision);
             setGroups(modelsResponse.result.value.groups || []);
             setFailures(modelsResponse.result.value.failures || []);
-            setRoles(next);
-            setAdvisor(nextAdvisor);
-            setSaved(JSON.stringify({ roles: next, advisor: nextAdvisor }));
+            if (!silent || !dirtyRef.current) {
+              setRoles(next);
+              setAdvisor(nextAdvisor);
+              setSaved(JSON.stringify({ roles: next, advisor: nextAdvisor }));
+            }
             setStatus("ready");
           } catch (cause) {
-            setStatus("error");
-            setError(cause instanceof Error ? cause.message : String(cause));
+            if (!silent) {
+              setStatus("error");
+              setError(cause instanceof Error ? cause.message : String(cause));
+            }
           }
         };
 
         react.useEffect(() => {
           let active = true;
-          const reload = () => { if (active) void load(); };
-          void load();
+          const reload = () => { if (active) void load(true); };
+          void load(false);
           const stops = [
             ctx.remote.$on("llm/adapters-updated", reload),
             ctx.remote.$on("settings/document-updated", (ns) => { if (ns === NS) reload(); }),
@@ -193,6 +247,7 @@ window.__ModuleLoader__.load({
         const custom = roles.filter((route) => !BUILTIN.includes(route.role));
         const modelRows = rowsFromGroups(groups);
         const dirty = JSON.stringify({ roles, advisor }) !== saved;
+        dirtyRef.current = dirty;
         const validation = validateRoles(roles);
         const feedback = error || validation;
         const statusText = statusMessage(status, writable, dirty);
@@ -242,55 +297,11 @@ window.__ModuleLoader__.load({
             await settingsRequest("replace", {
               section: { roles: normalized, advisor }, expectedRevision: revision,
             }, props.api);
-            await load();
+            await load(false);
           } catch (cause) {
             setError(cause instanceof Error ? cause.message : String(cause));
           } finally { setSaving(false); }
         };
-
-        function RoleCard({ role, customRole }) {
-          const route = byRole.get(role);
-          const selected = route ? modelRows.find(({ group, model }) => group.id === route.provider && model.id === route.model) : null;
-          const efforts = selected?.model?.reasoning?.efforts || [];
-          const title = customRole ? "Preset" : copy[role].title;
-          const detail = customRole ? "当 Agent Preset ID 与此角色 ID 相同时自动使用。" : copy[role].detail;
-          const modelOptions = groups.map((group) => react.createElement("optgroup", { label: group.name, key: group.id },
-            ...group.models.map((model) => {
-              const visionUnsupported = role === "vision" && Array.isArray(model.inputModalities) && !model.inputModalities.includes("image");
-              return react.createElement("option", {
-                key: model.id, value: modelKey(group.id, model.id), disabled: visionUnsupported,
-              }, visionUnsupported ? `${model.name}（不支持图片）` : model.name);
-            })));
-          const effortOptions = efforts.map((effort) => react.createElement("option", {
-            key: effort.id, value: effort.id,
-          }, effort.name));
-          return react.createElement("section", { className: "mr-card", key: role },
-            react.createElement("div", { className: "mr-card-head" },
-              react.createElement("div", null,
-                react.createElement("h3", { className: "mr-title" }, title),
-                react.createElement("p", { className: "mr-detail" }, detail)),
-              customRole ? react.createElement("button", { className: "mr-button mr-danger", type: "button", disabled: saving, onClick: () => setRoute(role, null) }, "删除") : null),
-            customRole ? react.createElement("label", { className: "mr-field" },
-              react.createElement("span", { className: "mr-label" }, "角色 ID（须与 Agent Preset ID 一致）"),
-              react.createElement("input", { className: "mr-input", value: role, disabled: saving, onChange: (event) => renameCustom(role, event.target.value), "aria-label": `${role} 角色 ID` })) : null,
-            react.createElement("div", { className: "mr-grid" },
-              react.createElement("label", { className: "mr-field" },
-                react.createElement("span", { className: "mr-label" }, "模型"),
-                react.createElement("select", {
-                  className: "mr-select", value: route ? modelKey(route.provider, route.model) : "", disabled: saving || status === "loading",
-                  onChange: (event) => changeModel(role, event.target.value), "aria-label": `${role} 模型`,
-                },
-                react.createElement("option", { value: "" }, role === "tiny" ? "继承快速角色 / 使用会话模型" : "使用当前会话模型"),
-                ...modelOptions)),
-              react.createElement("label", { className: "mr-field" },
-                react.createElement("span", { className: "mr-label" }, "思考档位"),
-                react.createElement("select", {
-                  className: "mr-select", value: route?.reasoningEffort || "", disabled: !route || efforts.length === 0 || saving,
-                  onChange: (event) => setRoute(role, { reasoningEffort: event.target.value }), "aria-label": `${role} 思考档位`,
-                },
-                react.createElement("option", { value: "" }, "模型默认"),
-                ...effortOptions))));
-        }
 
         return react.createElement("div", { className: "mr-page" },
           react.createElement("style", null, css),
@@ -316,11 +327,33 @@ window.__ModuleLoader__.load({
                 react.createElement("input", { className: "mr-input", type: "number", min: 1000, max: 1000000, step: 1000, value: advisor.maxTranscriptChars, disabled: saving, onChange: (event) => setAdvisor((current) => ({ ...current, maxTranscriptChars: Math.min(1000000, Math.max(1000, Number(event.target.value) || 60000)) })) })))),
           failures.length ? react.createElement("div", { className: "mr-warning" }, `有 ${failures.length} 个模型 Provider 目录加载失败；其余 Provider 仍可配置。`) : null,
           react.createElement("div", { className: "mr-list" },
-            ...BUILTIN.map((role) => react.createElement(RoleCard, { role, key: role })),
-            ...custom.map((route) => react.createElement(RoleCard, { role: route.role, customRole: true, key: route.role }))),
+            ...BUILTIN.map((role) => react.createElement(RoleCard, {
+              key: role,
+              role,
+              customRole: false,
+              route: byRole.get(role),
+              modelRows,
+              groups,
+              saving,
+              onSetRoute: setRoute,
+              onChangeModel: changeModel,
+              onRenameCustom: renameCustom,
+            })),
+            ...custom.map((route) => react.createElement(RoleCard, {
+              key: route.role,
+              role: route.role,
+              customRole: true,
+              route,
+              modelRows,
+              groups,
+              saving,
+              onSetRoute: setRoute,
+              onChangeModel: changeModel,
+              onRenameCustom: renameCustom,
+            }))),
           react.createElement("div", { className: "mr-actions" },
             react.createElement("button", { className: "mr-button", type: "button", disabled: saving || !writable, onClick: addPreset }, "添加 Preset"),
-            react.createElement("button", { className: "mr-button", type: "button", disabled: saving || !dirty, onClick: load }, "撤销"),
+            react.createElement("button", { className: "mr-button", type: "button", disabled: saving || !dirty, onClick: () => load(false) }, "撤销"),
             react.createElement("button", { className: "mr-button mr-primary", type: "button", disabled: saving || !writable || !dirty || Boolean(validation), onClick: save }, saving ? "保存中…" : "保存")),
           statusText ? react.createElement("p", { className: "mr-status", role: "status", "aria-live": "polite" }, statusText) : null);
       }
@@ -340,7 +373,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, ADVISOR_HELP_TEXT, modelKey, parseModelKey, normalizeRole, configurableRoutes, rowsFromGroups, routeMap, validateRoles, statusMessage, css, createSettingsRequest };
+    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, ADVISOR_HELP_TEXT, modelKey, parseModelKey, normalizeRole, configurableRoutes, rowsFromGroups, routeMap, validateRoles, statusMessage, css, createSettingsRequest, RoleCard };
     return module.exports;
   }
 });

@@ -63,7 +63,7 @@ Agent Preset 都使用 DSH 原生生命周期与事实，不要求用户手动�
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-model-roles-0.4.7.tgz
+dsh plugin --profile web add ./dsh-model-roles-0.4.8.tgz
 dsh service restart
 ```
 
