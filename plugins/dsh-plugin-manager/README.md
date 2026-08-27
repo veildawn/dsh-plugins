@@ -9,6 +9,7 @@ DeepSeek Harness (DSH) 可视化**插件管理**与本仓库专属更新管理�
 
 ## ✨ 核心特性
 
+- **全局状态三态筛选**：支持「全部 (N)」、「已安装 (N)」、「未安装 (N)」三大分类即时筛选，支持在自有插件与社区插件下与垂直分类和搜索无缝叠加。
 - **专属独立图标与导航**：在 Web 设置面板（Settings → **插件管理**）中注入专属矢量拼图插件图标（覆盖宿主默认灰度图标）。
 - **自有插件专属管理**：专为 `veildawn/dsh-plugins` 独立多插件仓库设计，实时拉取 GitHub Releases（如 `dsh-model-roles@v0.4.9`、`dsh-remote-control@v0.1.6` 等），并自动读取当前 DSH profile 中已安装插件的版本，逐项标记「已安装 → 最新 / 可更新 / 卸载」。
 - **一键批量更新 (N)**：在「自有插件」与「社区插件」栏目中均提供「🚀 一键更新全部 (N)」按钮，自动统计可更新数量并批量执行更新（更新后绝不自动重启）。
@@ -26,7 +27,7 @@ DeepSeek Harness (DSH) 可视化**插件管理**与本仓库专属更新管理�
 使用 DSH 官方 CLI 安装本插件：
 
 ```bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.0/dsh-plugin-manager-0.1.0.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.1/dsh-plugin-manager-0.1.1.tgz
 ```
 
 或使用本地打包安装：
