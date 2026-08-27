@@ -150,8 +150,21 @@ describe('dsh-market profile installed-version inspection', () => {
   let home
   before(() => {
     home = mkdtempSync(join(tmpdir(), 'dsh-market-test-'))
+    // Write profile manifest with repo source dependencies
+    const profileDir = join(home, 'profiles', 'web')
+    mkdirSync(profileDir, { recursive: true })
+    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies: {
+        'dsh-model-roles': 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.7/dsh-model-roles-0.4.7.tgz',
+        'dsh-terminal': 'github:veildawn/dsh-plugins#path:/plugins/dsh-terminal',
+        'dsh-plugin-manager': 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.0/dsh-plugin-manager-0.1.0.tgz',
+        'dsh-status-rotator': '^1.0.0', // npm community plugin
+      },
+    }))
+
     for (const [name, version] of [['dsh-model-roles', '0.4.7'], ['dsh-terminal', '0.1.9'], ['dsh-plugin-manager', '0.1.0'], ['dsh-status-rotator', '1.0.0']]) {
-      const dir = join(home, 'profiles', 'web', 'node_modules', name)
+      const dir = join(profileDir, 'node_modules', name)
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version }))
     }
@@ -187,19 +200,26 @@ describe('dsh-market profile installed-version inspection', () => {
     assert.equal(fresh.hasUpdate, false)
   })
 
-  it('enriches community catalog with local installed versions', () => {
+  it('enriches community catalog with local installed versions while isolating repo plugins', () => {
     const raw = {
       plugins: [
         { name: 'dsh-status-rotator', npm: 'dsh-status-rotator', version: '1.2.0', category: 'ui' },
+        // Same-named community entry as a local monorepo plugin:
+        { name: 'dsh-terminal', npm: 'dsh-terminal', owner: 'other-author', version: '2.0.0', category: 'tools' },
         { name: 'uninstalled-plugin', npm: 'uninstalled-plugin', version: '0.5.0', category: 'tools' },
       ],
     }
     const list = normalizeCommunityPlugins(raw, 'zh', { home, profile: 'web' })
-    assert.equal(list.length, 2)
+    assert.equal(list.length, 3)
+    // Pure npm community plugin is correctly recognized as installed
     assert.equal(list[0].installedVersion, '1.0.0')
     assert.equal(list[0].hasUpdate, true)
+    // Same-named repo plugin is strictly ISOLATED from the community catalog:
     assert.equal(list[1].installedVersion, null)
     assert.equal(list[1].hasUpdate, false)
+    // Uninstalled plugin remains uninstalled
+    assert.equal(list[2].installedVersion, null)
+    assert.equal(list[2].hasUpdate, false)
   })
 })
 

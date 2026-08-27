@@ -246,6 +246,21 @@ export function profilePluginDir(home, profile) {
 }
 
 /**
+ * Read declared dependencies from the profile's package.json.
+ * Returns Record<string, string> (e.g. { "dsh-file-viewer": "github:veildawn/dsh-plugins#path:/plugins/dsh-file-viewer" }).
+ */
+export function readProfileDependencies({ home = findDshHome(), profile = findProfileName() } = {}) {
+  try {
+    const manifestPath = join(home, 'profiles', profile, 'package.json')
+    if (!existsSync(manifestPath)) return {}
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    return (manifest && typeof manifest.dependencies === 'object' && manifest.dependencies) ? manifest.dependencies : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
  * Scan all installed packages in profile node_modules (including scoped @org/pkg).
  * Returns Map<packageName, version>.
  */
@@ -364,6 +379,8 @@ export function checkPluginUpdates(installedList, catalogList) {
 export function normalizeCommunityPlugins(raw, locale = 'zh', { home = findDshHome(), profile = findProfileName() } = {}) {
   if (!raw || !Array.isArray(raw.plugins)) return []
   const installedMap = readAllInstalledPackages({ home, profile })
+  const profileDeps = readProfileDependencies({ home, profile })
+  const repoPluginNames = new Set(LOCAL_MONOREPO_PLUGINS.map((p) => p.name))
 
   return raw.plugins.map((p) => {
     const desc = (p.description && typeof p.description === 'object')
@@ -371,7 +388,23 @@ export function normalizeCommunityPlugins(raw, locale = 'zh', { home = findDshHo
       : (typeof p.description === 'string' ? p.description : '')
 
     const pkgName = p.npm || p.name || p.id
-    const installedVersion = (pkgName ? installedMap.get(pkgName) : null) || (p.name ? installedMap.get(p.name) : null) || null
+    const rawSpec = profileDeps[pkgName] || (p.name ? profileDeps[p.name] : undefined)
+    const isInstalledInProfile = rawSpec !== undefined
+
+    // Precise disambiguation: if the plugin installed in this profile came from
+    // this monorepo (e.g. github:veildawn/dsh-plugins, release tarballs, or local path),
+    // it belongs to "自有插件" and must NOT be marked as an installed community plugin!
+    const isInstalledAsRepo = Boolean(
+      (rawSpec && (rawSpec.includes('veildawn/dsh-plugins') || rawSpec.includes('releases/download/dsh-') || rawSpec.startsWith('file:')))
+      || (repoPluginNames.has(pkgName) && isInstalledInProfile)
+    )
+
+    // Only flag as installed in community view when it's genuinely installed from an npm/community source
+    let installedVersion = null
+    if (isInstalledInProfile && !isInstalledAsRepo) {
+      installedVersion = (pkgName ? installedMap.get(pkgName) : null) || (p.name ? installedMap.get(p.name) : null) || null
+    }
+
     const latestVersion = p.version || null
     const hasUpdate = (installedVersion && latestVersion) ? isUpgrade(installedVersion, latestVersion) : false
 
