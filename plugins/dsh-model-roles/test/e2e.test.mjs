@@ -236,7 +236,7 @@ test('image input runs once in a vision subagent and returns text-only analysis 
     async start(request) {
       starts.push(request)
       const childSession = ctx.sessions.create(`vision-e2e-child-${String(childIndex++)}`, {
-        meta: { origin: 'subagent', delegationDepth: 1 },
+        meta: { origin: 'subagent', delegationDepth: 1, agentPreset: 'model-roles' },
       })
       childSession.append('user/message', createUserMessage({
         content: request.prompt,
@@ -309,7 +309,7 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
     async createAgent(ownerCtx, options) {
       created.push(options)
       const childSession = ctx.sessions.create(options.sessionId, {
-        meta: options.meta,
+        meta: { ...options.meta, agentPreset: 'model-roles' },
         seed: options.seed,
       })
       let activity = Promise.resolve()

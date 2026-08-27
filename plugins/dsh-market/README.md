@@ -24,7 +24,7 @@ DeepSeek Harness (DSH) 可视化插件市场与本仓库专有更新管理插件
 使用 DSH 官方 CLI 安装本插件：
 
 ```bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-market@v0.1.5/dsh-market-0.1.5.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-market@v0.1.6/dsh-market-0.1.6.tgz
 ```
 
 或使用本地打包安装：
@@ -32,7 +32,7 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 ```bash
 cd plugins/dsh-market
 npm pack
-dsh plugin add --profile web ./plugins/dsh-market/dsh-market-0.1.5.tgz
+dsh plugin add --profile web ./plugins/dsh-market/dsh-market-0.1.6.tgz
 ```
 
 ---

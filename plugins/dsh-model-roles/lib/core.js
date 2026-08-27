@@ -263,28 +263,30 @@ export function isSelectableRole(role, table) {
 }
 
 /**
- * Whether the agent runs in model-roles (智选模式) or is an internal model-role agent.
+ * Whether the agent runs in model-roles (智选模式).
+ *
+ * STRICT contract: the model-roles router activates ONLY when the session was
+ * created with the `model-roles` Agent Preset. Agent presets are nothing
+ * more than a priority-ordered option list provided at session-creation time;
+ * a preset that merely *names* a configured role (e.g. `designer`) does NOT
+ * activate the router. A runtime `modelRole` option never activates routing
+ * on its own — vision/advisor subagents inherit the parent's preset through
+ * `childSessionMeta`, so only children of a 智选模式 session route by
+ * `modelRole`. Standard DSH presets and unpreseted sessions are always
+ * passive, no matter what options they carry.
  */
 export function isModelRolesActive(agent, table) {
-  if (typeof agent?.options?.modelRole === 'string' && agent.options.modelRole.trim()) {
-    return true
-  }
-  const preset = presetOf(agent)
-  if (preset !== undefined) {
-    if (preset === MODEL_ROLES_PRESET) return true
-    if (STANDARD_PRESETS.has(preset)) return false
-    if (isSelectableRole(preset, table)) return true
-    return false
-  }
-  return false
+  return presetOf(agent) === MODEL_ROLES_PRESET
 }
 
 /**
  * Select the requested role for one conversation request.
  *
- * Plan mode wins over an exact preset, delegated task work, and the
- * automatically classified main task. Image work is delegated before this
- * boundary to a one-shot subagent whose explicit runtime role is `vision`.
+ * Called only while the 智选模式 router is active. Internal runtime roles
+ * (`modelRole` on vision/advisor subagents) win; then plan mode; then
+ * delegated task work; then the automatically classified main task. An agent
+ * preset NEVER routes by name — presets are merely the option list offered at
+ * session creation, and only the `model-roles` preset activates this router.
  */
 export function roleForAgent(agent, table) {
   const runtimeRole = typeof agent?.options?.modelRole === 'string'
@@ -292,8 +294,6 @@ export function roleForAgent(agent, table) {
     : undefined
   if (runtimeRole !== undefined && isSelectableRole(runtimeRole, table)) return runtimeRole
   if (planModeActive(agent?.session?.events)) return 'plan'
-  const preset = presetOf(agent)
-  if (preset !== undefined && isSelectableRole(preset, table) && preset !== MODEL_ROLES_PRESET) return preset
   if (isSubagent(agent)) return 'task'
   return 'default'
 }

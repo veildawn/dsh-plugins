@@ -133,7 +133,7 @@ test('successful advisor commands fold a session override over settings', () => 
   assert.equal(advisorEnabledOf(advisorCommand('1', 'status'), true), true)
 })
 
-test('role precedence is internal runtime, plan, preset, task, then default', () => {
+test('role precedence is internal runtime, plan, task, then default (no preset-name routing)', () => {
   assert.equal(roleForAgent(agent({
     options: { modelRole: 'advisor' },
     messages: [{ role: 'user', content: [{ type: 'image' }] }],
@@ -148,9 +148,10 @@ test('role precedence is internal runtime, plan, preset, task, then default', ()
     events: [{ type: 'plan/mode', data: { active: true } }],
     header: { origin: 'subagent', agentPreset: 'designer' },
   }), table), 'plan')
+  // An agent preset never routes by name; it is only a creation-time option.
   assert.equal(roleForAgent(agent({
     header: { origin: 'subagent', agentPreset: 'standard' }, livePreset: 'designer',
-  }), table), 'designer')
+  }), table), 'task')
   assert.equal(roleForAgent(agent({ header: { parentSession: 'parent' } }), table), 'task')
   assert.equal(roleForAgent(agent(), table), 'default')
 })
@@ -187,8 +188,13 @@ test('routing replaces provider/model/effort while preserving other request cont
 })
 
 test('isModelRolesActive activates only for model-roles preset, internal runtime roles, or custom role presets', () => {
-  assert.equal(isModelRolesActive(agent({ options: { modelRole: 'vision' } }), table), true)
-  assert.equal(isModelRolesActive(agent({ options: { modelRole: 'advisor' } }), table), true)
+  // A runtime modelRole alone never activates routing without the 智选模式 preset.
+  assert.equal(isModelRolesActive(agent({ options: { modelRole: 'vision' } }), table), false)
+  assert.equal(isModelRolesActive(agent({ options: { modelRole: 'advisor' } }), table), false)
+
+  // modelRole under a standard preset stays inactive; under 智选模式 it is active.
+  assert.equal(isModelRolesActive(agent({ options: { modelRole: 'vision' }, livePreset: 'standard' }), table), false)
+  assert.equal(isModelRolesActive(agent({ options: { modelRole: 'vision' }, livePreset: 'model-roles' }), table), true)
 
   assert.equal(isModelRolesActive(agent({ livePreset: 'model-roles' }), table), true)
   assert.equal(isModelRolesActive(agent({ header: { agentPreset: 'model-roles' } }), table), true)
@@ -198,8 +204,10 @@ test('isModelRolesActive activates only for model-roles preset, internal runtime
     assert.equal(isModelRolesActive(agent({ header: { agentPreset: std } }), table), false)
   }
 
-  assert.equal(isModelRolesActive(agent({ livePreset: 'designer' }), table), true)
-  assert.equal(isModelRolesActive(agent({ header: { agentPreset: 'designer' } }), table), true)
+  // A preset that merely names a configured role does NOT activate 智选模式:
+  // presets are only the session-creation option list, not a routing trigger.
+  assert.equal(isModelRolesActive(agent({ livePreset: 'designer' }), table), false)
+  assert.equal(isModelRolesActive(agent({ header: { agentPreset: 'designer' } }), table), false)
 
   // A roster that exists but reports no composed preset stays inactive.
   const noPresetRoster = {
