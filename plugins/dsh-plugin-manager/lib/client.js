@@ -96,8 +96,12 @@ window.__ModuleLoader__.load({
       .dm-action-btn.danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent)}
       .dm-repo-banner{padding:12px 14px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 8%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 25%,transparent);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
       .dm-repo-info{font-size:13px;color:var(--dsw-alias-label-primary,#1f2328);line-height:18px}
-      .dm-chips{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}
-      .dm-chips::-webkit-scrollbar{display:none}
+      .dm-chips-box{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-layer-1,#f6f8fa);border:1px solid var(--dsw-alias-border-subtle,#e1e4e8);width:100%;box-sizing:border-box}
+      .dm-chips-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+      .dm-chips-title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary,#57606a)}
+      .dm-chips-toggle{padding:2px 8px;border-radius:4px;border:none;background:transparent;color:var(--dsw-alias-brand-primary,#4d6bfe);font-size:11.5px;font-weight:500;cursor:pointer}
+      .dm-chips-toggle:hover{text-decoration:underline}
+      .dm-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;width:100%}
       .dm-chip{box-sizing:border-box;padding:5px 12px;border-radius:14px;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;cursor:pointer;transition:all .15s ease;white-space:nowrap;flex-shrink:0;touch-action:manipulation}
       .dm-chip:hover{border-color:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dm-chip.active{background:var(--dsw-alias-brand-primary,#4d6bfe);border-color:transparent;color:#fff}
@@ -155,7 +159,7 @@ window.__ModuleLoader__.load({
     `;
 
     const FALLBACK_REPO_PLUGINS = [
-      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.1", latestVersion: "0.1.1", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.1/dsh-plugin-manager-0.1.1.tgz", isRepoPlugin: true },
+      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.2", latestVersion: "0.1.2", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.2/dsh-plugin-manager-0.1.2.tgz", isRepoPlugin: true },
       { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.8", latestVersion: "0.4.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz", isRepoPlugin: true },
       { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
       { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
@@ -189,6 +193,7 @@ window.__ModuleLoader__.load({
         const [tab, setTab] = react.useState("repo");
         const [search, setSearch] = react.useState("");
         const [category, setCategory] = react.useState("");
+        const [showAllCategories, setShowAllCategories] = react.useState(false);
         const [filterStatus, setFilterStatus] = react.useState("all"); // 'all' | 'installed' | 'uninstalled'
         const [repoPlugins, setRepoPlugins] = react.useState(FALLBACK_REPO_PLUGINS);
         const [communityPlugins, setCommunityPlugins] = react.useState([]);
@@ -663,10 +668,30 @@ window.__ModuleLoader__.load({
               : react.createElement("div", { className: "dm-grid" }, ...filteredRepo.map((p) => renderPluginCard(p, "repo")))
           ) : null,
           tab === "community" ? react.createElement(react.Fragment, null,
-            categories.length > 0 ? react.createElement("div", { className: "dm-chips" },
-              react.createElement("button", { className: `dm-chip ${category === "" ? "active" : ""}`, type: "button", onClick: () => setCategory("") }, "全部"),
-              ...categories.map((c) => react.createElement("button", { className: `dm-chip ${category === c.id ? "active" : ""}`, type: "button", key: c.id, onClick: () => setCategory(c.id) }, c.zh || c.en || c.id)))
-              : null,
+            categories.length > 0 ? (() => {
+              const selectedIdx = categories.findIndex((c) => c.id === category);
+              const isExpanded = showAllCategories || (selectedIdx >= 10);
+              const visibleCategories = isExpanded ? categories : categories.slice(0, 10);
+              return react.createElement("div", { className: "dm-chips-box" },
+                react.createElement("div", { className: "dm-chips-head" },
+                  react.createElement("span", { className: "dm-chips-title" }, `🏷️ 目录分类 (${categories.length})`),
+                  categories.length > 10 ? react.createElement("button", {
+                    className: "dm-chips-toggle",
+                    type: "button",
+                    onClick: () => setShowAllCategories((v) => !v),
+                  }, isExpanded ? "收起 ▴" : `展开全部 (${categories.length}) ▾`) : null
+                ),
+                react.createElement("div", { className: "dm-chips" },
+                  react.createElement("button", { className: `dm-chip ${category === "" ? "active" : ""}`, type: "button", onClick: () => setCategory("") }, "全部"),
+                  ...visibleCategories.map((c) => react.createElement("button", {
+                    className: `dm-chip ${category === c.id ? "active" : ""}`,
+                    type: "button",
+                    key: c.id,
+                    onClick: () => setCategory(c.id),
+                  }, c.zh || c.en || c.id))
+                )
+              );
+            })() : null,
             loadingCommunity
               ? react.createElement("div", { className: "dm-empty" }, "正在加载社区插件索引…")
               : (filteredCommunity.length === 0
