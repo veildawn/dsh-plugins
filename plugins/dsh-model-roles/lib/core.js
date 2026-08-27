@@ -251,6 +251,12 @@ export function presetOf(agent) {
   } catch {
     // An optional service lookup must never make model routing fail.
   }
+  for (let index = (agent?.session?.events?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const event = agent.session.events[index]
+    if (event?.type === 'agent-preset/selected' && typeof event.data?.agentPreset === 'string') {
+      return event.data.agentPreset.trim().toLowerCase()
+    }
+  }
   const recorded = agent?.session?.header?.agentPreset
   return typeof recorded === 'string' && recorded.trim()
     ? recorded.trim().toLowerCase()

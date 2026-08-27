@@ -209,6 +209,19 @@ test('isModelRolesActive activates only for model-roles preset, internal runtime
   assert.equal(isModelRolesActive(agent({ livePreset: 'designer' }), table), false)
   assert.equal(isModelRolesActive(agent({ header: { agentPreset: 'designer' } }), table), false)
 
+  // Switched presets via agent-preset/selected event:
+  // 1. Initial header was 'code', but switched to 'model-roles' -> active
+  assert.equal(isModelRolesActive(agent({
+    header: { agentPreset: 'code' },
+    events: [{ type: 'agent-preset/selected', data: { agentPreset: 'model-roles' } }],
+  }), table), true)
+
+  // 2. Initial header was 'model-roles', but switched to 'standard' -> inactive
+  assert.equal(isModelRolesActive(agent({
+    header: { agentPreset: 'model-roles' },
+    events: [{ type: 'agent-preset/selected', data: { agentPreset: 'standard' } }],
+  }), table), false)
+
   // A roster that exists but reports no composed preset stays inactive.
   const noPresetRoster = {
     options: {},
