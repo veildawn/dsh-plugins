@@ -14,6 +14,11 @@ live count badge in the sidebar footer, a manager dialog to **restore**
 - **Restore (unarchive)** — removes ids from the registry-global archive set
   through the registry's own serialized operation queue, so sessions reappear
   in their original workspace position.
+- **Real session titles** — the archive list shows the durable session title
+  (the same title the sidebar shows): live sessions read the folded title
+  from `ctx.sessionTitle`; cold sessions read the zero-I/O `title` projection
+  checkpoint from `ctx.sessionProjectionCache`; sessions without any title
+  fall back to the cwd basename.
 - **Delete (soft, default)** — records a durable tombstone in plugin
   settings; the session stays in the archive set (hidden from every grouping
   surface) and disappears from this plugin's list. Restorable from the
@@ -84,6 +89,7 @@ sandbox with direct Node fs access, which is what `deletePhysical` uses.
 - Host RPC: `ctx.inject(['connection'], ...)` + `connection.rpc.handle('/dsh-archive-manager-rpc', (method, payload) => ..., { authority: 'trusted-host' })`; client calls `ctx.connection.rpc.call('/dsh-archive-manager-rpc', method, payload)` and unwraps the `{ ok, value }` envelope.
 - Archive set: `ctx.workspaceRegistry.archivedSessionIds` (read) and `archiveSession(id)` (add) are the only public surface. **DSH core ships no unarchive API**, so restore reaches the registry's runtime-visible private `enqueueOperation` / `requireState` / `setState` (feature-detected; a version mismatch fails loud instead of silently no-oping).
 - Artifact paths: `ctx.sessionPersistence.locate(header)`; metadata: `list()` (disk-backed headers, no full-log reads).
+- Titles: `ctx.sessionTitle.get(session)` for live sessions; `ctx.sessionProjectionCache.cachedSnapshot(header).values.title` (the `session-title` projection unit's `title` key, string | null) for cold sessions — both read without loading the log.
 - Tombstones + options persist in plugin settings (`settings.register('archive-manager', ...)`, `scope.update` / `scope.replace`).
 - Trash directory default via `@deepseek-ai/dsh-home-paths` (`<dsh-home>/archive-manager/trash`).
 

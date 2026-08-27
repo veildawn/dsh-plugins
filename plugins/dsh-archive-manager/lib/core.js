@@ -250,10 +250,38 @@ export async function destroyPhysicalSessions(ctx, scope, sessionIds, fsd = node
 }
 
 /**
+ * Resolve the durable session title:
+ * 1. Live session -> `ctx.sessionTitle.get(session)` (real-time folded title).
+ * 2. Cold session -> `ctx.sessionProjectionCache.cachedSnapshot(header)` —
+ *    the `title` projection key (string | null), zero-I/O checkpoint read.
+ * 3. Fallback -> the cwd basename (what this plugin used before).
+ */
+function resolveSessionTitle(ctx, sessionId, liveSessions, headers) {
+  const live = liveSessions?.get?.(sessionId)
+  if (live) {
+    const service = ctx.get?.('sessionTitle')
+    const snapshot = typeof service?.get === 'function' ? service.get(live) : undefined
+    if (snapshot && typeof snapshot.title === 'string' && snapshot.title) return snapshot.title
+  }
+  const header = live?.header ?? headers.get(String(sessionId))
+  if (header) {
+    const cache = ctx.get?.('sessionProjectionCache')
+    if (typeof cache?.cachedSnapshot === 'function') {
+      const snapshot = cache.cachedSnapshot(header)
+      const title = snapshot?.values?.title
+      if (typeof title === 'string' && title) return title
+    }
+  }
+  const cwd = header?.cwd
+  if (cwd) return cwd.split(/[\\/]/).filter(Boolean).pop() || cwd
+  return `会话 ${String(sessionId).slice(0, 8)}`
+}
+
+/**
  * Summaries for every archived session not tombstoned. Uses only the cheap
  * metadata surfaces: `sessionPersistence.list()` (disk-backed header listing,
- * no log parse) and `workspaceRegistry.list()` (in-memory). SessionHeader has
- * no title/updatedAt — the display title is derived from the cwd basename.
+ * no log parse), `workspaceRegistry.list()` (in-memory), and the zero-I/O
+ * `title` projection checkpoint (falling back to the cwd basename).
  */
 export async function listSummaries(ctx, scope) {
   const registry = ctx.workspaceRegistry
@@ -278,12 +306,9 @@ export async function listSummaries(ctx, scope) {
     const header = resolveHeader(sessionId)
     const ws = workspaces.find((w) => Array.isArray(w.sessionIds) && w.sessionIds.includes(sessionId))
     const cwd = header?.cwd
-    const title = cwd
-      ? cwd.split(/[\\/]/).filter(Boolean).pop() || cwd
-      : `会话 ${String(sessionId).slice(0, 8)}`
     summaries.push({
       id: sessionId,
-      title,
+      title: resolveSessionTitle(ctx, sessionId, liveSessions, headers),
       cwd: cwd ?? null,
       workspaceId: ws ? String(ws.id) : null,
       workspaceTitle: ws ? ws.title : '未分组 (Ungrouped)',
@@ -322,7 +347,7 @@ export async function listDeleted(ctx, scope) {
     rows.push({
       id: entry.id,
       kind: entry.kind,
-      title: cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() || cwd : `会话 ${String(entry.id).slice(0, 8)}`,
+      title: resolveSessionTitle(ctx, entry.id, liveSessions, headers),
       cwd: cwd ?? null,
       workspaceTitle: ws ? ws.title : '未分组 (Ungrouped)',
       deletedAt: entry.deletedAt,

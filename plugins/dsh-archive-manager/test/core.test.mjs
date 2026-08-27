@@ -53,20 +53,25 @@ function mockFsd(files = new Map()) {
   };
 }
 
-function mockCtx({ registry, scope, headers = [], live = [], artifacts = null } = {}) {
-  const liveSessions = new Map(live.map((id) => [id, { header: { id } }]));
+function mockCtx({ registry, scope, headers = [], live = [], artifacts = null, sessionTitle = null, projectionCache = null } = {}) {
+  const liveSessions = new Map(live.map((id) => [id, { id, header: { id } }]));
   let locateImpl = (header) => {
     if (!artifacts) return undefined;
     const entry = artifacts.find((a) => a.id === String(header.id));
     return entry ? { kind: 'jsonl', path: entry.path } : undefined;
   };
+  const services = {
+    sessions: { get: (id) => liveSessions.get(id) },
+  };
+  if (sessionTitle) services.sessionTitle = sessionTitle;
+  if (projectionCache) services.sessionProjectionCache = projectionCache;
   return {
     workspaceRegistry: registry,
     sessionPersistence: {
       list: async () => headers,
       locate: (header) => locateImpl(header),
     },
-    get: (name) => (name === 'sessions' ? { get: (id) => liveSessions.get(id) } : undefined),
+    get: (name) => services[name],
     settings: {
       register: (ns, schema, options) => {
         assert.equal(ns, NS);
@@ -132,8 +137,43 @@ test('core: listSummaries joins persistence headers with workspace accounting an
   assert.equal(list.length, 2); // s3 tombstoned -> filtered out
   assert.deepEqual(list.map((item) => item.id), ['s2', 's1']); // newest first
   assert.equal(list[1].workspaceTitle, 'Work');
-  assert.equal(list[1].title, 'proj-a');
+  assert.equal(list[1].title, 'proj-a'); // fallback: cwd basename (no title projection)
   assert.equal(list[0].workspaceTitle, '未分组 (Ungrouped)');
+});
+
+test('core: listSummaries reads the real session title from live sessions and the title projection cache', async () => {
+  const registry = mockRegistry({
+    archivedSessionIds: ['s1', 's2', 's3'],
+    workspaces: [{ id: 'w1', title: 'Work', sessionIds: ['s1', 's2'] }],
+  });
+  // s1 live with a folded title; s2 cold with a cached title projection;
+  // s3 cold without any title projection -> cwd basename fallback.
+  const sessionTitle = {
+    get: (session) => session.id === 's1' ? { title: '为 DSH 开发归档管理器' } : undefined,
+  };
+  const projectionCache = {
+    cachedSnapshot: (header) => {
+      if (String(header.id) === 's2') return { asOfSeq: 5, values: { title: '设计一个归档管理插件' } };
+      return undefined;
+    },
+  };
+  const ctx = mockCtx({
+    registry,
+    live: ['s1'],
+    headers: [
+      { id: 's1', createdAt: 1000, cwd: '/work/a' },
+      { id: 's2', createdAt: 2000, cwd: '/work/b' },
+      { id: 's3', createdAt: 3000, cwd: '/work/c' },
+    ],
+    sessionTitle,
+    projectionCache,
+  });
+  const scope = mockScope({});
+  const list = await listSummaries(ctx, scope);
+  const byId = Object.fromEntries(list.map((item) => [item.id, item]));
+  assert.equal(byId['s1'].title, '为 DSH 开发归档管理器'); // live title wins
+  assert.equal(byId['s2'].title, '设计一个归档管理插件');   // projection cache title
+  assert.equal(byId['s3'].title, 'c');                       // fallback: cwd basename
 });
 
 test('core: listDeleted lists soft (still archived) and physical tombstones', async () => {
