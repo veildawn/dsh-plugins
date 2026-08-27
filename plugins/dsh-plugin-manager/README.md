@@ -27,7 +27,7 @@ DeepSeek Harness (DSH) 可视化**插件管理**与本仓库专属更新管理�
 使用 DSH 官方 CLI 安装本插件：
 
 ```bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.2/dsh-plugin-manager-0.1.2.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.3/dsh-plugin-manager-0.1.3.tgz
 ```
 
 或使用本地打包安装：

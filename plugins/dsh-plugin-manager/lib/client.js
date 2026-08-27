@@ -76,15 +76,13 @@ window.__ModuleLoader__.load({
       .dm-tab-btn{padding:6px 14px;border-radius:6px;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#57606a);font-size:14px;cursor:pointer;font-weight:500;transition:all .15s ease;white-space:nowrap;flex-shrink:0}
       .dm-tab-btn:hover{background:var(--dsw-alias-bg-module-platform,rgba(0,0,0,.05));color:var(--dsw-alias-label-primary,#1f2328)}
       .dm-tab-btn.active{background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff}
-      .dm-filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .dm-filter-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
       .dm-filter-group{display:inline-flex;align-items:center;padding:2px;border-radius:8px;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-bg-layer-1,#f6f8fa)}
-      .dm-filter-btn{padding:4px 10px;border-radius:6px;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease;white-space:nowrap}
+      .dm-filter-btn{padding:5px 12px;border-radius:6px;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#57606a);font-size:12.5px;font-weight:500;cursor:pointer;transition:all .15s ease;white-space:nowrap}
       .dm-filter-btn:hover{color:var(--dsw-alias-label-primary,#1f2328)}
       .dm-filter-btn.active{background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 1px 3px rgba(0,0,0,.08);font-weight:600}
-      .dm-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-      .dm-toolbar-left{display:flex;align-items:center;gap:10px;flex:1;min-width:240px}
-      .dm-toolbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-      .dm-search-box{box-sizing:border-box;width:100%;height:36px;padding:0 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);outline:none;font-size:13px}
+      .dm-search-wrap{width:100%;box-sizing:border-box}
+      .dm-search-box{box-sizing:border-box;width:100%;height:38px;padding:0 14px;border-radius:8px;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);outline:none;font-size:13.5px}
       .dm-search-box:focus{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 20%,transparent)}
       .dm-action-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:34px;padding:0 12px;border-radius:6px;font-size:12.5px;font-weight:500;cursor:pointer;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);transition:all .15s ease;white-space:nowrap;touch-action:manipulation}
       .dm-action-btn:hover{background:var(--dsw-alias-bg-module-platform,#f6f8fa)}.dm-action-btn:disabled{opacity:.55;cursor:default}
@@ -94,6 +92,8 @@ window.__ModuleLoader__.load({
       .dm-action-btn.warning{border-color:transparent;background:#f59e0b;color:#fff}
       .dm-action-btn.danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 35%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
       .dm-action-btn.danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent)}
+      .dm-close-btn{padding:2px 8px;border-radius:4px;border:none;background:transparent;color:var(--dsw-alias-label-tertiary,#656d76);font-size:13px;cursor:pointer;font-weight:bold}
+      .dm-close-btn:hover{background:var(--dsw-alias-bg-module-platform,rgba(0,0,0,.08));color:var(--dsw-alias-label-primary,#1f2328)}
       .dm-repo-banner{padding:12px 14px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 8%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 25%,transparent);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
       .dm-repo-info{font-size:13px;color:var(--dsw-alias-label-primary,#1f2328);line-height:18px}
       .dm-chips-box{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-layer-1,#f6f8fa);border:1px solid var(--dsw-alias-border-subtle,#e1e4e8);width:100%;box-sizing:border-box}
@@ -136,8 +136,7 @@ window.__ModuleLoader__.load({
       @media(max-width:768px){
         .dm-container{gap:10px;padding-bottom:max(16px,env(safe-area-inset-bottom,16px))}
         .dm-grid{grid-template-columns:1fr;gap:10px}
-        .dm-toolbar{flex-direction:column;align-items:stretch;gap:8px}
-        .dm-toolbar-left{width:100%;min-width:0;flex-direction:column;align-items:stretch;gap:8px}
+        .dm-filter-bar{flex-direction:column;align-items:stretch;gap:8px}
         .dm-filter-group{width:100%;display:grid;grid-template-columns:1fr 1fr 1fr;text-align:center}
         .dm-filter-btn{text-align:center;padding:6px 4px}
         .dm-toolbar-right{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:6px}
@@ -159,7 +158,7 @@ window.__ModuleLoader__.load({
     `;
 
     const FALLBACK_REPO_PLUGINS = [
-      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.2", latestVersion: "0.1.2", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.2/dsh-plugin-manager-0.1.2.tgz", isRepoPlugin: true },
+      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.3", latestVersion: "0.1.3", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.3/dsh-plugin-manager-0.1.3.tgz", isRepoPlugin: true },
       { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.8", latestVersion: "0.4.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz", isRepoPlugin: true },
       { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
       { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
@@ -611,15 +610,23 @@ window.__ModuleLoader__.load({
           taskState ? react.createElement("div", { className: "dm-install-box" },
             react.createElement("div", { className: "dm-install-head" },
               react.createElement("span", null, taskHeaderTitle),
-              react.createElement("span", null, taskState.profile || "")),
+              react.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+                react.createElement("span", { style: { fontSize: "11px", color: "var(--dsw-alias-label-tertiary)" } }, taskState.profile || ""),
+                react.createElement("button", {
+                  className: "dm-close-btn",
+                  type: "button",
+                  title: "关闭任务日志面板",
+                  onClick: () => setTaskState(null),
+                }, "✕ 关闭")
+              )),
             react.createElement("pre", { className: "dm-install-log" }, (taskState.log || []).slice(-20).join("\n") || "等待任务输出…"))
             : null,
           react.createElement("div", { className: "dm-tabs" },
             react.createElement("button", { className: `dm-tab-btn ${tab === "repo" ? "active" : ""}`, type: "button", onClick: () => setTab("repo") }, "自有插件"),
             react.createElement("button", { className: `dm-tab-btn ${tab === "community" ? "active" : ""}`, type: "button", onClick: () => setTab("community") }, "社区插件"),
             react.createElement("button", { className: `dm-tab-btn ${tab === "config" ? "active" : ""}`, type: "button", onClick: () => setTab("config") }, "配置")),
-          tab !== "config" ? react.createElement("div", { className: "dm-toolbar" },
-            react.createElement("div", { className: "dm-toolbar-left" },
+          tab !== "config" ? react.createElement(react.Fragment, null,
+            react.createElement("div", { className: "dm-filter-bar" },
               react.createElement("div", { className: "dm-filter-group" },
                 react.createElement("button", {
                   className: `dm-filter-btn ${filterStatus === "all" ? "active" : ""}`,
@@ -636,32 +643,34 @@ window.__ModuleLoader__.load({
                   type: "button",
                   onClick: () => setFilterStatus("uninstalled"),
                 }, `未安装 (${uninstalledCount})`)),
+              react.createElement("div", { className: "dm-toolbar-right" },
+                tab === "repo" ? react.createElement(react.Fragment, null,
+                  react.createElement("button", {
+                    className: "dm-action-btn primary",
+                    type: "button",
+                    disabled: Boolean(taskState && taskState.status === "running") || repoUpdateCount === 0,
+                    onClick: () => void startBatchUpdate("repo"),
+                  }, `🚀 一键更新全部 (${repoUpdateCount})`),
+                  react.createElement("button", { className: "dm-action-btn", type: "button", disabled: loading, onClick: () => void loadRepo() }, loading ? "正在同步…" : "🔄 检查最新更新"))
+                  : null,
+                tab === "community" ? react.createElement(react.Fragment, null,
+                  react.createElement("button", {
+                    className: "dm-action-btn primary",
+                    type: "button",
+                    disabled: Boolean(taskState && taskState.status === "running") || communityUpdateCount === 0,
+                    onClick: () => void startBatchUpdate("community"),
+                  }, `🚀 一键更新全部 (${communityUpdateCount})`),
+                  react.createElement("button", { className: "dm-action-btn", type: "button", disabled: loadingCommunity, onClick: () => void loadCommunity() }, loadingCommunity ? "正在刷新…" : "🔄 刷新社区目录"))
+                  : null)),
+            react.createElement("div", { className: "dm-search-wrap" },
               react.createElement("input", {
                 type: "text",
                 className: "dm-search-box",
-                placeholder: "搜索插件名称、描述或标签（如 terminal、vision、路由）…",
+                placeholder: "🔍 搜索插件名称、描述或标签（如 terminal、vision、路由）…",
                 value: search,
                 onChange: (e) => setSearch(e.target.value),
-              })),
-            react.createElement("div", { className: "dm-toolbar-right" },
-              tab === "repo" ? react.createElement(react.Fragment, null,
-                react.createElement("button", {
-                  className: "dm-action-btn primary",
-                  type: "button",
-                  disabled: Boolean(taskState && taskState.status === "running") || repoUpdateCount === 0,
-                  onClick: () => void startBatchUpdate("repo"),
-                }, `🚀 一键更新全部 (${repoUpdateCount})`),
-                react.createElement("button", { className: "dm-action-btn", type: "button", disabled: loading, onClick: () => void loadRepo() }, loading ? "正在同步…" : "🔄 检查最新更新"))
-                : null,
-              tab === "community" ? react.createElement(react.Fragment, null,
-                react.createElement("button", {
-                  className: "dm-action-btn primary",
-                  type: "button",
-                  disabled: Boolean(taskState && taskState.status === "running") || communityUpdateCount === 0,
-                  onClick: () => void startBatchUpdate("community"),
-                }, `🚀 一键更新全部 (${communityUpdateCount})`),
-                react.createElement("button", { className: "dm-action-btn", type: "button", disabled: loadingCommunity, onClick: () => void loadCommunity() }, loadingCommunity ? "正在刷新…" : "🔄 刷新社区目录"))
-                : null)) : null,
+              }))
+          ) : null,
           tab === "repo" ? (
             filteredRepo.length === 0
               ? react.createElement("div", { className: "dm-empty" }, "没有匹配的自有插件")
