@@ -41,9 +41,6 @@
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
-  "dependencies": {
-    "@deepseek-ai/dsh-home-paths": "0.1.1-rc.2"
-  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
