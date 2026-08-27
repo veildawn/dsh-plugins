@@ -414,6 +414,7 @@ export function apply(ctx, config = {}) {
   }, { global: true, prepend: true })
 
   ctx.on('agent/turn-stopping', async ({ agent, turn, signal }) => {
+    if (!isModelRolesActive(agent, table)) return
     if (!table.has('advisor')) return
     if (!advisorEnabledOf(agent.session.events, settings.advisor.enabled)) return
     if (agent?.options?.modelRole === 'advisor') return

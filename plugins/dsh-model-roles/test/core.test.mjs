@@ -201,28 +201,20 @@ test('isModelRolesActive activates only for model-roles preset, internal runtime
   assert.equal(isModelRolesActive(agent({ livePreset: 'designer' }), table), true)
   assert.equal(isModelRolesActive(agent({ header: { agentPreset: 'designer' } }), table), true)
 
-  const rosterWithCodeDefault = {
+  // A roster that exists but reports no composed preset stays inactive.
+  const noPresetRoster = {
     options: {},
     session: { events: [], header: {} },
     ctx: {
       get(name) {
-        if (name === 'agentPresets') return { defaultPreset: () => 'code' }
+        if (name === 'agentPresets') return { composedPreset: () => undefined }
         return undefined
       },
     },
   }
-  assert.equal(isModelRolesActive(rosterWithCodeDefault, table), false)
+  assert.equal(isModelRolesActive(noPresetRoster, table), false)
 
-  const rosterWithModelRolesDefault = {
-    options: {},
-    session: { events: [], header: {} },
-    ctx: {
-      get(name) {
-        if (name === 'agentPresets') return { defaultPreset: () => 'model-roles' }
-        return undefined
-      },
-    },
-  }
-  assert.equal(isModelRolesActive(rosterWithModelRolesDefault, table), true)
+  // No agentPresets service at all: also inactive, matching the 智选模式-only contract.
+  assert.equal(isModelRolesActive(agent(), table), false)
 })
 

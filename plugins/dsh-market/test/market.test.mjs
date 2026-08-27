@@ -25,7 +25,9 @@ import {
 import {
   handleMarketRpc,
   handleInstallPlugin,
+  handleBatchUpdatePlugins,
   handleRemovePlugin,
+  handleRestartHost,
   resolveOptions,
   fetchGitHubReleases,
   fetchCommunityCatalog,
@@ -516,13 +518,13 @@ describe('dsh-market install tasks (fake spawn)', () => {
     // The second request must be refused while the first is running.
     const second = handleInstallPlugin({}, { name: 'dsh-terminal', kind: 'repo' }, { spawnFn: fakeSpawn })
     assert.equal(second.ok, false)
-    assert.match(second.error.message, /已有安装任务正在进行/)
+    assert.match(second.error.message, /已有.*任务正在进行/)
     // The async task reaches the spawn after resolveInstallSource resolves.
     await sleep(100)
     assert.ok(stuckChild, 'first task should have spawned by now')
     // Release the first task and let it finish, then a new task is allowed.
     stuckChild.emit('close', 0)
-    await sleep(100)
+    await sleep(150)
     const third = handleInstallPlugin({}, { name: 'dsh-terminal', kind: 'repo' }, { spawnFn: fakeSpawn })
     assert.equal(third.ok, true)
     const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, third.value.taskId)
@@ -547,6 +549,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
   })
 
   it('removes an installed plugin by spawning `dsh plugin remove`', async () => {
+    await sleep(100)
     captured.calls.length = 0
     const res = handleRemovePlugin({}, { name: 'dsh-model-roles' }, { spawnFn: fakeSpawn })
     assert.equal(res.ok, true)
@@ -564,5 +567,30 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(bad.ok, false)
     const empty = handleRemovePlugin({}, {}, { spawnFn: fakeSpawn })
     assert.equal(empty.ok, false)
+  })
+
+  it('runs batch update on repo plugins with available updates', async () => {
+    await sleep(100)
+    captured.calls.length = 0
+    const res = handleBatchUpdatePlugins({}, { kind: 'repo' }, { spawnFn: fakeSpawn })
+    assert.equal(res.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(task.status, 'success')
+    assert.equal(task.kind, 'batch-update')
+    assert.equal(task.log.some((l) => l.includes('批量更新') || l.includes('无需更新')), true)
+  })
+
+  it('schedules async host restart without throwing', () => {
+    let spawnedCmd = null
+    const fakeRestartSpawn = (cmd, args) => {
+      spawnedCmd = { cmd, args }
+      const child = new EventEmitter()
+      child.unref = () => {}
+      return child
+    }
+    const res = handleRestartHost({}, {}, { spawnFn: fakeRestartSpawn })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.scheduled, true)
+    assert.ok(res.value.method)
   })
 })

@@ -2,13 +2,16 @@
  * dsh-market server plugin for DeepSeek Harness.
  *
  * Provides RPC services to:
- * 1. Fetch community & Monorepo plugin catalog (with a short cache and mirror support).
+ * 1. Fetch community & Monorepo plugin catalog (with a short cache and proxy/mirror support).
  * 2. Detect updates for the monorepo plugins by comparing the running profile's
  *    installed versions against the latest GitHub Releases.
- * 3. One-click install/update: runs `dsh plugin add` on the host for sources
+ * 3. One-click install/update & Batch update: runs `dsh plugin add` on the host for sources
  *    validated against the catalogs (repo release URLs / community npm names).
- *    Only one install task runs at a time; the web UI polls task status.
- * 4. Read/write the market's own settings namespace (repo origin, catalog URL,
+ *    Only one task runs at a time; the web UI polls task status with streaming log.
+ * 4. One-click remove: runs `dsh plugin remove` on the host.
+ * 5. Async host restart: triggers graceful daemon restart in the background,
+ *    allowing the web client to smoothly probe, reconnect and auto-reload.
+ * 6. Read/write the market's own settings namespace (repo origin, catalog URL,
  *    auto-check, mirror).
  *
  * The RPC channel is registered on the connection service with the `trusted-host`
@@ -17,6 +20,7 @@
  */
 
 import z from '@deepseek-ai/schemastery'
+import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici'
 import {
@@ -69,14 +73,6 @@ function errorResult(message, code = 'bad-request') {
 }
 
 /**
- * In-memory cache for GitHub releases (rate-limit friendly: the anonymous
- * GitHub API is capped at ~60 requests/hour per IP).
- */
-let cachedReleases = null
-let lastReleasesFetchTime = 0
-const CACHE_TTL_MS = 60 * 1000
-
-/**
  * HTTP fetch with proxy support.
  *
  * Node's global fetch ignores http_proxy/https_proxy environment variables.
@@ -109,6 +105,14 @@ async function fetchJson(url) {
 }
 
 /**
+ * In-memory cache for GitHub releases (rate-limit friendly: the anonymous
+ * GitHub API is capped at ~60 requests/hour per IP).
+ */
+let cachedReleases = null
+let lastReleasesFetchTime = 0
+const CACHE_TTL_MS = 60 * 1000
+
+/**
  * Fetch GitHub releases for repo (with cache fallback on network errors).
  */
 export async function fetchGitHubReleases(repoOrigin) {
@@ -125,7 +129,6 @@ export async function fetchGitHubReleases(repoOrigin) {
     lastReleasesFetchTime = now
     return data
   } catch (err) {
-    // Network/rate-limit failures degrade to the last successful snapshot.
     return cachedReleases || []
   }
 }
@@ -237,7 +240,6 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
       for (const [key, value] of entries) {
         if (!CONFIG_KEYS[key](value)) return errorResult(`Invalid value for configuration key: ${key}`)
       }
-      // Persist through the settings service when available (loopback UI).
       if (ctx && ctx.settings && typeof ctx.settings.mutate === 'function') {
         await ctx.settings.mutate(NS, entries.map(([key, value]) => ({ op: 'set', path: [key], value })))
       }
@@ -257,8 +259,16 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
       return handleInstallPlugin(options, payload, deps)
     }
 
+    if (method === 'batchUpdatePlugins') {
+      return handleBatchUpdatePlugins(options, payload, deps)
+    }
+
     if (method === 'removePlugin') {
       return handleRemovePlugin(options, payload, deps)
+    }
+
+    if (method === 'restartHost') {
+      return handleRestartHost(options, payload, deps)
     }
 
     if (method === 'getInstallTask') {
@@ -277,13 +287,13 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
 }
 
 /* ------------------------------------------------------------------ *
- * One-click install / update
+ * Execution tasks (Install / Batch Update / Remove / Async Restart)
  * ------------------------------------------------------------------ */
 
 const installTasks = new Map()
 let activeTaskId = null
 
-/** Spawn the DSH CLI (`dsh plugin add --profile <profile> <source>`). */
+/** Spawn the DSH CLI (`dsh plugin add/remove`). */
 export function runDshPluginCommand(args, { onLog, timeoutMs = 600_000, spawnFn = spawn } = {}) {
   return new Promise((resolve) => {
     let child
@@ -337,8 +347,6 @@ async function resolveInstallSource(name, kind, resolved) {
     const raw = await fetchCommunityCatalog(resolved.communityCatalogUrl)
     const catalog = normalizeCommunityPlugins(raw)
     const entry = catalog.find((p) => p.name === name)
-    // Only entries that declare an npm package are installable; never fall
-    // back to the plugin name, which may not exist on npm.
     const pkg = safePackageName(entry && entry.npm)
     if (!entry || !pkg) return { error: `社区目录中不存在可安装的插件: ${name}` }
     return { source: pkg, kind: 'community' }
@@ -357,7 +365,7 @@ export function handleInstallPlugin(options, payload, deps = {}) {
 
   if (activeTaskId) {
     const active = installTasks.get(activeTaskId)
-    return errorResult(`已有安装任务正在进行（${active?.name || activeTaskId}），请等待其完成`)
+    return errorResult(`已有任务正在进行（${active?.name || activeTaskId}），请等待其完成`)
   }
 
   const profile = safeProfileName(findProfileName())
@@ -392,11 +400,11 @@ export function handleInstallPlugin(options, payload, deps = {}) {
       task.code = result.code
       if (result.ok) {
         task.status = 'success'
-        task.log.push(`✓ ${name} 安装成功（${kind === 'repo' ? '仓库版本' : 'npm 包'}）`)
+        task.log.push(`✓ ${name} 安装/更新完成`)
       } else {
         task.status = 'error'
-        task.error = (result.stderr || result.stdout || '安装失败').split('\n').filter(Boolean).slice(-3).join(' ')
-        task.log.push(`✗ 安装失败（exit code ${result.code ?? 'n/a'}）`)
+        task.error = (result.stderr || result.stdout || '操作失败').split('\n').filter(Boolean).slice(-3).join(' ')
+        task.log.push(`✗ 操作失败（exit code ${result.code ?? 'n/a'}）`)
       }
     } catch (err) {
       task.status = 'error'
@@ -409,6 +417,106 @@ export function handleInstallPlugin(options, payload, deps = {}) {
   })()
 
   return { ok: true, value: { taskId, name, kind } }
+}
+
+export function handleBatchUpdatePlugins(options, payload, deps = {}) {
+  const opt = typeof options === 'function' ? options() : options
+  const resolved = resolveOptions(opt)
+
+  if (payload === null || typeof payload !== 'object') return errorResult('batchUpdatePlugins requests must carry an object')
+  const kind = payload.kind === 'repo' || payload.kind === 'community' ? payload.kind : ''
+  if (!kind) return errorResult('batchUpdatePlugins requires kind (repo|community)')
+
+  if (activeTaskId) {
+    const active = installTasks.get(activeTaskId)
+    return errorResult(`已有任务正在进行（${active?.name || activeTaskId}），请等待其完成`)
+  }
+
+  const profile = safeProfileName(findProfileName())
+  if (!profile) return errorResult('无法解析当前 profile 名称，已拒绝更新')
+
+  const taskId = `task-batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  const task = {
+    id: taskId,
+    name: kind === 'repo' ? '一键更新全部自有插件' : '一键更新全部社区插件',
+    kind: 'batch-update',
+    profile,
+    status: 'running',
+    log: [],
+    code: null,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    error: null,
+  }
+  installTasks.set(taskId, task)
+  activeTaskId = taskId
+
+  void (async () => {
+    let successCount = 0
+    let failureCount = 0
+    try {
+      let targets = []
+      if (kind === 'repo') {
+        const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
+        const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
+        const catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
+        const merged = mergeInstalledVersions(catalog)
+        targets = merged.plugins.filter((p) => p.installedVersion && p.hasUpdate)
+      } else {
+        const raw = await fetchCommunityCatalog(resolved.communityCatalogUrl)
+        const plugins = normalizeCommunityPlugins(raw, 'zh')
+        targets = plugins.filter((p) => p.installedVersion && p.hasUpdate && p.npm)
+      }
+
+      if (targets.length === 0) {
+        task.status = 'success'
+        task.log.push('✓ 所有插件均已是最新版本，无需更新')
+        return
+      }
+
+      task.log.push(`🚀 开始批量更新 ${targets.length} 款插件...`)
+
+      for (let i = 0; i < targets.length; i++) {
+        const p = targets[i]
+        task.log.push(`[${i + 1}/${targets.length}] 正在更新 ${p.name} (v${p.installedVersion} → v${p.version || p.latestVersion})...`)
+        const { source, error } = await resolveInstallSource(p.name, kind, resolved)
+        if (error) {
+          task.log.push(`✗ ${p.name} 解析失败: ${error}`)
+          failureCount++
+          continue
+        }
+        const result = await runDshPluginCommand(['plugin', 'add', '--profile', profile, source], {
+          onLog: (line) => { task.log.push(`  ${line.replace(/\s+$/, '')}`) },
+          spawnFn: deps.spawnFn,
+        })
+        if (result.ok) {
+          task.log.push(`✓ [${i + 1}/${targets.length}] ${p.name} 更新成功`)
+          successCount++
+        } else {
+          task.log.push(`✗ [${i + 1}/${targets.length}] ${p.name} 更新失败`)
+          failureCount++
+        }
+      }
+
+      if (failureCount === 0) {
+        task.status = 'success'
+        task.log.push(`\n🎉 批量更新完成！成功 ${successCount} 款。`)
+      } else {
+        task.status = 'error'
+        task.error = `批量更新完成：成功 ${successCount} 款，失败 ${failureCount} 款`
+        task.log.push(`\n⚠️ ${task.error}`)
+      }
+    } catch (err) {
+      task.status = 'error'
+      task.error = err instanceof Error ? err.message : String(err)
+      task.log.push(`✗ 批量更新异常: ${task.error}`)
+    } finally {
+      task.finishedAt = new Date().toISOString()
+      activeTaskId = null
+    }
+  })()
+
+  return { ok: true, value: { taskId, name: task.name, kind: 'batch-update' } }
 }
 
 export function handleRemovePlugin(options, payload, deps = {}) {
@@ -468,6 +576,50 @@ export function handleRemovePlugin(options, payload, deps = {}) {
   })()
 
   return { ok: true, value: { taskId, name, kind: 'remove' } }
+}
+
+/**
+ * Handle async graceful restart of the host process.
+ */
+export function handleRestartHost(options, payload, deps = {}) {
+  const spawnFn = deps.spawnFn || spawn
+
+  let method = 'process-exit'
+  if (process.platform === 'linux') {
+    method = 'systemd'
+    try {
+      // Spawn detached subshell to invoke systemctl restart after giving the RPC response time to send
+      const child = spawnFn('sh', ['-c', 'sleep 0.8 && systemctl restart dsh-web'], {
+        detached: true,
+        stdio: 'ignore',
+      })
+      if (child.unref) child.unref()
+    } catch {
+      setTimeout(() => process.exit(0), 800)
+    }
+  } else if (process.platform === 'win32') {
+    method = 'windows-cmd'
+    try {
+      const child = spawnFn('cmd.exe', ['/c', 'timeout /t 1 /nobreak >nul && scripts\\dsh-web.cmd restart'], {
+        detached: true,
+        stdio: 'ignore',
+      })
+      if (child.unref) child.unref()
+    } catch {
+      setTimeout(() => process.exit(0), 800)
+    }
+  } else {
+    setTimeout(() => process.exit(0), 800)
+  }
+
+  return {
+    ok: true,
+    value: {
+      scheduled: true,
+      method,
+      message: '已调度异步重启，正在重启 DeepSeek Harness 服务...',
+    },
+  }
 }
 
 export function apply(ctx, config) {

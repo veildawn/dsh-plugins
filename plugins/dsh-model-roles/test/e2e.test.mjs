@@ -133,8 +133,8 @@ test('all conversation roles traverse DSH session, agent/request, and llm/stream
 
   for (const [index, role] of conversationRoles.entries()) {
     const session = ctx.sessions.create(`role-e2e-${String(index)}`, role === 'task'
-      ? { meta: { origin: 'subagent', delegationDepth: 1 } }
-      : undefined)
+      ? { meta: { origin: 'subagent', delegationDepth: 1, agentPreset: 'model-roles' } }
+      : { meta: { agentPreset: 'model-roles' } })
     const agent = {
       ctx,
       session,
@@ -174,7 +174,9 @@ test('automatic task classification runs once per agent turn across tool-loop st
     { role: 'smol', provider: 'e2e', model: 'smol-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
   ])
-  const session = ctx.sessions.create('automatic-role-turn-cache')
+  const session = ctx.sessions.create('automatic-role-turn-cache', {
+    meta: { agentPreset: 'model-roles' },
+  })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Perform a mechanical rename in one file.' }],
     source: { kind: 'user' },
@@ -197,7 +199,9 @@ test('continuation-only turns retain the substantive task role after an agent re
     { role: 'slow', provider: 'e2e', model: 'slow-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
   ])
-  const session = ctx.sessions.create('automatic-role-continuation')
+  const session = ctx.sessions.create('automatic-role-continuation', {
+    meta: { agentPreset: 'model-roles' },
+  })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Resolve this architecture tradeoff with a rigorous analysis.' }],
     source: { kind: 'user' },
@@ -252,7 +256,9 @@ test('image input runs once in a vision subagent and returns text-only analysis 
     },
   })
 
-  const session = ctx.sessions.create('vision-main-parent')
+  const session = ctx.sessions.create('vision-main-parent', {
+    meta: { agentPreset: 'model-roles' },
+  })
   const parent = { ctx, session, options: {} }
   const imageMessage = createUserMessage({
     content: [
@@ -352,7 +358,9 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
   })
   spawnInProcess.apply(ctx, { providerName: 'advisor-e2e' })
 
-  const session = ctx.sessions.create('advisor-e2e-parent')
+  const session = ctx.sessions.create('advisor-e2e-parent', {
+    meta: { agentPreset: 'model-roles' },
+  })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'Implement the change.' }],
     source: { kind: 'user' },

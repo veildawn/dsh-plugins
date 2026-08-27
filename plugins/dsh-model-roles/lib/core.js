@@ -276,20 +276,7 @@ export function isModelRolesActive(agent, table) {
     if (isSelectableRole(preset, table)) return true
     return false
   }
-  try {
-    const roster = agent?.ctx?.get?.('agentPresets')
-    if (roster !== undefined) {
-      const defaultPreset = roster.defaultPreset?.()
-      if (typeof defaultPreset === 'string') {
-        const normalized = defaultPreset.trim().toLowerCase()
-        if (normalized === MODEL_ROLES_PRESET) return true
-        if (STANDARD_PRESETS.has(normalized)) return false
-        if (isSelectableRole(normalized, table)) return true
-      }
-      return false
-    }
-  } catch {}
-  return true
+  return false
 }
 
 /**

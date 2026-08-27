@@ -242,6 +242,7 @@ test('host registers advisor control and delegates image requests before main ro
     options: {},
     session: {
       events: [],
+      header: { agentPreset: 'model-roles' },
       deriveMessages: () => [{ role: 'user', content: [{ type: 'image' }] }],
     },
   }
