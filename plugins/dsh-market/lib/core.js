@@ -8,7 +8,7 @@
  * - Local profile plugin inspection (installed versions) and update-state merge
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -246,6 +246,47 @@ export function profilePluginDir(home, profile) {
 }
 
 /**
+ * Scan all installed packages in profile node_modules (including scoped @org/pkg).
+ * Returns Map<packageName, version>.
+ */
+export function readAllInstalledPackages({ home = findDshHome(), profile = findProfileName() } = {}) {
+  const map = new Map()
+  const dir = profilePluginDir(home, profile)
+  if (!existsSync(dir)) return map
+
+  try {
+    const entries = readdirSync(dir)
+    for (const entry of entries) {
+      if (entry.startsWith('.')) continue
+      if (entry.startsWith('@')) {
+        const scopeDir = join(dir, entry)
+        if (statSync(scopeDir).isDirectory()) {
+          for (const sub of readdirSync(scopeDir)) {
+            const pkgPath = join(scopeDir, sub, 'package.json')
+            if (existsSync(pkgPath)) {
+              try {
+                const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+                if (pkg.name && pkg.version) map.set(pkg.name, pkg.version)
+              } catch {}
+            }
+          }
+        }
+      } else {
+        const pkgPath = join(dir, entry, 'package.json')
+        if (existsSync(pkgPath)) {
+          try {
+            const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+            if (pkg.name && pkg.version) map.set(pkg.name, pkg.version)
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+
+  return map
+}
+
+/**
  * Read installed version of a plugin from the profile manifest.
  * Returns null when the plugin is not installed in the profile (or unreadable).
  */
@@ -264,12 +305,13 @@ export function readInstalledVersion(pkgName, { home = findDshHome(), profile = 
  * Attach installed-version facts (installedVersion / hasUpdate) to a repo catalog.
  */
 export function mergeInstalledVersions(catalog, { home = findDshHome(), profile = findProfileName() } = {}) {
+  const installedMap = readAllInstalledPackages({ home, profile })
   const plugins = catalog.map((p) => {
-    const installedVersion = readInstalledVersion(p.name, { home, profile })
+    const installedVersion = installedMap.get(p.name) || installedMap.get(p.id) || null
     return {
       ...p,
       installedVersion,
-      hasUpdate: installedVersion ? isUpgrade(installedVersion, p.version) : false,
+      hasUpdate: installedVersion ? isUpgrade(installedVersion, p.version || p.latestVersion) : false,
     }
   })
   return {
@@ -285,9 +327,10 @@ export function mergeInstalledVersions(catalog, { home = findDshHome(), profile 
  * (used by the checkUpdates RPC path).
  */
 export function readInstalledList(pluginNames, { home = findDshHome(), profile = findProfileName() } = {}) {
+  const installedMap = readAllInstalledPackages({ home, profile })
   return pluginNames.map((name) => ({
     name,
-    version: readInstalledVersion(name, { home, profile }),
+    version: installedMap.get(name) || null,
   })).filter((entry) => entry.version !== null)
 }
 
@@ -311,18 +354,27 @@ export function checkPluginUpdates(installedList, catalogList) {
 }
 
 /**
- * Normalize the awesome-dsh-plugin community catalog into a flat card list.
+ * Normalize the awesome-dsh-plugin community catalog into a flat card list,
+ * enriched with local installed version and update availability.
  *
  * Raw entry shape (from awesome-dsh-plugin.com/plugins.json):
  *   { name, owner, url, category, description: {en, zh}, npm, stars,
  *     downloads, install, added, page }
  */
-export function normalizeCommunityPlugins(raw, locale = 'zh') {
+export function normalizeCommunityPlugins(raw, locale = 'zh', { home = findDshHome(), profile = findProfileName() } = {}) {
   if (!raw || !Array.isArray(raw.plugins)) return []
+  const installedMap = readAllInstalledPackages({ home, profile })
+
   return raw.plugins.map((p) => {
     const desc = (p.description && typeof p.description === 'object')
       ? (p.description[locale] || p.description.en || p.description.zh || '')
       : (typeof p.description === 'string' ? p.description : '')
+
+    const pkgName = p.npm || p.name || p.id
+    const installedVersion = (pkgName ? installedMap.get(pkgName) : null) || (p.name ? installedMap.get(p.name) : null) || null
+    const latestVersion = p.version || null
+    const hasUpdate = (installedVersion && latestVersion) ? isUpgrade(installedVersion, latestVersion) : false
+
     return {
       id: p.name || p.id,
       name: p.name || p.id,
@@ -336,6 +388,10 @@ export function normalizeCommunityPlugins(raw, locale = 'zh') {
       install: p.install || '',
       added: p.added || '',
       author: p.owner || '',
+      version: latestVersion,
+      latestVersion,
+      installedVersion,
+      hasUpdate,
     }
   })
 }

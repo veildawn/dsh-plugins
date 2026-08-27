@@ -1,6 +1,6 @@
 {
   "name": "dsh-market",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Visual plugin marketplace for DeepSeek Harness — browse community plugins by category, one-click install/update, and manage monorepo repository updates",
   "type": "module",
   "main": "lib/index.js",

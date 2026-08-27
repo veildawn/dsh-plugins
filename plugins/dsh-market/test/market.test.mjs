@@ -147,7 +147,7 @@ describe('dsh-market profile installed-version inspection', () => {
   let home
   before(() => {
     home = mkdtempSync(join(tmpdir(), 'dsh-market-test-'))
-    for (const [name, version] of [['dsh-model-roles', '0.4.7'], ['dsh-terminal', '0.1.9'], ['dsh-market', '0.1.0']]) {
+    for (const [name, version] of [['dsh-model-roles', '0.4.7'], ['dsh-terminal', '0.1.9'], ['dsh-market', '0.1.0'], ['dsh-status-rotator', '1.0.0']]) {
       const dir = join(home, 'profiles', 'web', 'node_modules', name)
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version }))
@@ -170,7 +170,7 @@ describe('dsh-market profile installed-version inspection', () => {
     assert.deepEqual(installed.map((e) => e.name).sort(), ['dsh-market', 'dsh-model-roles', 'dsh-terminal'])
   })
 
-  it('merges installed versions and flags updates', () => {
+  it('merges installed versions and flags updates for repo plugins', () => {
     const catalog = resolveRepoCatalog(new Map())
     const modelRoles = catalog.find((p) => p.name === 'dsh-model-roles')
     modelRoles.version = '0.4.8'
@@ -180,7 +180,23 @@ describe('dsh-market profile installed-version inspection', () => {
     assert.equal(entry.hasUpdate, true)
     assert.equal(merged.profile, 'web')
     const fresh = merged.plugins.find((p) => p.name === 'dsh-market')
+    assert.equal(fresh.installedVersion, '0.1.0')
     assert.equal(fresh.hasUpdate, false)
+  })
+
+  it('enriches community catalog with local installed versions', () => {
+    const raw = {
+      plugins: [
+        { name: 'dsh-status-rotator', npm: 'dsh-status-rotator', version: '1.2.0', category: 'ui' },
+        { name: 'uninstalled-plugin', npm: 'uninstalled-plugin', version: '0.5.0', category: 'tools' },
+      ],
+    }
+    const list = normalizeCommunityPlugins(raw, 'zh', { home, profile: 'web' })
+    assert.equal(list.length, 2)
+    assert.equal(list[0].installedVersion, '1.0.0')
+    assert.equal(list[0].hasUpdate, true)
+    assert.equal(list[1].installedVersion, null)
+    assert.equal(list[1].hasUpdate, false)
   })
 })
 

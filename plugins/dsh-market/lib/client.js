@@ -3,10 +3,10 @@
  *
  * Renders the Visual Plugin Market in Settings -> Plugin Market (插件市场):
  * 1. 本仓库 (Monorepo) 插件与更新管理：实时拉取 GitHub Releases，比对当前
- *    profile 已安装版本，一键安装 / 更新（服务端执行 `dsh plugin add`，
- *    客户端轮询任务进度并显示日志）。
- * 2. 社区插件浏览：按分类筛选、搜索、一键安装（npm 包），来自
- *    awesome-dsh-plugin 社区目录。
+ *    profile 已安装版本，清晰展示当前版本与远程最新版本，一键安装 / 更新（服务端执行 `dsh plugin add`，
+ *    客户端轮询任务进度并显示实时日志）。
+ * 2. 社区插件浏览：按 21 种分类筛选、搜索，自动匹配本地已安装状态与版本，
+ *    支持一键安装 / 更新（npm 包）。
  * 3. 配置页：仓库源 / 社区目录 URL / 镜像 / 自动检查开关。
  *
  * All data flows through the loopback RPC channel `/dsh-market-rpc`
@@ -69,10 +69,14 @@ window.__ModuleLoader__.load({
       .dm-card-title{font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary,#1f2328);margin:0}
       .dm-card-name{font-size:11px;color:var(--dsw-alias-label-tertiary,#656d76);margin:2px 0 0}
       .dm-badge{font-size:11px;padding:2px 6px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 12%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe);font-weight:500;white-space:nowrap}
-      .dm-badge.repo{background:color-mix(in srgb,#10b981 15%,transparent);color:#059669}
-      .dm-badge.update{background:color-mix(in srgb,#d98e00 15%,transparent);color:#b76e00}
+      .dm-badge.installed{background:color-mix(in srgb,#10b981 15%,transparent);color:#059669}
+      .dm-badge.update{background:color-mix(in srgb,#d98e00 18%,transparent);color:#b76e00;font-weight:600}
+      .dm-badge.uninstalled{background:var(--dsw-alias-bg-module-platform,rgba(0,0,0,.06));color:var(--dsw-alias-label-tertiary,#656d76)}
       .dm-card-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#57606a);margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-      .dm-version-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--dsw-alias-label-tertiary,#656d76)}
+      .dm-version-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--dsw-alias-label-secondary,#57606a);line-height:18px}
+      .dm-ver-installed{color:#059669;font-weight:500}
+      .dm-ver-latest{color:var(--dsw-alias-label-primary,#1f2328);font-weight:600}
+      .dm-ver-uptodate{color:var(--dsw-alias-label-tertiary,#656d76);font-size:11px}
       .dm-card-meta{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--dsw-alias-label-tertiary,#656d76);border-top:1px solid var(--dsw-alias-border-subtle,#f0f0f0);padding-top:8px;gap:8px;flex-wrap:wrap}
       .dm-card-actions{display:flex;align-items:center;gap:6px}
       .dm-feedback{padding:9px 11px;border-radius:8px;font-size:12px;line-height:18px}.dm-feedback.ok{background:color-mix(in srgb,#10b981 10%,transparent);color:#059669}.dm-feedback.error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
@@ -89,13 +93,13 @@ window.__ModuleLoader__.load({
     `;
 
     const FALLBACK_REPO_PLUGINS = [
-      { id: "dsh-market", name: "dsh-market", title: "插件市场与更新管理器", description: "DSH 官方社区插件市场，支持浏览、安装社区插件，以及一键检查与更新本仓库全量插件。", author: "veildawn", category: "tools", version: "0.1.0", latestVersion: "0.1.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-market@v0.1.0/dsh-market-0.1.0.tgz", isRepoPlugin: true, installedVersion: null, hasUpdate: false },
-      { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.8", latestVersion: "0.4.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz", isRepoPlugin: true, installedVersion: null, hasUpdate: false },
-      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true, installedVersion: null, hasUpdate: false },
-      { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true, installedVersion: null, hasUpdate: false },
-      { id: "dsh-mobile-adapter", name: "dsh-mobile-adapter", title: "移动端全量体验优化", description: "原生图片上传、底部操作栏圆形统一规范、视口高度自适应、Segmented Control Tabs。", author: "veildawn", category: "ui", version: "0.1.27", latestVersion: "0.1.27", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.27/dsh-mobile-adapter-0.1.27.tgz", isRepoPlugin: true, installedVersion: null, hasUpdate: false },
-      { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.1.8", latestVersion: "0.1.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true, installedVersion: null, hasUpdate: false },
-      { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true, installedVersion: null, hasUpdate: false },
+      { id: "dsh-market", name: "dsh-market", title: "插件市场与更新管理器", description: "DSH 官方社区插件市场，支持浏览、安装社区插件，以及一键检查与更新本仓库全量插件。", author: "veildawn", category: "tools", version: "0.1.1", latestVersion: "0.1.1", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-market@v0.1.1/dsh-market-0.1.1.tgz", isRepoPlugin: true },
+      { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.8", latestVersion: "0.4.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz", isRepoPlugin: true },
+      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
+      { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
+      { id: "dsh-mobile-adapter", name: "dsh-mobile-adapter", title: "移动端全量体验优化", description: "原生图片上传、底部操作栏圆形统一规范、视口高度自适应、Segmented Control Tabs。", author: "veildawn", category: "ui", version: "0.1.28", latestVersion: "0.1.28", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.28/dsh-mobile-adapter-0.1.28.tgz", isRepoPlugin: true },
+      { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.1.8", latestVersion: "0.1.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true },
+      { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true },
     ];
 
     function installSourceOf(plugin, kind) {
@@ -191,10 +195,11 @@ window.__ModuleLoader__.load({
                 pollInstall(taskId);
               } else {
                 if (task.status === "success") {
-                  notify(`✓ ${task.name} 安装成功，已刷新列表`);
+                  notify(`✓ ${task.name} 安装/更新成功，已刷新列表`);
                   void loadRepo();
+                  if (tab === "community") void loadCommunity();
                 } else {
-                  notify(`✗ ${task.name} 安装失败：${task.error || "未知错误"}`, "error");
+                  notify(`✗ ${task.name} 操作失败：${task.error || "未知错误"}`, "error");
                 }
               }
             } catch (err) {
@@ -202,7 +207,7 @@ window.__ModuleLoader__.load({
               notify("轮询安装状态失败：" + (err instanceof Error ? err.message : String(err)), "error");
             }
           }, 1200);
-        }, []);
+        }, [tab, loadRepo, loadCommunity]);
 
         const startInstall = async (name, kind) => {
           if (installTask && installTask.status === "running") {
@@ -236,62 +241,94 @@ window.__ModuleLoader__.load({
 
         const busyFor = (name) => Boolean(installTask && installTask.status === "running" && installTask.name === name);
 
-        const repoCard = (plugin) => {
-          const installed = plugin.installedVersion;
-          const update = Boolean(installed) && plugin.hasUpdate;
+        /**
+         * Unified Card Component: used for both Monorepo and Community plugins.
+         */
+        const renderPluginCard = (plugin, kind) => {
+          const installed = plugin.installedVersion || null;
+          const isInstalled = Boolean(installed);
+          const remoteVer = plugin.version || plugin.latestVersion || null;
+          const update = isInstalled && Boolean(plugin.hasUpdate);
           const busy = busyFor(plugin.name);
-          const primaryLabel = busy ? "安装中…" : (update ? "更新" : (installed ? "已是最新" : "安装"));
-          const primaryDisabled = busy || (!update && Boolean(installed));
-          return react.createElement("div", { className: "dm-card", key: plugin.id },
-            react.createElement("div", { className: "dm-card-head" },
-              react.createElement("div", null,
-                react.createElement("h3", { className: "dm-card-title" }, plugin.title || plugin.name),
-                react.createElement("p", { className: "dm-card-name" }, plugin.name)),
-              react.createElement("span", { className: update ? "dm-badge update" : "dm-badge repo" }, update ? "可更新" : "本仓库")),
-            react.createElement("p", { className: "dm-card-desc" }, plugin.description || "暂无描述"),
-            react.createElement("div", { className: "dm-version-row" },
-              installed
-                ? react.createElement(react.Fragment, null,
-                    react.createElement("span", null, "已安装 ", installed),
-                    update ? react.createElement("span", null, "→ 最新 ", plugin.version) : react.createElement("span", null, "（已是最新）"))
-                : react.createElement("span", null, "最新版本 ", plugin.version)),
-            react.createElement("div", { className: "dm-card-meta" },
-              react.createElement("span", null, `作者: ${plugin.author || "veildawn"}`),
-              react.createElement("div", { className: "dm-card-actions" },
-                react.createElement("button", { className: "dm-action-btn", type: "button", disabled: busy, onClick: () => copyCommand(plugin, "repo") }, "复制指令"),
-                react.createElement("button", {
-                  className: "dm-action-btn " + (update ? "primary" : "success"),
-                  type: "button",
-                  disabled: primaryDisabled,
-                  onClick: () => void startInstall(plugin.name, "repo"),
-                }, primaryLabel))));
-        };
 
-        const communityCard = (plugin) => {
-          const busy = busyFor(plugin.name);
-          const installable = Boolean(plugin.npm || plugin.name);
+          // Badge logic
+          let badgeClass = "dm-badge uninstalled";
+          let badgeText = "未安装";
+          if (update) {
+            badgeClass = "dm-badge update";
+            badgeText = "可更新";
+          } else if (isInstalled) {
+            badgeClass = "dm-badge installed";
+            badgeText = "已安装";
+          } else if (kind === "repo") {
+            badgeClass = "dm-badge uninstalled";
+            badgeText = "本仓库";
+          } else if (plugin.category) {
+            badgeClass = "dm-badge uninstalled";
+            badgeText = categoryName(plugin.category);
+          }
+
+          // Version row text
+          let versionDetails = null;
+          if (isInstalled && update) {
+            versionDetails = react.createElement(react.Fragment, null,
+              react.createElement("span", { className: "dm-ver-installed" }, `当前版本: v${installed}`),
+              react.createElement("span", null, " → "),
+              react.createElement("span", { className: "dm-ver-latest" }, `远程最新: v${remoteVer}`));
+          } else if (isInstalled && !update) {
+            versionDetails = react.createElement(react.Fragment, null,
+              react.createElement("span", { className: "dm-ver-installed" }, `当前版本: v${installed}`),
+              remoteVer ? react.createElement("span", { className: "dm-ver-uptodate" }, ` · 远程最新: v${remoteVer} (已是最新)`) : react.createElement("span", { className: "dm-ver-uptodate" }, " (已是最新)"));
+          } else {
+            versionDetails = react.createElement("span", { className: "dm-ver-latest" }, remoteVer ? `最新版本: v${remoteVer}` : (plugin.npm ? `包名: ${plugin.npm}` : ""));
+          }
+
+          // Primary button label & disabled
+          let btnLabel = "⬇ 安装";
+          let btnClass = "dm-action-btn primary";
+          let btnDisabled = busy;
+
+          if (busy) {
+            btnLabel = "正在处理…";
+            btnDisabled = true;
+          } else if (update) {
+            btnLabel = "🔄 更新";
+            btnClass = "dm-action-btn primary";
+            btnDisabled = false;
+          } else if (isInstalled) {
+            btnLabel = "✓ 已是最新";
+            btnClass = "dm-action-btn";
+            btnDisabled = true;
+          } else {
+            btnLabel = "⬇ 安装";
+            btnClass = "dm-action-btn success";
+            btnDisabled = false;
+          }
+
+          const canInstall = kind === "repo" || Boolean(plugin.npm || plugin.name);
+
           return react.createElement("div", { className: "dm-card", key: plugin.id },
             react.createElement("div", { className: "dm-card-head" },
               react.createElement("div", null,
                 react.createElement("h3", { className: "dm-card-title" }, plugin.title || plugin.name),
                 react.createElement("p", { className: "dm-card-name" }, plugin.author ? `${plugin.author} / ${plugin.name}` : plugin.name)),
-              plugin.category ? react.createElement("span", { className: "dm-badge" }, categoryName(plugin.category)) : null),
+              react.createElement("span", { className: badgeClass }, badgeText)),
             react.createElement("p", { className: "dm-card-desc" }, plugin.description || "暂无描述"),
             react.createElement("div", { className: "dm-version-row" },
-              react.createElement("span", null, "⭐ ", plugin.stars || 0),
-              react.createElement("span", null, "⬇ ", plugin.downloads || 0),
-              plugin.npm ? react.createElement("span", null, plugin.npm) : null),
+              versionDetails,
+              plugin.stars ? react.createElement("span", null, ` · ⭐ ${plugin.stars}`) : null,
+              plugin.downloads ? react.createElement("span", null, ` · ⬇ ${plugin.downloads}`) : null),
             react.createElement("div", { className: "dm-card-meta" },
-              react.createElement("span", null, plugin.added ? `收录于 ${plugin.added}` : ""),
+              react.createElement("span", null, plugin.added ? `收录于 ${plugin.added}` : (plugin.author ? `作者: ${plugin.author}` : "")),
               react.createElement("div", { className: "dm-card-actions" },
                 plugin.homepage ? react.createElement("a", { className: "dm-action-btn", href: plugin.homepage, target: "_blank", rel: "noreferrer", style: { textDecoration: "none" } }, "源码") : null,
-                react.createElement("button", { className: "dm-action-btn", type: "button", disabled: busy, onClick: () => copyCommand(plugin, "community") }, "复制指令"),
-                installable ? react.createElement("button", {
-                  className: "dm-action-btn primary",
+                react.createElement("button", { className: "dm-action-btn", type: "button", disabled: busy, onClick: () => copyCommand(plugin, kind) }, "复制指令"),
+                canInstall ? react.createElement("button", {
+                  className: btnClass,
                   type: "button",
-                  disabled: busy,
-                  onClick: () => void startInstall(plugin.name, "community"),
-                }, busy ? "安装中…" : "安装") : null)));
+                  disabled: btnDisabled,
+                  onClick: () => void startInstall(plugin.name, kind),
+                }, btnLabel) : null)));
         };
 
         const saveConfig = async (next) => {
@@ -334,7 +371,7 @@ window.__ModuleLoader__.load({
             react.createElement("span", { className: "dm-badge repo" }, `本仓库 ${repoPlugins.length} 款 · 社区 ${communityPlugins.length} 款`)),
           installTask ? react.createElement("div", { className: "dm-install-box" },
             react.createElement("div", { className: "dm-install-head" },
-              react.createElement("span", null, `安装任务：${installTask.name}（${installStatusText}）`),
+              react.createElement("span", null, `安装/更新任务：${installTask.name}（${installStatusText}）`),
               react.createElement("span", null, installTask.profile || "")),
             react.createElement("pre", { className: "dm-install-log" }, (installTask.log || []).slice(-15).join("\n") || "等待任务输出…"))
             : null,
@@ -348,7 +385,7 @@ window.__ModuleLoader__.load({
           tab === "repo" ? (
             filteredRepo.length === 0
               ? react.createElement("div", { className: "dm-empty" }, "没有匹配的插件")
-              : react.createElement("div", { className: "dm-grid" }, ...filteredRepo.map(repoCard))
+              : react.createElement("div", { className: "dm-grid" }, ...filteredRepo.map((p) => renderPluginCard(p, "repo")))
           ) : null,
           tab === "community" ? react.createElement(react.Fragment, null,
             categories.length > 0 ? react.createElement("div", { className: "dm-chips" },
@@ -368,7 +405,7 @@ window.__ModuleLoader__.load({
                       filteredCommunity.length > 100
                         ? react.createElement("div", { className: "dm-empty", style: { padding: "6px" } }, `共 ${filteredCommunity.length} 个结果，显示前 100 个，请用搜索或分类缩小范围`)
                         : null,
-                      react.createElement("div", { className: "dm-grid" }, ...filteredCommunity.slice(0, 100).map(communityCard))))
+                      react.createElement("div", { className: "dm-grid" }, ...filteredCommunity.slice(0, 100).map((p) => renderPluginCard(p, "community")))))
           ) : null,
           tab === "config" ? (
             react.createElement("div", { className: "dm-config" },
