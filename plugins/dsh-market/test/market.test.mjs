@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -14,15 +15,24 @@ import {
   readInstalledVersion,
   readInstalledList,
   mergeInstalledVersions,
+  normalizeCommunityPlugins,
+  communityCategories,
+  safeProfileName,
+  safePackageName,
+  isAllowedRepoUrl,
   LOCAL_MONOREPO_PLUGINS,
 } from '../lib/core.js'
 import {
   handleMarketRpc,
+  handleInstallPlugin,
   resolveOptions,
   fetchGitHubReleases,
   fetchCommunityCatalog,
+  runDshPluginCommand,
+  resetMarketCaches,
+  _setHttpFetch,
+  _resetHttpFetch,
 } from '../lib/index.js'
-import { readFileSync } from 'node:fs'
 
 describe('dsh-market core & version comparison', () => {
   it('correctly compares semantic versions', () => {
@@ -190,8 +200,7 @@ describe('dsh-market RPC handler (network stubbed)', () => {
   let originalFetch
 
   before(() => {
-    originalFetch = globalThis.fetch
-    globalThis.fetch = async (url) => {
+    _setHttpFetch(async (url) => {
       if (String(url).includes('api.github.com')) {
         return { ok: true, json: async () => FAKE_RELEASES }
       }
@@ -199,9 +208,11 @@ describe('dsh-market RPC handler (network stubbed)', () => {
         return { ok: true, json: async () => ({ plugins: FAKE_COMMUNITY }) }
       }
       return { ok: false, status: 404, json: async () => ({}) }
-    }
+    })
   })
-  after(() => { globalThis.fetch = originalFetch })
+  after(() => {
+    _resetHttpFetch()
+  })
 
   it('fetches and caches GitHub releases through the stub', async () => {
     const releases = await fetchGitHubReleases('veildawn/dsh-plugins')
@@ -210,8 +221,9 @@ describe('dsh-market RPC handler (network stubbed)', () => {
   })
 
   it('fetches community catalog through the stub', async () => {
-    const plugins = await fetchCommunityCatalog('https://mirror.example/plugins.json')
-    assert.equal(plugins.length, 2)
+    const data = await fetchCommunityCatalog('https://mirror.example/plugins.json')
+    assert.equal(Array.isArray(data.plugins), true)
+    assert.equal(data.plugins.length, 2)
   })
 
   it('handles getRepoPlugins RPC without hitting the network', async () => {
@@ -280,5 +292,240 @@ describe('dsh-market client bundle verification', () => {
     const index = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
     assert.equal(patch.includes('id: market'), true)
     assert.equal(index.includes("export const name = 'market'"), true)
+  })
+})
+
+describe('dsh-market community catalog normalization', () => {
+  const RAW = {
+    updated: '2026-08-27',
+    categories: {
+      ui: { en: 'UI Enhancements', zh: 'UI 增强' },
+      model: { en: 'Models & Providers', zh: '模型与账号接入' },
+    },
+    plugins: [
+      {
+        name: 'dsh-status-rotator',
+        owner: '01Virex',
+        url: 'https://github.com/01Virex/dsh-status-rotator',
+        category: 'ui',
+        description: { en: 'Rotating status phrases', zh: '轮换状态文案' },
+        npm: 'dsh-status-rotator',
+        stars: 55,
+        downloads: 2436,
+        added: '2026-08-14',
+      },
+      {
+        name: 'plugin-without-npm',
+        category: 'model',
+        description: 'Plain string description',
+      },
+    ],
+  }
+
+  it('normalizes entries to card fields (zh description, stars, npm)', () => {
+    const list = normalizeCommunityPlugins(RAW, 'zh')
+    assert.equal(list.length, 2)
+    const first = list[0]
+    assert.equal(first.title, 'dsh-status-rotator')
+    assert.equal(first.description, '轮换状态文案')
+    assert.equal(first.category, 'ui')
+    assert.equal(first.stars, 55)
+    assert.equal(first.downloads, 2436)
+    assert.equal(first.npm, 'dsh-status-rotator')
+    assert.equal(first.author, '01Virex')
+    // fallback for string descriptions
+    assert.equal(list[1].description, 'Plain string description')
+    assert.equal(list[1].npm, '')
+  })
+
+  it('normalizes garbage payloads to empty arrays', () => {
+    assert.deepEqual(normalizeCommunityPlugins(null), [])
+    assert.deepEqual(normalizeCommunityPlugins({}), [])
+    assert.deepEqual(normalizeCommunityPlugins({ plugins: 'nope' }), [])
+  })
+
+  it('extracts the category dictionary', () => {
+    const cats = communityCategories(RAW)
+    assert.deepEqual(cats, [
+      { id: 'ui', en: 'UI Enhancements', zh: 'UI 增强' },
+      { id: 'model', en: 'Models & Providers', zh: '模型与账号接入' },
+    ])
+    assert.deepEqual(communityCategories(null), [])
+  })
+})
+
+describe('dsh-market install source allowlist', () => {
+  it('accepts monorepo release download URLs for the configured origin', () => {
+    const url = 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz'
+    assert.equal(isAllowedRepoUrl(url, 'veildawn/dsh-plugins'), true)
+    // URL-encoded @ form is also accepted
+    assert.equal(isAllowedRepoUrl(url.replace('@', '%40'), 'veildawn/dsh-plugins'), true)
+  })
+
+  it('rejects foreign origins, wrong shapes and hand-crafted URLs', () => {
+    assert.equal(isAllowedRepoUrl('https://github.com/evil/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz', 'veildawn/dsh-plugins'), false)
+    assert.equal(isAllowedRepoUrl('https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/evil-0.4.8.tgz', 'veildawn/dsh-plugins'), false)
+    assert.equal(isAllowedRepoUrl('https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.9.tgz', 'veildawn/dsh-plugins'), false)
+    assert.equal(isAllowedRepoUrl('https://evil.com/x.tgz', 'veildawn/dsh-plugins'), false)
+    assert.equal(isAllowedRepoUrl(42, 'veildawn/dsh-plugins'), false)
+  })
+
+  it('sanitizes profile and package names', () => {
+    assert.equal(safeProfileName('web'), 'web')
+    assert.equal(safeProfileName('web;rm -rf /'), null)
+    assert.equal(safeProfileName(''), null)
+    assert.equal(safePackageName('dsh-status-rotator'), 'dsh-status-rotator')
+    assert.equal(safePackageName('@scope/pkg-name'), '@scope/pkg-name')
+    assert.equal(safePackageName('pkg; rm -rf /'), null)
+    assert.equal(safePackageName('../evil'), null)
+  })
+})
+
+describe('dsh-market install tasks (fake spawn)', () => {
+  const FAKE_RELEASES = [
+    {
+      tag_name: 'dsh-model-roles@v0.4.8',
+      published_at: '2026-08-26T22:32:00Z',
+      assets: [{ name: 'dsh-model-roles-0.4.8.tgz', browser_download_url: 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz' }],
+    },
+  ]
+  const FAKE_COMMUNITY = {
+    plugins: [
+      { name: 'dsh-status-rotator', npm: 'dsh-status-rotator', category: 'ui', description: { zh: '轮换状态文案' } },
+      { name: 'no-npm-plugin', category: 'ui', description: { zh: '无 npm 包' } },
+    ],
+    categories: { ui: { en: 'UI', zh: 'UI' } },
+  }
+  let originalFetch
+  const captured = { calls: [] }
+
+  function fakeSpawn(cmd, args, opts) {
+    captured.calls.push({ cmd, args })
+    const child = new EventEmitter()
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    child.kill = () => {}
+    setImmediate(() => {
+      child.stdout.emit('data', Buffer.from('installing...\n'))
+      child.emit('close', 0)
+    })
+    return child
+  }
+
+  before(() => {
+    resetMarketCaches()
+    _setHttpFetch(async (url) => {
+      if (String(url).includes('api.github.com')) return { ok: true, json: async () => FAKE_RELEASES }
+      if (String(url).includes('plugins.json')) return { ok: true, json: async () => FAKE_COMMUNITY }
+      return { ok: false, status: 404, json: async () => ({}) }
+    })
+  })
+  after(() => { _resetHttpFetch() })
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  async function waitForTask(rpc, taskId, timeoutMs = 5000) {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const res = await rpc('getInstallTask', { taskId })
+      if (res.status !== 'running') return res
+      await sleep(20)
+    }
+    throw new Error('task did not finish in time')
+  }
+
+  it('installs a repo plugin by spawning `dsh plugin add` with the allowlisted URL', async () => {
+    captured.calls.length = 0
+    const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo' }, { spawnFn: fakeSpawn })
+    assert.equal(res.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(task.status, 'success')
+    assert.equal(task.profile, 'web')
+    assert.equal(captured.calls.length, 1)
+    assert.equal(captured.calls[0].cmd, 'dsh')
+    assert.deepEqual(captured.calls[0].args, ['plugin', 'add', '--profile', 'web', 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz'])
+    assert.equal(task.log.some((l) => l.includes('$ dsh plugin add')), true)
+    assert.equal(task.log.some((l) => l.includes('installing...')), true)
+  })
+
+  it('installs a community plugin by spawning `dsh plugin add` with its npm name', async () => {
+    captured.calls.length = 0
+    const res = handleInstallPlugin({}, { name: 'dsh-status-rotator', kind: 'community' }, { spawnFn: fakeSpawn })
+    assert.equal(res.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(task.status, 'success')
+    assert.equal(captured.calls[0].args[4], 'dsh-status-rotator')
+  })
+
+  it('rejects plugins not present in the catalogs (no spawn)', async () => {
+    captured.calls.length = 0
+    const res = handleInstallPlugin({}, { name: 'not-in-catalog', kind: 'repo' }, { spawnFn: fakeSpawn })
+    assert.equal(res.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(task.status, 'error')
+    assert.equal(captured.calls.length, 0)
+  })
+
+  it('rejects community plugins without an npm package', async () => {
+    captured.calls.length = 0
+    const res = handleInstallPlugin({}, { name: 'no-npm-plugin', kind: 'community' }, { spawnFn: fakeSpawn })
+    assert.equal(res.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(task.status, 'error')
+    assert.equal(captured.calls.length, 0)
+  })
+
+  it('rejects malformed install requests and unknown kinds', () => {
+    const bad = handleInstallPlugin({}, {}, { spawnFn: fakeSpawn })
+    assert.equal(bad.ok, false)
+    const noName = handleInstallPlugin({}, { kind: 'repo' }, { spawnFn: fakeSpawn })
+    assert.equal(noName.ok, false)
+    const badKind = handleInstallPlugin({}, { name: 'x', kind: 'npm' }, { spawnFn: fakeSpawn })
+    assert.equal(badKind.ok, false)
+  })
+
+  it('only allows one install task at a time', async () => {
+    // Hold the first task open with a spawn that never closes.
+    let stuckChild
+    const stuckSpawn = () => {
+      const child = new EventEmitter()
+      child.stdout = new EventEmitter()
+      child.stderr = new EventEmitter()
+      child.kill = () => {}
+      stuckChild = child
+      return child
+    }
+    const first = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo' }, { spawnFn: stuckSpawn })
+    assert.equal(first.ok, true)
+    // The second request must be refused while the first is running.
+    const second = handleInstallPlugin({}, { name: 'dsh-terminal', kind: 'repo' }, { spawnFn: fakeSpawn })
+    assert.equal(second.ok, false)
+    assert.match(second.error.message, /已有安装任务正在进行/)
+    // The async task reaches the spawn after resolveInstallSource resolves.
+    await sleep(100)
+    assert.ok(stuckChild, 'first task should have spawned by now')
+    // Release the first task and let it finish, then a new task is allowed.
+    stuckChild.emit('close', 0)
+    await sleep(100)
+    const third = handleInstallPlugin({}, { name: 'dsh-terminal', kind: 'repo' }, { spawnFn: fakeSpawn })
+    assert.equal(third.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, third.value.taskId)
+    assert.equal(task.status, 'success')
+  })
+
+  it('runDshPluginCommand captures exit code and streamed output', async () => {
+    const failing = new EventEmitter()
+    failing.stdout = new EventEmitter()
+    failing.stderr = new EventEmitter()
+    failing.kill = () => {}
+    setImmediate(() => {
+      failing.stderr.emit('data', Buffer.from('boom\n'))
+      failing.emit('close', 1)
+    })
+    const result = await runDshPluginCommand(['plugin', 'add', 'x'], {
+      spawnFn: () => failing,
+    })
+    assert.equal(result.ok, false)
+    assert.equal(result.code, 1)
+    assert.equal(result.stderr.includes('boom'), true)
   })
 })

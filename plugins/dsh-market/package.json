@@ -1,7 +1,7 @@
 {
   "name": "dsh-market",
-  "version": "0.1.0",
-  "description": "Visual plugin marketplace for DeepSeek Harness — browse, install community plugins, and manage monorepo repository updates",
+  "version": "0.1.1",
+  "description": "Visual plugin marketplace for DeepSeek Harness — browse community plugins by category, one-click install/update, and manage monorepo repository updates",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -31,11 +31,11 @@
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/schemastery": "^3.18.1",
     "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -53,5 +53,8 @@
       ],
       "platform": "web"
     }
+  },
+  "dependencies": {
+    "undici": "^8.10.0"
   }
 }

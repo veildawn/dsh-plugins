@@ -309,3 +309,75 @@ export function checkPluginUpdates(installedList, catalogList) {
     }
   })
 }
+
+/**
+ * Normalize the awesome-dsh-plugin community catalog into a flat card list.
+ *
+ * Raw entry shape (from awesome-dsh-plugin.com/plugins.json):
+ *   { name, owner, url, category, description: {en, zh}, npm, stars,
+ *     downloads, install, added, page }
+ */
+export function normalizeCommunityPlugins(raw, locale = 'zh') {
+  if (!raw || !Array.isArray(raw.plugins)) return []
+  return raw.plugins.map((p) => {
+    const desc = (p.description && typeof p.description === 'object')
+      ? (p.description[locale] || p.description.en || p.description.zh || '')
+      : (typeof p.description === 'string' ? p.description : '')
+    return {
+      id: p.name || p.id,
+      name: p.name || p.id,
+      title: p.name || p.id,
+      description: desc || p.summary || '',
+      category: p.category || '',
+      stars: Number(p.stars) || 0,
+      downloads: Number(p.downloads) || 0,
+      homepage: p.url || p.homepage || '',
+      npm: p.npm || '',
+      install: p.install || '',
+      added: p.added || '',
+      author: p.owner || '',
+    }
+  })
+}
+
+/**
+ * Extract the category dictionary ({ id, en, zh }[]) from the catalog.
+ */
+export function communityCategories(raw) {
+  const map = (raw && typeof raw.categories === 'object') ? raw.categories : {}
+  return Object.entries(map).map(([id, names]) => ({
+    id,
+    en: (names && names.en) || id,
+    zh: (names && names.zh) || id,
+  }))
+}
+
+/** Sanitize a profile name for CLI arguments (no shell metacharacters). */
+export function safeProfileName(name) {
+  return typeof name === 'string' && /^[a-zA-Z0-9_-]+$/.test(name) ? name : null
+}
+
+/** Sanitize a package name for `dsh plugin add` (plain or @scope/name). */
+export function safePackageName(name) {
+  return typeof name === 'string' && /^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9-_.]*$/i.test(name) ? name : null
+}
+
+/**
+ * Verify that an install source is allowed before executing it.
+ *
+ * - repo plugins: must be one of the monorepo release download URLs
+ *   (github.com/<origin>/releases/download/<name>@v<version>/<name>-<version>.tgz)
+ * - community plugins: must be a package name present in the community catalog
+ */
+export function isAllowedRepoUrl(downloadUrl, repoOrigin) {
+  if (typeof downloadUrl !== 'string') return false
+  const cleanRepo = String(repoOrigin).replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
+  const prefix = `https://github.com/${cleanRepo}/releases/download/`
+  if (!downloadUrl.startsWith(prefix)) return false
+  const tail = downloadUrl.slice(prefix.length)
+  // <plugin>@v<version>/<plugin>-<version>.tgz — version may be URL-encoded (@ -> %40)
+  const decoded = tail.includes('%40') ? tail.replace(/%40/g, '@') : tail
+  const match = decoded.match(/^([a-z0-9-]+)@v(\d+\.\d+\.\d+)\/\1-(\d+\.\d+\.\d+)\.tgz$/i)
+  // Plugin name must match the asset filename AND tag version must equal asset version.
+  return Boolean(match && match[2] === match[3])
+}
