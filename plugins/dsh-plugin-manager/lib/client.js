@@ -158,7 +158,7 @@ window.__ModuleLoader__.load({
     `;
 
     const FALLBACK_REPO_PLUGINS = [
-      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.5", latestVersion: "0.1.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.5/dsh-plugin-manager-0.1.5.tgz", isRepoPlugin: true },
+      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.6/dsh-plugin-manager-0.1.6.tgz", isRepoPlugin: true },
       { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.8", latestVersion: "0.4.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz", isRepoPlugin: true },
       { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
       { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
@@ -180,15 +180,23 @@ window.__ModuleLoader__.load({
         document.head.appendChild(style);
       }
 
-      const rpc = ctx.connection.rpc;
-
-      async function rpcCall(method, payload) {
+      // Lazy access to the connection RPC surface (like dsh-remote-control).
+      // The host may not have injected the connection service when apply() runs,
+      // so any eager `ctx.connection.rpc` access would crash the whole client
+      // bundle and blank the settings panel.
+      const rpcCall = async (method, payload) => {
+        const conn = ctx && ctx.connection;
+        const rpc = conn && conn.rpc;
+        if (!rpc || typeof rpc.call !== "function") {
+          throw new Error("插件管理连接服务尚未就绪，请稍后重试");
+        }
         const result = await rpc.call(MARKET_RPC_CHANNEL, method, payload || {});
         if (result && result.ok === true) return result.value;
         throw new Error(result?.error?.message || "插件管理请求失败");
-      }
+      };
 
-      function PluginManagerSection() {
+      function PluginManagerSection(props) {
+        const { rpcCall: callRpc } = props || {};
         const [tab, setTab] = react.useState("repo");
         const [search, setSearch] = react.useState("");
         const [category, setCategory] = react.useState("");
@@ -217,7 +225,7 @@ window.__ModuleLoader__.load({
         const loadRepo = react.useCallback(async () => {
           setLoading(true);
           try {
-            const value = await rpcCall("getRepoPlugins", {});
+            const value = await callRpc("getRepoPlugins", {});
             setRepoPlugins(value.plugins || FALLBACK_REPO_PLUGINS);
             if (value.repoOrigin) setRepoOrigin(value.repoOrigin);
             if (value.profile) setProfile(value.profile);
@@ -228,10 +236,18 @@ window.__ModuleLoader__.load({
           }
         }, []);
 
+        const loadConfig = react.useCallback(async () => {
+          try {
+            const value = await callRpc("getConfig", {});
+            setConfig(value);
+            setDraft({ ...value });
+          } catch { /* non-fatal */ }
+        }, []);
+
         const loadCommunity = react.useCallback(async (retriesLeft = 3, silent = false) => {
           if (!silent) setLoadingCommunity(true);
           try {
-            const value = await rpcCall("getCommunityPlugins", {});
+            const value = await callRpc("getCommunityPlugins", {});
             if (value && Array.isArray(value.plugins) && value.plugins.length > 0) {
               setCommunityPlugins(value.plugins);
               setCategories(value.categories || []);
@@ -266,7 +282,7 @@ window.__ModuleLoader__.load({
         const pollTask = react.useCallback((taskId) => {
           window.setTimeout(async () => {
             try {
-              const task = await rpcCall("getInstallTask", { taskId });
+              const task = await callRpc("getInstallTask", { taskId });
               setTaskState(task);
               if (task.status === "running") {
                 pollTask(taskId);
@@ -293,7 +309,7 @@ window.__ModuleLoader__.load({
             return;
           }
           try {
-            const value = await rpcCall("installPlugin", { name, kind });
+            const value = await callRpc("installPlugin", { name, kind });
             setTaskState({ id: value.taskId, name, kind, status: "running", log: [], error: null });
             pollTask(value.taskId);
           } catch (err) {
@@ -320,7 +336,7 @@ window.__ModuleLoader__.load({
           }
 
           try {
-            const value = await rpcCall("batchUpdatePlugins", { kind });
+            const value = await callRpc("batchUpdatePlugins", { kind });
             setTaskState({ id: value.taskId, name: value.name, kind: "batch-update", status: "running", log: [], error: null });
             pollTask(value.taskId);
           } catch (err) {
@@ -337,7 +353,7 @@ window.__ModuleLoader__.load({
             return;
           }
           try {
-            const value = await rpcCall("removePlugin", { name });
+            const value = await callRpc("removePlugin", { name });
             setTaskState({ id: value.taskId, name, kind: "remove", status: "running", log: [], error: null });
             pollTask(value.taskId);
           } catch (err) {
@@ -351,7 +367,7 @@ window.__ModuleLoader__.load({
           }
           try {
             setRestartingState("triggering");
-            await rpcCall("restartHost", {});
+            await callRpc("restartHost", {});
             notify("已调度异步重启，正在等待服务拉起…", "ok");
             setRestartingState("probing");
 
@@ -528,7 +544,7 @@ window.__ModuleLoader__.load({
 
         const saveConfig = async (next) => {
           try {
-            const value = await rpcCall("updateConfig", next);
+            const value = await callRpc("updateConfig", next);
             setConfig(value);
             setDraft({ ...value });
             notify("配置已保存");
@@ -751,7 +767,7 @@ window.__ModuleLoader__.load({
         id: "plugin-manager",
         order: 35,
         label,
-        inject: () => ({ rpc }),
+        inject: () => ({ rpcCall }),
       }, PluginManagerSection));
     }
 

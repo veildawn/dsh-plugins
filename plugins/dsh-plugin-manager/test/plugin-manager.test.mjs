@@ -344,7 +344,9 @@ describe('dsh-plugin-manager client bundle verification', () => {
     assert.equal(clientCode.includes('window.__ModuleLoader__.load'), true)
     assert.equal(clientCode.includes('id: "dsh-plugin-manager"'), true)
     assert.equal(clientCode.includes('IconPluginManager16'), true)
-    assert.equal(clientCode.includes('const rpc = ctx.connection.rpc'), true)
+    // Lazy connection access (must not crash when host injects connection later)
+    assert.equal(clientCode.includes('const rpc = ctx.connection.rpc'), false)
+    assert.equal(clientCode.includes('conn && conn.rpc'), true)
     assert.equal(clientCode.includes('rpc.call(MARKET_RPC_CHANNEL'), true)
   })
 
