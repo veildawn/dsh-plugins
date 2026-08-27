@@ -373,13 +373,19 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
     steer(message) { steered.push(message) },
   }
 
-  const enabled = await ctx.commands.execute(parent, '/advisor on', [], AbortSignal.timeout(5_000))
+  // dsh-commands rc.6/rc.7 take (agent, line, signal); rc.8+ added the images
+  // argument. Match the resolved signature so the test passes on both.
+  const execute = (line) => ctx.commands.execute.length >= 4
+    ? ctx.commands.execute(parent, line, [], AbortSignal.timeout(5_000))
+    : ctx.commands.execute(parent, line, AbortSignal.timeout(5_000))
+
+  const enabled = await execute('/advisor on')
   assert.equal(enabled?.result.kind, 'success')
 
   const stopping = { turn: 1, signal: AbortSignal.timeout(5_000) }
   await agentEvents(ctx, parent).serial('agent/turn-stopping', stopping)
   await agentEvents(ctx, parent).serial('agent/turn-stopping', stopping)
-  const disabled = await ctx.commands.execute(parent, '/advisor off', [], AbortSignal.timeout(5_000))
+  const disabled = await execute('/advisor off')
   assert.equal(disabled?.result.kind, 'success')
   await agentEvents(ctx, parent).serial('agent/turn-stopping', {
     turn: 2,
