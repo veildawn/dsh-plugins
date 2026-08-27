@@ -129,6 +129,29 @@ describe('dsh-market releases formatting and updates detection', () => {
     assert.equal(modelRoles.version, '0.4.8')
   })
 
+  it('dynamically discovers newly added repo plugins not in hardcoded base list', () => {
+    const releaseMap = new Map([
+      [
+        'dsh-brand-new-plugin',
+        {
+          name: 'dsh-brand-new-plugin',
+          version: '1.0.0',
+          tag: 'dsh-brand-new-plugin@v1.0.0',
+          downloadUrl: 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-brand-new-plugin@v1.0.0/dsh-brand-new-plugin-1.0.0.tgz',
+          releaseNotes: 'Brand new official plugin released',
+          publishedAt: '2026-08-27',
+        },
+      ],
+    ])
+
+    const catalog = resolveRepoCatalog(releaseMap)
+    const newPlugin = catalog.find((p) => p.name === 'dsh-brand-new-plugin')
+    assert.ok(newPlugin, 'Newly released plugin must be present in repo catalog')
+    assert.equal(newPlugin.version, '1.0.0')
+    assert.equal(newPlugin.isRepoPlugin, true)
+    assert.equal(newPlugin.downloadUrl.includes('dsh-brand-new-plugin'), true)
+  })
+
   it('detects available updates for installed plugins', () => {
     const installed = [
       { name: 'dsh-model-roles', version: '0.4.7' },

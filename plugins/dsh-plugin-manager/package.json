@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-manager",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Visual plugin manager for DeepSeek Harness — manage repository updates, browse 2200+ community plugins by category, one-click batch update, removal, and smooth async daemon restart",
   "type": "module",
   "main": "lib/index.js",

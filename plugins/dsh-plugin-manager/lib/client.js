@@ -158,7 +158,7 @@ window.__ModuleLoader__.load({
     `;
 
     const FALLBACK_REPO_PLUGINS = [
-      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.4", latestVersion: "0.1.4", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.4/dsh-plugin-manager-0.1.4.tgz", isRepoPlugin: true },
+      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.5", latestVersion: "0.1.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.5/dsh-plugin-manager-0.1.5.tgz", isRepoPlugin: true },
       { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.8", latestVersion: "0.4.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz", isRepoPlugin: true },
       { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
       { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
@@ -228,38 +228,40 @@ window.__ModuleLoader__.load({
           }
         }, []);
 
-        react.useEffect(() => { void loadRepo(); }, [loadRepo]);
-
-        const loadConfig = react.useCallback(async () => {
-          try {
-            const value = await rpcCall("getConfig", {});
-            setConfig(value);
-            setDraft({ ...value });
-          } catch { /* non-fatal */ }
-        }, []);
-
-        react.useEffect(() => { void loadConfig(); }, [loadConfig]);
-
-        const loadCommunity = react.useCallback(async () => {
-          setLoadingCommunity(true);
+        const loadCommunity = react.useCallback(async (retriesLeft = 3, silent = false) => {
+          if (!silent) setLoadingCommunity(true);
           try {
             const value = await rpcCall("getCommunityPlugins", {});
-            setCommunityPlugins(value.plugins || []);
-            setCategories(value.categories || []);
-            if (value.count === 0) {
-              notify("社区目录为空或加载失败，可检查配置中的目录 URL", "error");
+            if (value && Array.isArray(value.plugins) && value.plugins.length > 0) {
+              setCommunityPlugins(value.plugins);
+              setCategories(value.categories || []);
+              if (!silent) notify(`已同步 ${value.plugins.length} 款社区插件`);
+            } else {
+              throw new Error("社区目录数据为空");
             }
           } catch (err) {
-            setCommunityPlugins([]);
-            notify(err instanceof Error ? err.message : String(err), "error");
+            if (retriesLeft > 1) {
+              // Exponential retry in background
+              const delay = (4 - retriesLeft) * 1500;
+              window.setTimeout(() => {
+                void loadCommunity(retriesLeft - 1, silent);
+              }, delay);
+            } else {
+              if (!silent) {
+                notify("获取社区插件失败：" + (err instanceof Error ? err.message : String(err)), "error");
+              }
+            }
           } finally {
-            setLoadingCommunity(false);
+            if (!silent) setLoadingCommunity(false);
           }
         }, []);
 
+        // Preload both repo and community data in background on mount
         react.useEffect(() => {
-          if (tab === "community") void loadCommunity();
-        }, [tab, loadCommunity]);
+          void loadRepo();
+          void loadConfig();
+          void loadCommunity(3, true); // Background preload with 3 automatic retries
+        }, [loadRepo, loadConfig, loadCommunity]);
 
         const pollTask = react.useCallback((taskId) => {
           window.setTimeout(async () => {
@@ -660,7 +662,7 @@ window.__ModuleLoader__.load({
                     disabled: Boolean(taskState && taskState.status === "running") || communityUpdateCount === 0,
                     onClick: () => void startBatchUpdate("community"),
                   }, `🚀 一键更新全部 (${communityUpdateCount})`),
-                  react.createElement("button", { className: "dm-action-btn", type: "button", disabled: loadingCommunity, onClick: () => void loadCommunity() }, loadingCommunity ? "正在刷新…" : "🔄 刷新社区目录"))
+                  react.createElement("button", { className: "dm-action-btn", type: "button", disabled: loadingCommunity, onClick: () => void loadCommunity(1, false) }, loadingCommunity ? "正在刷新…" : "🔄 刷新社区目录"))
                   : null)),
             react.createElement("div", { className: "dm-search-wrap" },
               react.createElement("input", {

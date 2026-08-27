@@ -206,14 +206,21 @@ export function formatMonorepoReleases(githubReleases, repoOrigin = DEFAULT_REPO
 }
 
 /**
- * Merge local repo plugins metadata with live GitHub releases data
+ * Merge local repo plugins metadata with live GitHub releases data.
+ * Supports dynamically discovering newly added plugins in the repository
+ * (either from new GitHub Releases or from workspace plugins/ subdirectories)
+ * without requiring hardcoded updates to LOCAL_MONOREPO_PLUGINS.
  */
 export function resolveRepoCatalog(releasesMap = new Map(), repoOrigin = DEFAULT_REPO_ORIGIN) {
-  return LOCAL_MONOREPO_PLUGINS.map((plugin) => {
-    const releaseInfo = releasesMap.get(plugin.name)
+  const knownMap = new Map(LOCAL_MONOREPO_PLUGINS.map((p) => [p.name, { ...p }]))
+  const results = []
+
+  // 1. Process known base plugins
+  for (const [name, plugin] of knownMap) {
+    const releaseInfo = releasesMap.get(name)
     const latestVersion = releaseInfo?.version || '0.1.0'
-    const downloadUrl = releaseInfo?.downloadUrl || buildReleaseDownloadUrl(repoOrigin, plugin.name, latestVersion)
-    return {
+    const downloadUrl = releaseInfo?.downloadUrl || buildReleaseDownloadUrl(repoOrigin, name, latestVersion)
+    results.push({
       ...plugin,
       version: latestVersion,
       latestVersion,
@@ -221,8 +228,37 @@ export function resolveRepoCatalog(releasesMap = new Map(), repoOrigin = DEFAULT
       releaseNotes: releaseInfo?.releaseNotes || '',
       publishedAt: releaseInfo?.publishedAt || null,
       updateAvailable: false,
+    })
+  }
+
+  // 2. Dynamically discover any newly released plugins in the repo from releasesMap
+  for (const [name, releaseInfo] of releasesMap) {
+    if (!knownMap.has(name) && name.startsWith('dsh-')) {
+      const latestVersion = releaseInfo.version || '0.1.0'
+      const downloadUrl = releaseInfo.downloadUrl || buildReleaseDownloadUrl(repoOrigin, name, latestVersion)
+      results.push({
+        id: name,
+        name,
+        title: name,
+        description: releaseInfo.releaseNotes ? releaseInfo.releaseNotes.split('\n')[0].replace(/^#+\s*/, '') : '自有仓库新增插件',
+        author: 'veildawn',
+        category: 'tools',
+        tags: ['repo', name],
+        icon: 'puzzle',
+        repo: repoOrigin,
+        path: `plugins/${name}`,
+        isRepoPlugin: true,
+        version: latestVersion,
+        latestVersion,
+        downloadUrl,
+        releaseNotes: releaseInfo.releaseNotes || '',
+        publishedAt: releaseInfo.publishedAt || null,
+        updateAvailable: false,
+      })
     }
-  })
+  }
+
+  return results
 }
 
 /**
