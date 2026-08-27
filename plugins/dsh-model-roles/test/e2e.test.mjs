@@ -414,3 +414,61 @@ test('tiny role routes real DSH title and compaction LLM calls', async () => {
     { model: 'tiny-model', reasoningEffort: 'low', purpose: 'compaction' },
   ])
 })
+
+test('standard presets bypass vision delegation and automatic task classification', async () => {
+  const { ctx, adapter } = createRuntime([
+    { role: 'vision', provider: 'e2e', model: 'vision-model' },
+    { role: 'smol', provider: 'e2e', model: 'smol-model' },
+    { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
+  ])
+  const starts = []
+  ctx.subagents.registerProvider({
+    name: 'spawn',
+    capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
+    inheritsParentContext: false,
+    async start(request) {
+      starts.push(request)
+      return {
+        id: 'child-1',
+        result: Promise.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'analysis' }] }),
+        dispose: () => Promise.resolve(),
+      }
+    },
+  })
+
+  // A session running on standard 'code' preset
+  const codeSession = ctx.sessions.create('standard-preset-session', {
+    meta: { agentPreset: 'code' },
+  })
+  const imageMessage = createUserMessage({
+    content: [
+      { type: 'text', text: 'Look at this code screenshot' },
+      { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
+    ],
+    source: { kind: 'user' },
+  })
+  const parent = { ctx, session: codeSession, options: {} }
+
+  const decision = await agentEvents(ctx, parent).waterfall('agent/pre-step', {
+    messages: [imageMessage],
+    turn: 1,
+    step: 1,
+    signal: AbortSignal.timeout(5_000),
+  }, () => Promise.resolve({ kind: 'enter', messages: [imageMessage] }))
+
+  // Vision delegation must be bypassed: image is preserved, no vision subagent spawned
+  assert.equal(decision.kind, 'enter')
+  assert.equal(starts.length, 0)
+  assert.equal(decision.messages[0].content.some((b) => b.type === 'image'), true)
+
+  // Agent request must not trigger tiny-model classifier: keeps original model
+  codeSession.append('user/message', imageMessage, { surfaceOp: 'append' })
+  await requestThroughHarness(ctx, parent)
+
+  const classifierRequests = adapter.requests.filter((r) =>
+    r.system?.includes('Classify the user task into one model role'))
+  assert.equal(classifierRequests.length, 0)
+  const routedRequests = adapter.requests.filter((r) =>
+    !r.system?.includes('Classify the user task into one model role'))
+  assert.equal(routedRequests.at(-1).model, 'unrouted-model')
+})

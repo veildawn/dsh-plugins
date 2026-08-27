@@ -3,11 +3,14 @@ import assert from 'node:assert/strict'
 import {
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
+  MODEL_ROLES_PRESET,
   OMP_ROLES,
+  STANDARD_PRESETS,
   advisorEnabledOf,
   agentHasImage,
   applyRoleRoute,
   contentHasImage,
+  isModelRolesActive,
   normalizeRoleId,
   parseAutomaticRole,
   planModeActive,
@@ -182,3 +185,44 @@ test('routing replaces provider/model/effort while preserving other request cont
     provider: 'vision', model: 'canvas', maxTokens: 12000, temperature: 0.2, stop: ['END'],
   })
 })
+
+test('isModelRolesActive activates only for model-roles preset, internal runtime roles, or custom role presets', () => {
+  assert.equal(isModelRolesActive(agent({ options: { modelRole: 'vision' } }), table), true)
+  assert.equal(isModelRolesActive(agent({ options: { modelRole: 'advisor' } }), table), true)
+
+  assert.equal(isModelRolesActive(agent({ livePreset: 'model-roles' }), table), true)
+  assert.equal(isModelRolesActive(agent({ header: { agentPreset: 'model-roles' } }), table), true)
+
+  for (const std of STANDARD_PRESETS) {
+    assert.equal(isModelRolesActive(agent({ livePreset: std }), table), false)
+    assert.equal(isModelRolesActive(agent({ header: { agentPreset: std } }), table), false)
+  }
+
+  assert.equal(isModelRolesActive(agent({ livePreset: 'designer' }), table), true)
+  assert.equal(isModelRolesActive(agent({ header: { agentPreset: 'designer' } }), table), true)
+
+  const rosterWithCodeDefault = {
+    options: {},
+    session: { events: [], header: {} },
+    ctx: {
+      get(name) {
+        if (name === 'agentPresets') return { defaultPreset: () => 'code' }
+        return undefined
+      },
+    },
+  }
+  assert.equal(isModelRolesActive(rosterWithCodeDefault, table), false)
+
+  const rosterWithModelRolesDefault = {
+    options: {},
+    session: { events: [], header: {} },
+    ctx: {
+      get(name) {
+        if (name === 'agentPresets') return { defaultPreset: () => 'model-roles' }
+        return undefined
+      },
+    },
+  }
+  assert.equal(isModelRolesActive(rosterWithModelRolesDefault, table), true)
+})
+

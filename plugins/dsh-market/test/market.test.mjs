@@ -25,6 +25,7 @@ import {
 import {
   handleMarketRpc,
   handleInstallPlugin,
+  handleRemovePlugin,
   resolveOptions,
   fetchGitHubReleases,
   fetchCommunityCatalog,
@@ -543,5 +544,25 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(result.ok, false)
     assert.equal(result.code, 1)
     assert.equal(result.stderr.includes('boom'), true)
+  })
+
+  it('removes an installed plugin by spawning `dsh plugin remove`', async () => {
+    captured.calls.length = 0
+    const res = handleRemovePlugin({}, { name: 'dsh-model-roles' }, { spawnFn: fakeSpawn })
+    assert.equal(res.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(task.status, 'success')
+    assert.equal(task.kind, 'remove')
+    assert.equal(captured.calls.length, 1)
+    assert.equal(captured.calls[0].cmd, 'dsh')
+    assert.deepEqual(captured.calls[0].args, ['plugin', 'remove', '--profile', 'web', 'dsh-model-roles'])
+    assert.equal(task.log.some((l) => l.includes('$ dsh plugin remove')), true)
+  })
+
+  it('rejects invalid plugin names for removePlugin', () => {
+    const bad = handleRemovePlugin({}, { name: 'bad;rm -rf /' }, { spawnFn: fakeSpawn })
+    assert.equal(bad.ok, false)
+    const empty = handleRemovePlugin({}, {}, { spawnFn: fakeSpawn })
+    assert.equal(empty.ok, false)
   })
 })

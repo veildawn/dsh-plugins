@@ -25,6 +25,13 @@ const BUILTIN_ROLE_SET = new Set(BUILTIN_ROLES)
 export const CONFIGURABLE_ROLES = Object.freeze(OMP_ROLES.filter((role) => role !== 'default'))
 export const ROLE_ID_PATTERN = /^[a-z][a-z0-9_-]*$/u
 export const ADVISOR_COMMAND = 'advisor'
+export const MODEL_ROLES_PRESET = 'model-roles'
+export const STANDARD_PRESETS = Object.freeze(new Set([
+  'standard',
+  'code',
+  'minimal',
+  'cordis',
+]))
 export const AUTOMATIC_TASK_ROLES = Object.freeze([
   'default',
   'smol',
@@ -256,6 +263,36 @@ export function isSelectableRole(role, table) {
 }
 
 /**
+ * Whether the agent runs in model-roles (智选模式) or is an internal model-role agent.
+ */
+export function isModelRolesActive(agent, table) {
+  if (typeof agent?.options?.modelRole === 'string' && agent.options.modelRole.trim()) {
+    return true
+  }
+  const preset = presetOf(agent)
+  if (preset !== undefined) {
+    if (preset === MODEL_ROLES_PRESET) return true
+    if (STANDARD_PRESETS.has(preset)) return false
+    if (isSelectableRole(preset, table)) return true
+    return false
+  }
+  try {
+    const roster = agent?.ctx?.get?.('agentPresets')
+    if (roster !== undefined) {
+      const defaultPreset = roster.defaultPreset?.()
+      if (typeof defaultPreset === 'string') {
+        const normalized = defaultPreset.trim().toLowerCase()
+        if (normalized === MODEL_ROLES_PRESET) return true
+        if (STANDARD_PRESETS.has(normalized)) return false
+        if (isSelectableRole(normalized, table)) return true
+      }
+      return false
+    }
+  } catch {}
+  return true
+}
+
+/**
  * Select the requested role for one conversation request.
  *
  * Plan mode wins over an exact preset, delegated task work, and the
@@ -269,7 +306,7 @@ export function roleForAgent(agent, table) {
   if (runtimeRole !== undefined && isSelectableRole(runtimeRole, table)) return runtimeRole
   if (planModeActive(agent?.session?.events)) return 'plan'
   const preset = presetOf(agent)
-  if (preset !== undefined && isSelectableRole(preset, table)) return preset
+  if (preset !== undefined && isSelectableRole(preset, table) && preset !== MODEL_ROLES_PRESET) return preset
   if (isSubagent(agent)) return 'task'
   return 'default'
 }

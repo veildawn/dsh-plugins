@@ -2,15 +2,15 @@
  * dsh-market client bundle
  *
  * Renders the Visual Plugin Market in Settings -> Plugin Market (插件市场):
- * 1. 本仓库 (Monorepo) 插件与更新管理：实时拉取 GitHub Releases，比对当前
- *    profile 已安装版本，清晰展示当前版本与远程最新版本，一键安装 / 更新（服务端执行 `dsh plugin add`，
+ * 1. 自有插件 (Monorepo)：实时拉取 GitHub Releases，比对当前 profile 已安装版本，
+ *    清晰展示当前版本与远程最新版本，一键安装 / 更新 / 卸载（服务端执行 `dsh plugin add/remove`，
  *    客户端轮询任务进度并显示实时日志）。
  * 2. 社区插件浏览：按 21 种分类筛选、搜索，自动匹配本地已安装状态与版本，
- *    支持一键安装 / 更新（npm 包）。
+ *    支持一键安装 / 更新 / 卸载（npm 包）。
  * 3. 配置页：仓库源 / 社区目录 URL / 镜像 / 自动检查开关。
  *
- * All data flows through the loopback RPC channel `/dsh-market-rpc`
- * (ctx.connection.rpc.call), the same wiring pattern as dsh-model-roles.
+ * All data flows through the trusted-host RPC channel `/dsh-market-rpc`
+ * (ctx.connection.rpc.call), matching dsh-model-roles / dsh-remote-control.
  */
 
 (function ensureCryptoRandomUUID() {
@@ -51,11 +51,13 @@ window.__ModuleLoader__.load({
       .dm-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
       .dm-search-box{flex:1;min-width:200px;height:36px;padding:0 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);outline:none;font-size:13px}
       .dm-search-box:focus{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 20%,transparent)}
-      .dm-action-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);transition:all .15s ease}
+      .dm-action-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border-radius:6px;font-size:12.5px;font-weight:500;cursor:pointer;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);transition:all .15s ease}
       .dm-action-btn:hover{background:var(--dsw-alias-bg-module-platform,#f6f8fa)}.dm-action-btn:disabled{opacity:.55;cursor:default}
       .dm-action-btn.primary{background:var(--dsw-alias-brand-primary,#4d6bfe);border-color:transparent;color:#fff}
       .dm-action-btn.primary:hover{opacity:.9}
       .dm-action-btn.success{border-color:transparent;background:#10b981;color:#fff}
+      .dm-action-btn.danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 35%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
+      .dm-action-btn.danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent)}
       .dm-repo-banner{padding:12px 16px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 8%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 25%,transparent);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
       .dm-repo-info{font-size:13px;color:var(--dsw-alias-label-primary,#1f2328)}
       .dm-chips{display:flex;gap:6px;flex-wrap:wrap}
@@ -78,7 +80,7 @@ window.__ModuleLoader__.load({
       .dm-ver-latest{color:var(--dsw-alias-label-primary,#1f2328);font-weight:600}
       .dm-ver-uptodate{color:var(--dsw-alias-label-tertiary,#656d76);font-size:11px}
       .dm-card-meta{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--dsw-alias-label-tertiary,#656d76);border-top:1px solid var(--dsw-alias-border-subtle,#f0f0f0);padding-top:8px;gap:8px;flex-wrap:wrap}
-      .dm-card-actions{display:flex;align-items:center;gap:6px}
+      .dm-card-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
       .dm-feedback{padding:9px 11px;border-radius:8px;font-size:12px;line-height:18px}.dm-feedback.ok{background:color-mix(in srgb,#10b981 10%,transparent);color:#059669}.dm-feedback.error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
       .dm-empty{padding:32px 16px;text-align:center;color:var(--dsw-alias-label-tertiary,#656d76);font-size:13px}
       .dm-install-box{border:1px solid var(--dsw-alias-border-default,#d0d7de);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#f6f8fa);overflow:hidden}
@@ -131,7 +133,7 @@ window.__ModuleLoader__.load({
         const [feedbackKind, setFeedbackKind] = react.useState("ok");
         const [config, setConfig] = react.useState(null);
         const [draft, setDraft] = react.useState(null);
-        const [installTask, setInstallTask] = react.useState(null);
+        const [taskState, setTaskState] = react.useState(null);
 
         const notify = (text, kind = "ok") => {
           setFeedback(text);
@@ -186,16 +188,17 @@ window.__ModuleLoader__.load({
           if (tab === "community") void loadCommunity();
         }, [tab, loadCommunity]);
 
-        const pollInstall = react.useCallback((taskId) => {
+        const pollTask = react.useCallback((taskId) => {
           window.setTimeout(async () => {
             try {
               const task = await rpcCall("getInstallTask", { taskId });
-              setInstallTask(task);
+              setTaskState(task);
               if (task.status === "running") {
-                pollInstall(taskId);
+                pollTask(taskId);
               } else {
                 if (task.status === "success") {
-                  notify(`✓ ${task.name} 安装/更新成功，已刷新列表`);
+                  const actionName = task.kind === "remove" ? "卸载" : "安装/更新";
+                  notify(`✓ ${task.name} ${actionName}成功，已刷新列表`);
                   void loadRepo();
                   if (tab === "community") void loadCommunity();
                 } else {
@@ -203,21 +206,38 @@ window.__ModuleLoader__.load({
                 }
               }
             } catch (err) {
-              setInstallTask((prev) => prev ? { ...prev, status: "error", error: String(err.message || err) } : prev);
-              notify("轮询安装状态失败：" + (err instanceof Error ? err.message : String(err)), "error");
+              setTaskState((prev) => prev ? { ...prev, status: "error", error: String(err.message || err) } : prev);
+              notify("轮询任务状态失败：" + (err instanceof Error ? err.message : String(err)), "error");
             }
           }, 1200);
         }, [tab, loadRepo, loadCommunity]);
 
         const startInstall = async (name, kind) => {
-          if (installTask && installTask.status === "running") {
-            notify(`已有安装任务进行中（${installTask.name}），请等待完成`, "error");
+          if (taskState && taskState.status === "running") {
+            notify(`已有任务进行中（${taskState.name}），请等待完成`, "error");
             return;
           }
           try {
             const value = await rpcCall("installPlugin", { name, kind });
-            setInstallTask({ id: value.taskId, name, kind, status: "running", log: [], error: null });
-            pollInstall(value.taskId);
+            setTaskState({ id: value.taskId, name, kind, status: "running", log: [], error: null });
+            pollTask(value.taskId);
+          } catch (err) {
+            notify(err instanceof Error ? err.message : String(err), "error");
+          }
+        };
+
+        const startRemove = async (name) => {
+          if (taskState && taskState.status === "running") {
+            notify(`已有任务进行中（${taskState.name}），请等待完成`, "error");
+            return;
+          }
+          if (!window.confirm(`确定要从当前 profile (${profile}) 卸载插件 ${name} 吗？`)) {
+            return;
+          }
+          try {
+            const value = await rpcCall("removePlugin", { name });
+            setTaskState({ id: value.taskId, name, kind: "remove", status: "running", log: [], error: null });
+            pollTask(value.taskId);
           } catch (err) {
             notify(err instanceof Error ? err.message : String(err), "error");
           }
@@ -239,10 +259,10 @@ window.__ModuleLoader__.load({
           return found ? (found.zh || found.en || id) : id;
         };
 
-        const busyFor = (name) => Boolean(installTask && installTask.status === "running" && installTask.name === name);
+        const busyFor = (name) => Boolean(taskState && taskState.status === "running" && taskState.name === name);
 
         /**
-         * Unified Card Component: used for both Monorepo and Community plugins.
+         * Unified Card Component: used for both Monorepo (自有插件) and Community plugins.
          */
         const renderPluginCard = (plugin, kind) => {
           const installed = plugin.installedVersion || null;
@@ -262,7 +282,7 @@ window.__ModuleLoader__.load({
             badgeText = "已安装";
           } else if (kind === "repo") {
             badgeClass = "dm-badge uninstalled";
-            badgeText = "本仓库";
+            badgeText = "自有";
           } else if (plugin.category) {
             badgeClass = "dm-badge uninstalled";
             badgeText = categoryName(plugin.category);
@@ -323,6 +343,12 @@ window.__ModuleLoader__.load({
               react.createElement("div", { className: "dm-card-actions" },
                 plugin.homepage ? react.createElement("a", { className: "dm-action-btn", href: plugin.homepage, target: "_blank", rel: "noreferrer", style: { textDecoration: "none" } }, "源码") : null,
                 react.createElement("button", { className: "dm-action-btn", type: "button", disabled: busy, onClick: () => copyCommand(plugin, kind) }, "复制指令"),
+                isInstalled ? react.createElement("button", {
+                  className: "dm-action-btn danger",
+                  type: "button",
+                  disabled: busy,
+                  onClick: () => void startRemove(plugin.name),
+                }, "🗑️ 卸载") : null,
                 canInstall ? react.createElement("button", {
                   className: btnClass,
                   type: "button",
@@ -355,28 +381,32 @@ window.__ModuleLoader__.load({
           return [p.name, p.title, p.description, p.npm, (p.tags || []).join(" ")].join(" ").toLowerCase().includes(q);
         });
 
-        const installStatusText = installTask
-          ? installTask.status === "running" ? "进行中…" : installTask.status === "success" ? "✓ 成功" : "✗ 失败"
+        const taskStatusText = taskState
+          ? taskState.status === "running" ? "进行中…" : taskState.status === "success" ? "✓ 成功" : "✗ 失败"
+          : "";
+
+        const taskHeaderTitle = taskState
+          ? `${taskState.kind === "remove" ? "卸载任务" : "安装/更新任务"}：${taskState.name}（${taskStatusText}）`
           : "";
 
         return react.createElement("div", { className: "dm-container" },
           react.createElement("style", null, css),
           react.createElement("h2", { className: "dm-title" }, "🔌 插件市场"),
-          react.createElement("p", { className: "dm-subtitle" }, "浏览并一键安装社区插件，管理本插件仓库（Monorepo）的独立版本发布与更新。"),
+          react.createElement("p", { className: "dm-subtitle" }, "管理自有插件更新与卸载，浏览并一键安装 2200+ 社区精选插件。"),
           feedback ? react.createElement("div", { className: `dm-feedback ${feedbackKind}`, role: "status" }, feedback) : null,
           react.createElement("div", { className: "dm-repo-banner" },
             react.createElement("div", { className: "dm-repo-info" },
-              "📦 插件仓库: ", react.createElement("strong", null, repoOrigin),
+              "📦 自有仓库: ", react.createElement("strong", null, repoOrigin),
               " · 当前 profile: ", react.createElement("strong", null, profile)),
-            react.createElement("span", { className: "dm-badge repo" }, `本仓库 ${repoPlugins.length} 款 · 社区 ${communityPlugins.length} 款`)),
-          installTask ? react.createElement("div", { className: "dm-install-box" },
+            react.createElement("span", { className: "dm-badge repo" }, `自有 ${repoPlugins.length} 款 · 社区 ${communityPlugins.length} 款`)),
+          taskState ? react.createElement("div", { className: "dm-install-box" },
             react.createElement("div", { className: "dm-install-head" },
-              react.createElement("span", null, `安装/更新任务：${installTask.name}（${installStatusText}）`),
-              react.createElement("span", null, installTask.profile || "")),
-            react.createElement("pre", { className: "dm-install-log" }, (installTask.log || []).slice(-15).join("\n") || "等待任务输出…"))
+              react.createElement("span", null, taskHeaderTitle),
+              react.createElement("span", null, taskState.profile || "")),
+            react.createElement("pre", { className: "dm-install-log" }, (taskState.log || []).slice(-15).join("\n") || "等待任务输出…"))
             : null,
           react.createElement("div", { className: "dm-tabs" },
-            react.createElement("button", { className: `dm-tab-btn ${tab === "repo" ? "active" : ""}`, type: "button", onClick: () => setTab("repo") }, "本仓库插件与更新"),
+            react.createElement("button", { className: `dm-tab-btn ${tab === "repo" ? "active" : ""}`, type: "button", onClick: () => setTab("repo") }, "自有插件"),
             react.createElement("button", { className: `dm-tab-btn ${tab === "community" ? "active" : ""}`, type: "button", onClick: () => setTab("community") }, "社区插件"),
             react.createElement("button", { className: `dm-tab-btn ${tab === "config" ? "active" : ""}`, type: "button", onClick: () => setTab("config") }, "配置")),
           react.createElement("div", { className: "dm-toolbar" },

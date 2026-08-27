@@ -23,13 +23,16 @@ import {
   AUTOMATIC_TASK_ROLES,
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
+  MODEL_ROLES_PRESET,
   OMP_ROLES,
   ROLE_ID_PATTERN,
+  STANDARD_PRESETS,
   advisorEnabledOf,
   agentHasImage,
   applyRoleRoute,
   contentHasImage,
   imageBlocksOf,
+  isModelRolesActive,
   isSubagent,
   isSelectableRole,
   normalizeRoleId,
@@ -49,13 +52,16 @@ export {
   AUTOMATIC_TASK_ROLES,
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
+  MODEL_ROLES_PRESET,
   OMP_ROLES,
   ROLE_ID_PATTERN,
+  STANDARD_PRESETS,
   advisorEnabledOf,
   agentHasImage,
   applyRoleRoute,
   contentHasImage,
   imageBlocksOf,
+  isModelRolesActive,
   isSubagent,
   isSelectableRole,
   normalizeRoleId,
@@ -329,6 +335,7 @@ export function apply(ctx, config = {}) {
     const decision = await next()
     if (decision.kind !== 'enter' || !table.has('vision')) return decision
     if (agent?.options?.modelRole === 'vision') return decision
+    if (!isModelRolesActive(agent, table)) return decision
     if (!decision.messages.some((message) => contentHasImage(message?.content))) return decision
 
     let run
@@ -370,6 +377,9 @@ export function apply(ctx, config = {}) {
 
   ctx.on('agent/request', async ({ agent, turn, signal }, next) => {
     const current = await next()
+    if (!isModelRolesActive(agent, table)) {
+      return current
+    }
     if (visionFallbackTurns.get(agent)?.has(turn)) {
       return applyRoleRoute(current, routeForRole(table, 'vision'))
     }

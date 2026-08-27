@@ -257,6 +257,10 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
       return handleInstallPlugin(options, payload, deps)
     }
 
+    if (method === 'removePlugin') {
+      return handleRemovePlugin(options, payload, deps)
+    }
+
     if (method === 'getInstallTask') {
       if (payload === null || typeof payload !== 'object' || typeof payload.taskId !== 'string') {
         return errorResult('getInstallTask requests require a taskId string')
@@ -405,6 +409,65 @@ export function handleInstallPlugin(options, payload, deps = {}) {
   })()
 
   return { ok: true, value: { taskId, name, kind } }
+}
+
+export function handleRemovePlugin(options, payload, deps = {}) {
+  if (payload === null || typeof payload !== 'object') return errorResult('removePlugin requests must carry an object')
+  const rawName = typeof payload.name === 'string' ? payload.name.trim() : ''
+  const name = safePackageName(rawName)
+  if (!name) return errorResult('removePlugin requires a valid package name')
+
+  if (activeTaskId) {
+    const active = installTasks.get(activeTaskId)
+    return errorResult(`已有任务正在进行（${active?.name || activeTaskId}），请等待其完成`)
+  }
+
+  const profile = safeProfileName(findProfileName())
+  if (!profile) return errorResult('无法解析当前 profile 名称，已拒绝卸载')
+
+  const taskId = `task-rm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  const task = {
+    id: taskId,
+    name,
+    kind: 'remove',
+    profile,
+    status: 'running',
+    log: [],
+    code: null,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    error: null,
+  }
+  installTasks.set(taskId, task)
+  activeTaskId = taskId
+
+  void (async () => {
+    try {
+      task.log.push(`$ dsh plugin remove --profile ${profile} ${name}`)
+      const result = await runDshPluginCommand(['plugin', 'remove', '--profile', profile, name], {
+        onLog: (line) => { task.log.push(line.replace(/\s+$/, '')) },
+        spawnFn: deps.spawnFn,
+      })
+      task.code = result.code
+      if (result.ok) {
+        task.status = 'success'
+        task.log.push(`✓ ${name} 卸载成功`)
+      } else {
+        task.status = 'error'
+        task.error = (result.stderr || result.stdout || '卸载失败').split('\n').filter(Boolean).slice(-3).join(' ')
+        task.log.push(`✗ 卸载失败（exit code ${result.code ?? 'n/a'}）`)
+      }
+    } catch (err) {
+      task.status = 'error'
+      task.error = err instanceof Error ? err.message : String(err)
+      task.log.push(`✗ ${task.error}`)
+    } finally {
+      task.finishedAt = new Date().toISOString()
+      activeTaskId = null
+    }
+  })()
+
+  return { ok: true, value: { taskId, name, kind: 'remove' } }
 }
 
 export function apply(ctx, config) {
