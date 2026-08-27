@@ -296,6 +296,9 @@ test('Mobile sidebar keeps one symmetric 12px content inset', () => {
   assert.match(css, /\[data-slot="sidebar"\] :where\(\.hHd-Xa_regionArea,\.qDHVXG_root,\.qDHVXG_listArea,\.qDHVXG_list\)\{padding-left:0!important;padding-right:0!important\}/)
   assert.match(css, /\[data-slot="sidebar"\] \.qDHVXG_list\{scrollbar-gutter:auto!important\}/)
   assert.doesNotMatch(css, /\[data-slot="sidebar"\]\{[^}]*padding-(?:left|right):12px/, 'the slot wrapper must not double the content padding')
+  assert.match(css, /\.YDXeBa_projectRow \.YDXeBa_rowActions,[^}]*\.YDXeBa_sessionRow \.YDXeBa_rowActions\{display:inline-flex!important;gap:6px!important;height:28px!important;align-items:center!important\}/)
+  assert.match(css, /\.YDXeBa_projectRow \.YDXeBa_rowActions \.YDXeBa_iconButton,[^}]*\.YDXeBa_sessionRow \.YDXeBa_rowActions \.YDXeBa_iconButton\{[^}]*width:28px!important;height:28px!important;[^}]*border-radius:50%!important/)
+  assert.match(css, /\.YDXeBa_sessionRow \.YDXeBa_time\{display:none!important\}/)
 })
 
 test('Conversation mobile CSS keeps a bounded scrollport and permanently hides message and composer stats', () => {

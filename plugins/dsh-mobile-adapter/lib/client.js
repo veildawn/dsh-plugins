@@ -50,6 +50,14 @@ window.__ModuleLoader__.load({
         [data-slot="sidebar"] :where(.hHd-Xa_newSession,.hHd-Xa_navList,.hHd-Xa_regionArea,.hHd-Xa_footerActions,.hHd-Xa_settingsArea,.qDHVXG_root,.qDHVXG_listArea,.qDHVXG_list,[role="tree"],[role="treeitem"],[data-slot="sidebar.settings"],.VOzbGW_trigger){box-sizing:border-box;width:100%!important;max-width:100%!important;margin:0!important}
         [data-slot="sidebar"] :where(.hHd-Xa_regionArea,.qDHVXG_root,.qDHVXG_listArea,.qDHVXG_list){padding-left:0!important;padding-right:0!important}
         [data-slot="sidebar"] .qDHVXG_list{scrollbar-gutter:auto!important}
+        /* 移动端没有 hover：核心把工作区行右侧按钮（⋯ 工作区菜单、＋ 新建会话）
+           藏在 .YDXeBa_rowActions 里仅 hover/menuOpen 显示，触屏永远点不到。
+           这里显式常显，并放大触控区（行高 34px 内容区留给按钮 28px）。 */
+        .YDXeBa_projectRow .YDXeBa_rowActions,
+        .YDXeBa_sessionRow .YDXeBa_rowActions{display:inline-flex!important;gap:6px!important;height:28px!important;align-items:center!important}
+        .YDXeBa_projectRow .YDXeBa_rowActions .YDXeBa_iconButton,
+        .YDXeBa_sessionRow .YDXeBa_rowActions .YDXeBa_iconButton{width:28px!important;height:28px!important;min-width:28px!important;min-height:28px!important;border-radius:50%!important;padding:0!important}
+        .YDXeBa_sessionRow .YDXeBa_time{display:none!important}
         [data-slot="root"]>div>div:has(>[data-slot="conversation"]){box-sizing:border-box;display:flex;width:100vw;height:100%;min-height:0;padding:calc(52px + var(--dsh-sat)) var(--dsh-sar) var(--dsh-keyboard-inset,0px) var(--dsh-sal);overflow:hidden}
         [data-slot="conversation"]{flex:1 1 0;height:100%;min-width:0;min-height:0}
         [data-slot="conversation.session.header"]>header{display:none!important}
