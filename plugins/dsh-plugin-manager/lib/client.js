@@ -1,7 +1,7 @@
 /**
- * dsh-market client bundle
+ * dsh-plugin-manager client bundle
  *
- * Renders the Visual Plugin Market in Settings -> Plugin Market (插件市场):
+ * Renders the Visual Plugin Manager in Settings -> Plugin Manager (插件管理):
  * 1. 自有插件 (Monorepo)：实时拉取 GitHub Releases，比对当前 profile 已安装版本，
  *    清晰展示当前版本与远程最新版本，支持「一键更新全部(N)」、单个安装 / 更新 / 卸载。
  * 2. 社区插件浏览：按 21 种分类筛选、搜索，自动匹配本地已安装状态与版本，
@@ -9,8 +9,9 @@
  * 3. 异步平滑重启与自动恢复：手动点击后服务端延迟异步重启 DSH 守护进程，
  *    前端无感自动探测端口并在就绪后自动刷新恢复页面。
  * 4. 配置页：仓库源 / 社区目录 URL / 镜像 / 自动检查开关。
+ * 5. 独立插件图标：专属 SVG 拼图插件图标，无感覆盖宿主默认插槽图标。
  *
- * All data flows through the trusted-host RPC channel `/dsh-market-rpc`
+ * All data flows through the trusted-host RPC channel `/dsh-plugin-manager-rpc`
  * (ctx.connection.rpc.call), matching dsh-model-roles / dsh-remote-control.
  */
 
@@ -32,19 +33,43 @@
 })();
 
 window.__ModuleLoader__.load({
-  id: "dsh-market",
+  id: "dsh-plugin-manager",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
 
-    const MARKET_RPC_CHANNEL = "/dsh-market-rpc";
+    const MARKET_RPC_CHANNEL = "/dsh-plugin-manager-rpc";
     const SETTINGS_SLOT = "settings.section";
+    const NAV_STYLE_ID = "dsh-plugin-manager-nav-styles";
+    const navCss = 'button:has([data-settings-nav-label="plugin-manager"]) > svg:first-child{display:none}';
+
+    /**
+     * Dedicated SVG Icon for Plugin Manager (Puzzle piece silhouette)
+     */
+    function IconPluginManager16({ size = 16, className }) {
+      return react.createElement("svg", {
+        width: size,
+        height: size,
+        viewBox: "0 0 16 16",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: "1.3",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        className,
+        "aria-hidden": "true",
+      },
+        react.createElement("path", {
+          d: "M6 2H4a2 2 0 0 0-2 2v2.5a1.5 1.5 0 0 1 0 3V12a2 2 0 0 0 2 2h2.5a1.5 1.5 0 0 1 3 0H12a2 2 0 0 0 2-2V9.5a1.5 1.5 0 0 0 0-3V4a2 2 0 0 0-2-2h-2.5a1.5 1.5 0 0 0-3 0z"
+        })
+      );
+    }
 
     const css = `
       .dm-container{display:flex;flex-direction:column;gap:14px;width:100%;max-width:920px;color:var(--dsw-alias-label-primary,#1f2328);font-family:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);color-scheme:light dark;-webkit-tap-highlight-color:transparent}
-      .dm-title{font-size:20px;font-weight:600;margin:0}.dm-subtitle{font-size:13px;color:var(--dsw-alias-label-tertiary,#656d76);margin:0;line-height:20px}
+      .dm-title{font-size:20px;font-weight:600;margin:0;display:flex;align-items:center;gap:8px}.dm-subtitle{font-size:13px;color:var(--dsw-alias-label-tertiary,#656d76);margin:0;line-height:20px}
       .dm-tabs{display:flex;gap:8px;border-bottom:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.1));padding-bottom:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
       .dm-tabs::-webkit-scrollbar{display:none}
       .dm-tab-btn{padding:6px 14px;border-radius:6px;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#57606a);font-size:14px;cursor:pointer;font-weight:500;transition:all .15s ease;white-space:nowrap;flex-shrink:0}
@@ -122,9 +147,9 @@ window.__ModuleLoader__.load({
     `;
 
     const FALLBACK_REPO_PLUGINS = [
-      { id: "dsh-market", name: "dsh-market", title: "插件市场与更新管理器", description: "DSH 官方社区插件市场，支持浏览、安装社区插件，以及一键检查与更新本仓库全量插件。", author: "veildawn", category: "tools", version: "0.1.7", latestVersion: "0.1.7", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-market@v0.1.7/dsh-market-0.1.7.tgz", isRepoPlugin: true },
-      { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.9", latestVersion: "0.4.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.9/dsh-model-roles-0.4.9.tgz", isRepoPlugin: true },
-      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.7", latestVersion: "0.1.7", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
+      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.0", latestVersion: "0.1.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.0/dsh-plugin-manager-0.1.0.tgz", isRepoPlugin: true },
+      { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.8", latestVersion: "0.4.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz", isRepoPlugin: true },
+      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
       { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
       { id: "dsh-mobile-adapter", name: "dsh-mobile-adapter", title: "移动端全量体验优化", description: "原生图片上传、底部操作栏圆形统一规范、视口高度自适应、Segmented Control Tabs。", author: "veildawn", category: "ui", version: "0.1.28", latestVersion: "0.1.28", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.28/dsh-mobile-adapter-0.1.28.tgz", isRepoPlugin: true },
       { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.1.8", latestVersion: "0.1.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true },
@@ -137,15 +162,23 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
+      // Inject global nav style to hide host-generated default gray icon
+      if (typeof document !== "undefined" && !document.getElementById(NAV_STYLE_ID)) {
+        const style = document.createElement("style");
+        style.id = NAV_STYLE_ID;
+        style.textContent = navCss;
+        document.head.appendChild(style);
+      }
+
       const rpc = ctx.connection.rpc;
 
       async function rpcCall(method, payload) {
         const result = await rpc.call(MARKET_RPC_CHANNEL, method, payload || {});
         if (result && result.ok === true) return result.value;
-        throw new Error(result?.error?.message || "插件市场请求失败");
+        throw new Error(result?.error?.message || "插件管理请求失败");
       }
 
-      function MarketSection() {
+      function PluginManagerSection() {
         const [tab, setTab] = react.useState("repo");
         const [search, setSearch] = react.useState("");
         const [category, setCategory] = react.useState("");
@@ -161,7 +194,7 @@ window.__ModuleLoader__.load({
         const [config, setConfig] = react.useState(null);
         const [draft, setDraft] = react.useState(null);
         const [taskState, setTaskState] = react.useState(null);
-        const [restartingState, setRestartingState] = react.useState(null); // null | 'triggering' | 'probing' | 'ready'
+        const [restartingState, setRestartingState] = react.useState(null); // null | 'triggering' | 'probing' | 'ready' | 'timeout'
 
         const notify = (text, kind = "ok") => {
           setFeedback(text);
@@ -308,11 +341,6 @@ window.__ModuleLoader__.load({
             notify("已调度异步重启，正在等待服务拉起…", "ok");
             setRestartingState("probing");
 
-            // Probe until the server goes down and comes back up.
-            // Recovery is only confirmed after the connection was seen down
-            // AND the new instance answers 2 consecutive successful probes.
-            // A 90s hard deadline avoids an infinite spinner if the restart
-            // stalls or the service name is wrong.
             let seenDown = false;
             let successHits = 0;
             let done = false;
@@ -337,8 +365,6 @@ window.__ModuleLoader__.load({
                       window.setTimeout(() => { window.location.reload(); }, 1200);
                     }
                   }
-                  // Server is up but never went down: keep waiting for the
-                  // actual restart window (settle-down grace period).
                 }
               } catch {
                 seenDown = true;
@@ -523,7 +549,9 @@ window.__ModuleLoader__.load({
 
         return react.createElement("div", { className: "dm-container" },
           react.createElement("style", null, css),
-          react.createElement("h2", { className: "dm-title" }, "🔌 插件市场"),
+          react.createElement("h2", { className: "dm-title" },
+            react.createElement(IconPluginManager16, { size: 20 }),
+            react.createElement("span", null, "插件管理")),
           react.createElement("p", { className: "dm-subtitle" }, "管理自有插件更新与卸载，浏览并一键安装 2200+ 社区精选插件。"),
           feedback ? react.createElement("div", { className: `dm-feedback ${feedbackKind}`, role: "status" }, feedback) : null,
           restartingState ? react.createElement("div", { className: "dm-restart-modal" },
@@ -630,14 +658,21 @@ window.__ModuleLoader__.load({
           ) : null);
       }
 
-      const label = () => react.createElement("span", { "data-settings-nav-label": "market" }, "插件市场");
+      const label = () => react.createElement("span", {
+        "data-settings-nav-label": "plugin-manager",
+        style: { display: "inline-flex", alignItems: "center", gap: 8 },
+      },
+        react.createElement(IconPluginManager16, { size: 16 }),
+        react.createElement("span", null, "插件管理")
+      );
+
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
-        id: "market",
+        id: "plugin-manager",
         order: 35,
         label,
         inject: () => ({ rpc }),
-      }, MarketSection));
+      }, PluginManagerSection));
     }
 
     exports.apply = apply;

@@ -82,16 +82,16 @@ export function buildReleaseDownloadUrl(repo, pluginName, version) {
  */
 export const LOCAL_MONOREPO_PLUGINS = [
   {
-    id: 'dsh-market',
-    name: 'dsh-market',
-    title: '插件市场与更新管理器',
-    description: 'DSH 官方社区插件市场，支持浏览、安装社区插件，以及一键检查与更新本仓库全量插件。',
+    id: 'dsh-plugin-manager',
+    name: 'dsh-plugin-manager',
+    title: '插件管理',
+    description: 'DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。',
     author: 'veildawn',
     category: 'tools',
-    tags: ['market', 'manager', 'updater', 'tools'],
-    icon: 'store',
+    tags: ['plugin-manager', 'manager', 'updater', 'tools'],
+    icon: 'puzzle',
     repo: 'veildawn/dsh-plugins',
-    path: 'plugins/dsh-market',
+    path: 'plugins/dsh-plugin-manager',
     isRepoPlugin: true,
   },
   {

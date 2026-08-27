@@ -1,7 +1,7 @@
 {
-  "name": "dsh-market",
-  "version": "0.1.7",
-  "description": "Visual plugin marketplace for DeepSeek Harness — browse community plugins by category, one-click install/update, and manage monorepo repository updates",
+  "name": "dsh-plugin-manager",
+  "version": "0.1.0",
+  "description": "Visual plugin manager for DeepSeek Harness — manage repository updates, browse 2200+ community plugins by category, one-click batch update, removal, and smooth async daemon restart",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -24,10 +24,11 @@
   "keywords": [
     "deepseek-harness",
     "dsh",
-    "plugin-market",
+    "plugin-manager",
+    "plugins",
     "marketplace",
     "repository",
-    "update-manager"
+    "updater"
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

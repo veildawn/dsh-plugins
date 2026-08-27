@@ -1,0 +1,5 @@
+# dsh bundle patch: inserts this plugin into a profile's layer stack.
+# `id` matches the host-side service name exported by lib/index.js (`plugin-manager`).
+- insert:
+    - id: plugin-manager
+      name: dsh-plugin-manager

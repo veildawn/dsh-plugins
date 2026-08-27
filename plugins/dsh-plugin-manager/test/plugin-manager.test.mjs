@@ -150,7 +150,7 @@ describe('dsh-market profile installed-version inspection', () => {
   let home
   before(() => {
     home = mkdtempSync(join(tmpdir(), 'dsh-market-test-'))
-    for (const [name, version] of [['dsh-model-roles', '0.4.7'], ['dsh-terminal', '0.1.9'], ['dsh-market', '0.1.0'], ['dsh-status-rotator', '1.0.0']]) {
+    for (const [name, version] of [['dsh-model-roles', '0.4.7'], ['dsh-terminal', '0.1.9'], ['dsh-plugin-manager', '0.1.0'], ['dsh-status-rotator', '1.0.0']]) {
       const dir = join(home, 'profiles', 'web', 'node_modules', name)
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version }))
@@ -170,7 +170,7 @@ describe('dsh-market profile installed-version inspection', () => {
   it('lists only installed plugins', () => {
     const names = LOCAL_MONOREPO_PLUGINS.map((p) => p.name)
     const installed = readInstalledList(names, { home, profile: 'web' })
-    assert.deepEqual(installed.map((e) => e.name).sort(), ['dsh-market', 'dsh-model-roles', 'dsh-terminal'])
+    assert.deepEqual(installed.map((e) => e.name).sort(), ['dsh-model-roles', 'dsh-plugin-manager', 'dsh-terminal'])
   })
 
   it('merges installed versions and flags updates for repo plugins', () => {
@@ -182,7 +182,7 @@ describe('dsh-market profile installed-version inspection', () => {
     assert.equal(entry.installedVersion, '0.4.7')
     assert.equal(entry.hasUpdate, true)
     assert.equal(merged.profile, 'web')
-    const fresh = merged.plugins.find((p) => p.name === 'dsh-market')
+    const fresh = merged.plugins.find((p) => p.name === 'dsh-plugin-manager')
     assert.equal(fresh.installedVersion, '0.1.0')
     assert.equal(fresh.hasUpdate, false)
   })
@@ -295,13 +295,12 @@ describe('dsh-market RPC handler (network stubbed)', () => {
   })
 })
 
-describe('dsh-market client bundle verification', () => {
+describe('dsh-plugin-manager client bundle verification', () => {
   it('client bundle is valid and registers ModuleLoader', () => {
     const clientCode = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
     assert.equal(clientCode.includes('window.__ModuleLoader__.load'), true)
-    assert.equal(clientCode.includes('id: "dsh-market"'), true)
-    // RPC must go through ctx.connection.rpc (the loopback RPC surface),
-    // not the raw connection object.
+    assert.equal(clientCode.includes('id: "dsh-plugin-manager"'), true)
+    assert.equal(clientCode.includes('IconPluginManager16'), true)
     assert.equal(clientCode.includes('const rpc = ctx.connection.rpc'), true)
     assert.equal(clientCode.includes('rpc.call(MARKET_RPC_CHANNEL'), true)
   })
@@ -309,8 +308,8 @@ describe('dsh-market client bundle verification', () => {
   it('cordis patch entry id matches the host-side service name', () => {
     const patch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
     const index = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-    assert.equal(patch.includes('id: market'), true)
-    assert.equal(index.includes("export const name = 'market'"), true)
+    assert.equal(patch.includes('id: plugin-manager'), true)
+    assert.equal(index.includes("export const name = 'plugin-manager'"), true)
   })
 })
 

@@ -40,10 +40,10 @@ import {
   findProfileName,
 } from './core.js'
 
-export const name = 'market'
+export const name = 'plugin-manager'
 export const inject = ['settings']
-export const NS = 'market'
-export const MARKET_RPC_CHANNEL = '/dsh-market-rpc'
+export const NS = 'plugin-manager'
+export const MARKET_RPC_CHANNEL = '/dsh-plugin-manager-rpc'
 
 export const Config = z.object({
   repoOrigin: z.string().default(DEFAULT_REPO_ORIGIN),
