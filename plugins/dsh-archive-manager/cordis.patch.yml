@@ -1,4 +1,11 @@
-service:
-  plugins:
+# Cordis bundle patch: mounts the archive manager's host half.
+#
+# The profile root (cordis.yml) is an EMPTY entry list; every bundle's patch
+# is a top-level array of loader patch entries, and `insert` pushes
+# `{ id, name }` rows onto it. The `id` MUST match the `name` exported by
+# lib/index.js (`archive-manager`) — a `service: { plugins: ... }` tree shape
+# here would be skipped by the loader with "id is required for non-insert
+# patches" and the plugin would never mount.
+- insert:
     - id: archive-manager
       name: dsh-archive-manager
