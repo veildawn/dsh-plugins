@@ -1,0 +1,4 @@
+service:
+  plugins:
+    - id: archive-manager
+      name: dsh-archive-manager
