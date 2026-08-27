@@ -18,6 +18,7 @@ import {
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   baseNameOf,
+  parentOf,
   isHiddenEntry,
   isSafeRelativePath,
   isWholeDocumentKind,
@@ -36,6 +37,7 @@ export {
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   baseNameOf,
+  parentOf,
   isHiddenEntry,
   isSafeRelativePath,
   isWholeDocumentKind,
@@ -372,30 +374,44 @@ export async function readDoc(ctx, options, payload, signal) {
 }
 
 /**
- * Resolve which root a session belongs to, so the viewer opens on the project
- * the reader is working in rather than the first registered workspace.
+ * Resolve which root a session or path belongs to, so the viewer opens on the
+ * project the reader is working in and can directly select a target file.
  *
- * A session's `cwd` may sit inside a workspace rather than be one, so the
- * deepest containing root wins and the remainder is returned as a path to
- * reveal in the tree.
+ * A session's `cwd` or target path may sit inside a workspace rather than be
+ * one, so the deepest containing root wins and the remainder is returned as a
+ * path to reveal in the tree (and optionally select as active file).
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
  * @param {() => object} options - resolved config reader.
- * @param {{sessionId?: string}} payload - client request.
- * @returns {{roots: object[], root?: string, reveal?: string}} roots plus the session's position.
+ * @param {{sessionId?: string, path?: string, filePath?: string}} payload - client request.
+ * @returns {Promise<{roots: object[], root?: string, reveal?: string, selectFile?: string}>} roots plus the target position.
  */
-export function resolveSessionRoot(ctx, options, payload) {
+export async function resolveSessionRoot(ctx, options, payload) {
   const roots = collectRoots(ctx, options)
   const sessionId = payload?.sessionId
-  if (typeof sessionId !== 'string' || sessionId === '') return { roots }
+  const targetPath = typeof payload?.filePath === 'string' && payload.filePath !== ''
+    ? payload.filePath
+    : typeof payload?.path === 'string' && payload.path !== ''
+      ? payload.path
+      : ''
 
-  const session = ctx.sessions?.get?.(sessionId)
+  const session = typeof sessionId === 'string' && sessionId !== '' ? ctx.sessions?.get?.(sessionId) : undefined
   const cwd = session?.header?.cwd ?? session?.header?.meta?.cwd
-  if (typeof cwd !== 'string' || cwd === '') return { roots }
 
-  // Compare on one separator style and case-insensitively: roots come from the
-  // registry, sessions and hand-written config, so `D:\repo\a` and `D:/repo`
-  // can legitimately describe the same tree.
-  const key = cwd.replace(/[\\/]+$/, '').replace(/\\/g, '/')
+  // If a target path is given, resolve it either absolutely or relative to cwd/roots
+  let candidatePath = ''
+  if (targetPath !== '') {
+    if (isSafeRelativePath(targetPath) && !/^[A-Za-z]:|^[\\/]/.test(targetPath) && typeof cwd === 'string' && cwd !== '') {
+      candidatePath = joinPath(cwd, targetPath)
+    } else {
+      candidatePath = targetPath
+    }
+  } else if (typeof cwd === 'string' && cwd !== '') {
+    candidatePath = cwd
+  }
+
+  if (candidatePath === '') return { roots }
+
+  const key = candidatePath.replace(/[\\/]+$/, '').replace(/\\/g, '/')
   const fold = (value) => value.toLowerCase()
   let best
   for (const root of roots) {
@@ -405,8 +421,66 @@ export function resolveSessionRoot(ctx, options, payload) {
       if (best === undefined || rootKey.length > best.rootKey.length) best = { root, rootKey, sameRoot }
     }
   }
-  if (best === undefined) return { roots }
-  return { roots, root: best.root.id, reveal: best.sameRoot ? '' : key.slice(best.rootKey.length + 1) }
+
+  if (best === undefined) {
+    // An unanchored relative path (no session cwd matched any root) has no
+    // trustworthy root; only resolve it when it provably exists under the
+    // default root, otherwise leave the picker on the plain root list.
+    if (targetPath !== '' && isSafeRelativePath(targetPath) && roots.length > 0) {
+      const defaultRoot = roots[0]
+      const rel = targetPath.replace(/\\/g, '/').replace(/^\.?\//, '')
+      try {
+        const rootTarget = await ctx.fs.resolve(defaultRoot.path)
+        const target = await ctx.fs.resolve(joinPath(defaultRoot.path, rel))
+        if (ctx.fs.contains(rootTarget, target)) {
+          const stat = await ctx.fs.stat(target)
+          if (stat !== undefined) {
+            const isFile = stat.type === 'file'
+            return {
+              roots,
+              root: defaultRoot.id,
+              reveal: isFile ? parentOf(rel) : rel,
+              ...(isFile ? { selectFile: rel } : {}),
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return { roots }
+  }
+
+  const relative = best.sameRoot ? '' : key.slice(best.rootKey.length + 1)
+  // The exists-guard applies only to a clicked target path, never to the
+  // session cwd reveal: the working directory must always open in the tree
+  // even when the backing store cannot stat it (e.g. an empty fake in tests,
+  // or a shallow-mounted root).
+  if (targetPath === '') {
+    return { roots, root: best.root.id, reveal: relative }
+  }
+
+  let isFile = false
+  let exists = false
+  if (relative !== '') {
+    try {
+      const rootTarget = await ctx.fs.resolve(best.root.path)
+      const target = await ctx.fs.resolve(joinPath(best.root.path, relative))
+      if (ctx.fs.contains(rootTarget, target)) {
+        const stat = await ctx.fs.stat(target)
+        exists = stat !== undefined
+        isFile = stat?.type === 'file'
+      }
+    } catch (_) {}
+  }
+
+  return {
+    roots,
+    root: best.root.id,
+    // Only reveal/select a target that actually exists; a stale file click
+    // (deleted since render) degrades to the plain root listing instead of
+    // navigating to a missing directory.
+    reveal: exists ? (isFile ? parentOf(relative) : relative) : '',
+    ...(exists && isFile ? { selectFile: relative } : {}),
+  }
 }
 
 /** Method table; each entry receives `(ctx, options, payload, signal)`. */

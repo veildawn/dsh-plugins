@@ -89,7 +89,7 @@ window.__ModuleLoader__.load({
     // a finger on a touch target, small enough that a deliberate drag registers.
     const DRAG_SLOP = 8;
     const WINDOW_LINES = 500;
-    const inject = ["slots", "connection"];
+    const inject = ["slots", "connection", "workspaces"];
 
     const css = `
       .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:color-mix(in srgb,#000 32%,transparent);pointer-events:auto;color-scheme:light dark;animation:fv-fade .16s ease-out}
@@ -349,6 +349,10 @@ window.__ModuleLoader__.load({
       react.useEffect(() => store.subscribe(setValue), [store]);
       return value;
     }
+
+    // Guard so a hot reload or re-apply never double-wraps the shared
+    // workspaces.openPath: each service instance receives exactly one wrapper.
+    const wiredOpenPath = typeof WeakSet !== "undefined" ? new WeakSet() : null;
 
     function baseNameOf(path) {
       const trimmed = String(path || "").replace(/[\\/]+$/, "");
@@ -1090,18 +1094,33 @@ window.__ModuleLoader__.load({
         const treeGeneration = react.useRef(0);
 
         // Resolve the root set on every open. When the request came from a
-        // conversation header the host also reports which root that session's
-        // working directory belongs to, and the path within it to reveal.
+        // conversation header or a file click, the host also reports which root
+        // that session/file belongs to, the directory path to reveal, and any
+        // file to automatically select and preview.
         react.useEffect(() => {
           if (request_ === null) return undefined;
           let live = true;
-          request("roots", request_.sessionId === undefined ? {} : { sessionId: request_.sessionId })
+          const payload = {
+            ...(request_.sessionId !== undefined ? { sessionId: request_.sessionId } : {}),
+            ...(request_.filePath !== undefined ? { filePath: request_.filePath } : {}),
+            ...(request_.path !== undefined ? { path: request_.path } : {}),
+          };
+          request("roots", payload)
             .then((value) => {
               if (!live) return;
               setRoots(value.roots || []);
-              setRoot(value.root || (value.roots || [])[0]?.id || "");
+              const resolvedRoot = value.root || (value.roots || [])[0]?.id || "";
+              setRoot(resolvedRoot);
               setReveal(typeof value.reveal === "string" ? value.reveal : "");
               setError(null);
+              if (typeof value.selectFile === "string" && value.selectFile !== "") {
+                setPane("content");
+                const ticket = ++metaTicket.current;
+                request("meta", { root: resolvedRoot, path: value.selectFile }).then((metaVal) => {
+                  if (metaTicket.current !== ticket) return;
+                  setMeta(metaVal);
+                }).catch(() => {});
+              }
             }).catch((problem) => {
               if (live) setError(problem);
             });
@@ -1576,6 +1595,30 @@ window.__ModuleLoader__.load({
         id: "file-viewer",
         order: -10,
       }, ViewerHeaderAction));
+
+      // Hook into workspaces.openPath: on remote access or when the Host
+      // desktop open fails, direct the open request to this viewer's drawer.
+      // ctx.workspaces is a declared inject (like the official ui-workspace
+      // plugin), so it is available on the proxy once the service is up.
+      const workspaces = ctx.workspaces;
+      if (workspaces && typeof workspaces.openPath === "function" && wiredOpenPath !== null && !wiredOpenPath.has(workspaces)) {
+        wiredOpenPath.add(workspaces);
+        const nativeOpenPath = workspaces.openPath.bind(workspaces);
+        workspaces.openPath = async function(path) {
+          const isLoopback = ctx.connection && ctx.connection.isLoopback === true;
+          if (!isLoopback) {
+            const sid = sessionStore.get();
+            openStore.set({ filePath: path, sessionId: sid, _t: Date.now() });
+            return;
+          }
+          try {
+            return await nativeOpenPath(path);
+          } catch (err) {
+            const sid = sessionStore.get();
+            openStore.set({ filePath: path, sessionId: sid, _t: Date.now() });
+          }
+        };
+      }
 
       if (typeof window !== "undefined") {
         const triggerOpen = (payload) => {

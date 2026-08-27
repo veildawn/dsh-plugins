@@ -308,6 +308,17 @@ export function joinPath(root, relative) {
 }
 
 /**
+ * Parent directory of a path, or '' when it has none.
+ * @param {string} path - any path, POSIX or Win32.
+ * @returns {string} parent directory path.
+ */
+export function parentOf(path) {
+  const trimmed = String(path ?? '').replace(/[\\/]+$/, '')
+  const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return cut < 0 ? '' : trimmed.slice(0, cut)
+}
+
+/**
  * Every ancestor directory of a path, outermost first, excluding the path
  * itself. Used to reveal the directories leading to a file without collapsing
  * anything the reader already opened.

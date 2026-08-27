@@ -430,3 +430,80 @@ test('a session resolves to the deepest root containing its working directory', 
     assert.equal(result.value.roots.length, 3)
   }
 })
+test('target file path resolves root, reveal parent directory, and selects file', async () => {
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/src': { type: 'directory', entries: [] },
+    'D:/repo/src/index.ts': { type: 'file', size: 100 },
+    'D:/other/readme.md': { type: 'file', size: 50 },
+  })
+  const ctx = createCtx(fs, { workspaces: ['D:/repo', 'D:/other'] })
+  ctx.sessions = {
+    get: (id) => ({
+      'sess-1': { header: { cwd: 'D:/repo' } },
+    })[id],
+    list: () => [],
+  }
+
+  // Relative file path with sessionId
+  const rel = await handleRpc(ctx, options(), 'roots', { sessionId: 'sess-1', filePath: 'src/index.ts' })
+  assert.equal(rel.value.root, 'D:/repo')
+  assert.equal(rel.value.reveal, 'src')
+  assert.equal(rel.value.selectFile, 'src/index.ts')
+
+  // Absolute file path across another root
+  const abs = await handleRpc(ctx, options(), 'roots', { filePath: 'D:/other/readme.md' })
+  assert.equal(abs.value.root, 'D:/other')
+  assert.equal(abs.value.reveal, '')
+  assert.equal(abs.value.selectFile, 'readme.md')
+})
+
+test('an unanchored relative target without a session resolves only when it exists', async () => {
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/src/index.ts': { type: 'file', size: 100 },
+  })
+  const ctx = createCtx(fs, { workspaces: ['D:/repo'] })
+  ctx.sessions = { get: () => undefined, list: () => [] }
+
+  // A root-relative path that provably exists under the default root resolves:
+  // this is how a session-less click on an existing file degrades usefully.
+  const existing = await handleRpc(ctx, options(), 'roots', { filePath: 'src/index.ts' })
+  assert.equal(existing.ok, true)
+  assert.equal(existing.value.root, 'D:/repo')
+  assert.equal(existing.value.reveal, 'src')
+  assert.equal(existing.value.selectFile, 'src/index.ts')
+
+  // The same click with a leading ./ behaves identically.
+  const dotted = await handleRpc(ctx, options(), 'roots', { filePath: './src/index.ts' })
+  assert.equal(dotted.value.root, 'D:/repo')
+  assert.equal(dotted.value.selectFile, 'src/index.ts')
+
+  // A relative path that does NOT exist under the default root, with no
+  // session to anchor it, resolves nothing — guessing would open a missing
+  // directory.
+  const missing = await handleRpc(ctx, options(), 'roots', { filePath: 'nope/missing.txt' })
+  assert.equal(missing.ok, true)
+  assert.equal(missing.value.root, undefined)
+  assert.equal(missing.value.reveal, undefined)
+  assert.equal(missing.value.selectFile, undefined)
+})
+
+test('a stale target path resolves no reveal and no selection', async () => {
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+  })
+  const ctx = createCtx(fs, { workspaces: ['D:/repo'] })
+  ctx.sessions = {
+    get: (id) => ({ 'sess-1': { header: { cwd: 'D:/repo' } } })[id],
+    list: () => [],
+  }
+
+  // The file was deleted since the click; the drawer must not navigate into
+  // a missing directory and must not try to select anything.
+  const result = await handleRpc(ctx, options(), 'roots', { sessionId: 'sess-1', filePath: 'deleted.txt' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.root, 'D:/repo')
+  assert.equal(result.value.reveal, '')
+  assert.equal(result.value.selectFile, undefined)
+})

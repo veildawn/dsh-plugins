@@ -123,7 +123,7 @@ test('the client bundle registers through the module loader with declared deps',
 
   assert.deepEqual(seen, ['react', '@deepseek-ai/dsh-client-ui-primitives'])
   assert.equal(typeof client.apply, 'function')
-  assert.deepEqual(client.inject, ['slots', 'connection'])
+  assert.deepEqual(client.inject, ['slots', 'connection', 'workspaces'])
   assert.equal(client.internals.RPC_CHANNEL, '/dsh-file-viewer')
   assert.equal(client.internals.OVERLAY_SLOT, 'shell.overlay')
   assert.equal(client.internals.HEADER_SLOT, 'conversation.session.header.utilities')
@@ -750,3 +750,14 @@ test('the back-gesture handler ignores the gesture that opened the drawer', () =
   assert.match(source, /const onPopState = \(\) => \{[\s\S]{0,200}openedAtRef\.current < 400/)
 })
 
+test('workspaces.openPath redirects to file-viewer on remote access or failure', () => {
+  const source = read('lib/client.js')
+  // The inject list includes workspaces, and the service is accessed directly.
+  assert.match(source, /const inject = \["slots", "connection", "workspaces"\]/)
+  assert.match(source, /const workspaces = ctx\.workspaces/)
+  assert.match(source, /wiredOpenPath\.has\(workspaces\)/)
+  assert.match(source, /workspaces\.openPath = async function\(path\)/)
+  assert.match(source, /const isLoopback = ctx\.connection && ctx\.connection\.isLoopback === true/)
+  assert.match(source, /openStore\.set\(\{\s*filePath: path/)
+  assert.doesNotMatch(source, /ctx\.get\?\.\("workspaces"\)/)
+})
