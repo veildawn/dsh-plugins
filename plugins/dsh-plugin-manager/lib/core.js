@@ -206,10 +206,20 @@ export function formatMonorepoReleases(githubReleases, repoOrigin = DEFAULT_REPO
 }
 
 /**
+ * Renamed / superseded plugin names that must never surface as standalone
+ * entries in the repo catalog. They are historical names of plugins that are
+ * now published under a new package name (e.g. dsh-market → dsh-plugin-manager).
+ */
+export const REPO_RENAMED_PLUGINS = Object.freeze({
+  'dsh-market': 'dsh-plugin-manager',
+})
+
+/**
  * Merge local repo plugins metadata with live GitHub releases data.
  * Supports dynamically discovering newly added plugins in the repository
  * (either from new GitHub Releases or from workspace plugins/ subdirectories)
  * without requiring hardcoded updates to LOCAL_MONOREPO_PLUGINS.
+ * Historical/renamed plugin names (REPO_RENAMED_PLUGINS) are excluded.
  */
 export function resolveRepoCatalog(releasesMap = new Map(), repoOrigin = DEFAULT_REPO_ORIGIN) {
   const knownMap = new Map(LOCAL_MONOREPO_PLUGINS.map((p) => [p.name, { ...p }]))
@@ -231,9 +241,10 @@ export function resolveRepoCatalog(releasesMap = new Map(), repoOrigin = DEFAULT
     })
   }
 
-  // 2. Dynamically discover any newly released plugins in the repo from releasesMap
+  // 2. Dynamically discover any newly released plugins in the repo from releasesMap,
+  //    skipping renamed/superseded historical names.
   for (const [name, releaseInfo] of releasesMap) {
-    if (!knownMap.has(name) && name.startsWith('dsh-')) {
+    if (!knownMap.has(name) && name.startsWith('dsh-') && !Object.hasOwn(REPO_RENAMED_PLUGINS, name)) {
       const latestVersion = releaseInfo.version || '0.1.0'
       const downloadUrl = releaseInfo.downloadUrl || buildReleaseDownloadUrl(repoOrigin, name, latestVersion)
       results.push({

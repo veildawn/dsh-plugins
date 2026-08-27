@@ -152,6 +152,25 @@ describe('dsh-market releases formatting and updates detection', () => {
     assert.equal(newPlugin.downloadUrl.includes('dsh-brand-new-plugin'), true)
   })
 
+  it('excludes renamed/superseded plugin names (dsh-market) from dynamic discovery', () => {
+    const releaseMap = new Map([
+      [
+        'dsh-market', // historical name of dsh-plugin-manager — must NOT appear
+        {
+          name: 'dsh-market',
+          version: '0.1.7',
+          tag: 'dsh-market@v0.1.7',
+          downloadUrl: 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-market@v0.1.7/dsh-market-0.1.7.tgz',
+        },
+      ],
+    ])
+
+    const catalog = resolveRepoCatalog(releaseMap)
+    assert.equal(catalog.some((p) => p.name === 'dsh-market'), false, 'dsh-market must be excluded as a renamed name')
+    // dsh-plugin-manager itself (the canonical name) must still be present
+    assert.equal(catalog.some((p) => p.name === 'dsh-plugin-manager'), true)
+  })
+
   it('detects available updates for installed plugins', () => {
     const installed = [
       { name: 'dsh-model-roles', version: '0.4.7' },
