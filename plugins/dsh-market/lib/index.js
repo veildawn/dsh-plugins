@@ -292,6 +292,17 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
 
 const installTasks = new Map()
 let activeTaskId = null
+const TASK_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+
+/** Prune finished tasks older than TTL (called lazily on each new task). */
+function pruneInstallTasks() {
+  const cutoff = Date.now() - TASK_TTL_MS
+  for (const [id, task] of installTasks) {
+    if (task.finishedAt && new Date(task.finishedAt).getTime() < cutoff) {
+      installTasks.delete(id)
+    }
+  }
+}
 
 /** Spawn the DSH CLI (`dsh plugin add/remove`). */
 export function runDshPluginCommand(args, { onLog, timeoutMs = 600_000, spawnFn = spawn } = {}) {
@@ -384,6 +395,7 @@ export function handleInstallPlugin(options, payload, deps = {}) {
     finishedAt: null,
     error: null,
   }
+  pruneInstallTasks()
   installTasks.set(taskId, task)
   activeTaskId = taskId
 
@@ -448,6 +460,7 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
     finishedAt: null,
     error: null,
   }
+  pruneInstallTasks()
   installTasks.set(taskId, task)
   activeTaskId = taskId
 
@@ -493,7 +506,8 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
           task.log.push(`✓ [${i + 1}/${targets.length}] ${p.name} 更新成功`)
           successCount++
         } else {
-          task.log.push(`✗ [${i + 1}/${targets.length}] ${p.name} 更新失败`)
+          const reason = (result.stderr || result.stdout || '未知错误').split('\n').filter(Boolean).slice(-2).join(' | ')
+          task.log.push(`✗ [${i + 1}/${targets.length}] ${p.name} 更新失败: ${reason}`)
           failureCount++
         }
       }
@@ -546,6 +560,7 @@ export function handleRemovePlugin(options, payload, deps = {}) {
     finishedAt: null,
     error: null,
   }
+  pruneInstallTasks()
   installTasks.set(taskId, task)
   activeTaskId = taskId
 
@@ -580,22 +595,46 @@ export function handleRemovePlugin(options, payload, deps = {}) {
 
 /**
  * Handle async graceful restart of the host process.
+ *
+ * The service name is resolved in this order:
+ *   1. payload.serviceName  (validated against an allowlist of systemd unit names)
+ *   2. DSH_WEB_SERVICE env var
+ *   3. 'dsh-web' (default unit used by the repo's systemd template)
+ *
+ * Because the RPC response must be flushed to the browser BEFORE the process
+ * goes away, the actual restart is deferred ~0.8s in a detached subshell.
  */
-export function handleRestartHost(options, payload, deps = {}) {
+export function handleRestartHost(options, payload = {}, deps = {}) {
   const spawnFn = deps.spawnFn || spawn
+
+  const SYSTEMD_SERVICE_RE = /^[a-zA-Z0-9_.:-]+$/
+  const serviceName = (
+    (typeof payload?.serviceName === 'string' && SYSTEMD_SERVICE_RE.test(payload.serviceName) && payload.serviceName)
+    || (typeof process.env.DSH_WEB_SERVICE === 'string' && SYSTEMD_SERVICE_RE.test(process.env.DSH_WEB_SERVICE) && process.env.DSH_WEB_SERVICE)
+    || 'dsh-web'
+  )
 
   let method = 'process-exit'
   if (process.platform === 'linux') {
     method = 'systemd'
     try {
       // Spawn detached subshell to invoke systemctl restart after giving the RPC response time to send
-      const child = spawnFn('sh', ['-c', 'sleep 0.8 && systemctl restart dsh-web'], {
+      const child = spawnFn('sh', ['-c', `sleep 0.8 && systemctl restart ${serviceName}`], {
         detached: true,
         stdio: 'ignore',
       })
       if (child.unref) child.unref()
+      return {
+        ok: true,
+        value: {
+          scheduled: true,
+          method,
+          serviceName,
+          message: `已调度异步重启 ${serviceName}，正在重启 DeepSeek Harness 服务...`,
+        },
+      }
     } catch {
-      setTimeout(() => process.exit(0), 800)
+      // Fall through to process-exit below
     }
   } else if (process.platform === 'win32') {
     method = 'windows-cmd'
@@ -605,19 +644,30 @@ export function handleRestartHost(options, payload, deps = {}) {
         stdio: 'ignore',
       })
       if (child.unref) child.unref()
+      return {
+        ok: true,
+        value: {
+          scheduled: true,
+          method,
+          serviceName,
+          message: '已调度异步重启 dsh web 服务（Windows 脚本），正在重启 DeepSeek Harness 服务...',
+        },
+      }
     } catch {
-      setTimeout(() => process.exit(0), 800)
+      // Fall through to process-exit below
     }
-  } else {
-    setTimeout(() => process.exit(0), 800)
   }
 
+  // Generic fallback: exit the current process; a supervisor (systemd/pm2)
+  // or the user's launch script revives it.
+  setTimeout(() => process.exit(0), 800)
   return {
     ok: true,
     value: {
       scheduled: true,
       method,
-      message: '已调度异步重启，正在重启 DeepSeek Harness 服务...',
+      serviceName,
+      message: '已调度异步重启（进程退出，由守护进程接管拉起），正在重启 DeepSeek Harness 服务...',
     },
   }
 }

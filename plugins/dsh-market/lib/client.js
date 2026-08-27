@@ -122,9 +122,9 @@ window.__ModuleLoader__.load({
     `;
 
     const FALLBACK_REPO_PLUGINS = [
-      { id: "dsh-market", name: "dsh-market", title: "插件市场与更新管理器", description: "DSH 官方社区插件市场，支持浏览、安装社区插件，以及一键检查与更新本仓库全量插件。", author: "veildawn", category: "tools", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-market@v0.1.6/dsh-market-0.1.6.tgz", isRepoPlugin: true },
+      { id: "dsh-market", name: "dsh-market", title: "插件市场与更新管理器", description: "DSH 官方社区插件市场，支持浏览、安装社区插件，以及一键检查与更新本仓库全量插件。", author: "veildawn", category: "tools", version: "0.1.7", latestVersion: "0.1.7", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-market@v0.1.7/dsh-market-0.1.7.tgz", isRepoPlugin: true },
       { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.9", latestVersion: "0.4.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.9/dsh-model-roles-0.4.9.tgz", isRepoPlugin: true },
-      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.6", latestVersion: "0.1.6", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
+      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.7", latestVersion: "0.1.7", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
       { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
       { id: "dsh-mobile-adapter", name: "dsh-mobile-adapter", title: "移动端全量体验优化", description: "原生图片上传、底部操作栏圆形统一规范、视口高度自适应、Segmented Control Tabs。", author: "veildawn", category: "ui", version: "0.1.28", latestVersion: "0.1.28", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.28/dsh-mobile-adapter-0.1.28.tgz", isRepoPlugin: true },
       { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.1.8", latestVersion: "0.1.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true },
@@ -308,10 +308,23 @@ window.__ModuleLoader__.load({
             notify("已调度异步重启，正在等待服务拉起…", "ok");
             setRestartingState("probing");
 
-            // Probe until the server goes down and comes back up
+            // Probe until the server goes down and comes back up.
+            // Recovery is only confirmed after the connection was seen down
+            // AND the new instance answers 2 consecutive successful probes.
+            // A 90s hard deadline avoids an infinite spinner if the restart
+            // stalls or the service name is wrong.
             let seenDown = false;
             let successHits = 0;
+            let done = false;
+            const probeDeadline = Date.now() + 90_000;
             const probeInterval = window.setInterval(async () => {
+              if (done) return;
+              if (Date.now() > probeDeadline) {
+                window.clearInterval(probeInterval);
+                done = true;
+                setRestartingState("timeout");
+                return;
+              }
               try {
                 const resp = await fetch("/?_ping=" + Date.now(), { cache: "no-store" });
                 if (resp.ok) {
@@ -319,15 +332,17 @@ window.__ModuleLoader__.load({
                     successHits++;
                     if (successHits >= 2) {
                       window.clearInterval(probeInterval);
+                      done = true;
                       setRestartingState("ready");
-                      window.setTimeout(() => {
-                        window.location.reload();
-                      }, 1200);
+                      window.setTimeout(() => { window.location.reload(); }, 1200);
                     }
                   }
+                  // Server is up but never went down: keep waiting for the
+                  // actual restart window (settle-down grace period).
                 }
               } catch {
                 seenDown = true;
+                successHits = 0;
               }
             }, 1000);
           } catch (err) {
@@ -513,9 +528,18 @@ window.__ModuleLoader__.load({
           feedback ? react.createElement("div", { className: `dm-feedback ${feedbackKind}`, role: "status" }, feedback) : null,
           restartingState ? react.createElement("div", { className: "dm-restart-modal" },
             react.createElement("div", { style: { fontSize: "15px", fontWeight: "600" } },
-              restartingState === "ready" ? "✓ 服务重启完成！" : "🔄 正在平滑重启 DeepSeek Harness 服务…"),
+              restartingState === "ready" ? "✓ 服务重启完成！"
+                : restartingState === "timeout" ? "⚠️ 服务重启超时"
+                  : "🔄 正在平滑重启 DeepSeek Harness 服务…"),
             react.createElement("div", { style: { fontSize: "12px", color: "var(--dsw-alias-label-secondary)" } },
-              restartingState === "ready" ? "新实例已就绪，正在自动刷新页面恢复..." : "后台正在重新拉起守护进程，前端正自动探测端口并在就绪后无缝恢复，请稍候..."))
+              restartingState === "ready" ? "新实例已就绪，正在自动刷新页面恢复..."
+                : restartingState === "timeout" ? "90 秒内未能确认新实例就绪。请检查服务进程或稍后手动重试。"
+                  : "后台正在重新拉起守护进程，前端正自动探测端口并在就绪后无缝恢复，请稍候..."),
+            restartingState === "timeout" ? react.createElement("button", {
+              className: "dm-action-btn primary",
+              type: "button",
+              onClick: () => setRestartingState(null),
+            }, "知道了") : null)
             : null,
           react.createElement("div", { className: "dm-repo-banner" },
             react.createElement("div", { className: "dm-repo-info" },
