@@ -11,9 +11,9 @@
  * 4. Read/write the market's own settings namespace (repo origin, catalog URL,
  *    auto-check, mirror).
  *
- * The RPC channel is registered on the connection service with the `loopback`
- * authority, so only the same host's own web UI can drive it — matching the
- * convention used by dsh-remote-control's configuration channel.
+ * The RPC channel is registered on the connection service with the `trusted-host`
+ * authority, allowing access from localhost and LAN clients configured under
+ * connection.trustedHosts (matching dsh-model-roles / dsh-remote-control).
  */
 
 import z from '@deepseek-ai/schemastery'
@@ -417,7 +417,7 @@ export function apply(ctx, config) {
     connectionCtx.connection.rpc.handle(
       MARKET_RPC_CHANNEL,
       (method, payload) => handleMarketRpc(connectionCtx, options, method, payload),
-      { authority: 'loopback' },
+      { authority: 'trusted-host' },
     )
   })
 }
