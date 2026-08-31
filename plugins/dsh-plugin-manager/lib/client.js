@@ -158,13 +158,13 @@ window.__ModuleLoader__.load({
     `;
 
     const FALLBACK_REPO_PLUGINS = [
-      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.9/dsh-plugin-manager-0.1.9.tgz", isRepoPlugin: true },
+      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.2.0/dsh-plugin-manager-0.2.0.tgz", isRepoPlugin: true },
       { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.8", latestVersion: "0.4.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz", isRepoPlugin: true },
-      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
+      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
       { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
       { id: "dsh-mobile-adapter", name: "dsh-mobile-adapter", title: "移动端全量体验优化", description: "原生图片上传、底部操作栏圆形统一规范、视口高度自适应、Segmented Control Tabs。", author: "veildawn", category: "ui", version: "0.1.28", latestVersion: "0.1.28", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.28/dsh-mobile-adapter-0.1.28.tgz", isRepoPlugin: true },
-      { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true },
-      { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true },
+      { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true },
+      { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true },
       { id: "dsh-archive-manager", name: "dsh-archive-manager", title: "会话归档管理器", description: "DeepSeek Harness 会话归档管理：恢复、永久删除、计数徽章，全移动端响应式适配。", author: "veildawn", category: "tools", version: "0.1.0", latestVersion: "0.1.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.1.0/dsh-archive-manager-0.1.0.tgz", isRepoPlugin: true },
     ];
 
@@ -216,6 +216,16 @@ window.__ModuleLoader__.load({
         const [draft, setDraft] = react.useState(null);
         const [taskState, setTaskState] = react.useState(null);
         const [restartingState, setRestartingState] = react.useState(null);
+        const probeTimerRef = react.useRef(null);
+        const mountedRef = react.useRef(true);
+
+        react.useEffect(() => () => {
+          mountedRef.current = false;
+          if (probeTimerRef.current) {
+            window.clearInterval(probeTimerRef.current);
+            probeTimerRef.current = null;
+          }
+        }, []);
 
         const notify = (text, kind = "ok") => {
           setFeedback(text);
@@ -285,6 +295,13 @@ window.__ModuleLoader__.load({
           void loadRepo();
           void loadConfig();
           void loadCommunity(3, true); // Background preload with 3 automatic retries
+          // Greet the user after a smooth restart reload.
+          try {
+            if (window.sessionStorage.getItem("dsh-pm-restarted")) {
+              window.sessionStorage.removeItem("dsh-pm-restarted");
+              notify("✓ 服务已平滑重启完成，欢迎回来", "ok");
+            }
+          } catch {}
         }, [loadRepo, loadConfig, loadCommunity]);
 
         const pollTask = react.useCallback((taskId) => {
@@ -375,16 +392,23 @@ window.__ModuleLoader__.load({
           }
           try {
             setRestartingState("triggering");
-            const scheduled = await callRpc("restartHost", {});
+            await callRpc("restartHost", {});
             notify("已调度异步重启，正在等待服务拉起…", "ok");
             setRestartingState("probing");
 
             let seenDown = false;
             let successHits = 0;
             let done = false;
-            let waitedMs = 0;
             const probeStartedAt = Date.now();
             const probeDeadline = probeStartedAt + 90_000;
+            // The systemd-run wrapper sleeps 0.8s before restarting; the actual
+            // down window can be as short as ~1-2s. If our probe interval never
+            // happens to hit it, seenDown stays false forever and the old logic
+            // would never recover. So also recover once we have waited past the
+            // worst-case restart time AND observed several consecutive healthy
+            // responses — regardless of whether we caught the down window.
+            const minWaitMs = 8_000;
+            const recoverAfterQuiet = 3;
 
             // The HTML body of the DSH web app must contain this marker;
             // checking it prevents a false "recovered" when some other process
@@ -393,38 +417,57 @@ window.__ModuleLoader__.load({
               typeof text === "string" &&
               (text.includes("__ModuleLoader__") || text.includes("dsh"));
 
-            const probeInterval = window.setInterval(async () => {
+            let inflight = false;
+            const finish = (state) => {
               if (done) return;
-              waitedMs = Date.now() - probeStartedAt;
-              if (Date.now() > probeDeadline) {
-                window.clearInterval(probeInterval);
-                done = true;
-                setRestartingState("timeout");
+              done = true;
+              window.clearInterval(probeTimerRef.current);
+              probeTimerRef.current = null;
+              if (!mountedRef.current) return; // component unmounted mid-restart
+              setRestartingState(state);
+              if (state === "ready") {
+                // Remember that we just restarted so the freshly loaded page
+                // can greet the user instead of silently dropping context.
+                try { window.sessionStorage.setItem("dsh-pm-restarted", "1"); } catch {}
+                window.setTimeout(() => { window.location.reload(); }, 1200);
+              }
+            };
+
+            probeTimerRef.current = window.setInterval(async () => {
+              if (done || inflight) return;
+              inflight = true;
+              const elapsed = Date.now() - probeStartedAt;
+              if (elapsed > probeDeadline - probeStartedAt) {
+                finish("timeout");
+                inflight = false;
                 return;
               }
               try {
-                const resp = await fetch("/?_ping=" + Date.now(), { cache: "no-store" });
+                const resp = await fetch("/?_ping=" + Date.now(), {
+                  cache: "no-store",
+                  signal: AbortSignal.timeout(3000),
+                });
                 if (resp.ok) {
                   const text = await resp.text();
                   if (isDshPage(text)) {
                     if (seenDown) {
                       successHits++;
-                      if (successHits >= 2) {
-                        window.clearInterval(probeInterval);
-                        done = true;
-                        setRestartingState("ready");
-                        window.setTimeout(() => { window.location.reload(); }, 1200);
-                      }
+                      if (successHits >= 2) finish("ready");
+                    } else if (elapsed >= minWaitMs) {
+                      // Restart window may have been missed entirely; the
+                      // service has been healthy for a while — treat as done.
+                      successHits++;
+                      if (successHits >= recoverAfterQuiet) finish("ready");
                     }
-                    // Server is up but never went down yet: keep waiting for
-                    // the actual restart window (settle-down grace period).
                   }
                 }
               } catch {
                 seenDown = true;
                 successHits = 0;
+              } finally {
+                inflight = false;
               }
-            }, 1000);
+            }, 500);
           } catch (err) {
             setRestartingState(null);
             notify("调度重启失败：" + (err instanceof Error ? err.message : String(err)), "error");
