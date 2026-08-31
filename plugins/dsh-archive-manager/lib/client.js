@@ -88,12 +88,13 @@ window.__ModuleLoader__.load({
       /* 反馈与全选状态栏 */
       .dam-sub-bar{display:flex;align-items:center;justify-content:space-between;padding:4px 2px;font-size:12px;color:var(--dsw-alias-label-tertiary);box-sizing:border-box;width:100%;flex:none}
 
-      /* 滚动列表容器 */
-      .dam-list{flex:1 1 auto;min-height:0;width:100%;max-width:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-sizing:border-box;padding:4px}
+      /* 滚动列表容器：底部增加足够的安全留白，避免最后一项被截断 */
+      .dam-list{flex:1 1 auto;min-height:0;width:100%;max-width:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-sizing:border-box;padding:4px 4px 28px 4px}
       .dam-empty{padding:48px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:14px}
 
       /* 列表项卡片：标准垂直分层，100% 宽度不溢出 */
       .dam-card-item{display:flex;flex-direction:column;gap:6px;padding:10px 10px;border-radius:8px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l3);margin-bottom:6px;box-sizing:border-box;width:100%;max-width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
+      .dam-card-item:last-child{margin-bottom:16px}
       .dam-card-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
 
       /* 顶部行：勾选框 + 序号 + 标题 */
@@ -358,7 +359,7 @@ window.__ModuleLoader__.load({
                 ? react.createElement("div", { className: "dam-empty" },
                     tab === "archived" ? "暂无已归档会话" : tab === "deleted" ? "暂无已删除会话" : "回收站为空"
                   )
-                : react.createElement("div", { style: { width: "100%", maxWidth: "100%", boxSizing: "border-box" } },
+                : react.createElement("div", { style: { width: "100%", maxWidth: "100%", boxSizing: "border-box", paddingBottom: "32px" } },
                     visible.map((item, index) => {
                       const checked = selectedIds.includes(item.id);
                       const itemIndex = index + 1;
