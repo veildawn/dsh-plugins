@@ -96,9 +96,10 @@ window.__ModuleLoader__.load({
       .dam-card-item{display:flex;flex-direction:column;gap:6px;padding:10px 10px;border-radius:8px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l3);margin-bottom:6px;box-sizing:border-box;width:100%;max-width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
       .dam-card-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
 
-      /* 顶部行：勾选框 + 标题 */
-      .dam-card-top{display:flex;align-items:flex-start;gap:8px;width:100%;min-width:0;box-sizing:border-box}
+      /* 顶部行：勾选框 + 序号 + 标题 */
+      .dam-card-top{display:flex;align-items:flex-start;gap:6px;width:100%;min-width:0;box-sizing:border-box}
       .dam-card-checkbox{flex:none;width:18px;height:18px;margin-top:2px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
+      .dam-card-index{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 4px;margin-top:1px;border-radius:4px;background:var(--dsw-alias-bg-layer-2, #e5e7eb);color:var(--dsw-alias-label-tertiary, #6b7280);font-size:11px;font-weight:600;line-height:1}
       .dam-card-title{flex:1 1 auto;min-width:0;font-size:14px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 
       /* 中间行：标签与元信息 */
@@ -358,8 +359,9 @@ window.__ModuleLoader__.load({
                     tab === "archived" ? "暂无已归档会话" : tab === "deleted" ? "暂无已删除会话" : "回收站为空"
                   )
                 : react.createElement("div", { style: { width: "100%", maxWidth: "100%", boxSizing: "border-box" } },
-                    visible.map((item) => {
+                    visible.map((item, index) => {
                       const checked = selectedIds.includes(item.id);
+                      const itemIndex = index + 1;
                       return react.createElement("div", {
                         key: item.id,
                         className: "dam-card-item",
@@ -374,7 +376,7 @@ window.__ModuleLoader__.load({
                           }
                         },
                       },
-                        // Row 1: Checkbox + Title
+                        // Row 1: Checkbox + Index + Title
                         react.createElement("div", { className: "dam-card-top" },
                           react.createElement("input", {
                             type: "checkbox",
@@ -382,8 +384,9 @@ window.__ModuleLoader__.load({
                             checked,
                             onChange: () => toggleSelect(item.id),
                             onClick: (e) => e.stopPropagation(),
-                            "aria-label": "选择会话",
+                            "aria-label": `选择第 ${itemIndex} 项会话`,
                           }),
+                          react.createElement("span", { className: "dam-card-index", "aria-hidden": "true" }, itemIndex),
                           react.createElement("div", { className: "dam-card-title", title: item.title }, item.title)
                         ),
                         // Row 2: Workspace + Date
