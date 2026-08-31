@@ -21,7 +21,7 @@
 
 import z from '@deepseek-ai/schemastery'
 import { existsSync } from 'node:fs'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici'
 import {
   DEFAULT_REPO_ORIGIN,
@@ -601,11 +601,24 @@ export function handleRemovePlugin(options, payload, deps = {}) {
  *   2. DSH_WEB_SERVICE env var
  *   3. 'dsh-web' (default unit used by the repo's systemd template)
  *
- * Because the RPC response must be flushed to the browser BEFORE the process
- * goes away, the actual restart is deferred ~0.8s in a detached subshell.
+ * Restart strategy (safe by construction):
+ *   - systemd (linux): schedule a detached `systemd-run --no-block` transient
+ *     scope that executes `systemctl restart <unit>` AFTER a short delay. The
+ *     transient scope lives OUTSIDE the service's own cgroup, so the restart
+ *     command cannot be killed together with this service (the naive
+ *     `spawn('sh', ['-c', 'sleep && systemctl restart ...'])` runs inside the
+ *     service cgroup and gets SIGTERM'd by systemd before it can act).
+ *     The unit existence is verified synchronously via spawnSync; if systemd
+ *     or the unit is unavailable, restart is REFUSED with a clear error —
+ *     never a silent process.exit(0) (which would not trigger Restart= and
+ *     would leave the service dead).
+ *   - win32: detached cmd.exe invoking the repo's dsh-web.cmd with an
+ *     absolute repo path resolved from DSH_PLUGINS_REPO (fallback: cwd).
+ *   - other: refused with a clear error (no supervisor contract to rely on).
  */
 export function handleRestartHost(options, payload = {}, deps = {}) {
   const spawnFn = deps.spawnFn || spawn
+  const spawnSyncFn = deps.spawnSyncFn || spawnSync
 
   const SYSTEMD_SERVICE_RE = /^[a-zA-Z0-9_.:-]+$/
   const serviceName = (
@@ -614,12 +627,37 @@ export function handleRestartHost(options, payload = {}, deps = {}) {
     || 'dsh-web'
   )
 
-  let method = 'process-exit'
+  const unavailable = (message) => ({
+    ok: false,
+    error: {
+      code: 'restart-unavailable',
+      message,
+      details: { serviceName, platform: process.platform },
+    },
+  })
+
   if (process.platform === 'linux') {
-    method = 'systemd'
+    // 1. Verify systemd is running and the unit exists (sync probe).
+    let probe
     try {
-      // Spawn detached subshell to invoke systemctl restart after giving the RPC response time to send
-      const child = spawnFn('sh', ['-c', `sleep 0.8 && systemctl restart ${serviceName}`], {
+      probe = spawnSyncFn('systemctl', ['status', serviceName], { stdio: 'ignore' })
+    } catch (err) {
+      return unavailable(`无法调用 systemctl（${err instanceof Error ? err.message : String(err)}），请手动执行 systemctl restart ${serviceName}`)
+    }
+    if (probe.error) {
+      return unavailable(`systemctl 不可用（${probe.error.message}），请手动执行 systemctl restart ${serviceName}`)
+    }
+    if (probe.status === 4) {
+      return unavailable(`systemd 单元 ${serviceName} 不存在。请检查服务名（DSH_WEB_SERVICE 或 payload.serviceName）`)
+    }
+
+    // 2. Schedule a detached transient scope that survives our cgroup teardown.
+    try {
+      const child = spawnFn('systemd-run', [
+        '--no-block',
+        '--unit=dsh-plugin-manager-restart',
+        '/bin/sh', '-c', `sleep 0.8 && systemctl restart ${serviceName}`,
+      ], {
         detached: true,
         stdio: 'ignore',
       })
@@ -628,18 +666,21 @@ export function handleRestartHost(options, payload = {}, deps = {}) {
         ok: true,
         value: {
           scheduled: true,
-          method,
+          method: 'systemd',
           serviceName,
-          message: `已调度异步重启 ${serviceName}，正在重启 DeepSeek Harness 服务...`,
+          message: `已调度异步重启 ${serviceName}（systemd 瞬态作用域），正在重启 DeepSeek Harness 服务...`,
         },
       }
-    } catch {
-      // Fall through to process-exit below
+    } catch (err) {
+      return unavailable(`无法调度 systemd-run（${err instanceof Error ? err.message : String(err)}），请手动执行 systemctl restart ${serviceName}`)
     }
-  } else if (process.platform === 'win32') {
-    method = 'windows-cmd'
+  }
+
+  if (process.platform === 'win32') {
     try {
-      const child = spawnFn('cmd.exe', ['/c', 'timeout /t 1 /nobreak >nul && scripts\\dsh-web.cmd restart'], {
+      const repoDir = process.env.DSH_PLUGINS_REPO || process.cwd()
+      const script = `${repoDir.replace(/\\/g, '/')}/scripts/dsh-web.cmd`
+      const child = spawnFn('cmd.exe', ['/c', `timeout /t 1 /nobreak >nul && "${script}" restart`], {
         detached: true,
         stdio: 'ignore',
       })
@@ -648,28 +689,17 @@ export function handleRestartHost(options, payload = {}, deps = {}) {
         ok: true,
         value: {
           scheduled: true,
-          method,
+          method: 'windows-cmd',
           serviceName,
           message: '已调度异步重启 dsh web 服务（Windows 脚本），正在重启 DeepSeek Harness 服务...',
         },
       }
-    } catch {
-      // Fall through to process-exit below
+    } catch (err) {
+      return unavailable(`无法调度 Windows 重启（${err instanceof Error ? err.message : String(err)}）。请手动执行 scripts\\dsh-web.cmd restart`)
     }
   }
 
-  // Generic fallback: exit the current process; a supervisor (systemd/pm2)
-  // or the user's launch script revives it.
-  setTimeout(() => process.exit(0), 800)
-  return {
-    ok: true,
-    value: {
-      scheduled: true,
-      method,
-      serviceName,
-      message: '已调度异步重启（进程退出，由守护进程接管拉起），正在重启 DeepSeek Harness 服务...',
-    },
-  }
+  return unavailable('当前环境不支持平滑重启（无法识别 systemd / Windows 服务管理）。请手动重启 DeepSeek Harness 服务。')
 }
 
 export function apply(ctx, config) {

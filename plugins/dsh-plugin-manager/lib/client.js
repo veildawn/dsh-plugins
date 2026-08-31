@@ -158,12 +158,12 @@ window.__ModuleLoader__.load({
     `;
 
     const FALLBACK_REPO_PLUGINS = [
-      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.8", latestVersion: "0.1.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.8/dsh-plugin-manager-0.1.8.tgz", isRepoPlugin: true },
+      { id: "dsh-plugin-manager", name: "dsh-plugin-manager", title: "插件管理", description: "DSH 插件管理与更新中心，支持自有插件更新/卸载/一键批量更新，浏览 2200+ 社区插件并一键安装。", author: "veildawn", category: "tools", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.1.9/dsh-plugin-manager-0.1.9.tgz", isRepoPlugin: true },
       { id: "dsh-model-roles", name: "dsh-model-roles", title: "模型角色分工与路由", description: "OMP 风格的多模型智能分工与角色路由，支持计划模式、识图子代理分析与顾问复核 (/advisor)。", author: "veildawn", category: "ai", version: "0.4.8", latestVersion: "0.4.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz", isRepoPlugin: true },
-      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.8", latestVersion: "0.1.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
+      { id: "dsh-remote-control", name: "dsh-remote-control", title: "远程访问与安全通道", description: "Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接与局域网无感放行。", author: "veildawn", category: "security", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.6/dsh-remote-control-0.1.6.tgz", isRepoPlugin: true },
       { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
       { id: "dsh-mobile-adapter", name: "dsh-mobile-adapter", title: "移动端全量体验优化", description: "原生图片上传、底部操作栏圆形统一规范、视口高度自适应、Segmented Control Tabs。", author: "veildawn", category: "ui", version: "0.1.28", latestVersion: "0.1.28", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.28/dsh-mobile-adapter-0.1.28.tgz", isRepoPlugin: true },
-      { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.1.8", latestVersion: "0.1.8", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true },
+      { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true },
       { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true },
       { id: "dsh-archive-manager", name: "dsh-archive-manager", title: "会话归档管理器", description: "DeepSeek Harness 会话归档管理：恢复、永久删除、计数徽章，全移动端响应式适配。", author: "veildawn", category: "tools", version: "0.1.0", latestVersion: "0.1.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.1.0/dsh-archive-manager-0.1.0.tgz", isRepoPlugin: true },
     ];
@@ -375,16 +375,27 @@ window.__ModuleLoader__.load({
           }
           try {
             setRestartingState("triggering");
-            await callRpc("restartHost", {});
+            const scheduled = await callRpc("restartHost", {});
             notify("已调度异步重启，正在等待服务拉起…", "ok");
             setRestartingState("probing");
 
             let seenDown = false;
             let successHits = 0;
             let done = false;
-            const probeDeadline = Date.now() + 90_000;
+            let waitedMs = 0;
+            const probeStartedAt = Date.now();
+            const probeDeadline = probeStartedAt + 90_000;
+
+            // The HTML body of the DSH web app must contain this marker;
+            // checking it prevents a false "recovered" when some other process
+            // happens to answer on the same port during the restart window.
+            const isDshPage = (text) =>
+              typeof text === "string" &&
+              (text.includes("__ModuleLoader__") || text.includes("dsh"));
+
             const probeInterval = window.setInterval(async () => {
               if (done) return;
+              waitedMs = Date.now() - probeStartedAt;
               if (Date.now() > probeDeadline) {
                 window.clearInterval(probeInterval);
                 done = true;
@@ -394,14 +405,19 @@ window.__ModuleLoader__.load({
               try {
                 const resp = await fetch("/?_ping=" + Date.now(), { cache: "no-store" });
                 if (resp.ok) {
-                  if (seenDown) {
-                    successHits++;
-                    if (successHits >= 2) {
-                      window.clearInterval(probeInterval);
-                      done = true;
-                      setRestartingState("ready");
-                      window.setTimeout(() => { window.location.reload(); }, 1200);
+                  const text = await resp.text();
+                  if (isDshPage(text)) {
+                    if (seenDown) {
+                      successHits++;
+                      if (successHits >= 2) {
+                        window.clearInterval(probeInterval);
+                        done = true;
+                        setRestartingState("ready");
+                        window.setTimeout(() => { window.location.reload(); }, 1200);
+                      }
                     }
+                    // Server is up but never went down yet: keep waiting for
+                    // the actual restart window (settle-down grace period).
                   }
                 }
               } catch {
@@ -613,7 +629,7 @@ window.__ModuleLoader__.load({
                   : "🔄 正在平滑重启 DeepSeek Harness 服务…"),
             react.createElement("div", { style: { fontSize: "12px", color: "var(--dsw-alias-label-secondary)" } },
               restartingState === "ready" ? "新实例已就绪，正在自动刷新页面恢复..."
-                : restartingState === "timeout" ? "90 秒内未能确认新实例就绪。请检查服务进程或稍后手动重试。"
+                : restartingState === "timeout" ? "90 秒内未能确认新实例就绪。请检查服务进程（systemctl status dsh-web）或稍后手动重试。"
                   : "后台正在重新拉起守护进程，前端正自动探测端口并在就绪后无缝恢复，请稍候..."),
             restartingState === "timeout" ? react.createElement("button", {
               className: "dm-action-btn primary",

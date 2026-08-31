@@ -643,17 +643,43 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(task.log.some((l) => l.includes('批量更新') || l.includes('无需更新')), true)
   })
 
-  it('schedules async host restart without throwing', () => {
-    let spawnedCmd = null
+  it('schedules async host restart via systemd transient scope', () => {
+    const calls = []
     const fakeRestartSpawn = (cmd, args) => {
-      spawnedCmd = { cmd, args }
+      calls.push({ cmd, args })
       const child = new EventEmitter()
       child.unref = () => {}
       return child
     }
-    const res = handleRestartHost({}, {}, { spawnFn: fakeRestartSpawn })
+    const fakeProbe = () => ({ status: 0, error: null }) // systemctl status dsh-web -> active
+    const res = handleRestartHost({}, {}, { spawnFn: fakeRestartSpawn, spawnSyncFn: fakeProbe })
     assert.equal(res.ok, true)
     assert.equal(res.value.scheduled, true)
-    assert.ok(res.value.method)
+    assert.equal(res.value.method, 'systemd')
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].cmd, 'systemd-run')
+    assert.equal(calls[0].args[0], '--no-block')
+    assert.match(calls[0].args.join(' '), /systemctl restart dsh-web/)
+  })
+
+  it('refuses restart when systemd unit does not exist', () => {
+    const fakeProbe = () => ({ status: 4, error: null }) // unit not found
+    const res = handleRestartHost({}, {}, {
+      spawnFn: () => { throw new Error('should not spawn') },
+      spawnSyncFn: fakeProbe,
+    })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'restart-unavailable')
+    assert.match(res.error.message, /不存在/)
+  })
+
+  it('refuses restart when systemctl is unavailable', () => {
+    const fakeProbe = () => ({ status: null, error: new Error('ENOENT') })
+    const res = handleRestartHost({}, {}, {
+      spawnFn: () => { throw new Error('should not spawn') },
+      spawnSyncFn: fakeProbe,
+    })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'restart-unavailable')
   })
 })
