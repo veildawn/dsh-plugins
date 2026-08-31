@@ -12,10 +12,8 @@
  *   `sidebar` shell — see @deepseek-ai/dsh-client-ui-sidebar). Root-scope
  *   slot components automatically receive the `useWorkspaces` selector hook,
  *   which drives the reactive archive-count badge.
- * - Mobile: the sidebar shell renders inside the mobile drawer; the modal
- *   becomes a bottom sheet under 768px with full-width fit, vertical stack
- *   cards, and a `window.__dsh_open_archive_manager` global plus
- *   `dsh:open-archive-manager` window event for host-shell entry points.
+ * - Mobile: bulletproof zero-overflow responsive layout, card-based item flow,
+ *   touch-friendly targets, and `dsh:open-archive-manager` event listener.
  */
 
 window.__ModuleLoader__.load({
@@ -31,94 +29,99 @@ window.__ModuleLoader__.load({
     const STYLE_ID = "dsh-archive-manager-styles";
     const OPEN_EVENT = "dsh:open-archive-manager";
     const inject = ["slots", "connection", "workspaces"];
-    /** Incremental-render window: long archive lists render in pages on mobile. */
     const PAGE_SIZE = 50;
 
     const css = `
-      .dam-btn{display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;width:100%;min-height:34px;padding:4px 10px;margin:2px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer;text-align:left;user-select:none}
+      /* 侧边栏入口按钮 */
+      .dam-btn{display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;width:100%;min-height:36px;padding:4px 10px;margin:2px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer;text-align:left;user-select:none}
       .dam-btn:hover,.dam-btn:active{background:var(--dsw-alias-interactive-bg-hover)}
       .dam-btn-main{display:flex;align-items:center;gap:8px;min-width:0}
       .dam-btn-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .dam-badge{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-foreground,#fff);font-size:11px;font-weight:600;box-sizing:border-box}
 
-      /* 弹窗遮罩与卡片 */
-      .dam-backdrop{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.48);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:dam-fade .14s ease-out;overflow:hidden}
-      .dam-card{box-sizing:border-box;display:flex;flex-direction:column;gap:10px;width:min(100%,740px);max-width:100%;max-height:min(85vh,720px);padding:16px;border:1px solid var(--dsw-alias-border-l2);border-radius:16px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);animation:dam-pop .16s cubic-bezier(.2,.8,.2,1);overflow:hidden}
-      .dam-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none}
-      .dam-title{display:flex;align-items:center;gap:8px;font:var(--dsw-font-m-16);font-weight:600}
-      .dam-close{display:inline-grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);font-size:18px;cursor:pointer}
-      .dam-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
+      /* 弹窗遮罩：采用全屏 fixed 并禁止横向滚动 */
+      .dam-backdrop{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100dvh;height:100vh;z-index:2147483640;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:0;box-sizing:border-box;background:rgba(0,0,0,.52);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);animation:dam-fade .14s ease-out;overflow:hidden}
 
-      /* 顶部 Tabs */
-      .dam-tabs{display:flex;gap:4px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);flex:none;overflow-x:auto;-webkit-overflow-scrolling:touch}
-      .dam-tab{flex:1 1 0;min-width:max-content;height:30px;padding:0 10px;border:0;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-12);font-weight:500;cursor:pointer;white-space:nowrap}
-      .dam-tab[data-active="true"]{background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv1)}
+      /* 弹窗主卡片：移动端底部抽屉，桌面端居中卡片 */
+      .dam-card{box-sizing:border-box;display:flex;flex-direction:column;width:100%;max-width:100vw;height:88dvh;height:88vh;max-height:88dvh;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#ffffff));border-top-left-radius:16px;border-top-right-radius:16px;border:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);animation:dam-slide-up .18s cubic-bezier(.16,1,.3,1);overflow:hidden;padding:14px 12px calc(14px + env(safe-area-inset-bottom,0px))}
 
-      /* 工具栏 */
-      .dam-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;flex:none}
-      .dam-search-wrap{position:relative;display:flex;align-items:center;flex:1 1 200px;min-width:0}
-      .dam-search{box-sizing:border-box;width:100%;min-width:0;height:34px;padding:0 30px 0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
-      .dam-search:focus-visible{border-color:var(--dsw-alias-brand-primary)}
-      .dam-search-clear{position:absolute;right:4px;display:inline-grid;place-items:center;width:26px;height:26px;border:0;border-radius:50%;background:none;color:var(--dsw-alias-label-tertiary);font-size:13px;cursor:pointer}
-      .dam-search-clear:hover{background:var(--dsw-alias-interactive-bg-hover)}
-      .dam-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-      .dam-action{display:inline-flex;align-items:center;justify-content:center;height:32px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-13);font-weight:500;cursor:pointer;white-space:nowrap}
-      .dam-action:disabled{opacity:.45;cursor:not-allowed}
+      @media(min-width: 769px) {
+        .dam-backdrop{justify-content:center;padding:20px}
+        .dam-card{width:min(90vw,720px);max-width:720px;height:min(82vh,740px);max-height:740px;border-radius:16px;padding:16px;animation:dam-pop .16s cubic-bezier(.2,.8,.2,1)}
+      }
+
+      /* 头部导航 */
+      .dam-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;width:100%;box-sizing:border-box;padding-bottom:2px}
+      .dam-title{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;min-width:0}
+      .dam-close{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:0;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);font-size:20px;cursor:pointer;flex:none}
+      .dam-close:hover,.dam-close:active{background:var(--dsw-alias-interactive-bg-hover)}
+
+      /* 顶部 Tabs 栏 */
+      .dam-tabs{display:flex;gap:4px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);flex:none;width:100%;box-sizing:border-box;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+      .dam-tabs::-webkit-scrollbar{display:none}
+      .dam-tab{flex:1 1 0;min-width:max-content;height:32px;padding:0 10px;border:0;border-radius:7px;background:none;color:var(--dsw-alias-label-secondary);font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
+      .dam-tab[data-active="true"]{background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv1);font-weight:600}
+
+      /* 搜索与工具栏 */
+      .dam-toolbar{display:flex;flex-direction:column;gap:8px;width:100%;box-sizing:border-box;flex:none;margin-top:2px}
+      @media(min-width: 600px) {
+        .dam-toolbar{flex-direction:row;align-items:center;justify-content:space-between}
+      }
+
+      .dam-search-wrap{position:relative;display:flex;align-items:center;width:100%;box-sizing:border-box;min-width:0;flex:1 1 auto}
+      .dam-search{box-sizing:border-box;width:100%;min-width:0;height:36px;padding:0 32px 0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font-size:14px}
+      .dam-search:focus{border-color:var(--dsw-alias-brand-primary)}
+      .dam-search-clear{position:absolute;right:4px;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:50%;background:none;color:var(--dsw-alias-label-tertiary);font-size:14px;cursor:pointer}
+
+      .dam-actions{display:flex;align-items:center;gap:6px;width:100%;box-sizing:border-box;flex:none;justify-content:flex-end}
+      @media(min-width: 600px) {
+        .dam-actions{width:auto}
+      }
+      .dam-action{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;flex:1 1 auto;max-width:180px}
+      @media(min-width: 600px) {
+        .dam-action{flex:none}
+      }
+      .dam-action:disabled{opacity:.4;cursor:not-allowed}
       .dam-action-primary{border-color:transparent;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-foreground,#fff)}
       .dam-action-danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-primary-foreground,#fff)}
 
-      /* 列表区域 */
-      .dam-list{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:4px;background:var(--dsw-alias-bg-layer-1);box-sizing:border-box}
-      .dam-empty{padding:40px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14)}
-      .dam-select-bar{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;font-size:12px;color:var(--dsw-alias-label-tertiary);border-bottom:1px solid var(--dsw-alias-border-l3);box-sizing:border-box}
+      /* 反馈与全选状态栏 */
+      .dam-sub-bar{display:flex;align-items:center;justify-content:space-between;padding:4px 2px;font-size:12px;color:var(--dsw-alias-label-tertiary);box-sizing:border-box;width:100%;flex:none}
 
-      /* 列表项卡片 (桌面端) */
-      .dam-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;box-sizing:border-box;cursor:pointer;-webkit-tap-highlight-color:transparent;border-bottom:1px solid var(--dsw-alias-border-l3)}
-      .dam-item:last-child{border-bottom:none}
-      .dam-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
-      .dam-item input[type="checkbox"]{flex:none;width:16px;height:16px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer;margin:0}
-      .dam-item-info{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:3px}
-      .dam-item-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--dsw-font-s-14);font-weight:600;color:var(--dsw-alias-label-primary)}
-      .dam-item-sub{display:flex;flex-wrap:wrap;gap:6px 12px;color:var(--dsw-alias-label-tertiary);font-size:12px;min-width:0}
-      .dam-item-sub span{display:inline-flex;align-items:center;gap:3px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-      .dam-item-ops{display:flex;flex:none;align-items:center;gap:6px}
-      .dam-op{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-12);cursor:pointer;white-space:nowrap}
-      .dam-op:hover{background:var(--dsw-alias-interactive-bg-hover)}
-      .dam-op-restore{color:var(--dsw-alias-state-business-primary)}
+      /* 滚动列表容器 */
+      .dam-list{flex:1 1 auto;min-height:0;width:100%;max-width:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-sizing:border-box;padding:4px}
+      .dam-empty{padding:48px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:14px}
+
+      /* 列表项卡片：标准垂直分层，100% 宽度不溢出 */
+      .dam-card-item{display:flex;flex-direction:column;gap:6px;padding:10px 10px;border-radius:8px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l3);margin-bottom:6px;box-sizing:border-box;width:100%;max-width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
+      .dam-card-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
+
+      /* 顶部行：勾选框 + 标题 */
+      .dam-card-top{display:flex;align-items:flex-start;gap:8px;width:100%;min-width:0;box-sizing:border-box}
+      .dam-card-checkbox{flex:none;width:18px;height:18px;margin-top:2px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
+      .dam-card-title{flex:1 1 auto;min-width:0;font-size:14px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+
+      /* 中间行：标签与元信息 */
+      .dam-card-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary);width:100%;min-width:0;box-sizing:border-box;padding-left:26px}
+      .dam-card-ws{display:inline-flex;align-items:center;gap:3px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%}
+      .dam-card-date{flex:none;color:var(--dsw-alias-label-tertiary)}
+
+      /* 路径行 (仅当存在时) */
+      .dam-card-path{font-size:10px;color:var(--dsw-alias-label-tertiary);word-break:break-all;padding-left:26px;box-sizing:border-box;width:100%;line-height:1.3}
+
+      /* 底部操作行 */
+      .dam-card-ops{display:flex;align-items:center;justify-content:flex-end;gap:6px;width:100%;box-sizing:border-box;padding-top:4px;border-top:1px dashed var(--dsw-alias-border-l3);margin-top:2px}
+      .dam-op-btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;cursor:pointer;white-space:nowrap}
+      .dam-op-btn:hover,.dam-op-btn:active{background:var(--dsw-alias-interactive-bg-hover)}
+      .dam-op-restore{color:var(--dsw-alias-state-business-primary);font-weight:500}
       .dam-op-danger{color:var(--dsw-alias-state-error-primary)}
-      .dam-note{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;padding:0 4px}
+
+      .dam-note{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;padding:4px 2px 0}
       .dam-list-more{padding:10px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
-      .dam-feedback{min-height:16px;color:var(--dsw-alias-state-warn-label);font-size:12px;padding:0 2px}
 
       @keyframes dam-fade{from{opacity:0}to{opacity:1}}
-      @keyframes dam-pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
-      @media(prefers-reduced-motion:reduce){.dam-backdrop,.dam-card{animation:none}}
-
-      /* 移动端深度适配 (≤768px) */
-      @media(max-width:768px){
-        .dam-backdrop{padding:0;align-items:flex-end}
-        .dam-card{width:100vw;max-width:100vw;height:88vh;max-height:88vh;border-radius:16px 16px 0 0;padding:14px 12px calc(14px + env(safe-area-inset-bottom,0px));gap:8px}
-        .dam-toolbar{flex-direction:column;align-items:stretch;gap:6px}
-        .dam-search-wrap{width:100%;flex:none}
-        .dam-search{height:38px;padding:0 34px 0 10px;font-size:15px}
-        .dam-search-clear{width:32px;height:32px}
-        .dam-actions{width:100%;justify-content:flex-end}
-        .dam-action{flex:1 1 auto;height:34px;font-size:13px}
-        
-        /* 移动端卡片上下分层排版，彻底根绝横向溢出 */
-        .dam-item{flex-direction:column;align-items:stretch;padding:10px 8px;gap:6px}
-        .dam-item-header{display:flex;align-items:flex-start;gap:8px;width:100%;min-width:0}
-        .dam-item input[type="checkbox"]{width:20px;height:20px;margin-top:1px}
-        .dam-item-info{width:100%;min-width:0}
-        .dam-item-title{font-size:14px;white-space:normal;line-height:1.4;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-        .dam-item-sub{display:flex;flex-direction:column;gap:3px;margin-top:4px;font-size:11px}
-        .dam-item-sub-tags{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
-        .dam-item-sub-path{color:var(--dsw-alias-label-quaternary, #9ca3af);font-size:10px;word-break:break-all}
-        .dam-item-ops{width:100%;justify-content:flex-end;padding-top:6px;border-top:1px dashed var(--dsw-alias-border-l3);gap:8px}
-        .dam-op{height:30px;padding:0 12px;font-size:12px}
-        .dam-btn{min-height:44px;padding:6px 12px;font-size:14px}
-        .dam-list{-webkit-overflow-scrolling:touch}
-      }
+      @keyframes dam-slide-up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+      @keyframes dam-pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
     `;
 
     function ArchiveManagerModal({ open, onClose, rpc, useWorkspaces }) {
@@ -184,7 +187,7 @@ window.__ModuleLoader__.load({
         }
       }, [open, loadData]);
 
-      // 监听全局打开事件，确保外部派发也可以唤起弹窗
+      // 监听全局打开事件
       react.useEffect(() => {
         const handleOpenEvent = () => {
           if (!open) {
@@ -260,7 +263,7 @@ window.__ModuleLoader__.load({
       const handleRestoreSoft = (ids) => run("restoreDeleted", ids, `已恢复 ${ids.length} 个会话到归档箱`);
       const handlePhysicalDelete = (ids) => {
         if (typeof window !== "undefined" && !window.confirm(
-          `确定对 ${ids.length} 个会话执行物理删除？\n\n会话日志将从存储中移入回收站目录（${caps.trashDir || "默认回收站"}），并从归档列表移除。\n\n可在"物理回收站"标签页恢复。`
+          `确定对 ${ids.length} 个会话执行物理删除？\n\n会话日志将从存储中移入回收站目录（${caps.trashDir || "默认回收站"}），并从归档列表移除。移动前请确认会话未在运行。\n\n可在"物理回收站"标签页恢复。`
         )) return;
         run("deletePhysical", ids, `已将 ${ids.length} 个会话移入物理回收站`);
       };
@@ -276,6 +279,7 @@ window.__ModuleLoader__.load({
 
       const bulk = selectedIds.length;
       const tabCount = (label, count) => `${label} (${count})`;
+
       return react.createElement("div", { className: "dam-backdrop", onClick: onClose },
         react.createElement("div", { className: "dam-card", role: "dialog", "aria-modal": "true", onClick: (e) => e.stopPropagation() },
           // Header
@@ -287,6 +291,7 @@ window.__ModuleLoader__.load({
             ),
             react.createElement("button", { type: "button", className: "dam-close", "aria-label": "关闭", onClick: onClose }, "✕")
           ),
+
           // Tabs
           react.createElement("div", { className: "dam-tabs" },
             react.createElement("button", { type: "button", className: "dam-tab", "data-active": String(tab === "archived"), onClick: () => { setTab("archived"); setSelectedIds([]); } }, tabCount("归档列表", list.length)),
@@ -295,6 +300,7 @@ window.__ModuleLoader__.load({
               ? react.createElement("button", { type: "button", className: "dam-tab", "data-active": String(tab === "physical"), onClick: () => { setTab("physical"); setSelectedIds([]); } }, tabCount("物理回收站", physicalRows.length))
               : null
           ),
+
           // Toolbar
           react.createElement("div", { className: "dam-toolbar" },
             react.createElement("div", { className: "dam-search-wrap" },
@@ -324,14 +330,25 @@ window.__ModuleLoader__.load({
                       : null
                   )
                 : tab === "deleted"
-                  ? react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestoreSoft(selectedIds) }, `恢复到归档箱 (${bulk})`)
+                  ? react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestoreSoft(selectedIds) }, `恢复 (${bulk})`)
                   : react.createElement(react.Fragment, null,
                       react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestorePhysical(selectedIds) }, `恢复 (${bulk})`),
                       react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handleDestroy(selectedIds) }, `销毁 (${bulk})`)
                     )
             )
           ),
-          react.createElement("div", { className: "dam-feedback", role: "status" }, feedback),
+
+          // Sub Bar (全选状态 / 操作反馈)
+          react.createElement("div", { className: "dam-sub-bar" },
+            filtered.length > 0
+              ? react.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer" } },
+                  react.createElement("input", { type: "checkbox", checked: selectedIds.length === filtered.length && filtered.length > 0, onChange: selectAll }),
+                  `全选 (${filtered.length})`
+                )
+              : react.createElement("span", null),
+            feedback ? react.createElement("span", { style: { color: "var(--dsw-alias-state-warn-label)" } }, feedback) : null
+          ),
+
           // List Container
           react.createElement("div", { className: "dam-list", ref: listRef, onScroll: handleListScroll },
             loading
@@ -340,20 +357,12 @@ window.__ModuleLoader__.load({
                 ? react.createElement("div", { className: "dam-empty" },
                     tab === "archived" ? "暂无已归档会话" : tab === "deleted" ? "暂无已删除会话" : "回收站为空"
                   )
-                : react.createElement("div", null,
-                    // 全选行
-                    react.createElement("div", { className: "dam-select-bar" },
-                      react.createElement("label", { style: { display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer" } },
-                        react.createElement("input", { type: "checkbox", checked: selectedIds.length === filtered.length && filtered.length > 0, onChange: selectAll }),
-                        `全选 (${filtered.length})`
-                      ),
-                      selectedIds.length > 0 ? react.createElement("span", null, `已选中 ${selectedIds.length} 项`) : null
-                    ),
+                : react.createElement("div", { style: { width: "100%", maxWidth: "100%", boxSizing: "border-box" } },
                     visible.map((item) => {
                       const checked = selectedIds.includes(item.id);
                       return react.createElement("div", {
                         key: item.id,
-                        className: "dam-item",
+                        className: "dam-card-item",
                         onClick: () => toggleSelect(item.id),
                         role: "button",
                         tabIndex: 0,
@@ -365,48 +374,47 @@ window.__ModuleLoader__.load({
                           }
                         },
                       },
-                        // Header: Checkbox + Title
-                        react.createElement("div", { className: "dam-item-header" },
+                        // Row 1: Checkbox + Title
+                        react.createElement("div", { className: "dam-card-top" },
                           react.createElement("input", {
                             type: "checkbox",
+                            className: "dam-card-checkbox",
                             checked,
                             onChange: () => toggleSelect(item.id),
                             onClick: (e) => e.stopPropagation(),
                             "aria-label": "选择会话",
                           }),
-                          react.createElement("div", { className: "dam-item-info" },
-                            react.createElement("div", { className: "dam-item-title", title: item.title }, item.title),
-                            react.createElement("div", { className: "dam-item-sub" },
-                              react.createElement("div", { className: "dam-item-sub-tags" },
-                                react.createElement("span", null, `📁 ${item.workspaceTitle}`),
-                                item.createdAt || item.deletedAt
-                                  ? react.createElement("span", null, `🕒 ${new Date(item.deletedAt || item.createdAt).toLocaleDateString()}`)
-                                  : null
-                              ),
-                              item.cwd
-                                ? react.createElement("div", { className: "dam-item-sub-path", title: item.cwd }, `📍 ${item.cwd}`)
-                                : null,
-                              item.trashPath
-                                ? react.createElement("div", { className: "dam-item-sub-path", title: item.trashPath }, `🗑 ${item.trashPath}`)
-                                : null
-                            )
-                          )
+                          react.createElement("div", { className: "dam-card-title", title: item.title }, item.title)
                         ),
-                        // Action Buttons: 移动端自适应在卡片底部右对齐
-                        react.createElement("div", { className: "dam-item-ops", onClick: (e) => e.stopPropagation() },
+                        // Row 2: Workspace + Date
+                        react.createElement("div", { className: "dam-card-meta" },
+                          react.createElement("div", { className: "dam-card-ws" }, `📁 ${item.workspaceTitle}`),
+                          item.createdAt || item.deletedAt
+                            ? react.createElement("div", { className: "dam-card-date" }, `🕒 ${new Date(item.deletedAt || item.createdAt).toLocaleDateString()}`)
+                            : null
+                        ),
+                        // Row 3: Path (Optional)
+                        item.cwd
+                          ? react.createElement("div", { className: "dam-card-path", title: item.cwd }, `📍 ${item.cwd}`)
+                          : null,
+                        item.trashPath
+                          ? react.createElement("div", { className: "dam-card-path", title: item.trashPath }, `🗑 ${item.trashPath}`)
+                          : null,
+                        // Row 4: Actions (Dedicated bottom right bar)
+                        react.createElement("div", { className: "dam-card-ops", onClick: (e) => e.stopPropagation() },
                           tab === "archived"
                             ? react.createElement(react.Fragment, null,
-                                react.createElement("button", { type: "button", className: "dam-op dam-op-restore", onClick: () => handleRestore([item.id]) }, "恢复"),
-                                react.createElement("button", { type: "button", className: "dam-op dam-op-danger", onClick: () => handleSoftDelete([item.id]) }, "删除"),
+                                react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestore([item.id]) }, "恢复"),
+                                react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handleSoftDelete([item.id]) }, "删除"),
                                 caps.physicalDelete
-                                  ? react.createElement("button", { type: "button", className: "dam-op dam-op-danger", onClick: () => handlePhysicalDelete([item.id]) }, "物理删除")
+                                  ? react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handlePhysicalDelete([item.id]) }, "物理删除")
                                   : null
                               )
                             : tab === "deleted"
-                              ? react.createElement("button", { type: "button", className: "dam-op dam-op-restore", onClick: () => handleRestoreSoft([item.id]) }, "恢复")
+                              ? react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestoreSoft([item.id]) }, "恢复")
                               : react.createElement(react.Fragment, null,
-                                  react.createElement("button", { type: "button", className: "dam-op dam-op-restore", onClick: () => handleRestorePhysical([item.id]) }, "恢复"),
-                                  react.createElement("button", { type: "button", className: "dam-op dam-op-danger", onClick: () => handleDestroy([item.id]) }, "销毁")
+                                  react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestorePhysical([item.id]) }, "恢复"),
+                                  react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handleDestroy([item.id]) }, "销毁")
                                 )
                         )
                       );
@@ -416,6 +424,7 @@ window.__ModuleLoader__.load({
                       : null
                   )
           ),
+
           tab === "archived" && caps.physicalDelete
             ? react.createElement("div", { className: "dam-note" }, "物理删除会将会话日志移入回收站目录（非即时销毁），仅对非运行中的会话生效。")
             : null
