@@ -377,6 +377,7 @@ test('client: bundle loads through __ModuleLoader__ with the single-arg factory 
     useEffect: () => {},
     useCallback: (fn) => fn,
     useMemo: (fn) => fn(),
+    useRef: (init) => ({ current: init }),
   };
   globalThis.window = {
     __ModuleLoader__: {
