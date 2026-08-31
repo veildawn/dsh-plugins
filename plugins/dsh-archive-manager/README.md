@@ -28,9 +28,13 @@ live count badge in the sidebar footer, a manager dialog to **restore**
   id from the archive set, and shows it in the "物理回收站" tab where it can
   be **恢复** (moved back) or **销毁** (irreversible unlink).
 - **Search & filter** — filter by title or workspace; select-all and batch
-  restore / delete / physical-delete / destroy.
+  restore / delete / physical-delete / destroy. Debounced input with a clear
+  button; long lists render incrementally (50 per page) with a "load more"
+  hint, so hundreds of archived sessions stay smooth on phones.
 - **Mobile responsive** — the dialog becomes a bottom sheet under 768px with
-  safe-area padding, larger touch targets, and a `window.__dsh_open_archive_manager`
+  safe-area padding, larger touch targets (22px checkboxes, full-row tap to
+  toggle selection, 16px search input to prevent iOS focus zoom, single-line
+  truncated metadata), and a `window.__dsh_open_archive_manager`
   global plus `dsh:open-archive-manager` window event for host-shell entry
   points (e.g. the mobile tools menu).
 

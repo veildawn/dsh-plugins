@@ -31,6 +31,8 @@ window.__ModuleLoader__.load({
     const STYLE_ID = "dsh-archive-manager-styles";
     const OPEN_EVENT = "dsh:open-archive-manager";
     const inject = ["slots", "connection", "workspaces"];
+    /** Incremental-render window: long archive lists render in pages on mobile. */
+    const PAGE_SIZE = 50;
 
     const css = `
       .dam-btn{display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;width:100%;min-height:34px;padding:4px 10px;margin:2px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer;text-align:left;user-select:none}
@@ -48,8 +50,11 @@ window.__ModuleLoader__.load({
       .dam-tab{flex:1;min-width:0;height:30px;padding:0 8px;border:0;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-12);font-weight:500;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .dam-tab[data-active="true"]{background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv1)}
       .dam-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-      .dam-search{box-sizing:border-box;flex:1 1 160px;min-width:0;height:34px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
+      .dam-search-wrap{position:relative;display:flex;align-items:center;flex:1 1 180px;min-width:0}
+      .dam-search{box-sizing:border-box;width:100%;min-width:0;height:34px;padding:0 30px 0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;outline:none;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
       .dam-search:focus-visible{border-color:var(--dsw-alias-brand-primary)}
+      .dam-search-clear{position:absolute;right:4px;display:inline-grid;place-items:center;width:26px;height:26px;border:0;border-radius:50%;background:none;color:var(--dsw-alias-label-tertiary);font-size:13px;cursor:pointer}
+      .dam-search-clear:hover{background:var(--dsw-alias-interactive-bg-hover)}
       .dam-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
       .dam-action{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-13);font-weight:500;cursor:pointer}
       .dam-action:disabled{opacity:.45;cursor:not-allowed}
@@ -57,17 +62,20 @@ window.__ModuleLoader__.load({
       .dam-action-danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-primary-foreground,#fff)}
       .dam-list{flex:1;min-height:200px;overflow-y:auto;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;padding:4px;background:var(--dsw-alias-bg-layer-1)}
       .dam-empty{padding:40px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14)}
-      .dam-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;box-sizing:border-box}
+      .dam-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;box-sizing:border-box;cursor:pointer;-webkit-tap-highlight-color:transparent}
       .dam-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
+      .dam-item input[type="checkbox"]{flex:none;width:16px;height:16px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
       .dam-item-info{flex:1;min-width:0}
       .dam-item-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--dsw-font-s-14);font-weight:600}
-      .dam-item-sub{display:flex;flex-wrap:wrap;gap:10px;margin-top:3px;color:var(--dsw-alias-label-tertiary);font-size:12px}
+      .dam-item-sub{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:3px;color:var(--dsw-alias-label-tertiary);font-size:12px;min-width:0}
+      .dam-item-sub span{display:inline-flex;align-items:center;gap:3px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .dam-item-ops{display:flex;flex:none;align-items:center;gap:6px;flex-wrap:wrap}
       .dam-op{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-12);cursor:pointer}
       .dam-op:hover{background:var(--dsw-alias-interactive-bg-hover)}
       .dam-op-restore{color:var(--dsw-alias-state-business-primary)}
       .dam-op-danger{color:var(--dsw-alias-state-error-primary)}
       .dam-note{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}
+      .dam-list-more{padding:10px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
       .dam-feedback{min-height:16px;color:var(--dsw-alias-state-warn-label);font-size:12px}
       @keyframes dam-fade{from{opacity:0}to{opacity:1}}
       @keyframes dam-pop{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
@@ -77,10 +85,19 @@ window.__ModuleLoader__.load({
         .dam-card{width:100%;max-height:90vh;border-radius:16px 16px 0 0;padding:14px 12px calc(14px + env(safe-area-inset-bottom,0px))}
         .dam-toolbar{flex-direction:column;align-items:stretch}
         .dam-actions{justify-content:flex-end}
-        .dam-item{flex-direction:column;align-items:stretch;gap:8px}
+        /* 16px 起：避免 iOS 聚焦 input 时整页自动缩放 */
+        .dam-search{height:40px;padding:0 34px 0 12px;font-size:16px}
+        .dam-search-clear{width:30px;height:30px}
+        .dam-item{min-height:56px;padding:12px 10px;gap:12px}
+        .dam-item input[type="checkbox"]{width:22px;height:22px}
+        /* 子信息单行省略：移动端只保留工作区 + 时间，路径以 title 提示 */
+        .dam-item-sub{flex-wrap:nowrap;overflow:hidden}
+        .dam-item-sub span{flex:0 1 auto}
+        .dam-item-sub span:first-child{flex:1 1 40%}
         .dam-item-ops{justify-content:flex-end;padding-top:6px;border-top:1px dashed var(--dsw-alias-border-l3)}
         .dam-op{height:36px;padding:0 14px;font-size:13px}
         .dam-btn{min-height:44px;padding:6px 12px;font-size:14px}
+        .dam-list{-webkit-overflow-scrolling:touch}
       }
     `;
 
@@ -90,9 +107,14 @@ window.__ModuleLoader__.load({
       const [deleted, setDeleted] = react.useState([]);
       const [caps, setCaps] = react.useState({ physicalDelete: false, trashDir: "" });
       const [loading, setLoading] = react.useState(false);
+      // searchInput drives the input; search is the debounced filter term.
+      const [searchInput, setSearchInput] = react.useState("");
       const [search, setSearch] = react.useState("");
       const [selectedIds, setSelectedIds] = react.useState([]);
       const [feedback, setFeedback] = react.useState("");
+      const [visibleCount, setVisibleCount] = react.useState(PAGE_SIZE);
+      const searchRef = react.useRef(null);
+      const listRef = react.useRef(null);
 
       const archivedIds = useWorkspaces((state) => state.archivedSessionIds) || [];
       const softRows = deleted.filter((item) => item.kind !== "physical");
@@ -102,6 +124,17 @@ window.__ModuleLoader__.load({
         setFeedback(text);
         window.setTimeout(() => setFeedback(""), 4000);
       };
+
+      // Debounce the search term so long lists are not re-filtered per keystroke.
+      react.useEffect(() => {
+        const timer = window.setTimeout(() => setSearch(searchInput), 150);
+        return () => window.clearTimeout(timer);
+      }, [searchInput]);
+
+      // Reset the incremental-render window when the tab or filter changes.
+      react.useEffect(() => {
+        setVisibleCount(PAGE_SIZE);
+      }, [tab, search]);
 
       const loadData = react.useCallback(async () => {
         if (!rpc) return;
@@ -124,9 +157,11 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => {
         if (open) {
+          setSearchInput("");
           setSearch("");
           setSelectedIds([]);
           setFeedback("");
+          setVisibleCount(PAGE_SIZE);
           loadData();
         }
       }, [open, loadData]);
@@ -140,6 +175,23 @@ window.__ModuleLoader__.load({
           (item.workspaceTitle && item.workspaceTitle.toLowerCase().includes(q))
         );
       }, [rows, search]);
+
+      const visible = filtered.slice(0, visibleCount);
+
+      // Grow the render window when the list scrolls near its end.
+      const handleListScroll = () => {
+        const el = listRef.current;
+        if (!el) return;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
+          setVisibleCount((count) => Math.min(count + PAGE_SIZE, filtered.length));
+        }
+      };
+
+      const clearSearch = () => {
+        setSearchInput("");
+        setSearch("");
+        searchRef.current?.focus?.();
+      };
 
       const toggleSelect = (id) => {
         setSelectedIds((prev) =>
@@ -206,13 +258,23 @@ window.__ModuleLoader__.load({
               : null
           ),
           react.createElement("div", { className: "dam-toolbar" },
-            react.createElement("input", {
-              className: "dam-search",
-              placeholder: "搜索标题或工作区...",
-              value: search,
-              onChange: (e) => setSearch(e.target.value),
-              "aria-label": "搜索归档会话",
-            }),
+            react.createElement("div", { className: "dam-search-wrap" },
+              react.createElement("input", {
+                ref: searchRef,
+                className: "dam-search",
+                type: "text",
+                placeholder: "搜索标题或工作区...",
+                value: searchInput,
+                onChange: (e) => setSearchInput(e.target.value),
+                autoComplete: "off",
+                spellCheck: false,
+                enterKeyHint: "search",
+                "aria-label": "搜索归档会话",
+              }),
+              searchInput
+                ? react.createElement("button", { type: "button", className: "dam-search-clear", "aria-label": "清除搜索", onClick: clearSearch }, "✕")
+                : null
+            ),
             react.createElement("div", { className: "dam-actions" },
               tab === "archived"
                 ? react.createElement(react.Fragment, null,
@@ -231,7 +293,7 @@ window.__ModuleLoader__.load({
             )
           ),
           react.createElement("div", { className: "dam-feedback", role: "status" }, feedback),
-          react.createElement("div", { className: "dam-list" },
+          react.createElement("div", { className: "dam-list", ref: listRef, onScroll: handleListScroll },
             loading
               ? react.createElement("div", { className: "dam-empty" }, "正在加载...")
               : filtered.length === 0
@@ -243,10 +305,29 @@ window.__ModuleLoader__.load({
                       react.createElement("input", { type: "checkbox", checked: selectedIds.length === filtered.length, onChange: selectAll }),
                       `全选 (${filtered.length})`
                     ),
-                    filtered.map((item) => {
+                    visible.map((item) => {
                       const checked = selectedIds.includes(item.id);
-                      return react.createElement("div", { key: item.id, className: "dam-item" },
-                        react.createElement("input", { type: "checkbox", checked, onChange: () => toggleSelect(item.id), "aria-label": "选择会话" }),
+                      return react.createElement("div", {
+                        key: item.id,
+                        className: "dam-item",
+                        onClick: () => toggleSelect(item.id),
+                        role: "button",
+                        tabIndex: 0,
+                        "aria-pressed": checked,
+                        onKeyDown: (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleSelect(item.id);
+                          }
+                        },
+                      },
+                        react.createElement("input", {
+                          type: "checkbox",
+                          checked,
+                          onChange: () => toggleSelect(item.id),
+                          onClick: (e) => e.stopPropagation(),
+                          "aria-label": "选择会话",
+                        }),
                         react.createElement("div", { className: "dam-item-info" },
                           react.createElement("div", { className: "dam-item-title", title: item.title }, item.title),
                           react.createElement("div", { className: "dam-item-sub" },
@@ -256,7 +337,7 @@ window.__ModuleLoader__.load({
                             item.trashPath ? react.createElement("span", { title: item.trashPath }, `🗑 ${item.trashPath}`) : null
                           )
                         ),
-                        react.createElement("div", { className: "dam-item-ops" },
+                        react.createElement("div", { className: "dam-item-ops", onClick: (e) => e.stopPropagation() },
                           tab === "archived"
                             ? react.createElement(react.Fragment, null,
                                 react.createElement("button", { type: "button", className: "dam-op dam-op-restore", onClick: () => handleRestore([item.id]) }, "恢复"),
@@ -273,7 +354,10 @@ window.__ModuleLoader__.load({
                                 )
                         )
                       );
-                    })
+                    }),
+                    visible.length < filtered.length
+                      ? react.createElement("div", { className: "dam-list-more" }, `已显示 ${visible.length} / ${filtered.length}，向下滚动加载更多`)
+                      : null
                   )
           ),
           tab === "archived" && caps.physicalDelete
