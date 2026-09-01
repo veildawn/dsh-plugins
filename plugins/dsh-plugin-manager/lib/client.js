@@ -128,6 +128,9 @@ window.__ModuleLoader__.load({
       .dm-install-head{padding:8px 12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--dsw-alias-border-subtle,#e1e4e8);display:flex;justify-content:space-between;align-items:center;gap:8px}
       .dm-install-log{margin:0;padding:8px 12px;max-height:160px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#57606a);white-space:pre-wrap;word-break:break-all}
       .dm-restart-modal{padding:18px;border-radius:10px;background:color-mix(in srgb,#f59e0b 12%,transparent);border:1px solid color-mix(in srgb,#f59e0b 35%,transparent);display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center}
+      .dm-lock-warn{padding:11px 14px;border-radius:8px;background:color-mix(in srgb,#d98e00 14%,transparent);border:1px solid color-mix(in srgb,#d98e00 32%,transparent);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-lock-warn .dm-lock-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+      .dm-lock-warn code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;background:color-mix(in srgb,var(--dsw-alias-bg-module-platform,#f6f8fa) 60%,transparent);padding:1px 5px;border-radius:4px}
       .dm-config{display:flex;flex-direction:column;gap:12px;max-width:640px}
       .dm-field{display:flex;flex-direction:column;gap:5px}.dm-label{color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;font-weight:500}
       .dm-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;border:1px solid var(--dsw-alias-border-default,#d0d7de);border-radius:8px;outline:none;background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);font-size:13px}
@@ -216,6 +219,8 @@ window.__ModuleLoader__.load({
         const [draft, setDraft] = react.useState(null);
         const [taskState, setTaskState] = react.useState(null);
         const [restartingState, setRestartingState] = react.useState(null);
+        const [lockfileState, setLockfileState] = react.useState(null);
+        const [repairingLockfile, setRepairingLockfile] = react.useState(false);
         const probeTimerRef = react.useRef(null);
         const mountedRef = react.useRef(true);
 
@@ -262,6 +267,45 @@ window.__ModuleLoader__.load({
           } catch { /* non-fatal */ }
         }, []);
 
+        const loadLockfileHealth = react.useCallback(async (silent = false) => {
+          try {
+            const value = await callRpc("getLockfileHealth", {});
+            setLockfileState(value);
+          } catch { /* non-fatal; banner simply won't show */ }
+        }, []);
+
+        const repairLockfile = async (names) => {
+          if (taskState && taskState.status === "running") {
+            notify(`已有任务进行中（${taskState.name}），请等待完成`, "error");
+            return;
+          }
+          // If names not provided, default to the plugins flagged as stale.
+          let list = Array.isArray(names) && names.length > 0 ? names : null;
+          if (!list && lockfileState && Array.isArray(lockfileState.plugins)) {
+            list = lockfileState.plugins.filter((p) => !p.healthy).map((p) => p.name);
+          }
+          if (!list) list = (repoPlugins.map((p) => p.name));
+          if (list.length === 0) {
+            notify("没有可修复的插件", "ok");
+            return;
+          }
+          if (!window.confirm(`确定要清理 lockfile 中 ${list.length} 款插件的旧条目吗？（pnpm 将在下次安装时重新解析）`)) {
+            return;
+          }
+          setRepairingLockfile(true);
+          try {
+            const value = await callRpc("repairLockfile", { names: list });
+            const repairedCount = (value && Array.isArray(value.repaired)) ? value.repaired.length : 0;
+            const failedCount = (value && Array.isArray(value.failed)) ? value.failed.length : 0;
+            notify(`已清理 ${repairedCount} 款插件的 lockfile 旧条目${failedCount > 0 ? `（${failedCount} 款失败）` : ""}`, failedCount > 0 ? "error" : "ok");
+            void loadLockfileHealth(true);
+          } catch (err) {
+            notify("修复 lockfile 失败：" + (err instanceof Error ? err.message : String(err)), "error");
+          } finally {
+            setRepairingLockfile(false);
+          }
+        };
+
         const loadCommunity = react.useCallback(async (retriesLeft = 3, silent = false) => {
           if (!silent) setLoadingCommunity(true);
           try {
@@ -294,6 +338,7 @@ window.__ModuleLoader__.load({
         react.useEffect(() => {
           void loadRepo();
           void loadConfig();
+          void loadLockfileHealth(true);
           void loadCommunity(3, true); // Background preload with 3 automatic retries
           // Greet the user after a smooth restart reload.
           try {
@@ -302,7 +347,7 @@ window.__ModuleLoader__.load({
               notify("✓ 服务已平滑重启完成，欢迎回来", "ok");
             }
           } catch {}
-        }, [loadRepo, loadConfig, loadCommunity]);
+        }, [loadRepo, loadConfig, loadLockfileHealth, loadCommunity]);
 
         const pollTask = react.useCallback((taskId) => {
           window.setTimeout(async () => {
@@ -665,6 +710,29 @@ window.__ModuleLoader__.load({
             react.createElement("span", null, "插件管理")),
           react.createElement("p", { className: "dm-subtitle" }, "管理自有插件更新与卸载，浏览并一键安装 2200+ 社区精选插件。"),
           feedback ? react.createElement("div", { className: `dm-feedback ${feedbackKind}`, role: "status" }, feedback) : null,
+          lockfileState && Array.isArray(lockfileState.plugins) && lockfileState.staleCount > 0
+            ? react.createElement("div", { className: "dm-lock-warn" },
+                react.createElement("div", null,
+                  "⚠️ lockfile 中有 ", react.createElement("code", null, lockfileState.staleCount),
+                  " 款插件的旧 tarball 条目与远程不一致，可能导致更新时出现 ",
+                  react.createElement("code", null, "ERR_PNPM_TARBALL_INTEGRITY"),
+                  " 失败。", react.createElement("br", null),
+                  react.createElement("span", { style: { fontSize: "11.5px", color: "var(--dsw-alias-label-secondary,#57606a)" } },
+                    "更新时会自动清理并重试，也可手动立即清理。")),
+                react.createElement("div", { className: "dm-lock-actions" },
+                  react.createElement("button", {
+                    className: "dm-action-btn warning",
+                    type: "button",
+                    disabled: repairingLockfile || Boolean(taskState && taskState.status === "running"),
+                    onClick: () => void repairLockfile(),
+                  }, repairingLockfile ? "清理中…" : "🧹 立即清理"),
+                  react.createElement("button", {
+                    className: "dm-action-btn",
+                    type: "button",
+                    disabled: repairingLockfile,
+                    onClick: () => void loadLockfileHealth(true),
+                  }, "重新检测")))
+            : null,
           restartingState ? react.createElement("div", { className: "dm-restart-modal" },
             react.createElement("div", { style: { fontSize: "15px", fontWeight: "600" } },
               restartingState === "ready" ? "✓ 服务重启完成！"

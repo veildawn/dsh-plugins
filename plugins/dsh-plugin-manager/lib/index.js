@@ -38,6 +38,10 @@ import {
   safePackageName,
   isAllowedRepoUrl,
   findProfileName,
+  stripPluginFromLockfile,
+  lockfileHealthForPlugin,
+  profileLockfilePath,
+  readProfileLockfile,
 } from './core.js'
 
 export const name = 'plugin-manager'
@@ -216,6 +220,72 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
       }
     }
 
+    if (method === 'getLockfileHealth') {
+      const lockfilePath = profileLockfilePath()
+      const text = readProfileLockfile()
+      // Aggregate health across all monorepo repo plugins: compare the
+      // lockfile's recorded tarball URLs against the latest GitHub release
+      // URLs so the UI can warn before a stale entry trips pnpm integrity.
+      let plugins = null
+      let staleCount = 0
+      try {
+        const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
+        const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
+        const catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
+        plugins = catalog.map((p) => {
+          const h = lockfileHealthForPlugin(p.name, p.downloadUrl)
+          if (!h.healthy) staleCount++
+          return {
+            name: p.name,
+            healthy: h.healthy,
+            staleCount: h.staleCount,
+            stale: h.stale,
+            targetUrl: h.targetUrl,
+          }
+        })
+      } catch {
+        plugins = null
+      }
+      return {
+        ok: true,
+        value: {
+          exists: Boolean(text),
+          lockfilePath,
+          plugins,
+          staleCount,
+          profile: findProfileName(),
+        },
+      }
+    }
+
+    if (method === 'repairLockfile') {
+      const names = payload && Array.isArray(payload.names)
+        ? payload.names.filter((n) => typeof n === 'string' && n)
+        : []
+      if (names.length === 0) return errorResult('repairLockfile requires a non-empty names array')
+      const repaired = []
+      const failed = []
+      for (const name of names) {
+        const res = stripPluginFromLockfile(name)
+        if (res.removed > 0) {
+          repaired.push({ name, removed: res.removed })
+        } else if (res.rewritten) {
+          repaired.push({ name, removed: 0 })
+        } else {
+          failed.push({ name, reason: 'lockfile unchanged or unreadable' })
+        }
+      }
+      return {
+        ok: true,
+        value: {
+          repaired,
+          failed,
+          lockfilePath: profileLockfilePath(),
+          profile: findProfileName(),
+        },
+      }
+    }
+
     if (method === 'checkUpdates') {
       const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
       const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
@@ -365,6 +435,51 @@ async function resolveInstallSource(name, kind, resolved) {
   return { error: `未知插件来源: ${kind}` }
 }
 
+/**
+ * Run one `dsh plugin add` for a resolved source with automatic lockfile
+ * recovery. Returns { ok, code, stdout, stderr, steps }.
+ *
+ * Handles the ERR_PNPM_TARBALL_INTEGRITY trap: pnpm verifies every tarball
+ * entry already in the profile lockfile while adding the new version. A stale
+ * entry for an OLD release (whose upstream tarball changed hash) aborts the
+ * whole install even though the new tarball downloaded fine. Strategy:
+ *   1. Before the first attempt, strip stale lockfile entries for this plugin
+ *      whose recorded tarball URL differs from the target source.
+ *   2. On failure containing ERR_PNPM_TARBALL_INTEGRITY, fully strip the
+ *      plugin from the lockfile and retry once.
+ */
+async function runInstallWithLockfileRecovery({ name, profile, source, onLog, spawnFn }) {
+  const steps = []
+  const push = (line) => { const s = String(line).replace(/\s+$/, ''); if (s && onLog) onLog(s) }
+
+  push(`$ dsh plugin add --profile ${profile} ${source}`)
+  const health = lockfileHealthForPlugin(name, source)
+  if (!health.healthy) {
+    const res = stripPluginFromLockfile(name)
+    if (res.removed > 0) {
+      push(`  ↻ lockfile 已清理 ${res.removed} 条 ${name} 旧条目（防止 TARBALL_INTEGRITY 校验失败）`)
+      steps.push('pre-clean')
+    }
+  }
+
+  const attempt = async () => runDshPluginCommand(['plugin', 'add', '--profile', profile, source], {
+    onLog: push,
+    spawnFn,
+  })
+
+  let result = await attempt()
+  if (!result.ok && /ERR_PNPM_TARBALL_INTEGRITY/.test(result.stderr || result.stdout || '')) {
+    const res = stripPluginFromLockfile(name)
+    if (res.removed > 0 || res.rewritten) {
+      push(`  ↻ 检测到 TARBALL_INTEGRITY 失败，已清理 lockfile 并重试一次`)
+      steps.push('integrity-retry')
+      result = await attempt()
+    }
+  }
+
+  return { ...result, steps }
+}
+
 export function handleInstallPlugin(options, payload, deps = {}) {
   const opt = typeof options === 'function' ? options() : options
   const resolved = resolveOptions(opt)
@@ -404,9 +519,11 @@ export function handleInstallPlugin(options, payload, deps = {}) {
       const { source, error } = await resolveInstallSource(name, kind, resolved)
       if (error) throw new Error(error)
       task.source = source
-      task.log.push(`$ dsh plugin add --profile ${profile} ${source}`)
-      const result = await runDshPluginCommand(['plugin', 'add', '--profile', profile, source], {
-        onLog: (line) => { task.log.push(line.replace(/\s+$/, '')) },
+      const result = await runInstallWithLockfileRecovery({
+        name,
+        profile,
+        source,
+        onLog: (line) => { task.log.push(String(line).replace(/\s+$/, '')) },
         spawnFn: deps.spawnFn,
       })
       task.code = result.code
@@ -498,8 +615,11 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
           failureCount++
           continue
         }
-        const result = await runDshPluginCommand(['plugin', 'add', '--profile', profile, source], {
-          onLog: (line) => { task.log.push(`  ${line.replace(/\s+$/, '')}`) },
+        const result = await runInstallWithLockfileRecovery({
+          name: p.name,
+          profile,
+          source,
+          onLog: (line) => { task.log.push(`  ${String(line).replace(/\s+$/, '')}`) },
           spawnFn: deps.spawnFn,
         })
         if (result.ok) {

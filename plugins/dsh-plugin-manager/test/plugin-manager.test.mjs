@@ -21,6 +21,12 @@ import {
   safePackageName,
   isAllowedRepoUrl,
   LOCAL_MONOREPO_PLUGINS,
+  stripPluginFromLockfile,
+  lockfileHealthForPlugin,
+  profileLockfilePath,
+  readProfileLockfile,
+  listLockfilePluginEntries,
+  normalizeTarballUrl,
 } from '../lib/core.js'
 import {
   handleMarketRpc,
@@ -265,6 +271,123 @@ describe('dsh-market profile installed-version inspection', () => {
   })
 })
 
+
+describe('dsh-market lockfile utilities', () => {
+  const LOCKFILE = [
+    "lockfileVersion: '9.0'",
+    '',
+    'settings:',
+    '  autoInstallPeers: false',
+    '',
+    'importers:',
+    '',
+    '  .:',
+    '    dependencies:',
+    '      dsh-model-roles:',
+    '        specifier: https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz',
+    '        version: https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz(@deepseek-ai/schemastery@3.18.1)',
+    '      dsh-file-viewer:',
+    '        specifier: https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer%40v0.1.10/dsh-file-viewer-0.1.10.tgz',
+    '        version: https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer%40v0.1.10/dsh-file-viewer-0.1.10.tgz(@deepseek-ai/schemastery@3.18.1)',
+    '',
+    'packages:',
+    '',
+    "  '@deepseek-ai/dsh-llm@0.1.1-rc.2':",
+    '    resolution: {integrity: sha512-AAA}',
+    '',
+    '  dsh-model-roles@https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz:',
+    '    resolution: {integrity: sha512-BBB, tarball: https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz}',
+    '    version: 0.4.8',
+    '',
+    '  dsh-file-viewer@https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer%40v0.1.10/dsh-file-viewer-0.1.10.tgz:',
+    '    resolution: {integrity: sha512-CCC, tarball: https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer%40v0.1.10/dsh-file-viewer-0.1.10.tgz}',
+    '    version: 0.1.10',
+    '    peerDependencies:',
+    "      '@deepseek-ai/schemastery': ^3.18.1",
+    '',
+    'snapshots:',
+    '',
+    "  '@deepseek-ai/dsh-llm@0.1.1-rc.2':",
+    '    dependencies: {}',
+    '',
+    '  dsh-file-viewer@https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer%40v0.1.10/dsh-file-viewer-0.1.10.tgz(@deepseek-ai/schemastery@3.18.1):',
+    '    dependencies:',
+    "      '@deepseek-ai/schemastery': 3.18.1",
+    '',
+  ].join('\n') + '\n'
+
+  let home
+  before(() => {
+    home = mkdtempSync(join(tmpdir(), 'dsh-lock-test-'))
+    const profileDir = join(home, 'profiles', 'web')
+    mkdirSync(profileDir, { recursive: true })
+    writeFileSync(join(profileDir, 'pnpm-lock.yaml'), LOCKFILE, 'utf8')
+  })
+  after(() => { rmSync(home, { recursive: true, force: true }) })
+
+  it('lists lockfile packages entries for a plugin', () => {
+    const entries = listLockfilePluginEntries('dsh-file-viewer', { home, profile: 'web' })
+    assert.equal(entries.length, 2) // packages + snapshots
+    assert.ok(entries[0].url.includes('v0.1.10'))
+  })
+
+  it('normalizes tarball URL encoding variance', () => {
+    assert.equal(
+      normalizeTarballUrl('https://github.com/x/y%40v0.1.0/a-0.1.0.tgz'),
+      'https://github.com/x/y@v0.1.0/a-0.1.0.tgz'
+    )
+    assert.equal(normalizeTarballUrl(''), '')
+  })
+
+  it('flags stale (non-target) lockfile entries as unhealthy', () => {
+    // Target is v0.1.11 but lockfile has v0.1.10 -> stale
+    const health = lockfileHealthForPlugin(
+      'dsh-file-viewer',
+      'https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer%40v0.1.11/dsh-file-viewer-0.1.11.tgz',
+      { home, profile: 'web' }
+    )
+    assert.equal(health.healthy, false)
+    assert.equal(health.staleCount, 2)
+  })
+
+  it('treats matching target as healthy', () => {
+    const health = lockfileHealthForPlugin(
+      'dsh-file-viewer',
+      'https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer%40v0.1.10/dsh-file-viewer-0.1.10.tgz',
+      { home, profile: 'web' }
+    )
+    assert.equal(health.healthy, true)
+    assert.equal(health.staleCount, 0)
+  })
+
+  it('strips a plugin completely from the lockfile', () => {
+    const res = stripPluginFromLockfile('dsh-file-viewer', { home, profile: 'web' })
+    assert.equal(res.removed, 3) // importer + packages + snapshots
+    assert.equal(res.rewritten, true)
+
+    const after = readProfileLockfile({ home, profile: 'web' })
+    assert.equal(after.includes('dsh-file-viewer'), false)
+    // Other plugins and sections remain intact
+    assert.equal(after.includes('dsh-model-roles'), true)
+    assert.equal(after.includes('packages:'), true)
+    assert.equal(after.includes('snapshots:'), true)
+    assert.equal(after.includes('importers:'), true)
+  })
+
+  it('is a no-op when nothing to strip', () => {
+    const res = stripPluginFromLockfile('dsh-never-existed', { home, profile: 'web' })
+    assert.equal(res.removed, 0)
+    assert.equal(res.rewritten, false)
+  })
+
+  it('returns empty entries for missing lockfile', () => {
+    const other = join(home, 'profiles', 'other')
+    mkdirSync(other, { recursive: true })
+    assert.deepEqual(listLockfilePluginEntries('dsh-file-viewer', { home, profile: 'other' }), [])
+    assert.equal(lockfileHealthForPlugin('dsh-file-viewer', 'http://x.tgz', { home, profile: 'other' }).healthy, true)
+  })
+})
+
 describe('dsh-market RPC handler (network stubbed)', () => {
   const FAKE_RELEASES = [
     {
@@ -354,6 +477,80 @@ describe('dsh-market RPC handler (network stubbed)', () => {
     const resolved = resolveOptions({ repoOrigin: '', autoCheckUpdates: 'yes' })
     assert.equal(resolved.repoOrigin, 'veildawn/dsh-plugins')
     assert.equal(resolved.autoCheckUpdates, true)
+  })
+})
+
+
+describe('dsh-market lockfile RPC (getLockfileHealth / repairLockfile)', () => {
+  let home
+  const originalDshHome = process.env.DSH_HOME
+  const FAKE_RELEASES = [
+    {
+      tag_name: 'dsh-model-roles@v0.4.8',
+      published_at: '2026-08-26T22:32:00Z',
+      assets: [{ name: 'dsh-model-roles-0.4.8.tgz', browser_download_url: 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz' }],
+    },
+  ]
+
+  before(() => {
+    home = mkdtempSync(join(tmpdir(), 'dsh-lock-rpc-'))
+    process.env.DSH_HOME = home
+    const profileDir = join(home, 'profiles', 'web')
+    mkdirSync(profileDir, { recursive: true })
+    writeFileSync(join(profileDir, 'pnpm-lock.yaml'), [
+      "lockfileVersion: '9.0'",
+      '',
+      'importers:',
+      '',
+      '  .:',
+      '    dependencies:',
+      '      dsh-model-roles:',
+      '        specifier: https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.7/dsh-model-roles-0.4.7.tgz',
+      '        version: https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.7/dsh-model-roles-0.4.7.tgz(@deepseek-ai/schemastery@3.18.1)',
+      '',
+      'packages:',
+      '',
+      '  dsh-model-roles@https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.7/dsh-model-roles-0.4.7.tgz:',
+      '    resolution: {integrity: sha512-AAA, tarball: https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.7/dsh-model-roles-0.4.7.tgz}',
+      '    version: 0.4.7',
+      '',
+    ].join('\n') + '\n', 'utf8')
+    _setHttpFetch(async (url) => {
+      if (String(url).includes('api.github.com')) return { ok: true, json: async () => FAKE_RELEASES }
+      return { ok: false, status: 404, json: async () => ({}) }
+    })
+  })
+  after(() => {
+    _resetHttpFetch()
+    if (originalDshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = originalDshHome
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  it('getLockfileHealth reports stale entries for a plugin', async () => {
+    const res = await handleMarketRpc({}, {}, 'getLockfileHealth', {})
+    assert.equal(res.ok, true)
+    assert.equal(res.value.exists, true)
+    assert.equal(res.value.profile, 'web')
+    assert.ok(Array.isArray(res.value.plugins))
+    // dsh-model-roles target is v0.4.8 but lockfile records v0.4.7 -> stale
+    const mr = res.value.plugins.find((p) => p.name === 'dsh-model-roles')
+    assert.ok(mr)
+    assert.equal(mr.healthy, false)
+    assert.ok(res.value.staleCount >= 1)
+  })
+
+  it('repairLockfile strips stale entries', async () => {
+    const res = await handleMarketRpc({}, {}, 'repairLockfile', { names: ['dsh-model-roles'] })
+    assert.equal(res.ok, true)
+    assert.ok(res.value.repaired.length >= 1)
+    const after = readProfileLockfile()
+    assert.equal(after.includes('dsh-model-roles'), false)
+  })
+
+  it('repairLockfile rejects empty names', async () => {
+    const res = await handleMarketRpc({}, {}, 'repairLockfile', { names: [] })
+    assert.equal(res.ok, false)
   })
 })
 
@@ -480,6 +677,8 @@ describe('dsh-market install tasks (fake spawn)', () => {
   }
   let originalFetch
   const captured = { calls: [] }
+  let testHome
+  const originalDshHome = process.env.DSH_HOME
 
   function fakeSpawn(cmd, args, opts) {
     captured.calls.push({ cmd, args })
@@ -495,6 +694,11 @@ describe('dsh-market install tasks (fake spawn)', () => {
   }
 
   before(() => {
+    // Isolate DSH_HOME so install/repair never touches the real profile lockfile.
+    testHome = mkdtempSync(join(tmpdir(), 'dsh-install-test-'))
+    const profileDir = join(testHome, 'profiles', 'web')
+    mkdirSync(profileDir, { recursive: true })
+    process.env.DSH_HOME = testHome
     resetMarketCaches()
     _setHttpFetch(async (url) => {
       if (String(url).includes('api.github.com')) return { ok: true, json: async () => FAKE_RELEASES }
@@ -502,7 +706,12 @@ describe('dsh-market install tasks (fake spawn)', () => {
       return { ok: false, status: 404, json: async () => ({}) }
     })
   })
-  after(() => { _resetHttpFetch() })
+  after(() => {
+    _resetHttpFetch()
+    if (originalDshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = originalDshHome
+    rmSync(testHome, { recursive: true, force: true })
+  })
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   async function waitForTask(rpc, taskId, timeoutMs = 5000) {
