@@ -66,13 +66,16 @@ export const Config = z.object({
 
 /**
  * Resolve the viewer kind for a file, falling back to content-based detection
- * for extensionless files that appear binary by name alone.
+ * when the name alone classifies it as binary.
  *
- * Path-based heuristics (kindOf) classify every known format, but extensionless
- * text files — shell scripts without `.sh`, config files without a recognised
- * basename, dotfiles, etc. — fall through to `'binary'`. This function peeks
- * at the first bytes of such files and promotes them to `'text'` when they
- * contain no null bytes, matching the heuristic used by git and `file(1)`.
+ * Path-based heuristics (kindOf) classify every known format, but files with
+ * unrecognised extensions — `env.dev`, `env.staging`, shell scripts without a
+ * known suffix, config files without a recognised basename, dotfiles, etc. —
+ * fall through to `'binary'`. This function peeks at the first bytes of such
+ * files and promotes them to `'text'` when they contain no null bytes,
+ * matching the heuristic used by git and `file(1)`. Genuine binary formats
+ * almost always contain a null byte within the first 8 KB, so the probe is
+ * reliable and read failure degrades gracefully back to `'binary'`.
  *
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
  * @param {object} target - a resolved fs target from resolveInRoot.
