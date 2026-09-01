@@ -229,7 +229,12 @@ function replaceImagesWithAnalysis(messages, analysis) {
   replaced.push(createUserMessage({
     content: [{
       type: 'text',
-      text: `Vision subagent analysis:\n${analysis.slice(0, VISION_ANALYSIS_MAX_CHARS)}`,
+      text: [
+        'Vision subagent analysis:',
+        analysis.slice(0, VISION_ANALYSIS_MAX_CHARS),
+        '',
+        '[Instruction for the model: The image/screenshot attached by the user has been analyzed above by the Vision subagent. Do not attempt to use the "read" tool to read any temporary screenshot or image path, as the visual details are already fully provided in this analysis.]',
+      ].join('\n'),
     }],
     source: {
       kind: 'plugin',
