@@ -82,9 +82,10 @@ export const Config = z.object({
 async function resolveKind(ctx, target, naming) {
   const kind = kindOf(naming)
   if (kind !== 'binary') return kind
-  // Only extensionless files get content-based detection; a file named
-  // `app.exe` that looks like text is still an executable by intent.
-  if (extensionOf(naming) !== '') return kind
+  // Content-based detection for any file classified as binary by name alone.
+  // The null-byte heuristic (same as git and file(1)) is reliable: genuine
+  // binary formats (ELF, PE, PNG, MP4, etc.) almost always contain a null
+  // byte within the first 8 KB, while text files rarely do.
   try {
     const bytes = await ctx.fs.readBytes(target, undefined, 8192)
     if (isTextContent(bytes)) return 'text'

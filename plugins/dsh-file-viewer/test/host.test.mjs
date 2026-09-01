@@ -564,8 +564,10 @@ test('extensionless file with null bytes is read as text but reported binary', a
   assert.equal(result.value.totalLines, 1)
 })
 
-test('files with known extension are not probed by content', async () => {
-  const textBytes = new Uint8Array([72, 101, 108, 108, 111, 33, 10])
+test('files with known extension are also probed by content when classified binary', async () => {
+  // A .exe file with no null bytes in the first 8KB is now detected as text.
+  const textBytes = new Uint8Array(8192)
+  for (let i = 0; i < 8192; i += 1) textBytes[i] = 65 + (i % 26)
   const fs = createFs({
     'D:/repo': { type: 'directory', entries: [] },
     'D:/repo/app.exe': { type: 'file', size: textBytes.length, bytes: textBytes },
@@ -573,5 +575,18 @@ test('files with known extension are not probed by content', async () => {
   const ctx = createCtx(fs)
   const result = await handleRpc(ctx, options(), 'meta', { path: 'app.exe' })
   assert.equal(result.ok, true)
-  assert.equal(result.value.kind, 'binary', 'files with known extension are not probed by content')
+  assert.equal(result.value.kind, 'text', 'exe with no null bytes is detected as text by content probe')
+})
+
+test('a genuine binary exe with null bytes stays binary', async () => {
+  // PE executable header starts with "MZ" followed by null bytes at offset 2-3.
+  const binaryBytes = new Uint8Array([0x4d, 0x5a, 0, 0, 0x50, 0x45, 0, 0])
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/real.exe': { type: 'file', size: binaryBytes.length, bytes: binaryBytes },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'real.exe' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'binary', 'exe with null bytes stays binary')
 })
