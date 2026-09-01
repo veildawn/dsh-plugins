@@ -507,3 +507,71 @@ test('a stale target path resolves no reveal and no selection', async () => {
   assert.equal(result.value.reveal, '')
   assert.equal(result.value.selectFile, undefined)
 })
+
+test('extensionless text files are detected by content in meta', async () => {
+  const textBytes = new Uint8Array([72, 101, 108, 108, 111, 44, 32, 119, 111, 114, 108, 100, 33, 10])
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/notes': { type: 'file', size: textBytes.length, bytes: textBytes },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'notes' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'text', 'extensionless text file must be detected as text')
+})
+
+test('extensionless binary files stay binary in meta', async () => {
+  // ELF header has null bytes at positions 4-15; isTextContent picks them up.
+  const binaryBytes = new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/elf': { type: 'file', size: binaryBytes.length, bytes: binaryBytes },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'elf' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'binary', 'extensionless ELF binary must stay binary')
+})
+
+test('extensionless text files are readable as text', async () => {
+  const textBytes = new Uint8Array([72, 101, 108, 108, 111, 33, 10])
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/hello': { type: 'file', size: textBytes.length, bytes: textBytes, text: 'Hello!\n' },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'read', { path: 'hello' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'text', 'extensionless text file must be readable as text')
+  // 'Hello!\n' splits into two lines (trailing newline yields an empty last line).
+  assert.equal(result.value.totalLines, 2)
+  assert.equal(result.value.lines[0].text, 'Hello!')
+})
+
+test('extensionless file with null bytes is read as text but reported binary', async () => {
+  // readText calls ctx.fs.readText unconditionally (the kind check is in the
+  // client, which uses meta to decide whether to call read or readBytes).
+  // The resolveKind call in readText is only for the response kind field.
+  const binaryBytes = new Uint8Array([0, 255, 0, 255])
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/data': { type: 'file', size: binaryBytes.length, bytes: binaryBytes, text: '\x00\xff\x00\xff' },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'read', { path: 'data' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'binary', 'extensionless file with null bytes must be reported as binary')
+  assert.equal(result.value.totalLines, 1)
+})
+
+test('files with known extension are not probed by content', async () => {
+  const textBytes = new Uint8Array([72, 101, 108, 108, 111, 33, 10])
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/app.exe': { type: 'file', size: textBytes.length, bytes: textBytes },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'app.exe' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'binary', 'files with known extension are not probed by content')
+})

@@ -18,9 +18,11 @@ import {
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   baseNameOf,
+  extensionOf,
   parentOf,
   isHiddenEntry,
   isSafeRelativePath,
+  isTextContent,
   isWholeDocumentKind,
   joinPath,
   kindOf,
@@ -37,9 +39,11 @@ export {
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   baseNameOf,
+  extensionOf,
   parentOf,
   isHiddenEntry,
   isSafeRelativePath,
+  isTextContent,
   isWholeDocumentKind,
   joinPath,
   kindOf,
@@ -59,6 +63,36 @@ export const Config = z.object({
   extraRoots: z.array(z.string()).default([]),
   maxBytes: z.natural().default(MAX_BYTES),
 })
+
+/**
+ * Resolve the viewer kind for a file, falling back to content-based detection
+ * for extensionless files that appear binary by name alone.
+ *
+ * Path-based heuristics (kindOf) classify every known format, but extensionless
+ * text files — shell scripts without `.sh`, config files without a recognised
+ * basename, dotfiles, etc. — fall through to `'binary'`. This function peeks
+ * at the first bytes of such files and promotes them to `'text'` when they
+ * contain no null bytes, matching the heuristic used by git and `file(1)`.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {object} target - a resolved fs target from resolveInRoot.
+ * @param {string} naming - the display name / relative path.
+ * @returns {Promise<string>} the resolved viewer kind.
+ */
+async function resolveKind(ctx, target, naming) {
+  const kind = kindOf(naming)
+  if (kind !== 'binary') return kind
+  // Only extensionless files get content-based detection; a file named
+  // `app.exe` that looks like text is still an executable by intent.
+  if (extensionOf(naming) !== '') return kind
+  try {
+    const bytes = await ctx.fs.readBytes(target, undefined, 8192)
+    if (isTextContent(bytes)) return 'text'
+  } catch {
+    // Read failure is not a classification failure — stay 'binary'.
+  }
+  return kind
+}
 
 /** Structured failures the client switches on; messages never echo a path. */
 export class ViewerError extends Error {
@@ -175,7 +209,7 @@ export async function describeFile(ctx, options, payload, signal) {
 
   const size = typeof info.size === 'number' ? info.size : undefined
   const naming = relative === '' ? target.displayPath : relative
-  const kind = kindOf(naming)
+  const kind = await resolveKind(ctx, target, naming)
   const lang = languageOf(naming)
   const textual = kind === 'text' || isWholeDocumentKind(kind)
   const limit = textual ? MAX_TEXT_BYTES : options().maxBytes
@@ -213,7 +247,7 @@ export async function readText(ctx, options, payload, signal) {
   const { lines, eol } = splitLines(text)
   const window = resolveWindow(lines.length, payload?.offset, payload?.limit)
   const naming = relative === '' ? target.displayPath : relative
-  const fileKind = kindOf(naming)
+  const fileKind = await resolveKind(ctx, target, naming)
   const lang = languageOf(naming)
   return {
     root: root.id,

@@ -132,6 +132,23 @@ const TEXT_EXTENSIONS = Object.freeze([
 ])
 
 /**
+ * Heuristic: a buffer is text if it contains no null bytes within the first
+ * 8 KB. This is the same approach used by git, the `file` command, and many
+ * editors to distinguish text from binary data.
+ *
+ * @param {Uint8Array} buffer - the first bytes of the file.
+ * @returns {boolean} true when the sample looks like text.
+ */
+export function isTextContent(buffer) {
+  if (!buffer || buffer.length === 0) return true
+  const limit = Math.min(buffer.length, 8192)
+  for (let i = 0; i < limit; i += 1) {
+    if (buffer[i] === 0) return false
+  }
+  return true
+}
+
+/**
  * Split a path into its basename, ignoring which separator the platform uses.
  * @param {string} path - any path, POSIX or Win32.
  * @returns {string} the trailing segment.

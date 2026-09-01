@@ -12,6 +12,8 @@ import {
   formatBytes,
   isHiddenEntry,
   isSafeRelativePath,
+  isTextContent,
+  isWholeDocumentKind,
   joinPath,
   kindOf,
   langOf,
@@ -280,6 +282,42 @@ test('the root itself shows status when empty or unreadable', () => {
     flattenTree({ expanded: new Set(), nodes: new Map([['', { status: 'ready', entries: [] }]]) }).map((r) => r.state),
     ['empty'],
   )
+})
+
+test('isTextContent detects null bytes as binary', () => {
+  // Empty buffer is text.
+  assert.equal(isTextContent(new Uint8Array(0)), true)
+  // Null buffer is text.
+  assert.equal(isTextContent(null), true)
+  assert.equal(isTextContent(undefined), true)
+
+  // ASCII text: no null bytes.
+  const text = new Uint8Array([72, 101, 108, 108, 111, 10, 119, 111, 114, 108, 100])
+  assert.equal(isTextContent(text), true)
+
+  // Single null byte makes it binary.
+  const withNull = new Uint8Array([72, 101, 108, 108, 111, 0, 119, 111, 114, 108, 100])
+  assert.equal(isTextContent(withNull), false)
+
+  // Null at the very start.
+  const nullStart = new Uint8Array([0, 72, 105])
+  assert.equal(isTextContent(nullStart), false)
+
+  // Null at position 8191 (the limit boundary).
+  const atBoundary = new Uint8Array(8192)
+  atBoundary.fill(65)
+  atBoundary[8191] = 0
+  assert.equal(isTextContent(atBoundary), false)
+
+  // Null past the 8192 limit is not checked.
+  const pastLimit = new Uint8Array(9000)
+  pastLimit.fill(65)
+  pastLimit[8192] = 0
+  assert.equal(isTextContent(pastLimit), true)
+
+  // UTF-8 text with multi-byte sequences.
+  const utf8 = new Uint8Array([72, 101, 108, 108, 111, 32, 240, 159, 140, 142, 33])
+  assert.equal(isTextContent(utf8), true)
 })
 
 test('appendMention appends a file reference to the draft', () => {
