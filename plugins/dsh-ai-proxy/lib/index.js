@@ -84,6 +84,23 @@ export function effortName(id) {
   return names[id] ?? id
 }
 
+/**
+ * Normalize reasoning effort to standard Anthropic output_config.effort values.
+ * Anthropic API strictly permits: 'low', 'medium', 'high', 'max', 'xhigh'.
+ * Non-standard values like 'minimal' map to 'low', while 'none'/'off' disable thinking.
+ */
+export function normalizeAnthropicEffort(effort) {
+  if (!effort || typeof effort !== 'string') return undefined
+  const val = effort.trim().toLowerCase()
+  if (val === 'none' || val === 'off' || val === '') return undefined
+  if (val === 'minimal' || val === 'low') return 'low'
+  if (val === 'medium') return 'medium'
+  if (val === 'high') return 'high'
+  if (val === 'max' || val === 'ultra' || val === 'turbo') return 'max'
+  if (val === 'xhigh') return 'xhigh'
+  return val
+}
+
 /** Normalize API format string to canonical identifier. */
 export function normalizeApiFormat(raw) {
   if (!raw || typeof raw !== 'string') return DEFAULT_API_FORMAT
@@ -410,9 +427,12 @@ export async function serializeAnthropicRequest(options, attachments) {
     ...(options.stop !== undefined ? { stop_sequences: options.stop } : {}),
   }
 
-  if (options.purpose !== 'session-title' && options.reasoningEffort !== undefined && options.reasoningEffort !== 'none' && options.reasoningEffort !== '') {
-    body.thinking = { type: 'adaptive' }
-    body.output_config = { effort: options.reasoningEffort }
+  if (options.purpose !== 'session-title' && options.reasoningEffort !== undefined) {
+    const normalizedEffort = normalizeAnthropicEffort(options.reasoningEffort)
+    if (normalizedEffort !== undefined) {
+      body.thinking = { type: 'adaptive' }
+      body.output_config = { effort: normalizedEffort }
+    }
   }
 
   return body
@@ -564,7 +584,7 @@ export function mapUsage(usage) {
   const reasoning = usage.completion_tokens_details?.reasoning_tokens ?? usage.output_tokens_details?.thinking_tokens
   const completionTokens = usage.completion_tokens ?? usage.output_tokens ?? 0
   return {
-    inputTokens: promptTokens - (cacheRead ?? 0),
+    inputTokens: Math.max(0, promptTokens - (cacheRead ?? 0)),
     outputTokens: completionTokens,
     ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
     ...(reasoning !== undefined ? { reasoningTokens: reasoning } : {}),
@@ -1546,7 +1566,7 @@ export const internals = {
   serializeChatCompletionsRequest, serializeAnthropicRequest, serializeResponsesRequest,
   imageDataUrl, inputModalitiesOf,
   translate, translateChatCompletions, translateAnthropic, translateResponses,
-  parseSse, pkcePair, base64url, effortName, mapUsage, mapFinishReason, httpErrorCode,
+  parseSse, pkcePair, base64url, effortName, normalizeAnthropicEffort, mapUsage, mapFinishReason, httpErrorCode,
   discoverEndpoints, tokenRequest, startCallbackListener, handleAuthRpc,
   normalizeApiFormat, resolveInferenceEndpoint, resolveModelsEndpoint,
   API_FORMAT_CHAT_COMPLETIONS, API_FORMAT_ANTHROPIC_MESSAGES, API_FORMAT_RESPONSES, API_FORMATS, DEFAULT_API_FORMAT,

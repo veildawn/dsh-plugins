@@ -7,7 +7,7 @@ import { internals, resolveOptions } from '../lib/index.js'
 
 const {
   AiProxyApi,
-  serializeMessages, serializeUserContent, serializeRequest, translate, pkcePair, effortName,
+  serializeMessages, serializeUserContent, serializeRequest, translate, pkcePair, effortName, normalizeAnthropicEffort,
   imageDataUrl, inputModalitiesOf,
   mapUsage, mapFinishReason, httpErrorCode,
 } = internals
@@ -43,6 +43,21 @@ test('effortName: known rungs get human names, unknown ids pass through', () => 
   assert.equal(effortName('xhigh'), 'X-High')
   assert.equal(effortName('none'), 'None')
   assert.equal(effortName('some-custom-rung'), 'some-custom-rung')
+})
+
+test('normalizeAnthropicEffort: minimal maps to low, off/none disables, valid values pass through', () => {
+  assert.equal(normalizeAnthropicEffort('minimal'), 'low')
+  assert.equal(normalizeAnthropicEffort('low'), 'low')
+  assert.equal(normalizeAnthropicEffort('medium'), 'medium')
+  assert.equal(normalizeAnthropicEffort('high'), 'high')
+  assert.equal(normalizeAnthropicEffort('max'), 'max')
+  assert.equal(normalizeAnthropicEffort('xhigh'), 'xhigh')
+  assert.equal(normalizeAnthropicEffort('ultra'), 'max')
+  assert.equal(normalizeAnthropicEffort('turbo'), 'max')
+  assert.equal(normalizeAnthropicEffort('none'), undefined)
+  assert.equal(normalizeAnthropicEffort('off'), undefined)
+  assert.equal(normalizeAnthropicEffort(''), undefined)
+  assert.equal(normalizeAnthropicEffort(undefined), undefined)
 })
 
 test('model reasoning ladder follows the gateway response exactly', () => {
@@ -201,6 +216,13 @@ test('mapUsage: disjoint counts subtract cached prompt tokens', () => {
     completion_tokens_details: { reasoning_tokens: 30 },
   })
   assert.deepEqual(usage, { inputTokens: 60, outputTokens: 50, cacheReadTokens: 40, reasoningTokens: 30 })
+
+  // When gateway returns prompt_tokens smaller than cacheRead, clamp to 0
+  const clampedUsage = mapUsage({
+    prompt_tokens: 10,
+    cache_read_input_tokens: 50,
+  })
+  assert.equal(clampedUsage.inputTokens, 0)
 })
 
 test('mapFinishReason: wire vocabulary to harness vocabulary', () => {
@@ -384,6 +406,24 @@ test('serializeAnthropicRequest: messages format, system prompt, thinking, tool 
       ],
     },
   ])
+
+  // Test that minimal reasoningEffort normalizes to 'low' and doesn't send 'minimal'
+  const reqMinimal = await serializeAnthropicRequest({
+    model: 'claude-3-7-sonnet',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    reasoningEffort: 'minimal',
+  })
+  assert.deepEqual(reqMinimal.thinking, { type: 'adaptive' })
+  assert.deepEqual(reqMinimal.output_config, { effort: 'low' })
+
+  // Test that none/off reasoningEffort disables thinking
+  const reqNone = await serializeAnthropicRequest({
+    model: 'claude-3-7-sonnet',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    reasoningEffort: 'none',
+  })
+  assert.equal(reqNone.thinking, undefined)
+  assert.equal(reqNone.output_config, undefined)
 })
 
 test('serializeResponsesRequest: responses format, input list, reasoning effort', async () => {

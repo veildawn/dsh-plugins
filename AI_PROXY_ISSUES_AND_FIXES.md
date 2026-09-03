@@ -76,3 +76,23 @@ UNSUPPORTED_CONTENT
 - 核心修改文件：`/root/CodeSpace/dsh-plugins/plugins/dsh-ai-proxy/lib/index.js`
   - `serializeMessages`（图片防御与降级）
   - `serializeAnthropicRequest`（thinking 与 effort 传递）
+  - `mapUsage`（Token 用量非负兜底：`Math.max(0, promptTokens - (cacheRead ?? 0))`，防止导致历史加载 `uncachedInputTokens` 报错）
+
+---
+
+## 问题三（已修复）：历史记录加载失败 uncachedInputTokens < 0
+
+### 1. 现象描述
+部分会话重新打开时报错：
+```
+历史加载失败：history unavailable for session "xxx": [ { "origin": "number", "code": "too_small", "minimum": 0, "inclusive": true, "path": [ "uncachedInputTokens" ], "message": "Too small: expected number to be >=0" } ]
+```
+导致会话历史无法查看。
+
+### 2. 根本原因
+在部分网关/模型实现下，返回的 `prompt_tokens` 是纯未命中 Token 数（小数值），而 `cache_read_input_tokens` 是大数值，`mapUsage` 在执行 `promptTokens - cacheRead` 时算出负数并存入了日志。DSH 历史反序列化经过 Zod 校验 `nonnegative()` 时阻断抛错。
+
+### 3. 处理方案（已执行）
+1. 在 `dsh-ai-proxy` 的 `lib/index.js` 中将计算修改为 `Math.max(0, promptTokens - (cacheRead ?? 0))`。
+2. 对已损坏的 session 历史解压后，将所有负数 Token 修正为 0 并重新压缩归档。
+

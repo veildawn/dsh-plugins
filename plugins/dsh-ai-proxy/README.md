@@ -19,7 +19,7 @@ DeepSeek Harness 的 AI Proxy LLM Provider 插件。`0.2.0` 起只负责 AI Prox
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-ai-proxy-0.2.6.tgz
+dsh plugin --profile web add ./dsh-ai-proxy-0.2.7.tgz
 dsh service restart
 ```
 

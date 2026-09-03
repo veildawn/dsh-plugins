@@ -1,6 +1,6 @@
 {
   "name": "dsh-ai-proxy",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "DeepSeek Harness LLM provider for the AI Proxy Service gateway: OAuth 2.0 (authorization code + PKCE) login, per-plan model discovery, and per-model reasoning effort ladders",
   "type": "module",
   "main": "lib/index.js",
