@@ -85,6 +85,10 @@ window.__ModuleLoader__.load({
     // Per-browser UI state, so it lives in localStorage rather than plugin
     // settings; the key follows the `<plugin>.<setting>` form used elsewhere.
     const ENTRY_POSITION_KEY = "dsh-file-viewer.entry-position";
+    const TREE_WIDTH_KEY = "dsh-file-viewer.tree-width";
+    const DEFAULT_TREE_WIDTH = 280;
+    const MIN_TREE_WIDTH = 160;
+    const MAX_TREE_WIDTH = 700;
     // Below this much travel a press is a tap. Large enough to absorb the slip of
     // a finger on a touch target, small enough that a deliberate drag registers.
     const DRAG_SLOP = 8;
@@ -110,7 +114,13 @@ window.__ModuleLoader__.load({
       .fv-icon-button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-wrap-glyph{font-size:15px;line-height:1}
       .fv-body{display:flex;flex:1 1 auto;min-height:0}
-      .fv-tree{box-sizing:border-box;display:flex;flex:none;flex-direction:column;width:280px;min-height:0;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:6px;gap:1px;overscroll-behavior:contain}
+      .fv-body[data-resizing="true"]{cursor:col-resize;user-select:none}
+      .fv-body[data-resizing="true"] *{pointer-events:none!important}
+      .fv-body[data-resizing="true"] .fv-resizer{pointer-events:auto!important}
+      .fv-tree{box-sizing:border-box;display:flex;flex:none;flex-direction:column;width:var(--fv-tree-width,280px);min-width:160px;max-width:min(700px,calc(100% - 160px));min-height:0;overflow-y:auto;border-right:1px solid var(--dsw-alias-border-l1);padding:6px;gap:1px;overscroll-behavior:contain}
+      .fv-resizer{position:relative;flex:none;width:5px;margin-left:-3px;margin-right:-2px;cursor:col-resize;user-select:none;touch-action:none;z-index:2;background:transparent;transition:background-color .15s ease}
+      .fv-resizer:hover,.fv-resizer[data-dragging="true"]{background:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .fv-resizer::after{content:"";position:absolute;top:0;bottom:0;left:-3px;right:-3px}
       .fv-row{display:flex;align-items:center;gap:8px;min-width:0;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
       .fv-row-seat{position:relative;display:flex;align-items:center;gap:2px;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;width:100%;min-width:0;max-width:100%}
       .fv-row-seat>.fv-row{flex:1 1 auto;min-width:0}
@@ -206,7 +216,8 @@ window.__ModuleLoader__.load({
         .fv-mention{width:44px;height:44px;margin-right:2px;opacity:1}
         .fv-shell{width:100%!important;border-left:none!important}
         .fv-btn-fullscreen{display:none!important}
-        .fv-tree{width:100%;border-right:none}
+        .fv-resizer{display:none!important}
+        .fv-tree{width:100%!important;border-right:none}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}
         .fv-crumbs{font-size:11px}
         .fv-context-backdrop{background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:fv-fade .16s ease-out}
@@ -321,6 +332,25 @@ window.__ModuleLoader__.load({
         if (position === null) globalThis.localStorage?.removeItem(ENTRY_POSITION_KEY);
         else globalThis.localStorage?.setItem(ENTRY_POSITION_KEY, JSON.stringify(position));
       } catch { /* storage is unavailable; the position is simply not remembered */ }
+    }
+
+    function readTreeWidth() {
+      try {
+        const raw = globalThis.localStorage?.getItem(TREE_WIDTH_KEY);
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed) && parsed >= MIN_TREE_WIDTH && parsed <= MAX_TREE_WIDTH) {
+          return Math.round(parsed);
+        }
+      } catch { /* storage is unavailable */ }
+      return DEFAULT_TREE_WIDTH;
+    }
+
+    function writeTreeWidth(width) {
+      try {
+        if (typeof width === "number" && Number.isFinite(width)) {
+          globalThis.localStorage?.setItem(TREE_WIDTH_KEY, String(Math.round(width)));
+        }
+      } catch { /* storage is unavailable */ }
     }
 
     /**
@@ -640,7 +670,7 @@ window.__ModuleLoader__.load({
             }, react.createElement("span", { "aria-hidden": "true" }, "@")));
       }
 
-      function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu }) {
+      function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu, width }) {
         const children = rows.map((row) => {
           const indent = { paddingLeft: 8 + row.depth * 14 + "px" };
           if (row.kind === "status") {
@@ -665,6 +695,7 @@ window.__ModuleLoader__.load({
         });
         return react.createElement("div", {
           className: "fv-tree", role: "tree", "aria-label": "文件树",
+          style: typeof width === "number" ? { width: width + "px" } : undefined,
         }, ...children);
       }
 
@@ -1050,6 +1081,44 @@ window.__ModuleLoader__.load({
         const [nodes, setNodes] = react.useState(() => new Map());
         const [meta, setMeta] = react.useState(null);
         const [hidden, setHidden] = react.useState(false);
+        const [treeWidth, setTreeWidth] = react.useState(readTreeWidth);
+        const [isResizing, setIsResizing] = react.useState(false);
+        const resizeRef = react.useRef(null);
+        const treeWidthRef = react.useRef(treeWidth);
+        treeWidthRef.current = treeWidth;
+
+        const onResizerPointerDown = (event) => {
+          if (event.button !== 0 && event.button !== undefined) return;
+          event.preventDefault();
+          const startX = event.clientX;
+          const startW = treeWidthRef.current;
+          resizeRef.current = { startX, startW };
+          setIsResizing(true);
+          try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) {}
+        };
+
+        const onResizerPointerMove = (event) => {
+          if (!resizeRef.current) return;
+          const { startX, startW } = resizeRef.current;
+          const delta = event.clientX - startX;
+          const bodyEl = event.currentTarget.parentElement;
+          const maxBound = bodyEl ? Math.max(MIN_TREE_WIDTH, bodyEl.clientWidth - 180) : MAX_TREE_WIDTH;
+          const nextWidth = Math.round(Math.min(Math.min(MAX_TREE_WIDTH, maxBound), Math.max(MIN_TREE_WIDTH, startW + delta)));
+          setTreeWidth(nextWidth);
+        };
+
+        const onResizerPointerUp = (event) => {
+          if (!resizeRef.current) return;
+          resizeRef.current = null;
+          setIsResizing(false);
+          try { event.currentTarget.releasePointerCapture(event.pointerId); } catch (_) {}
+          writeTreeWidth(treeWidthRef.current);
+        };
+
+        const onResizerDoubleClick = () => {
+          setTreeWidth(DEFAULT_TREE_WIDTH);
+          writeTreeWidth(DEFAULT_TREE_WIDTH);
+        };
         // Soft wrap for source views. Off by default: code is written with
         // meaningful line breaks and wrapping obscures them.
         const [wrap, setWrap] = react.useState(false);
@@ -1310,7 +1379,7 @@ window.__ModuleLoader__.load({
               }, IconCloseOutline16
                 ? react.createElement(IconCloseOutline16, { size: 16 })
                 : react.createElement("span", { "aria-hidden": "true" }, "\u2715"))),
-            react.createElement("div", { className: "fv-body", "data-pane": pane },
+            react.createElement("div", { className: "fv-body", "data-pane": pane, "data-resizing": isResizing ? "true" : "false" },
               react.createElement(Tree, {
                 rows: treeRows,
                 selected: meta === null ? "" : meta.path,
@@ -1321,6 +1390,23 @@ window.__ModuleLoader__.load({
                 // button vanish with no way to reach it.
                 onMention: mention,
                 onContextMenu: (ctx) => setContextMenu(ctx),
+                width: treeWidth,
+              }),
+              react.createElement("div", {
+                className: "fv-resizer",
+                role: "separator",
+                "aria-orientation": "vertical",
+                "aria-valuenow": treeWidth,
+                "aria-valuemin": MIN_TREE_WIDTH,
+                "aria-valuemax": MAX_TREE_WIDTH,
+                "aria-label": "调整目录宽度",
+                title: "拖动调整目录宽度，双击恢复默认",
+                "data-dragging": isResizing ? "true" : "false",
+                onPointerDown: onResizerPointerDown,
+                onPointerMove: onResizerPointerMove,
+                onPointerUp: onResizerPointerUp,
+                onPointerCancel: onResizerPointerUp,
+                onDoubleClick: onResizerDoubleClick,
               }),
               react.createElement("div", { className: "fv-main" },
                 react.createElement("div", { className: "fv-main-head" },
@@ -1639,6 +1725,7 @@ window.__ModuleLoader__.load({
       ERROR_COPY, appendMention, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
+      TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
     };
     return module.exports;
   }

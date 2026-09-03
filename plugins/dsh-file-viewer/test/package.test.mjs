@@ -761,3 +761,66 @@ test('workspaces.openPath redirects to file-viewer on remote access or failure',
   assert.match(source, /openStore\.set\(\{\s*filePath: path/)
   assert.doesNotMatch(source, /ctx\.get\?\.\("workspaces"\)/)
 })
+
+test('tree resizer supports dragging to adjust tree width and persists to storage', () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const { internals } = definition.factory((id) =>
+    id === 'react' ? { createElement: () => null } : { ReadBlock: null, MarkdownText: null, JsonTree: null })
+
+  assert.equal(internals.DEFAULT_TREE_WIDTH, 280)
+  assert.equal(internals.MIN_TREE_WIDTH, 160)
+  assert.equal(internals.MAX_TREE_WIDTH, 700)
+  assert.equal(internals.TREE_WIDTH_KEY, 'dsh-file-viewer.tree-width')
+
+  // Storage reads and bounds validation
+  const storage = new Map()
+  const fakeStorage = {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, val) => storage.set(key, String(val)),
+    removeItem: (key) => storage.delete(key),
+  }
+  const previousStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', { value: fakeStorage, configurable: true, writable: true })
+
+  try {
+    // Default when unconfigured
+    assert.equal(internals.readTreeWidth(), 280)
+
+    // Valid persisted value
+    internals.writeTreeWidth(350)
+    assert.equal(internals.readTreeWidth(), 350)
+
+    // Out of bounds: too narrow fallback to default
+    internals.writeTreeWidth(100)
+    assert.equal(internals.readTreeWidth(), 280)
+
+    // Out of bounds: too wide fallback to default
+    internals.writeTreeWidth(9999)
+    assert.equal(internals.readTreeWidth(), 280)
+
+    // Non-numeric fallback to default
+    storage.set(internals.TREE_WIDTH_KEY, 'garbage')
+    assert.equal(internals.readTreeWidth(), 280)
+  } finally {
+    if (previousStorage === undefined) delete globalThis.localStorage
+    else Object.defineProperty(globalThis, 'localStorage', { value: previousStorage, configurable: true, writable: true })
+  }
+
+  // Resizer DOM and CSS rules in bundle
+  const source = read('lib/client.js')
+  assert.match(source, /\.fv-resizer\{/)
+  assert.match(source, /cursor:\s*col-resize/)
+  assert.match(source, /onPointerDown:\s*onResizerPointerDown/)
+  assert.match(source, /onPointerMove:\s*onResizerPointerMove/)
+  assert.match(source, /onPointerUp:\s*onResizerPointerUp/)
+  assert.match(source, /onDoubleClick:\s*onResizerDoubleClick/)
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-resizer\{display:none!important\}/)
+  assert.match(source, /\.fv-body\[data-resizing="true"\]\{cursor:col-resize;user-select:none\}/)
+})

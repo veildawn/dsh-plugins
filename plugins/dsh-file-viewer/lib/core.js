@@ -84,12 +84,19 @@ const LANG_BY_EXTENSION = Object.freeze({
   mdx: 'mdx',
   html: 'html',
   htm: 'html',
+  vue: 'html',
+  svelte: 'html',
+  astro: 'html',
   xml: 'xml',
   svg: 'xml',
   css: 'css',
   scss: 'scss',
   sass: 'scss',
   less: 'less',
+  bat: 'shellscript',
+  cmd: 'shellscript',
+  gradle: 'java',
+  proto: 'cpp',
 })
 
 /** Filenames without a useful extension that still have a known language. */
