@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-history",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shell-like prompt history navigator for DeepSeek Harness (ArrowUp / ArrowDown navigation and draft stashing)",
   "type": "module",
   "main": "lib/index.js",

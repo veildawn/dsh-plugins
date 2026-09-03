@@ -64,10 +64,9 @@ window.__ModuleLoader__.load({
      */
     function setTextareaValue(textarea, text) {
       if (!textarea) return;
-      const proto = Object.getPrototypeOf(textarea);
-      const setter = Object.getOwnPropertyDescriptor(proto, "value");
-      if (setter && typeof setter.set === "function") {
-        setter.set.call(textarea, text);
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+      if (typeof setter === "function") {
+        setter.call(textarea, text);
       } else {
         textarea.value = text;
       }
@@ -123,7 +122,7 @@ window.__ModuleLoader__.load({
       if (!target || target.tagName !== 'TEXTAREA') return;
 
       // Check if this is the conversation composer textarea
-      const isComposer = target.closest('[data-composer-card]') !== null;
+      const isComposer = target.closest('[data-composer-card]') !== null || target.closest('[data-composer-seat]') !== null || target.getAttribute('data-phase') !== null;
       if (!isComposer) return;
 
       const isComposing = e.isComposing || e.keyCode === 229;
@@ -226,7 +225,7 @@ window.__ModuleLoader__.load({
       const target = e.target;
       if (target?.tagName !== 'TEXTAREA') return;
 
-      const isComposer = target.closest('[data-composer-card]') !== null;
+      const isComposer = target.closest('[data-composer-card]') !== null || target.closest('[data-composer-seat]') !== null || target.getAttribute('data-phase') !== null;
       if (!isComposer) return;
 
       const deltaY = e.changedTouches[0].clientY - touchStartY;
@@ -282,7 +281,7 @@ window.__ModuleLoader__.load({
     function handleClick(e) {
       const btn = e.target?.closest?.('button[type="submit"], button[aria-label*="Send"], button[aria-label*="发送"]');
       if (btn) {
-        const area = document.querySelector('[data-composer-card] textarea');
+        const area = document.querySelector('[data-composer-card] textarea, [data-composer-seat] textarea, textarea[data-phase]');
         if (area && area.value.trim()) {
           recordPrompt(area.value);
           resetNavigation();
