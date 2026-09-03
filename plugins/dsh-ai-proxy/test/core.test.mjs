@@ -110,18 +110,47 @@ test('serializeUserContent: image-only user content is a parts array, text-only 
   assert.equal(imageDataUrl({ ref: { mediaType: 'image/webp' }, data: Buffer.from([1, 2, 3]) }), 'data:image/webp;base64,' + Buffer.from([1, 2, 3]).toString('base64'))
 })
 
-test('serializeMessages: images outside user content are rejected, not flattened', async () => {
+test('serializeMessages: images in system or assistant messages are rejected', async () => {
   const image = { type: 'image', attachment: { attachmentId: 'img-1' } }
   for (const message of [
     { role: 'system', content: [image] },
     { role: 'assistant', content: [image] },
-    { role: 'user', content: [{ type: 'tool-result', toolCallId: 'c', content: [image] }] },
   ]) {
     await assert.rejects(
       serializeMessages([message], fakeAttachments),
       (error) => error instanceof LlmError && error.code === 'UNSUPPORTED_CONTENT',
     )
   }
+})
+
+test('serializeMessages: tool-result with image splits into tool message and following user message with image', async () => {
+  const image = { type: 'image', attachment: { attachmentId: 'img-1' } }
+  const wire = await serializeMessages([
+    { role: 'user', content: [
+      { type: 'tool-result', toolCallId: 'call-img', content: [
+        { type: 'text', text: 'image captured: ' },
+        image,
+      ] },
+    ] },
+  ], fakeAttachments)
+
+  assert.deepEqual(wire, [
+    { role: 'tool', tool_call_id: 'call-img', content: 'image captured: ' },
+    { role: 'user', content: [
+      { type: 'text', text: 'Attached image(s) from tool result:' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,' + Buffer.from('fake-bytes').toString('base64') } },
+    ] },
+  ])
+
+  // Graceful degradation when attachments is not provided
+  const wireDegraded = await serializeMessages([
+    { role: 'user', content: [
+      { type: 'tool-result', toolCallId: 'call-img', content: [image] },
+    ] },
+  ])
+  assert.deepEqual(wireDegraded, [
+    { role: 'tool', tool_call_id: 'call-img', content: '[Image: img-1]' },
+  ])
 })
 
 test('inputModalitiesOf: gateway declaration to harness vocabulary', () => {
@@ -306,6 +335,7 @@ test('serializeAnthropicRequest: messages format, system prompt, thinking, tool 
   assert.equal(req.max_tokens, 2048)
   assert.equal(req.stream, true)
   assert.deepEqual(req.thinking, { type: 'adaptive' })
+  assert.deepEqual(req.output_config, { effort: 'high' })
   assert.equal(req.messages.length, 3)
   assert.equal(req.messages[0].role, 'user')
   assert.equal(req.messages[0].content, 'question')
@@ -321,6 +351,38 @@ test('serializeAnthropicRequest: messages format, system prompt, thinking, tool 
   ])
   assert.deepEqual(req.tools, [
     { name: 'calc', description: 'calculate', input_schema: { type: 'object' } },
+  ])
+
+  // Test tool-result with image
+  const img = { type: 'image', attachment: { attachmentId: 'img-res' } }
+  const reqWithImg = await serializeAnthropicRequest({
+    model: 'claude-3-7-sonnet',
+    messages: [
+      { role: 'user', content: [
+        { type: 'tool-result', toolCallId: 'call_img', content: [
+          { type: 'text', text: 'chart: ' },
+          img,
+        ] },
+      ] },
+    ],
+  }, fakeAttachments)
+
+  assert.deepEqual(reqWithImg.messages[0].content, [
+    {
+      type: 'tool_result',
+      tool_use_id: 'call_img',
+      content: [
+        { type: 'text', text: 'chart: ' },
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: Buffer.from('fake-bytes').toString('base64'),
+          },
+        },
+      ],
+    },
   ])
 })
 

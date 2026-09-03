@@ -19,7 +19,7 @@ DeepSeek Harness 的 AI Proxy LLM Provider 插件。`0.2.0` 起只负责 AI Prox
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-ai-proxy-0.2.5.tgz
+dsh plugin --profile web add ./dsh-ai-proxy-0.2.6.tgz
 dsh service restart
 ```
 
@@ -62,8 +62,10 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 回退到 `models` 静态目录；静态目录只是可用性兜底，不是请求白名单。
 
 `input_modalities` 包含 `image` 时，DSH 模型信息声明 `['text', 'image']`；明确只包含文本时
-声明 `['text']`；未声明时保持未知，不擅自禁用图片。系统消息、助手消息和工具结果中的图片
-会返回 `UNSUPPORTED_CONTENT`，不会静默丢弃。
+声明 `['text']`；未声明时保持未知，不擅自禁用图片。系统消息、助手消息无法在 OpenAI wire
+中表示图片，会返回 `UNSUPPORTED_CONTENT`；工具结果（`tool-result`）中的图片则会被优雅处理：
+Chat Completions 与 Anthropic 协议下按消息拆分注入（OpenAI `image_url` data URL /
+Anthropic `image` base64 块），无附件服务或读取失败时降级为 `[Image: <id>]` 占位文本，不再让会话崩溃。
 
 ## 配置
 

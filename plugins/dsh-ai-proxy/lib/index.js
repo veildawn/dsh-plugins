@@ -159,9 +159,10 @@ export function imageDataUrl(stored) {
 /**
  * Serialize one user message's content list into the OpenAI wire: a plain
  * string when it is all text, else a content-parts array in which image blocks
- * become image_url data URLs read from the durable attachment service. Images
- * anywhere else in the conversation are rejected by serializeMessages before
- * any text-flattening path can silently erase them.
+ * become image_url data URLs read from the durable attachment service. Regular
+ * image blocks are serialized here; images nested inside tool-result blocks in
+ * the same message are handled separately by serializeMessages so they degrade
+ * gracefully instead of crashing the session.
  */
 export async function serializeUserContent(content, attachments) {
   const parts = []
@@ -212,23 +213,49 @@ export async function serializeMessages(messages, attachments) {
       })
       continue
     }
+    const regular = message.content.filter((block) => block.type !== 'tool-result')
     const toolResults = message.content.filter((block) => block.type === 'tool-result')
-    for (const result of toolResults) {
-      if (contentHasImage(result.content)) {
-        throw new LlmError('AI Proxy adapter cannot represent an image inside a tool result.', 'UNSUPPORTED_CONTENT')
-      }
-    }
-    const text = flattenText(message.content)
-    if (contentHasImage(message.content)) {
-      wire.push({ role: 'user', content: await serializeUserContent(message.content, attachments) })
+    const text = flattenText(regular)
+    if (contentHasImage(regular)) {
+      wire.push({ role: 'user', content: await serializeUserContent(regular, attachments) })
     } else if (text.length > 0 || toolResults.length === 0) {
       wire.push({ role: 'user', content: text })
     }
+    const pendingToolImages = []
     for (const result of toolResults) {
+      const textParts = []
+      for (const block of result.content) {
+        if (block.type === 'text') {
+          if (block.text.length > 0) textParts.push(block.text)
+        } else if (block.type === 'image') {
+          if (attachments) {
+            try {
+              const stored = await attachments.readImage(block.attachment)
+              pendingToolImages.push({
+                type: 'image_url',
+                image_url: { url: imageDataUrl(stored) },
+              })
+            } catch {
+              textParts.push(`[Image: ${block.attachment?.attachmentId || 'attached'}]`)
+            }
+          } else {
+            textParts.push(`[Image: ${block.attachment?.attachmentId || 'attached'}]`)
+          }
+        }
+      }
       wire.push({
         role: 'tool',
         tool_call_id: result.toolCallId,
-        content: flattenText(result.content) || '(no output)',
+        content: textParts.join('') || '(no output)',
+      })
+    }
+    if (pendingToolImages.length > 0) {
+      wire.push({
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Attached image(s) from tool result:' },
+          ...pendingToolImages,
+        ],
       })
     }
   }
@@ -292,12 +319,44 @@ export async function serializeAnthropicRequest(options, attachments) {
             },
           })
         } else if (block.type === 'tool-result') {
-          const text = flattenText(block.content)
-          content.push({
-            type: 'tool_result',
-            tool_use_id: block.toolCallId,
-            content: text || '(no output)',
-          })
+          if (contentHasImage(block.content)) {
+            const parts = []
+            for (const sub of block.content) {
+              if (sub.type === 'text') {
+                if (sub.text.length > 0) parts.push({ type: 'text', text: sub.text })
+              } else if (sub.type === 'image') {
+                if (attachments) {
+                  try {
+                    const stored = await attachments.readImage(sub.attachment)
+                    parts.push({
+                      type: 'image',
+                      source: {
+                        type: 'base64',
+                        media_type: stored.ref.mediaType || 'image/png',
+                        data: Buffer.from(stored.data).toString('base64'),
+                      },
+                    })
+                  } catch {
+                    parts.push({ type: 'text', text: `[Image: ${sub.attachment?.attachmentId || 'attached'}]` })
+                  }
+                } else {
+                  parts.push({ type: 'text', text: `[Image: ${sub.attachment?.attachmentId || 'attached'}]` })
+                }
+              }
+            }
+            content.push({
+              type: 'tool_result',
+              tool_use_id: block.toolCallId,
+              content: parts.length > 0 ? parts : '(no output)',
+            })
+          } else {
+            const text = flattenText(block.content)
+            content.push({
+              type: 'tool_result',
+              tool_use_id: block.toolCallId,
+              content: text || '(no output)',
+            })
+          }
         }
       }
 
@@ -353,6 +412,7 @@ export async function serializeAnthropicRequest(options, attachments) {
 
   if (options.purpose !== 'session-title' && options.reasoningEffort !== undefined && options.reasoningEffort !== 'none' && options.reasoningEffort !== '') {
     body.thinking = { type: 'adaptive' }
+    body.output_config = { effort: options.reasoningEffort }
   }
 
   return body
@@ -391,12 +451,28 @@ export async function serializeResponsesRequest(options, attachments) {
       }
 
       for (const result of toolResults) {
-        const text = flattenText(result.content)
-        input.push({
-          type: 'function_call_output',
-          call_id: result.toolCallId,
-          output: text || '(no output)',
-        })
+        if (contentHasImage(result.content)) {
+          const parts = []
+          for (const b of result.content) {
+            if (b.type === 'text') {
+              if (b.text.length > 0) parts.push(b.text)
+            } else if (b.type === 'image') {
+              parts.push(`[Image: ${b.attachment?.attachmentId || 'attached'}]`)
+            }
+          }
+          input.push({
+            type: 'function_call_output',
+            call_id: result.toolCallId,
+            output: parts.join('') || '(no output)',
+          })
+        } else {
+          const text = flattenText(result.content)
+          input.push({
+            type: 'function_call_output',
+            call_id: result.toolCallId,
+            output: text || '(no output)',
+          })
+        }
       }
       continue
     }
