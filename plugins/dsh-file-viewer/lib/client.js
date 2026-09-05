@@ -272,15 +272,24 @@ window.__ModuleLoader__.load({
         }
         /* 44px is the smallest comfortable touch target. */
         .fv-mention{width:44px;height:44px;margin-right:2px;opacity:1}
+        .fv-row-seat .fv-mention{align-self:center}
         .fv-shell{width:100%!important;border-left:none!important}
         .fv-btn-fullscreen{display:none!important}
         .fv-resizer{display:none!important}
-        .fv-tree{width:100%!important;border-right:none}
+        .fv-tree{width:100%!important;border-right:none;padding:4px 2px}
+        .fv-row{min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
+        .fv-tree-status{padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
+        .fv-row .fv-glyph{margin-top:2px}
+        .fv-row-name{white-space:normal;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:13px}
+        .fv-row-size{margin-top:2px;font-size:10px;opacity:.85;flex-shrink:0}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}
         .fv-crumbs{font-size:11px}
         .fv-file-path{display:none!important}
         .fv-context-backdrop{background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:fv-fade .16s ease-out}
         .fv-context-menu{position:fixed!important;bottom:max(16px,var(--dsh-sab,0px))!important;left:max(16px,var(--dsh-sal,0px))!important;right:max(16px,var(--dsh-sar,0px))!important;top:auto!important;width:auto!important;max-width:none!important;border-radius:18px!important;padding:8px!important;box-shadow:var(--dsw-shadow-lv3)!important;animation:fv-menu-slide-up .2s cubic-bezier(.2,.8,.2,1)!important}
+        .fv-context-head{padding:4px 8px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:2px;margin-bottom:4px}
+        .fv-context-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);word-break:break-all;line-height:1.3}
+        .fv-context-path{font-size:11px;color:var(--dsw-alias-label-tertiary);word-break:break-all;line-height:1.3}
         @keyframes fv-menu-slide-up{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
         .fv-context-item{height:46px!important;font-size:15px!important;padding:0 14px!important;border-radius:12px!important}
         .fv-context-item-icon{width:22px!important;height:22px!important;font-size:16px!important}
@@ -706,7 +715,7 @@ window.__ModuleLoader__.load({
       function TreeRow({ row, selected, onToggle, onSelect, onMention, onContextMenu }) {
         const entry = row.entry;
         const isDirectory = entry.type === "directory";
-        const indent = { paddingLeft: 8 + row.depth * 14 + "px" };
+        const indent = { "--fv-depth": row.depth, paddingLeft: 8 + row.depth * 14 + "px" };
         const timerRef = react.useRef(null);
         const startPos = react.useRef(null);
         const longPressedRef = react.useRef(false);
@@ -809,7 +818,7 @@ window.__ModuleLoader__.load({
 
       function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu, width }) {
         const children = rows.map((row) => {
-          const indent = { paddingLeft: 8 + row.depth * 14 + "px" };
+          const indent = { "--fv-depth": row.depth, paddingLeft: 8 + row.depth * 14 + "px" };
           if (row.kind === "status") {
             const copy = row.state === "loading" ? "正在读取…"
               : row.state === "error" ? messageOf(row.error)
@@ -1203,6 +1212,9 @@ window.__ModuleLoader__.load({
             "aria-label": "文件操作",
             onContextMenu: (e) => e.preventDefault(),
           },
+            react.createElement("div", { className: "fv-context-head" },
+              react.createElement("div", { className: "fv-context-title" }, entry.name),
+              react.createElement("div", { className: "fv-context-path" }, relPath)),
             react.createElement("button", {
               type: "button",
               className: "fv-context-item",

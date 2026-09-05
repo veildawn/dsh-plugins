@@ -1000,3 +1000,17 @@ test('ReadBlock and JsonTree receive required host labels so source views do not
   assert.match(source, /react\.createElement\(JsonTree,\s*\{[\s\S]*?labels:\s*JSON_TREE_LABELS/)
   assert.match(source, /resetKey:\s*data\.path \+ ":source"/)
 })
+
+test('mobile tree layout wraps long filenames and tightens indentation', () => {
+  const source = read('lib/client.js')
+  // On mobile screens, file names must wrap up to 3 lines without ellipsis
+  // truncation so users can see full Chinese and English filenames.
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-row-name\{[^}]*white-space:normal;word-break:break-all;overflow-wrap:anywhere/)
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?-webkit-line-clamp:3/)
+  // Mobile uses compact per-level depth indentation override
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?padding-left:calc\(4px \+ var\(--fv-depth,0\) \* 8px\)!important/)
+  // Context menu on mobile displays full file title and path header
+  assert.match(source, /className: "fv-context-head"/)
+  assert.match(source, /className: "fv-context-title"/)
+  assert.match(source, /className: "fv-context-path"/)
+})
