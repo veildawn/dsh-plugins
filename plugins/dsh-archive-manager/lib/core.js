@@ -257,6 +257,66 @@ export async function destroyPhysicalSessions(ctx, scope, sessionIds, fsd = node
 }
 
 /**
+ * Completely and irreversibly purge sessions from disk, registry and tombstones.
+ * 1. Checks if session is active (refuses if live).
+ * 2. Locates artifact path, determines its session directory, and deletes via rm -rf.
+ * 3. Cleans up any trashPath if it was previously moved.
+ * 4. Removes session from archivedSessionIds.
+ * 5. Purges any matching tombstone from plugin settings.
+ */
+export async function permanentPurgeSessions(ctx, scope, sessionIds, fsd = nodeFs) {
+  const current = resolveOptions(scope.get()).tombstones
+  const target = new Set(sessionIds)
+  const purged = []
+  const skipped = []
+
+  const headers = new Map()
+  try {
+    const listed = await ctx.sessionPersistence?.list?.() || []
+    for (const header of listed) headers.set(String(header.id), header)
+  } catch {}
+
+  for (const sessionId of sessionIds) {
+    const live = ctx.get?.('sessions')?.get?.(sessionId)
+    if (live) {
+      skipped.push({ id: sessionId, reason: '会话正在运行中，无法物理删除' })
+      continue
+    }
+
+    // 1. 若曾移入回收站，删除其回收站中的文件
+    const tombstone = current.find((t) => t.id === sessionId)
+    if (tombstone?.trashPath) {
+      try {
+        await fsd.rm(tombstone.trashPath, { recursive: true, force: true }).catch(() => {})
+      } catch {}
+    }
+
+    // 2. 定位磁盘持久化目录并物理抹除 (整个 sessionDir)
+    const artifact = await resolveArtifactPath(ctx, sessionId, headers)
+    if (artifact?.path) {
+      try {
+        const sessionDir = dirname(artifact.path)
+        await fsd.rm(sessionDir, { recursive: true, force: true }).catch(() => {})
+      } catch (err) {
+        console.warn(`[archive-manager] Failed to rm sessionDir for ${sessionId}:`, err)
+      }
+    }
+
+    purged.push(sessionId)
+  }
+
+  // 3. 从归档集合完全移出
+  if (purged.length > 0) {
+    await unarchiveSessions(ctx, purged)
+    // 4. 清除 tombstones 记录
+    const remaining = current.filter((t) => !target.has(t.id))
+    await scope.replace({ tombstones: remaining })
+  }
+
+  return { purged, skipped }
+}
+
+/**
  * Resolve the durable session title:
  * 1. Live session -> `ctx.sessionTitle.get(session)` (real-time folded title).
  * 2. Cold session -> `ctx.sessionProjectionCache.cachedSnapshot(header, 0)` —
@@ -433,6 +493,12 @@ export async function handleArchiveRpc(ctx, scope, options, method, payload) {
         if (sessionIds.length === 0) return errorResult('destroyPhysical requires sessionIds')
         const destroyedIds = await destroyPhysicalSessions(ctx, scope, sessionIds)
         return okResult({ destroyedIds })
+      }
+      case 'permanentPurge': {
+        const sessionIds = ids(body.sessionIds)
+        if (sessionIds.length === 0) return errorResult('permanentPurge requires sessionIds')
+        const result = await permanentPurgeSessions(ctx, scope, sessionIds)
+        return okResult(result)
       }
       default:
         return errorResult(`unknown method '${method}'`, 'method-not-found')

@@ -4,7 +4,7 @@ import {
   NS, RPC_CHANNEL, unarchiveSessions, deleteSessions, restoreDeleted,
   listSummaries, listDeleted, handleArchiveRpc,
   physicalDeleteSessions, restorePhysicalSessions, destroyPhysicalSessions,
-  resolveOptions, resolveTrashDir,
+  permanentPurgeSessions, resolveOptions, resolveTrashDir,
 } from '../lib/core.js';
 import * as HostPlugin from '../lib/index.js';
 
@@ -50,6 +50,13 @@ function mockFsd(files = new Map()) {
       files.delete(from);
     },
     unlink: async (p) => { files.delete(p); },
+    rm: async (targetPath, opts) => {
+      for (const [p] of files) {
+        if (p === targetPath || p.startsWith(targetPath + '/')) {
+          files.delete(p);
+        }
+      }
+    },
   };
 }
 
@@ -300,6 +307,54 @@ test('core: destroyPhysicalSessions unlinks the trash file irreversibly', async 
   assert.equal(scope.get().tombstones.length, 0);
 });
 
+test('core: permanentPurgeSessions destroys artifact directory, removes from archive and cleans tombstones', async () => {
+  const registry = mockRegistry({
+    archivedSessionIds: ['s1', 's2', 's3'],
+  });
+  const ctx = mockCtx({
+    registry,
+    live: ['s3'], // live session
+    headers: [
+      { id: 's1', createdAt: 1000, cwd: '/work/a' },
+      { id: 's2', createdAt: 2000, cwd: '/work/b' },
+      { id: 's3', createdAt: 3000, cwd: '/work/c' },
+    ],
+    artifacts: [
+      { id: 's1', path: '/logs/work/a/s1/session.zst' },
+      { id: 's2', path: '/logs/work/b/s2/session.zst' },
+      { id: 's3', path: '/logs/work/c/s3/session.zst' },
+    ],
+  });
+  const files = new Map([
+    ['/logs/work/a/s1/session.zst', 'data-s1'],
+    ['/logs/work/b/s2/session.zst', 'data-s2'],
+    ['/logs/work/c/s3/session.zst', 'data-s3'],
+    ['/trash/s1-old', 'trash-s1'],
+  ]);
+  const scope = mockScope({
+    tombstones: [{ id: 's1', kind: 'soft', deletedAt: '2026-01-01T00:00:00Z', trashPath: '/trash/s1-old' }],
+  });
+
+  const res = await permanentPurgeSessions(ctx, scope, ['s1', 's2', 's3'], mockFsd(files));
+
+  assert.deepEqual(res.purged, ['s1', 's2']);
+  assert.equal(res.skipped.length, 1);
+  assert.equal(res.skipped[0].id, 's3');
+  assert.match(res.skipped[0].reason, /运行中/);
+
+  // files wiped
+  assert.equal(files.has('/logs/work/a/s1/session.zst'), false);
+  assert.equal(files.has('/logs/work/b/s2/session.zst'), false);
+  assert.equal(files.has('/trash/s1-old'), false);
+  // live untouched
+  assert.equal(files.has('/logs/work/c/s3/session.zst'), true);
+
+  // registry updated
+  assert.deepEqual(registry._state().archivedSessionIds, ['s3']);
+  // tombstones cleaned
+  assert.deepEqual(scope.get().tombstones, []);
+});
+
 test('core: resolveTrashDir falls back to dsh home and honors config', () => {
   const configured = resolveTrashDir(resolveOptions({ trashDir: '/custom' }));
   assert.equal(configured, '/custom');
@@ -331,9 +386,14 @@ test('core: handleArchiveRpc dispatches with the ok/error envelope and gates phy
   assert.equal(unarchiveResult.ok, true);
   assert.deepEqual(unarchiveResult.value.unarchivedIds, ['s1']);
 
+  const purgeResult = await handleArchiveRpc(ctx, scope, opts, 'permanentPurge', { sessionIds: ['s1'] });
+  assert.equal(purgeResult.ok, true);
+  assert.deepEqual(purgeResult.value.purged, ['s1']);
+
   const badResult = await handleArchiveRpc(ctx, scope, opts, 'unarchive', {});
   assert.equal(badResult.ok, false);
   assert.equal(badResult.error.code, 'bad-request');
+  assert.equal(typeof badResult.error.details, 'object');
 
   const unknown = await handleArchiveRpc(ctx, scope, opts, 'nope', {});
   assert.equal(unknown.ok, false);

@@ -276,6 +276,12 @@ window.__ModuleLoader__.load({
         )) return;
         run("destroyPhysical", ids, `已永久销毁 ${ids.length} 个会话的日志`);
       };
+      const handlePermanentPurge = (ids) => {
+        if (typeof window !== "undefined" && !window.confirm(
+          `确定彻底物理删除选中的 ${ids.length} 个会话？\n\n⚠️ 警告：此操作将直接抹除磁盘上的会话日志目录与索引，完全不可逆！`
+        )) return;
+        run("permanentPurge", ids, `已彻底物理删除 ${ids.length} 个会话`);
+      };
 
       if (!open) return null;
 
@@ -326,16 +332,16 @@ window.__ModuleLoader__.load({
               tab === "archived"
                 ? react.createElement(react.Fragment, null,
                     react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestore(selectedIds) }, `恢复 (${bulk})`),
-                    react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handleSoftDelete(selectedIds) }, `删除 (${bulk})`),
-                    caps.physicalDelete
-                      ? react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handlePhysicalDelete(selectedIds) }, `物理删除 (${bulk})`)
-                      : null
+                    react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handlePermanentPurge(selectedIds) }, `彻底删除 (${bulk})`)
                   )
                 : tab === "deleted"
-                  ? react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestoreSoft(selectedIds) }, `恢复 (${bulk})`)
+                  ? react.createElement(react.Fragment, null,
+                      react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestoreSoft(selectedIds) }, `恢复 (${bulk})`),
+                      react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handlePermanentPurge(selectedIds) }, `彻底删除 (${bulk})`)
+                    )
                   : react.createElement(react.Fragment, null,
                       react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestorePhysical(selectedIds) }, `恢复 (${bulk})`),
-                      react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handleDestroy(selectedIds) }, `销毁 (${bulk})`)
+                      react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handleDestroy(selectedIds) }, `彻底销毁 (${bulk})`)
                     )
             )
           ),
@@ -409,13 +415,13 @@ window.__ModuleLoader__.load({
                           tab === "archived"
                             ? react.createElement(react.Fragment, null,
                                 react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestore([item.id]) }, "恢复"),
-                                react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handleSoftDelete([item.id]) }, "删除"),
-                                caps.physicalDelete
-                                  ? react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handlePhysicalDelete([item.id]) }, "物理删除")
-                                  : null
+                                react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handlePermanentPurge([item.id]) }, "彻底删除")
                               )
                             : tab === "deleted"
-                              ? react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestoreSoft([item.id]) }, "恢复")
+                              ? react.createElement(react.Fragment, null,
+                                  react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestoreSoft([item.id]) }, "恢复"),
+                                  react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handlePermanentPurge([item.id]) }, "彻底删除")
+                                )
                               : react.createElement(react.Fragment, null,
                                   react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestorePhysical([item.id]) }, "恢复"),
                                   react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handleDestroy([item.id]) }, "销毁")

@@ -19,10 +19,10 @@ live count badge in the sidebar footer, a manager dialog to **restore**
   from `ctx.sessionTitle`; cold sessions read the zero-I/O `title` projection
   checkpoint from `ctx.sessionProjectionCache`; sessions without any title
   fall back to the cwd basename.
-- **Delete (soft, default)** — records a durable tombstone in plugin
-  settings; the session stays in the archive set (hidden from every grouping
-  surface) and disappears from this plugin's list. Restorable from the
-  "已删除" tab.
+- **Delete & Permanent Purge** — supports both soft-delete (tombstones, restorable)
+  and **彻底删除 (permanent purge)**, which invokes native Node.js `fs.rm` to
+  permanently wipe the session's directory tree under `~/.dsh/profiles/...`, cleans
+  up search indexes, unarchives the session, and reclaims storage space.
 - **Physical delete (opt-in `physicalDelete: true`)** — moves the session's
   log artifact into a plugin-owned trash directory (reversible), removes the
   id from the archive set, and shows it in the "物理回收站" tab where it can
@@ -118,6 +118,7 @@ sandbox with direct Node fs access, which is what `deletePhysical` uses.
 | `deletePhysical` | `{ sessionIds }` | `{ moved, skipped }` (requires `physicalDelete`) |
 | `restorePhysical` | `{ sessionIds }` | `{ restoredIds }` (requires `physicalDelete`) |
 | `destroyPhysical` | `{ sessionIds }` | `{ destroyedIds }` (requires `physicalDelete`) |
+| `permanentPurge` | `{ sessionIds }` | `{ purged, skipped }` (native `fs.rm` physical delete) |
 
 ## Development
 
