@@ -1054,4 +1054,9 @@ test('mobile tree layout wraps long filenames and tightens indentation', () => {
   assert.match(source, /className: "fv-context-head"/)
   assert.match(source, /className: "fv-context-title"/)
   assert.match(source, /className: "fv-context-path"/)
+
+  // Runtime mobile responsiveness: data-mobile="true" guarantees single-pane fullwidth
+  assert.match(source, /\.fv-shell\[data-mobile="true"\]\{width:100%!important;border-left:none!important\}/)
+  assert.match(source, /\.fv-shell\[data-mobile="true"\] \.fv-body\[data-pane="tree"\] \.fv-main\{display:none!important\}/)
+  assert.match(source, /"data-mobile": isMobile \? "true" : "false"/)
 })

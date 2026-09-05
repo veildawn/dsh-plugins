@@ -193,7 +193,7 @@ window.__ModuleLoader__.load({
       @media(hover:none),(pointer:coarse){.fv-mention{opacity:1}}
       .fv-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
       .fv-row[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
-      .fv-row-name{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+      .fv-row-name{flex:1 1 auto;min-width:0;line-height:1.35;word-break:break-all;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
       .fv-row-size{flex:none;color:var(--dsw-alias-label-caption);font-size:11px;font-variant-numeric:tabular-nums}
       .fv-glyph{flex:none;width:16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:11px;transition:transform .12s}
       .fv-glyph-open{transform:rotate(90deg)}
@@ -242,6 +242,33 @@ window.__ModuleLoader__.load({
       @keyframes fv-toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
       .fv-float-entry{display:none}
       @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
+      .fv-shell[data-mobile="true"]{width:100%!important;border-left:none!important}
+      .fv-shell[data-mobile="true"] .fv-btn-fullscreen{display:none!important}
+      .fv-shell[data-mobile="true"] .fv-resizer{display:none!important}
+      .fv-shell[data-mobile="true"] .fv-tree{width:100%!important;border-right:none;padding:4px 2px}
+      .fv-shell[data-mobile="true"] .fv-row{min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
+      .fv-shell[data-mobile="true"] .fv-tree-status{padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
+      .fv-shell[data-mobile="true"] .fv-row .fv-glyph{margin-top:2px}
+      .fv-shell[data-mobile="true"] .fv-row-name{white-space:normal;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:13px}
+      .fv-shell[data-mobile="true"] .fv-row-size{margin-top:2px;font-size:10px;opacity:.85;flex-shrink:0}
+      .fv-shell[data-mobile="true"] .fv-body[data-pane="content"] .fv-tree,
+      .fv-shell[data-mobile="true"] .fv-body[data-pane="tree"] .fv-main{display:none!important}
+      .fv-shell[data-mobile="true"] .fv-crumbs{font-size:11px}
+      .fv-shell[data-mobile="true"] .fv-file-path{display:none!important}
+      @media(max-width:960px), (pointer:coarse) and (max-width:1100px){
+        .fv-shell{width:100%!important;border-left:none!important}
+        .fv-btn-fullscreen{display:none!important}
+        .fv-resizer{display:none!important}
+        .fv-tree{width:100%!important;border-right:none;padding:4px 2px}
+        .fv-row{min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
+        .fv-tree-status{padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
+        .fv-row .fv-glyph{margin-top:2px}
+        .fv-row-name{white-space:normal;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:13px}
+        .fv-row-size{margin-top:2px;font-size:10px;opacity:.85;flex-shrink:0}
+        .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none!important}
+        .fv-crumbs{font-size:11px}
+        .fv-file-path{display:none!important}
+      }
       /* Below the mobile-adapter breakpoint the drawer takes the full width and
          the two panes swap instead of sitting side by side. */
       @media(max-width:768px){
@@ -1329,6 +1356,32 @@ window.__ModuleLoader__.load({
         // meaningful line breaks and wrapping obscures them.
         const [wrap, setWrap] = react.useState(false);
         const [fullscreen, setFullscreen] = react.useState(false);
+        const [isMobile, setIsMobile] = react.useState(() => {
+          if (typeof window === "undefined") return false;
+          const w = window.visualViewport?.width ?? window.innerWidth ?? 0;
+          if (w > 0 && w <= 960) return true;
+          if (window.matchMedia && window.matchMedia("(max-width: 960px), (pointer: coarse) and (max-width: 1100px)").matches) return true;
+          if (typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) && w <= 1200) return true;
+          return false;
+        });
+
+        react.useEffect(() => {
+          if (!open) return undefined;
+          const update = () => {
+            const w = window.visualViewport?.width ?? window.innerWidth ?? 0;
+            const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+            const mobileUa = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+            setIsMobile(Boolean((w > 0 && w <= 960) || (coarse && w <= 1100) || (mobileUa && w <= 1200)));
+          };
+          update();
+          window.addEventListener("resize", update);
+          window.visualViewport?.addEventListener("resize", update);
+          return () => {
+            window.removeEventListener("resize", update);
+            window.visualViewport?.removeEventListener("resize", update);
+          };
+        }, [open]);
+
         const [contextMenu, setContextMenu] = react.useState(null);
         const [toast, setToast] = react.useState(null);
         const toastTimer = react.useRef(null);
@@ -1533,7 +1586,7 @@ window.__ModuleLoader__.load({
             openStore.set(null);
           },
         },
-          react.createElement("div", { className: "fv-shell", "data-fullscreen": fullscreen ? "true" : "false" },
+          react.createElement("div", { className: "fv-shell", "data-fullscreen": fullscreen ? "true" : "false", "data-mobile": isMobile ? "true" : "false" },
             react.createElement("div", { className: "fv-head" },
               react.createElement("span", { className: "fv-title" }, "文件"),
               roots.length > 1
@@ -1585,7 +1638,7 @@ window.__ModuleLoader__.load({
               }, IconCloseOutline16
                 ? react.createElement(IconCloseOutline16, { size: 16 })
                 : react.createElement("span", { "aria-hidden": "true" }, "\u2715"))),
-            react.createElement("div", { className: "fv-body", "data-pane": pane, "data-resizing": isResizing ? "true" : "false" },
+            react.createElement("div", { className: "fv-body", "data-pane": pane, "data-resizing": isResizing ? "true" : "false", "data-mobile": isMobile ? "true" : "false" },
               react.createElement(Tree, {
                 rows: treeRows,
                 selected: meta === null ? "" : meta.path,
