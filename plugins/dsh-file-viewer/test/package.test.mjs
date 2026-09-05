@@ -811,6 +811,57 @@ test('clicked path extraction keeps Chinese filenames and prefers title over bas
   assert.equal(internals.extractClickedPath(button), '/root/CodeSpace/dsh-workspace/20万落地国产纯电SUV选车报告.md')
 })
 
+test('model selector and ordinary buttons are not treated as file-open controls', () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const { internals } = definition.factory((id) =>
+    id === 'react' ? { createElement: () => null } : { ReadBlock: null, MarkdownText: null, JsonTree: null })
+
+  const fakeEl = (overrides = {}) => ({
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    closest: () => null,
+    className: '',
+    title: '',
+    textContent: '',
+    ...overrides,
+  })
+
+  const modelButton = fakeEl({
+    className: 'model-select-trigger',
+    textContent: 'deepseek-v4-flash',
+    title: 'deepseek-v4-flash',
+  })
+  assert.equal(internals.isFileOpenControl(modelButton), false)
+
+  const ordinaryButton = fakeEl({
+    className: 'settings-item',
+    textContent: '模型选择',
+  })
+  assert.equal(internals.isFileOpenControl(ordinaryButton), false)
+
+  const mentionButton = fakeEl({
+    className: 'w1_fileMention',
+    textContent: 'src/App.vue',
+    closest: (sel) => sel === 'code' ? {} : null,
+  })
+  assert.equal(internals.isFileOpenControl(mentionButton), true)
+
+  const producedButton = fakeEl({
+    className: 'P4kPIW_file',
+    title: '/root/CodeSpace/dsh-workspace/20万落地国产纯电SUV选车报告.md',
+    textContent: '20万落地国产纯电SUV选车报告.md',
+    closest: (sel) => sel === '[data-produced-files-row]' ? {} : null,
+  })
+  assert.equal(internals.isFileOpenControl(producedButton), true)
+})
+
 test('tree resizer supports dragging to adjust tree width and persists to storage', () => {
   const previousWindow = globalThis.window
   let definition

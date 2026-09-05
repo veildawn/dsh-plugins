@@ -495,11 +495,12 @@ window.__ModuleLoader__.load({
 
     function isFileOpenControl(element) {
       if (!element) return false;
-      if (element.hasAttribute("data-file-path") || element.hasAttribute("data-path") || element.hasAttribute("data-produced-files-row")) return true;
-      if (element.closest("code") || element.closest("[data-produced-files-row]")) return true;
+      if (element.hasAttribute("data-file-path") || element.hasAttribute("data-path")) return true;
+      if (element.closest("code")) return true;
+      if (element.closest("[data-produced-files-row]")) return true;
       const cls = typeof element.className === "string" ? element.className : "";
       if (cls.includes("fileMention") || cls.includes("file-mention")) return true;
-      return Boolean(extractClickedPath(element));
+      return false;
     }
 
     function setupGlobalFileClickInterceptor(openStore, sessionStore) {
@@ -1884,7 +1885,7 @@ window.__ModuleLoader__.load({
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, ErrorBoundary,
-      openViewerForPath, wrapWorkspaceOpenPath, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath,
+      openViewerForPath, wrapWorkspaceOpenPath, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl,
     };
     return module.exports;
   }
