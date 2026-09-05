@@ -754,12 +754,23 @@ test('workspaces.openPath redirects to file-viewer on remote access or failure',
   const source = read('lib/client.js')
   // The inject list includes workspaces, and the service is accessed directly.
   assert.match(source, /const inject = \["slots", "connection", "workspaces"\]/)
-  assert.match(source, /const workspaces = ctx\.workspaces/)
+  assert.match(source, /wrapWorkspaceOpenPath\(ctx, openStore, sessionStore\)/)
   assert.match(source, /wiredOpenPath\.has\(workspaces\)/)
   assert.match(source, /workspaces\.openPath = async function\(path\)/)
   assert.match(source, /const isLoopback = ctx\.connection && ctx\.connection\.isLoopback === true/)
-  assert.match(source, /openStore\.set\(\{\s*filePath: path/)
+  assert.match(source, /openViewerForPath\(openStore, sessionStore, path\)/)
   assert.doesNotMatch(source, /ctx\.get\?\.\("workspaces"\)/)
+})
+
+test('session.openWorkspacePath redirects conversation path clicks into the file viewer', () => {
+  const source = read('lib/client.js')
+  // Current DSH chat clicks call ctx.remote.session.openWorkspacePath, not
+  // workspaces.openPath. The viewer must wrap that RPC so mention/path clicks
+  // open the drawer instead of only attempting a native desktop open.
+  assert.match(source, /wrapSessionOpenWorkspacePath/)
+  assert.match(source, /session\.openWorkspacePath = async function\(request, signal\)/)
+  assert.match(source, /ctx\.inject && ctx\.inject\(\["remote"\]/)
+  assert.match(source, /openViewerForPath\(openStore, sessionStore, path\)/)
 })
 
 test('tree resizer supports dragging to adjust tree width and persists to storage', () => {

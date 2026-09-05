@@ -438,9 +438,65 @@ window.__ModuleLoader__.load({
       return value;
     }
 
-    // Guard so a hot reload or re-apply never double-wraps the shared
-    // workspaces.openPath: each service instance receives exactly one wrapper.
+    // Guard so a hot reload or re-apply never double-wraps shared open
+    // handlers. Current DSH chat clicks go through
+    // ctx.remote.session.openWorkspacePath; older hosts used
+    // workspaces.openPath. Both wrappers must stay idempotent.
     const wiredOpenPath = typeof WeakSet !== "undefined" ? new WeakSet() : null;
+
+    function openViewerForPath(openStore, sessionStore, path) {
+      const sid = sessionStore.get();
+      openStore.set({ filePath: path, sessionId: sid, _t: Date.now() });
+    }
+
+    function wrapWorkspaceOpenPath(ctx, openStore, sessionStore) {
+      const workspaces = ctx.workspaces;
+      if (!workspaces || typeof workspaces.openPath !== "function" || wiredOpenPath === null || wiredOpenPath.has(workspaces)) return;
+      wiredOpenPath.add(workspaces);
+      const nativeOpenPath = workspaces.openPath.bind(workspaces);
+      workspaces.openPath = async function(path) {
+        const isLoopback = ctx.connection && ctx.connection.isLoopback === true;
+        if (!isLoopback) {
+          openViewerForPath(openStore, sessionStore, path);
+          return;
+        }
+        try {
+          return await nativeOpenPath(path);
+        } catch (err) {
+          void err;
+          openViewerForPath(openStore, sessionStore, path);
+        }
+      };
+    }
+
+    function wrapSessionOpenWorkspacePath(ctx, openStore, sessionStore) {
+      const remote = ctx.remote;
+      const session = remote && remote.session;
+      if (!session || typeof session.openWorkspacePath !== "function" || wiredOpenPath === null || wiredOpenPath.has(session)) return;
+      wiredOpenPath.add(session);
+      const nativeOpen = session.openWorkspacePath.bind(session);
+      session.openWorkspacePath = async function(request, signal) {
+        const path = request && typeof request.path === "string" ? request.path : "";
+        if (path === "") return nativeOpen(request, signal);
+        const isLoopback = ctx.connection && ctx.connection.isLoopback === true;
+        if (!isLoopback) {
+          openViewerForPath(openStore, sessionStore, path);
+          return { ok: true, value: { opened: true } };
+        }
+        try {
+          const result = await nativeOpen(request, signal);
+          if (result && result.ok === false) {
+            openViewerForPath(openStore, sessionStore, path);
+            return { ok: true, value: { opened: true } };
+          }
+          return result;
+        } catch (err) {
+          void err;
+          openViewerForPath(openStore, sessionStore, path);
+          return { ok: true, value: { opened: true } };
+        }
+      };
+    }
 
     function baseNameOf(path) {
       const trimmed = String(path || "").replace(/[\\/]+$/, "");
@@ -1779,29 +1835,15 @@ window.__ModuleLoader__.load({
         order: -10,
       }, ViewerHeaderAction));
 
-      // Hook into workspaces.openPath: on remote access or when the Host
-      // desktop open fails, direct the open request to this viewer's drawer.
-      // ctx.workspaces is a declared inject (like the official ui-workspace
-      // plugin), so it is available on the proxy once the service is up.
-      const workspaces = ctx.workspaces;
-      if (workspaces && typeof workspaces.openPath === "function" && wiredOpenPath !== null && !wiredOpenPath.has(workspaces)) {
-        wiredOpenPath.add(workspaces);
-        const nativeOpenPath = workspaces.openPath.bind(workspaces);
-        workspaces.openPath = async function(path) {
-          const isLoopback = ctx.connection && ctx.connection.isLoopback === true;
-          if (!isLoopback) {
-            const sid = sessionStore.get();
-            openStore.set({ filePath: path, sessionId: sid, _t: Date.now() });
-            return;
-          }
-          try {
-            return await nativeOpenPath(path);
-          } catch (err) {
-            const sid = sessionStore.get();
-            openStore.set({ filePath: path, sessionId: sid, _t: Date.now() });
-          }
-        };
-      }
+      // Conversation path clicks currently call
+      // ctx.remote.session.openWorkspacePath. Older hosts used
+      // workspaces.openPath. Wrap both so a mention/path click opens this
+      // drawer instead of (or after failing) the native desktop opener.
+      wrapWorkspaceOpenPath(ctx, openStore, sessionStore);
+      wrapSessionOpenWorkspacePath(ctx, openStore, sessionStore);
+      ctx.inject && ctx.inject(["remote"], (remoteCtx) => {
+        wrapSessionOpenWorkspacePath(remoteCtx, openStore, sessionStore);
+      });
 
       if (typeof window !== "undefined") {
         const triggerOpen = (payload) => {
@@ -1824,6 +1866,7 @@ window.__ModuleLoader__.load({
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, ErrorBoundary,
+      openViewerForPath, wrapWorkspaceOpenPath, wrapSessionOpenWorkspacePath,
     };
     return module.exports;
   }
