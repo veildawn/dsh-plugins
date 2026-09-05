@@ -1,16 +1,54 @@
 /**
  * Prompt History Navigator - Pure Core Logic
  *
- * Manages prompt history stacks, cursor navigation positions,
- * composer-target / overlay / send-button matching, and swipe classification.
+ * Manages per-session prompt history stacks, cursor navigation positions,
+ * host persistence paths, and cross-terminal synchronization.
  */
+
+import path from 'node:path';
+import os from 'node:os';
 
 export const DEFAULT_MAX_HISTORY = 200;
 export const MAX_PROMPT_CHARS = 8192;
-export const STORAGE_KEY = 'dsh:prompt_history_v1';
+export const GLOBAL_SESSION_ID = '__global__';
+export const STORAGE_KEY_PREFIX = 'dsh:prompt_history_v2:';
+export const RPC_CHANNEL = '/dsh-prompt-history';
 export const SWIPE_MAX_MS = 400;
 export const SWIPE_MIN_PX = 35;
 export const SWIPE_VERTICAL_RATIO = 1.5;
+
+/**
+ * Convert a sessionId into a safe filename (e.g., session-123.json).
+ * @param {string} sessionId
+ * @returns {string}
+ */
+export function sessionFileName(sessionId) {
+  const raw = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+  const safe = raw.replace(/[^a-zA-Z0-9_.-]/g, (c) => '_' + c.charCodeAt(0).toString(16) + '_');
+  return `${safe}.json`;
+}
+
+/**
+ * Resolve the directory where prompt history JSON files are stored on the host.
+ * @param {string} [customHome]
+ * @returns {string}
+ */
+export function getPromptHistoryDir(customHome) {
+  const dshHome = customHome
+    || process.env.DSH_HOME
+    || path.join(os.homedir(), '.dsh');
+  return path.join(dshHome, 'prompt-history');
+}
+
+/**
+ * Resolve full file path for one session's history.
+ * @param {string} sessionId
+ * @param {string} [customHome]
+ * @returns {string}
+ */
+export function sessionFilePath(sessionId, customHome) {
+  return path.join(getPromptHistoryDir(customHome), sessionFileName(sessionId));
+}
 
 /**
  * Check if the caret in a textarea is currently on the first line.
@@ -39,9 +77,19 @@ export function isCaretOnLastLine(text, selectionEnd) {
 }
 
 /**
+ * Whether ArrowUp / swipe-up or ArrowDown / swipe-down should drive history.
+ * @param {'up' | 'down'} direction
+ * @param {{ navigating: boolean, text: string, caretStart: number, caretEnd: number }} ctx
+ * @returns {boolean}
+ */
+export function shouldHandleHistoryGesture(direction, ctx) {
+  if (ctx?.navigating) return true;
+  if (direction === 'up') return isCaretOnFirstLine(ctx?.text, ctx?.caretStart ?? 0);
+  return false;
+}
+
+/**
  * Whether a DOM node is the conversation composer surface.
- * Matches Lexical `[data-composer-input]` and legacy textarea hosts.
- * Does not treat a bare `data-phase` attribute as sufficient.
  * @param {Element | null | undefined} el
  * @returns {boolean}
  */
@@ -58,8 +106,6 @@ export function isComposerTarget(el) {
 
 /**
  * True when the @ / / command trigger menu should own ArrowUp/ArrowDown.
- * Scoped to the composer; does not treat the always-mounted
- * `conversation.input.overlay` slot as an open menu.
  * @param {ParentNode | null | undefined} root
  * @returns {boolean}
  */
@@ -87,20 +133,6 @@ export function isSendButton(el) {
 }
 
 /**
- * Whether ArrowUp / swipe-up or ArrowDown / swipe-down should drive history.
- * While already browsing, line position is ignored so multi-line entries
- * remain reachable after the host places the caret at the end.
- * @param {'up' | 'down'} direction
- * @param {{ navigating: boolean, text: string, caretStart: number, caretEnd: number }} ctx
- * @returns {boolean}
- */
-export function shouldHandleHistoryGesture(direction, ctx) {
-  if (ctx?.navigating) return true;
-  if (direction === 'up') return isCaretOnFirstLine(ctx?.text, ctx?.caretStart ?? 0);
-  return false;
-}
-
-/**
  * Classify a completed touch as a vertical history swipe.
  * @param {{ deltaX: number, deltaY: number, deltaTime: number }} gesture
  * @returns {'up' | 'down' | null}
@@ -116,7 +148,7 @@ export function classifySwipe(gesture) {
 }
 
 /**
- * Coerce persisted JSON into a bounded string list.
+ * Coerce raw JSON/array into a bounded, deduplicated string list.
  * @param {unknown} raw
  * @param {number} [maxItems]
  * @param {number} [maxChars]
@@ -137,6 +169,28 @@ export function sanitizeHistory(raw, maxItems = DEFAULT_MAX_HISTORY, maxChars = 
   }
   if (out.length > maxItems) return out.slice(out.length - maxItems);
   return out;
+}
+
+/**
+ * Merge local history with remote history while preserving chronological order.
+ * @param {string[]} local
+ * @param {string[]} remote
+ * @param {number} [maxItems]
+ * @returns {string[]}
+ */
+export function mergeHistories(local, remote, maxItems = DEFAULT_MAX_HISTORY) {
+  const cleanLocal = sanitizeHistory(local, maxItems);
+  const cleanRemote = sanitizeHistory(remote, maxItems);
+  const combined = [...cleanRemote];
+  for (const item of cleanLocal) {
+    if (!combined.includes(item)) {
+      combined.push(item);
+    }
+  }
+  if (combined.length > maxItems) {
+    return combined.slice(combined.length - maxItems);
+  }
+  return combined;
 }
 
 /**
@@ -168,7 +222,7 @@ export function pushHistory(
 }
 
 /**
- * State machine helper for navigating through prompt history.
+ * State machine helper for navigating through prompt history for one session.
  */
 export class PromptHistoryState {
   /**
@@ -183,8 +237,16 @@ export class PromptHistoryState {
   }
 
   /**
-   * Reset navigation index and clear stashed draft.
+   * Replace current history with updated list while preserving or clamping index.
+   * @param {string[]} newHistory
    */
+  replaceHistory(newHistory) {
+    this.history = sanitizeHistory(newHistory, this.maxItems);
+    if (this.index >= this.history.length) {
+      this.index = this.history.length - 1;
+    }
+  }
+
   reset() {
     this.index = -1;
     this.stashedDraft = '';
@@ -199,11 +261,6 @@ export class PromptHistoryState {
     this.reset();
   }
 
-  /**
-   * Navigate backwards (older entry / ArrowUp).
-   * @param {string} currentDraft
-   * @returns {{ changed: boolean, text: string }}
-   */
   navigateUp(currentDraft) {
     if (this.history.length === 0) {
       return { changed: false, text: currentDraft };
@@ -223,11 +280,6 @@ export class PromptHistoryState {
     return { changed: false, text: this.history[this.index] };
   }
 
-  /**
-   * Navigate forwards (newer entry / ArrowDown).
-   * @param {string} [currentDraft]
-   * @returns {{ changed: boolean, text: string }}
-   */
   navigateDown(currentDraft = '') {
     if (this.history.length === 0 || this.index === -1) {
       return { changed: false, text: currentDraft };
@@ -250,10 +302,12 @@ export class PromptHistoryState {
  */
 export class PromptHistorySession {
   /**
+   * @param {string} [sessionId]
    * @param {string[]} [history]
    * @param {number} [maxItems]
    */
-  constructor(history = [], maxItems = DEFAULT_MAX_HISTORY) {
+  constructor(sessionId = GLOBAL_SESSION_ID, history = [], maxItems = DEFAULT_MAX_HISTORY) {
+    this.sessionId = sessionId;
     this.state = new PromptHistoryState(history, maxItems);
     this.lastApplied = null;
   }
@@ -275,19 +329,15 @@ export class PromptHistorySession {
     this.lastApplied = null;
   }
 
-  /**
-   * @param {string} prompt
-   */
   record(prompt) {
     this.state.record(prompt);
     this.lastApplied = null;
   }
 
-  /**
-   * @param {'up' | 'down'} direction
-   * @param {string} currentDraft
-   * @returns {{ changed: boolean, text: string, preventDefault: boolean }}
-   */
+  sync(newHistory) {
+    this.state.replaceHistory(newHistory);
+  }
+
   navigate(direction, currentDraft) {
     const draft = typeof currentDraft === 'string' ? currentDraft : '';
     const result = direction === 'up'
@@ -300,9 +350,6 @@ export class PromptHistorySession {
     return { ...result, preventDefault };
   }
 
-  /**
-   * @returns {{ changed: boolean, text: string }}
-   */
   restoreDraft() {
     if (this.state.index === -1) return { changed: false, text: '' };
     const text = this.state.stashedDraft;
@@ -311,11 +358,6 @@ export class PromptHistorySession {
     return { changed: true, text };
   }
 
-  /**
-   * Host published a new draft. Ignore the text we just applied.
-   * @param {string} draft
-   * @returns {{ reset: boolean }}
-   */
   onExternalDraft(draft) {
     if (this.state.index === -1) return { reset: false };
     const text = typeof draft === 'string' ? draft : '';
@@ -323,5 +365,46 @@ export class PromptHistorySession {
     if (text === this.state.history[this.state.index]) return { reset: false };
     this.reset();
     return { reset: true };
+  }
+}
+
+/**
+ * Manager that holds isolated PromptHistorySession instances per sessionId.
+ */
+export class SessionHistoryManager {
+  /**
+   * @param {number} [maxItems]
+   */
+  constructor(maxItems = DEFAULT_MAX_HISTORY) {
+    this.maxItems = maxItems;
+    /** @type {Map<string, PromptHistorySession>} */
+    this.sessions = new Map();
+  }
+
+  /**
+   * Get or create history session for a given sessionId.
+   * @param {string | undefined | null} sessionId
+   * @param {string[]} [initialHistory]
+   * @returns {PromptHistorySession}
+   */
+  get(sessionId, initialHistory) {
+    const id = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+    let s = this.sessions.get(id);
+    if (!s) {
+      s = new PromptHistorySession(id, initialHistory || [], this.maxItems);
+      this.sessions.set(id, s);
+    } else if (initialHistory && initialHistory.length > 0 && s.history.length === 0) {
+      s.sync(initialHistory);
+    }
+    return s;
+  }
+
+  /**
+   * Clear in-memory session.
+   * @param {string} sessionId
+   */
+  remove(sessionId) {
+    const id = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+    this.sessions.delete(id);
   }
 }

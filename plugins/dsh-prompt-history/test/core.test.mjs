@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+
 import {
   isCaretOnFirstLine,
   isCaretOnLastLine,
@@ -9,20 +13,125 @@ import {
   classifySwipe,
   shouldHandleHistoryGesture,
   sanitizeHistory,
+  mergeHistories,
   pushHistory,
+  sessionFileName,
+  getPromptHistoryDir,
+  sessionFilePath,
   PromptHistoryState,
   PromptHistorySession,
+  SessionHistoryManager,
   DEFAULT_MAX_HISTORY,
   MAX_PROMPT_CHARS,
   SWIPE_MIN_PX,
+  GLOBAL_SESSION_ID,
 } from '../lib/core.js';
+
+import {
+  loadSessionHistory,
+  saveSessionHistory,
+  recordSessionPrompt,
+  handleRpc,
+} from '../lib/index.js';
+
+test('sessionFileName - converts dangerous characters to safe strings', () => {
+  assert.equal(sessionFileName('session-123'), 'session-123.json');
+  assert.equal(sessionFileName(''), '__global__.json');
+  assert.equal(sessionFileName(null), '__global__.json');
+  assert.equal(sessionFileName('user/with:colons*and?slashes'), 'user_2f_with_3a_colons_2a_and_3f_slashes.json');
+});
+
+test('sessionFilePath - resolves path under prompt-history directory', () => {
+  const p = sessionFilePath('abc', '/tmp/custom-dsh');
+  assert.equal(p, path.join('/tmp/custom-dsh', 'prompt-history', 'abc.json'));
+});
+
+test('mergeHistories - merges without duplicates preserving order', () => {
+  const local = ['prompt 1', 'prompt 2'];
+  const remote = ['prompt 0', 'prompt 2', 'prompt 3'];
+  const merged = mergeHistories(local, remote);
+  assert.deepEqual(merged, ['prompt 0', 'prompt 2', 'prompt 3', 'prompt 1']);
+});
+
+test('SessionHistoryManager - completely isolates history between sessions', () => {
+  const mgr = new SessionHistoryManager();
+  const sessionA = mgr.get('session-A', ['A1', 'A2']);
+  const sessionB = mgr.get('session-B', ['B1']);
+
+  assert.deepEqual(sessionA.history, ['A1', 'A2']);
+  assert.deepEqual(sessionB.history, ['B1']);
+
+  // Navigate in session A
+  const upA = sessionA.navigate('up', 'draft A');
+  assert.equal(upA.text, 'A2');
+
+  // Session B should remain unaffected
+  assert.equal(sessionB.navigating, false);
+  const upB = sessionB.navigate('up', 'draft B');
+  assert.equal(upB.text, 'B1');
+
+  // Record in A does not bleed into B
+  sessionA.record('A3');
+  assert.deepEqual(sessionA.history, ['A1', 'A2', 'A3']);
+  assert.deepEqual(sessionB.history, ['B1']);
+});
+
+test('Host persistence and RPC - load, record, and clear against filesystem', async (t) => {
+  const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-test-home-'));
+  const origDshHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = tmpHome;
+
+  t.after(async () => {
+    if (origDshHome !== undefined) process.env.DSH_HOME = origDshHome;
+    else delete process.env.DSH_HOME;
+    await fs.rm(tmpHome, { recursive: true, force: true });
+  });
+
+  const testSession = 'test-session-uuid-001';
+
+  // 1. Initial load should be empty
+  const initial = await loadSessionHistory(testSession);
+  assert.deepEqual(initial, []);
+
+  // 2. Record new prompts
+  const after1 = await recordSessionPrompt(testSession, 'first prompt');
+  assert.deepEqual(after1, ['first prompt']);
+
+  const after2 = await recordSessionPrompt(testSession, 'second prompt');
+  assert.deepEqual(after2, ['first prompt', 'second prompt']);
+
+  // 3. Verify file exists on disk and is readable
+  const filePath = sessionFilePath(testSession);
+  const fileRaw = await fs.readFile(filePath, 'utf8');
+  const fileParsed = JSON.parse(fileRaw);
+  assert.equal(fileParsed.sessionId, testSession);
+  assert.deepEqual(fileParsed.history, ['first prompt', 'second prompt']);
+
+  // 4. Test RPC handler: load
+  const rpcLoad = await handleRpc({}, 'load', { sessionId: testSession });
+  assert.equal(rpcLoad.ok, true);
+  assert.deepEqual(rpcLoad.value.history, ['first prompt', 'second prompt']);
+
+  // 5. Test RPC handler: record
+  const rpcRecord = await handleRpc({}, 'record', { sessionId: testSession, prompt: 'third prompt' });
+  assert.equal(rpcRecord.ok, true);
+  assert.deepEqual(rpcRecord.value.history, ['first prompt', 'second prompt', 'third prompt']);
+
+  // 6. Test RPC handler: clear
+  const rpcClear = await handleRpc({}, 'clear', { sessionId: testSession });
+  assert.equal(rpcClear.ok, true);
+  assert.deepEqual(rpcClear.value.history, []);
+
+  const afterClear = await loadSessionHistory(testSession);
+  assert.deepEqual(afterClear, []);
+});
 
 test('isCaretOnFirstLine', () => {
   assert.equal(isCaretOnFirstLine('', 0), true);
   assert.equal(isCaretOnFirstLine('hello', 0), true);
   assert.equal(isCaretOnFirstLine('hello', 3), true);
-  assert.equal(isCaretOnFirstLine('hello\nworld', 5), true); // at '\n'
-  assert.equal(isCaretOnFirstLine('hello\nworld', 6), false); // on 2nd line
+  assert.equal(isCaretOnFirstLine('hello\nworld', 5), true);
+  assert.equal(isCaretOnFirstLine('hello\nworld', 6), false);
   assert.equal(isCaretOnFirstLine('line1\nline2\nline3', 2), true);
   assert.equal(isCaretOnFirstLine('line1\nline2\nline3', 7), false);
 });
@@ -31,10 +140,10 @@ test('isCaretOnLastLine', () => {
   assert.equal(isCaretOnLastLine('', 0), true);
   assert.equal(isCaretOnLastLine('hello', 2), true);
   assert.equal(isCaretOnLastLine('hello', 5), true);
-  assert.equal(isCaretOnLastLine('hello\nworld', 5), false); // on 1st line '\n'
-  assert.equal(isCaretOnLastLine('hello\nworld', 6), true); // on 2nd line 'w'
+  assert.equal(isCaretOnLastLine('hello\nworld', 5), false);
+  assert.equal(isCaretOnLastLine('hello\nworld', 6), true);
   assert.equal(isCaretOnLastLine('line1\nline2\nline3', 10), false);
-  assert.equal(isCaretOnLastLine('line1\nline2\nline3', 12), true); // on 3rd line
+  assert.equal(isCaretOnLastLine('line1\nline2\nline3', 12), true);
 });
 
 test('pushHistory - adds, trims, and deduplicates', () => {
@@ -129,7 +238,7 @@ test('PromptHistoryState - record and reset', () => {
 });
 
 test('PromptHistorySession - programmatic writes do not abort navigation', () => {
-  const session = new PromptHistorySession(['alpha', 'beta']);
+  const session = new PromptHistorySession('s1', ['alpha', 'beta']);
   const first = session.navigate('up', 'draft');
   assert.equal(first.changed, true);
   assert.equal(first.text, 'beta');
@@ -145,7 +254,7 @@ test('PromptHistorySession - programmatic writes do not abort navigation', () =>
 });
 
 test('PromptHistorySession - restoreDraft returns stash and clears index', () => {
-  const session = new PromptHistorySession(['kept']);
+  const session = new PromptHistorySession('s1', ['kept']);
   session.navigate('up', 'scratch');
   const restored = session.restoreDraft();
   assert.equal(restored.changed, true);

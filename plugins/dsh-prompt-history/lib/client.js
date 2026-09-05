@@ -2,12 +2,10 @@
  * dsh-prompt-history client bundle
  *
  * Shell-like prompt history for the DSH conversation composer.
- * Reads/writes the draft through conversation.input.left (input.draft /
- * inputActions.setDraft) because the live composer is a Lexical
- * contenteditable, not a textarea.
- *
- * Pure helpers below are kept in sync with lib/core.js (the ModuleLoader
- * factory cannot import that ESM file).
+ * - Bound per session: prompts in Session A never mix with Session B.
+ * - Persisted on host (~/.dsh/prompt-history/<sessionId>.json) via trusted-host RPC,
+ *   enabling seamless sync across browsers, devices, and tabs.
+ * - Reads/writes drafts through conversation.input.left (useInput + inputActions.setDraft).
  */
 
 window.__ModuleLoader__.load({
@@ -19,7 +17,9 @@ window.__ModuleLoader__.load({
 
     const react = require("react");
 
-    const STORAGE_KEY = "dsh:prompt_history_v1";
+    const RPC_CHANNEL = "/dsh-prompt-history";
+    const GLOBAL_SESSION_ID = "__global__";
+    const STORAGE_KEY_PREFIX = "dsh:prompt_history_v2:";
     const MAX_HISTORY = 200;
     const MAX_PROMPT_CHARS = 8192;
     const SWIPE_MAX_MS = 400;
@@ -27,30 +27,16 @@ window.__ModuleLoader__.load({
     const SWIPE_VERTICAL_RATIO = 1.5;
     const COMPOSER_SLOT = "conversation.input.left";
 
+    function storageKey(sessionId) {
+      const id = typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+      return STORAGE_KEY_PREFIX + id;
+    }
+
     function isCaretOnFirstLine(text, selectionStart) {
       if (!text || selectionStart <= 0) return true;
       const firstNewline = text.indexOf("\n");
       if (firstNewline === -1) return true;
       return selectionStart <= firstNewline;
-    }
-
-    function isVisualFirstLine(surface) {
-      if (!surface || surface.tagName === "TEXTAREA") return null;
-      try {
-        const sel = window.getSelection?.();
-        if (!sel || sel.rangeCount === 0 || !surface.contains(sel.anchorNode)) return null;
-        const caret = sel.getRangeAt(0).cloneRange();
-        caret.collapse(true);
-        const caretRect = caret.getBoundingClientRect();
-        const probe = document.createRange();
-        probe.selectNodeContents(surface);
-        probe.collapse(true);
-        const firstRect = probe.getBoundingClientRect();
-        if (!caretRect || !firstRect) return null;
-        return Math.abs(caretRect.top - firstRect.top) < 6;
-      } catch {
-        return null;
-      }
     }
 
     function isComposerTarget(el) {
@@ -126,6 +112,12 @@ window.__ModuleLoader__.load({
         this.index = -1;
         this.stashedDraft = "";
       }
+      replaceHistory(newHistory) {
+        this.history = sanitizeHistory(newHistory, this.maxItems);
+        if (this.index >= this.history.length) {
+          this.index = this.history.length - 1;
+        }
+      }
       reset() {
         this.index = -1;
         this.stashedDraft = "";
@@ -162,7 +154,8 @@ window.__ModuleLoader__.load({
     }
 
     class PromptHistorySession {
-      constructor(history = [], maxItems = MAX_HISTORY) {
+      constructor(sessionId = GLOBAL_SESSION_ID, history = [], maxItems = MAX_HISTORY) {
+        this.sessionId = sessionId;
         this.state = new PromptHistoryState(history, maxItems);
         this.lastApplied = null;
       }
@@ -176,6 +169,9 @@ window.__ModuleLoader__.load({
       record(prompt) {
         this.state.record(prompt);
         this.lastApplied = null;
+      }
+      sync(newHistory) {
+        this.state.replaceHistory(newHistory);
       }
       navigate(direction, currentDraft) {
         const draft = typeof currentDraft === "string" ? currentDraft : "";
@@ -202,9 +198,10 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function loadHistory() {
+    function loadLocalHistory(sessionId) {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const key = storageKey(sessionId);
+        const raw = localStorage.getItem(key);
         if (!raw) return [];
         return sanitizeHistory(JSON.parse(raw));
       } catch {
@@ -212,9 +209,10 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function saveHistory(history) {
+    function saveLocalHistory(sessionId, history) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+        const key = storageKey(sessionId);
+        localStorage.setItem(key, JSON.stringify(history));
       } catch {}
     }
 
@@ -266,12 +264,38 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const inject = ["slots"];
+    function isVisualFirstLine(surface) {
+      if (!surface || surface.tagName === "TEXTAREA") return null;
+      try {
+        const sel = window.getSelection?.();
+        if (!sel || sel.rangeCount === 0 || !surface.contains(sel.anchorNode)) return null;
+        const caret = sel.getRangeAt(0).cloneRange();
+        caret.collapse(true);
+        const caretRect = caret.getBoundingClientRect();
+        const probe = document.createRange();
+        probe.selectNodeContents(surface);
+        probe.collapse(true);
+        const firstRect = probe.getBoundingClientRect();
+        if (!caretRect || !firstRect) return null;
+        return Math.abs(caretRect.top - firstRect.top) < 6;
+      } catch {
+        return null;
+      }
+    }
+
+    function eventElement(target) {
+      if (!target) return null;
+      return target.nodeType === 3 ? target.parentElement : target;
+    }
+
+    const inject = ["slots", "connection"];
 
     function apply(ctx) {
       if (typeof window === "undefined") return;
 
-      const session = new PromptHistorySession(loadHistory());
+      /** @type {Map<string, PromptHistorySession>} */
+      const sessionMap = new Map();
+      let activeSessionId = GLOBAL_SESSION_ID;
       const access = { draft: "", setDraft: null, phase: "" };
       let recordedForPhase = false;
       let lastNonEmptyDraft = "";
@@ -279,13 +303,63 @@ window.__ModuleLoader__.load({
       let touchStartX = 0;
       let touchStartTime = 0;
 
-      function persist() {
-        saveHistory(session.history);
+      function getOrCreateSession(sessionId) {
+        const id = typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+        let s = sessionMap.get(id);
+        if (!s) {
+          const local = loadLocalHistory(id);
+          s = new PromptHistorySession(id, local);
+          sessionMap.set(id, s);
+          // Sync with host in background
+          fetchHostHistory(id);
+        }
+        return s;
+      }
+
+      function currentSession() {
+        return getOrCreateSession(activeSessionId);
+      }
+
+      async function fetchHostHistory(sessionId) {
+        const rpc = ctx.connection?.rpc;
+        if (!rpc || typeof rpc.call !== "function") return;
+        try {
+          const res = await rpc.call(RPC_CHANNEL, "load", { sessionId });
+          if (res && res.ok && Array.isArray(res.value?.history)) {
+            const history = res.value.history;
+            const s = sessionMap.get(sessionId);
+            if (s) {
+              s.sync(history);
+              saveLocalHistory(sessionId, s.history);
+            }
+          }
+        } catch (e) {
+          // RPC may fail if network drops; fallback stays with local
+        }
+      }
+
+      async function pushHostRecord(sessionId, prompt) {
+        const rpc = ctx.connection?.rpc;
+        if (!rpc || typeof rpc.call !== "function") return;
+        try {
+          const res = await rpc.call(RPC_CHANNEL, "record", { sessionId, prompt });
+          if (res && res.ok && Array.isArray(res.value?.history)) {
+            const s = sessionMap.get(sessionId);
+            if (s) {
+              s.sync(res.value.history);
+              saveLocalHistory(sessionId, s.history);
+            }
+          }
+        } catch (e) {
+          // RPC failed; local state already updated
+        }
       }
 
       function recordPrompt(prompt) {
-        session.record(prompt);
-        persist();
+        const s = currentSession();
+        s.record(prompt);
+        saveLocalHistory(activeSessionId, s.history);
+        pushHostRecord(activeSessionId, prompt);
       }
 
       function currentDraft(fallback) {
@@ -316,10 +390,12 @@ window.__ModuleLoader__.load({
       function handleKeyDown(e) {
         if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
         const target = e.target;
-        const el = target && target.nodeType === 3 ? target.parentElement : target;
+        const el = eventElement(target);
         if (!isComposerTarget(el)) return;
         if (isWorkspaceTrigger(el)) return;
         if (e.isComposing || e.keyCode === 229) return;
+
+        const session = currentSession();
 
         if (e.key === "Escape") {
           const restored = session.restoreDraft();
@@ -349,27 +425,23 @@ window.__ModuleLoader__.load({
         const onFirstLine = visualFirst !== null
           ? visualFirst
           : isCaretOnFirstLine(caret.text, caret.start);
+
         if (!session.navigating) {
           if (direction !== "up" || !onFirstLine) return;
         }
         if (direction === "up" && session.history.length === 0) return;
         if (direction === "down" && !session.navigating) return;
+
         e.preventDefault();
         const result = session.navigate(direction, draft);
         if (result.changed) applyDraft(result.text);
       }
 
       function handleClick(e) {
-        // Official path records from input.phase === "submitting".
         if (typeof access.setDraft === "function") return;
         if (!isSendButton(e.target)) return;
         const draft = currentDraft();
         if (draft.trim()) recordPrompt(draft);
-      }
-
-      function eventElement(target) {
-        if (!target) return null;
-        return target.nodeType === 3 ? target.parentElement : target;
       }
 
       function handleTouchStart(e) {
@@ -396,17 +468,20 @@ window.__ModuleLoader__.load({
         });
         if (!direction) return;
 
+        const session = currentSession();
         const caret = getComposerCaret(el);
         const draft = currentDraft(caret.text);
         const visualFirst = isVisualFirstLine(composerSurface(el));
         const onFirstLine = visualFirst !== null
           ? visualFirst
           : isCaretOnFirstLine(caret.text, caret.start);
+
         if (!session.navigating) {
           if (direction !== "up" || !onFirstLine) return;
         }
         if (direction === "up" && session.history.length === 0) return;
         if (direction === "down" && !session.navigating) return;
+
         const result = session.navigate(direction, draft);
         if (result.changed) {
           applyDraft(result.text);
@@ -415,6 +490,7 @@ window.__ModuleLoader__.load({
       }
 
       function ComposerBridge(props) {
+        const sid = props?.sessionId || GLOBAL_SESSION_ID;
         const useInput = props && typeof props.useInput === "function" ? props.useInput : null;
         const snapshot = useInput
           ? useInput((s) => s)
@@ -424,10 +500,16 @@ window.__ModuleLoader__.load({
         const setDraft = props && props.inputActions ? props.inputActions.setDraft : null;
 
         react.useEffect(() => {
+          if (sid !== activeSessionId) {
+            activeSessionId = sid;
+            getOrCreateSession(sid);
+          }
           access.draft = draft;
           access.setDraft = typeof setDraft === "function" ? setDraft : null;
           access.phase = phase || "";
           if (draft.trim()) lastNonEmptyDraft = draft;
+
+          const session = currentSession();
           session.onExternalDraft(draft);
 
           const busy = phase === "submitting" || phase === "adjudicating";
@@ -442,7 +524,7 @@ window.__ModuleLoader__.load({
           return () => {
             if (access.setDraft === setDraft) access.setDraft = null;
           };
-        }, [draft, phase, setDraft]);
+        }, [sid, draft, phase, setDraft]);
 
         return null;
       }
