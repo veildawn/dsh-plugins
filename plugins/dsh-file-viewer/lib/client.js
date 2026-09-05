@@ -466,6 +466,26 @@ window.__ModuleLoader__.load({
       };
     }
 
+    function wrapConnectionRpc(ctx, openStore, sessionStore) {
+      const rpc = ctx && ctx.connection && ctx.connection.rpc;
+      if (!rpc || typeof rpc.call !== "function" || (wiredOpenPath !== null && wiredOpenPath.has(rpc))) return;
+      wiredOpenPath.add(rpc);
+      const originalCall = rpc.call.bind(rpc);
+      rpc.call = async function(channel, endpoint, payload, signal) {
+        if (typeof endpoint === "string" && endpoint.includes("openWorkspacePath")) {
+          const path = payload?.args?.request?.path ||
+                       payload?.args?.path ||
+                       payload?.request?.path ||
+                       payload?.path || "";
+          if (path) {
+            openViewerForPath(openStore, sessionStore, path);
+            return { ok: true, value: { opened: true } };
+          }
+        }
+        return originalCall(channel, endpoint, payload, signal);
+      };
+    }
+
     function looksLikeFilePath(value) {
       if (!value) return false;
       if (value.includes("/") || value.includes("\\")) return true;
@@ -1876,6 +1896,9 @@ window.__ModuleLoader__.load({
       // Wrap legacy workspaces.openPath (workspaces is declared in inject)
       wrapWorkspaceOpenPath(ctx, openStore, sessionStore);
 
+      // Intercept any openWorkspacePath RPC calls (connection is declared in inject)
+      wrapConnectionRpc(ctx, openStore, sessionStore);
+
       if (typeof window !== "undefined") {
         const triggerOpen = (payload) => {
           const sid = (payload && payload.sessionId) || sessionStore.get();
@@ -1897,7 +1920,7 @@ window.__ModuleLoader__.load({
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, ErrorBoundary,
-      openViewerForPath, wrapWorkspaceOpenPath, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl,
+      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl,
     };
     return module.exports;
   }

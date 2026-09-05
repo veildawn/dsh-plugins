@@ -770,6 +770,47 @@ test('workspaces.openPath redirects to file-viewer on remote access or failure',
   assert.doesNotMatch(source, /ctx\.get\?\.\("workspaces"\)/)
 })
 
+test('connection.rpc.call intercepts openWorkspacePath to open file-viewer and stop xdg-open', async () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const { internals } = definition.factory((id) =>
+    id === 'react' ? { createElement: () => null } : { ReadBlock: null, MarkdownText: null, JsonTree: null })
+
+  let openedPath = null
+  const fakeOpenStore = { set: (val) => { openedPath = val?.filePath } }
+  const fakeSessionStore = { get: () => 'sess-1' }
+
+  let originalCalled = false
+  const fakeRpc = {
+    call: async (channel, endpoint, payload) => {
+      originalCalled = true
+      return { ok: false, error: 'xdg-open failed' }
+    }
+  }
+
+  internals.wrapConnectionRpc({ connection: { rpc: fakeRpc } }, fakeOpenStore, fakeSessionStore)
+
+  // Call with tool call / mention style openWorkspacePath
+  const res = await fakeRpc.call('/api', 'session/openWorkspacePath', {
+    args: { request: { path: '/root/CodeSpace/dsh-plugins/plugins/dsh-file-viewer/package.json' } }
+  })
+
+  assert.equal(res.ok, true)
+  assert.equal(res.value.opened, true)
+  assert.equal(openedPath, '/root/CodeSpace/dsh-plugins/plugins/dsh-file-viewer/package.json')
+  assert.equal(originalCalled, false, 'original xdg-open RPC must not be called')
+
+  // Unrelated RPC calls must pass through to original
+  await fakeRpc.call('/api', 'other/call', {})
+  assert.equal(originalCalled, true)
+})
+
 test('global file click interceptor captures file mention clicks directly into the file viewer', () => {
   const source = read('lib/client.js')
   // Chat clicks and deliverable file clicks must be intercepted at the DOM
