@@ -770,16 +770,18 @@ test('workspaces.openPath redirects to file-viewer on remote access or failure',
   assert.doesNotMatch(source, /ctx\.get\?\.\("workspaces"\)/)
 })
 
-test('session.openWorkspacePath redirects conversation path clicks into the file viewer', () => {
+test('global file click interceptor captures file mention clicks directly into the file viewer', () => {
   const source = read('lib/client.js')
-  // Current DSH chat clicks call ctx.remote.session.openWorkspacePath, not
-  // workspaces.openPath. The viewer must wrap that RPC so mention/path clicks
-  // open the drawer instead of only attempting a native desktop open.
-  assert.match(source, /wrapSessionOpenWorkspacePath/)
-  assert.match(source, /session\.openWorkspacePath = async function\(request, signal\)/)
-  assert.match(source, /ctx\.inject && ctx\.inject\(\["remote"\]/)
+  // Chat clicks and deliverable file clicks must be intercepted at the DOM
+  // capture phase before host handlers invoke native desktop commands.
+  assert.match(source, /setupGlobalFileClickInterceptor\(openStore, sessionStore\)/)
+  assert.match(source, /event\.stopPropagation\(\)/)
+  assert.match(source, /event\.stopImmediatePropagation\(\)/)
   assert.match(source, /openViewerForPath\(openStore, sessionStore, path\)/)
-  assert.match(source, /setupGlobalFileClickInterceptor/)
+  // Ensure we do not access undeclared services on ctx
+  assert.doesNotMatch(source, /ctx\.remote/)
+  assert.doesNotMatch(source, /ctx\["remote\.session"\]/)
+  assert.doesNotMatch(source, /ctx\.inject\(\["remote/)
 })
 
 test('tree resizer supports dragging to adjust tree width and persists to storage', () => {

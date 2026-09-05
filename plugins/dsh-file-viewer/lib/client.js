@@ -440,9 +440,7 @@ window.__ModuleLoader__.load({
     }
 
     // Guard so a hot reload or re-apply never double-wraps shared open
-    // handlers. Current DSH chat clicks go through
-    // ctx.remote.session.openWorkspacePath; older hosts used
-    // workspaces.openPath. Both wrappers must stay idempotent.
+    // handlers; older hosts used workspaces.openPath.
     const wiredOpenPath = typeof WeakSet !== "undefined" ? new WeakSet() : null;
 
     function openViewerForPath(openStore, sessionStore, path) {
@@ -464,30 +462,25 @@ window.__ModuleLoader__.load({
       };
     }
 
-    function hookSession(session, openStore, sessionStore) {
-      if (!session || typeof session.openWorkspacePath !== "function" || wiredOpenPath === null || wiredOpenPath.has(session)) return;
-      wiredOpenPath.add(session);
-      const nativeOpen = session.openWorkspacePath.bind(session);
-      session.openWorkspacePath = async function(request, signal) {
-        const path = request && typeof request.path === "string" ? request.path : "";
-        if (path !== "") {
-          openViewerForPath(openStore, sessionStore, path);
-          return { ok: true, value: { opened: true } };
-        }
-        return nativeOpen(request, signal);
-      };
-    }
-
-    function wrapSessionOpenWorkspacePath(ctx, openStore, sessionStore) {
-      if (!ctx) return;
-      let remote;
-      try {
-        remote = ctx.remote;
-      } catch (_) {
-        remote = undefined;
+    function extractClickedPath(element) {
+      if (!element) return "";
+      const raw = (
+        element.getAttribute("data-file-path") ||
+        element.getAttribute("data-path") ||
+        element.title ||
+        element.textContent ||
+        ""
+      ).trim();
+      if (!raw) return "";
+      const clean = raw
+        .replace(/^@+/, "")
+        .replace(/^[`"']|[`"']$/g, "")
+        .replace(/[.,;:!?，。；：！？]+$/g, "")
+        .trim();
+      if (clean.includes("/") || clean.includes("\\") || /\.[a-zA-Z0-9_-]{1,10}$/.test(clean)) {
+        return clean;
       }
-      const session = (ctx && ctx["remote.session"]) || (remote && remote.session);
-      if (session) hookSession(session, openStore, sessionStore);
+      return "";
     }
 
     function setupGlobalFileClickInterceptor(openStore, sessionStore) {
@@ -495,23 +488,21 @@ window.__ModuleLoader__.load({
       document.addEventListener("click", (event) => {
         const target = event.target;
         if (!target || typeof target.closest !== "function") return;
-        const btn = target.closest("button");
+        const btn = target.closest("button, [role='button'], a");
         if (!btn) return;
-        if (btn.closest(".fv-shell") || btn.closest(".fv-float-entry") || btn.closest(".fv-context-menu")) return;
+        if (btn.closest(".fv-shell") || btn.closest(".fv-float-entry") || btn.closest(".fv-context-menu") || btn.closest(".fv-scrim")) return;
 
         const cls = typeof btn.className === "string" ? btn.className : "";
-        const isMention = cls.includes("fileMention") || cls.includes("_file_") || btn.hasAttribute("data-file-path");
+        const isMention = cls.includes("fileMention") || cls.includes("file-mention") || cls.includes("_file_") || btn.hasAttribute("data-file-path");
         const isCodeParent = Boolean(btn.closest("code"));
 
         if (isMention || isCodeParent) {
-          const raw = (btn.getAttribute("data-file-path") || btn.title || btn.textContent || "").trim();
-          const match = raw.match(/^@?(?:`([^`]+)`|"([^"]+)"|'([^']+)'|(\S+))/);
-          const candidate = (match ? (match[1] || match[2] || match[3] || match[4]) : raw).trim();
-          if (candidate && (candidate.includes("/") || candidate.includes("\\") || /\.[a-zA-Z0-9_-]+$/.test(candidate))) {
+          const path = extractClickedPath(btn);
+          if (path) {
             event.preventDefault();
             event.stopPropagation();
             event.stopImmediatePropagation();
-            openViewerForPath(openStore, sessionStore, candidate);
+            openViewerForPath(openStore, sessionStore, path);
           }
         }
       }, true);
@@ -1857,36 +1848,8 @@ window.__ModuleLoader__.load({
       // Global capture click listener catches file mentions before host handlers
       setupGlobalFileClickInterceptor(openStore, sessionStore);
 
-      // Wrap legacy workspaces.openPath
+      // Wrap legacy workspaces.openPath (workspaces is declared in inject)
       wrapWorkspaceOpenPath(ctx, openStore, sessionStore);
-
-      // Hook remote.session.openWorkspacePath across all injection timings
-      wrapSessionOpenWorkspacePath(ctx, openStore, sessionStore);
-
-      const tryHookRemote = (remoteCtx) => {
-        if (!remoteCtx) return;
-        wrapSessionOpenWorkspacePath(remoteCtx, openStore, sessionStore);
-        if (remoteCtx.remote) {
-          let cached = remoteCtx.remote.session;
-          if (cached) hookSession(cached, openStore, sessionStore);
-          try {
-            Object.defineProperty(remoteCtx.remote, "session", {
-              configurable: true,
-              enumerable: true,
-              get: () => cached,
-              set: (val) => {
-                cached = val;
-                if (val) hookSession(val, openStore, sessionStore);
-              },
-            });
-          } catch (_) {}
-        }
-      };
-
-      ctx.inject && ctx.inject(["remote"], tryHookRemote);
-      ctx.inject && ctx.inject(["remote.session"], (remoteCtx) => {
-        wrapSessionOpenWorkspacePath(remoteCtx, openStore, sessionStore);
-      });
 
       if (typeof window !== "undefined") {
         const triggerOpen = (payload) => {
@@ -1909,7 +1872,7 @@ window.__ModuleLoader__.load({
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, ErrorBoundary,
-      openViewerForPath, wrapWorkspaceOpenPath, wrapSessionOpenWorkspacePath, hookSession, setupGlobalFileClickInterceptor,
+      openViewerForPath, wrapWorkspaceOpenPath, setupGlobalFileClickInterceptor, extractClickedPath,
     };
     return module.exports;
   }
