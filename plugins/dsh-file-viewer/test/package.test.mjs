@@ -824,3 +824,41 @@ test('tree resizer supports dragging to adjust tree width and persists to storag
   assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-resizer\{display:none!important\}/)
   assert.match(source, /\.fv-body\[data-resizing="true"\]\{cursor:col-resize;user-select:none\}/)
 })
+
+test('markdown rendering passes required labels and is protected by ErrorBoundary against crashes', () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const { internals } = definition.factory((id) =>
+    id === 'react' ? { createElement: () => null } : { ReadBlock: null, MarkdownText: null, JsonTree: null })
+
+  // Validate labels contract expected by dsh-client-ui-primitives MarkdownText
+  assert(internals.MARKDOWN_LABELS, 'MARKDOWN_LABELS must be defined')
+  assert.equal(typeof internals.MARKDOWN_LABELS.code?.copyLabel, 'string')
+  assert.equal(typeof internals.MARKDOWN_LABELS.code?.copiedLabel, 'string')
+  assert.equal(typeof internals.MARKDOWN_LABELS.footnotes, 'string')
+
+  assert(internals.MARKDOWN_CODE_LABELS, 'MARKDOWN_CODE_LABELS must be defined')
+  assert.equal(typeof internals.MARKDOWN_CODE_LABELS.copyLabel, 'string')
+  assert.equal(typeof internals.MARKDOWN_CODE_LABELS.copiedLabel, 'string')
+
+  // ErrorBoundary component exists
+  assert(internals.ErrorBoundary, 'ErrorBoundary must be exposed')
+  assert.equal(typeof internals.ErrorBoundary.getDerivedStateFromError, 'function')
+  const derived = internals.ErrorBoundary.getDerivedStateFromError(new Error('boom'))
+  assert.equal(derived.error.message, 'boom')
+
+  // Source checks: all MarkdownText calls pass labels and codeLabels
+  const source = read('lib/client.js')
+  assert.match(source, /labels:\s*MARKDOWN_LABELS/)
+  assert.match(source, /codeLabels:\s*MARKDOWN_CODE_LABELS/)
+
+  // TextView and ViewerOverlay are protected by ErrorBoundary
+  assert.match(source, /body\s*=\s*react\.createElement\(ErrorBoundary,\s*\{[\s\S]*?MarkdownText/)
+  assert.match(source, /react\.createElement\(ErrorBoundary,\s*\{[\s\S]*?FileView/)
+})

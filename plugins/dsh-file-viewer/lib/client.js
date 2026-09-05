@@ -25,6 +25,45 @@ window.__ModuleLoader__.load({
     const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
     const { ReadBlock, MarkdownText, JsonTree, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16, IconFullscreenOutline16, writeClipboard } = primitives;
 
+    const Component = react.Component || class Component { constructor(props) { this.props = props; this.state = {}; } setState(s) { Object.assign(this.state, typeof s === "function" ? s(this.state) : s); } };
+    class ErrorBoundary extends Component {
+      constructor(props) {
+        super(props);
+        this.state = { error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { error };
+      }
+      componentDidCatch(error) {
+        try { console.error("[dsh-file-viewer] render error caught by boundary:", error); } catch (_) {}
+      }
+      componentDidUpdate(prevProps) {
+        if (prevProps && prevProps.resetKey !== this.props.resetKey && this.state.error !== null) {
+          this.setState({ error: null });
+        }
+      }
+      render() {
+        if (this.state.error !== null) {
+          if (typeof this.props.fallback === "function") {
+            return this.props.fallback(this.state.error, () => this.setState({ error: null }));
+          }
+          return react.createElement("div", { className: "fv-note fv-error" },
+            react.createElement("span", null, "查看文件时出错：" + (this.state.error?.message || "未知错误"))
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    const MARKDOWN_LABELS = Object.freeze({
+      code: Object.freeze({ copyLabel: "复制", copiedLabel: "复制成功" }),
+      footnotes: "脚注",
+    });
+    const MARKDOWN_CODE_LABELS = Object.freeze({
+      copyLabel: "复制",
+      copiedLabel: "复制成功",
+    });
+
     const IconFullscreenExitOutline16 = ({ size = 16, className }) => react.createElement("svg", {
       width: size,
       height: size,
@@ -809,7 +848,11 @@ window.__ModuleLoader__.load({
           return react.createElement("div", { className: "fv-note" }, "文档没有可提取的文本内容。");
         }
         return react.createElement(react.Fragment, null,
-          react.createElement(MarkdownText, { text: state.markdown }),
+          react.createElement(MarkdownText, {
+            text: state.markdown,
+            labels: MARKDOWN_LABELS,
+            codeLabels: MARKDOWN_CODE_LABELS,
+          }),
           state.warnings.length > 0
             ? react.createElement("div", { className: "fv-note" }, `转换时有 ${state.warnings.length} 处格式降级（图片或复杂排版）。`)
             : null);
@@ -845,9 +888,33 @@ window.__ModuleLoader__.load({
         const canPreview = (data.kind === "markdown" || data.kind === "json") && typeof data.text === "string";
         let body;
         if (canPreview && !raw && data.kind === "markdown") {
-          body = react.createElement(MarkdownText, { text: data.text });
+          body = react.createElement(ErrorBoundary, {
+            resetKey: data.path,
+            fallback: (err) => react.createElement("div", { className: "fv-note fv-error" },
+              react.createElement("span", null, "渲染 Markdown 预览失败（" + (err && err.message ? err.message : "格式解析错误") + "）。"),
+              react.createElement("button", {
+                type: "button",
+                className: "fv-button",
+                onClick: () => setRaw(true),
+              }, "切换到源码模式")
+            ),
+          }, react.createElement(MarkdownText, {
+            text: data.text,
+            labels: MARKDOWN_LABELS,
+            codeLabels: MARKDOWN_CODE_LABELS,
+          }));
         } else if (canPreview && !raw) {
-          body = jsonBodyOf(data.text);
+          body = react.createElement(ErrorBoundary, {
+            resetKey: data.path,
+            fallback: () => react.createElement("div", { className: "fv-note fv-error" },
+              react.createElement("span", null, "渲染 JSON 结构失败。"),
+              react.createElement("button", {
+                type: "button",
+                className: "fv-button",
+                onClick: () => setRaw(true),
+              }, "切换到源码模式")
+            ),
+          }, jsonBodyOf(data.text));
         } else {
           body = react.createElement(ReadBlock, {
             label: data.name,
@@ -906,7 +973,11 @@ window.__ModuleLoader__.load({
         } catch (error) {
           void error;
         }
-        return react.createElement(MarkdownText, { text: "```json\n" + text + "\n```" });
+        return react.createElement(MarkdownText, {
+          text: "```json\n" + text + "\n```",
+          labels: MARKDOWN_LABELS,
+          codeLabels: MARKDOWN_CODE_LABELS,
+        });
       }
 
       /** Pick the viewer for a file and keep unsupported formats useful. */
@@ -1419,7 +1490,9 @@ window.__ModuleLoader__.load({
                     : null),
                 error !== null && meta === null
                   ? react.createElement("div", { className: "fv-note fv-error" }, messageOf(error))
-                  : react.createElement(FileView, { meta, root, api: props.api, wrap }))),
+                  : react.createElement(ErrorBoundary, {
+                    resetKey: meta ? meta.path : "",
+                  }, react.createElement(FileView, { meta, root, api: props.api, wrap })))),
             contextMenu !== null
               ? react.createElement(ContextMenu, {
                 menu: contextMenu,
@@ -1726,6 +1799,7 @@ window.__ModuleLoader__.load({
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
+      MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, ErrorBoundary,
     };
     return module.exports;
   }
