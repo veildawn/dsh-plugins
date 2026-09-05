@@ -1,7 +1,7 @@
 {
   "name": "dsh-prompt-history",
-  "version": "0.1.1",
-  "description": "Shell-like prompt history navigator for DeepSeek Harness (ArrowUp / ArrowDown navigation and draft stashing)",
+  "version": "0.2.0",
+  "description": "Shell-like prompt history navigator for DeepSeek Harness (ArrowUp / ArrowDown on Lexical composer via setDraft)",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -30,7 +30,9 @@
     "composer"
   ],
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
@@ -40,7 +42,10 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": [],
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
       "platform": "web"
     }
   }
