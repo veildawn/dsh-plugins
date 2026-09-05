@@ -7,7 +7,8 @@ import { internals, resolveOptions } from '../lib/index.js'
 
 const {
   AiProxyApi,
-  serializeMessages, serializeUserContent, serializeRequest, translate, pkcePair, effortName, normalizeAnthropicEffort,
+  serializeMessages, serializeUserContent, serializeRequest, translate, pkcePair, effortName,
+  resolveDefaultEffort, normalizeAnthropicEffort,
   imageDataUrl, inputModalitiesOf,
   mapUsage, mapFinishReason, httpErrorCode,
 } = internals
@@ -58,6 +59,44 @@ test('normalizeAnthropicEffort: minimal maps to low, off/none disables, valid va
   assert.equal(normalizeAnthropicEffort('off'), undefined)
   assert.equal(normalizeAnthropicEffort(''), undefined)
   assert.equal(normalizeAnthropicEffort(undefined), undefined)
+})
+
+test('resolveDefaultEffort: fallback, exact match, closest level, and highest', () => {
+  const ladder3 = ['low', 'medium', 'high']
+  const ladderMax = ['low', 'high', 'max']
+  const ladderXhigh = ['low', 'medium', 'high', 'xhigh']
+  const custom = ['fast', 'deep']
+  const empty = []
+
+  assert.equal(resolveDefaultEffort(empty, 'highest'), undefined)
+  assert.equal(resolveDefaultEffort(undefined, 'highest'), undefined)
+
+  // Unconfigured or empty string falls back to ladder[0] (preserving existing behavior)
+  assert.equal(resolveDefaultEffort(ladder3, ''), 'low')
+  assert.equal(resolveDefaultEffort(ladder3, undefined), 'low')
+  assert.equal(resolveDefaultEffort(ladder3, '  HIGH  '), 'high')
+
+  // 'lowest' is a preference keyword, not a gateway rung
+  assert.equal(resolveDefaultEffort(ladder3, 'lowest'), 'low')
+  assert.equal(resolveDefaultEffort(['lowest', 'high'], 'lowest'), 'lowest')
+
+  // Exact matches
+  assert.equal(resolveDefaultEffort(ladder3, 'medium'), 'medium')
+  assert.equal(resolveDefaultEffort(ladder3, 'high'), 'high')
+
+  // 'highest' keyword picks the highest known rung present on the ladder
+  assert.equal(resolveDefaultEffort(ladder3, 'highest'), 'high')
+  assert.equal(resolveDefaultEffort(ladderMax, 'highest'), 'max')
+  assert.equal(resolveDefaultEffort(ladderXhigh, 'highest'), 'xhigh')
+  assert.equal(resolveDefaultEffort(custom, 'highest'), 'deep')
+
+  // Missing known rungs fall toward the nearest lower available rung, then up
+  assert.equal(resolveDefaultEffort(ladderMax, 'max'), 'max')
+  assert.equal(resolveDefaultEffort(ladderXhigh, 'max'), 'xhigh')
+  assert.equal(resolveDefaultEffort(ladder3, 'max'), 'high')
+  assert.equal(resolveDefaultEffort(ladder3, 'xhigh'), 'high')
+  assert.equal(resolveDefaultEffort(['none', 'low'], 'high'), 'low')
+  assert.equal(resolveDefaultEffort(custom, 'unknown'), 'fast')
 })
 
 test('model reasoning ladder follows the gateway response exactly', () => {

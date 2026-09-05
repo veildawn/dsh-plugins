@@ -75,7 +75,7 @@ Anthropic `image` base64 块），无附件服务或读取失败时降级为 `[I
 | `apiFormat` | `chat/completions` | API 格式：`chat/completions`、`anthropic-messages`、`responses` |
 | `clientId` | `dsh` | OAuth public client id |
 | `apiKeyEnv` | `AIPROXY_ACCESS_TOKEN` | 静态密钥凭据引用 |
-| `defaultReasoningEffort` | `''` | 空值使用模型 ladder 第一档 |
+| `defaultReasoningEffort` | `''` | 切换模型时的默认思考档位。空值或 `lowest` 使用网关 ladder 第一档；`highest` 选该模型最高已知档；精确档位名优先精确匹配，缺失时落到最近的较低档 |
 | `maxTokens` | `65536` | 模型目录未提供时的输出上限 |
 | `defaultContextWindow` | `200000` | 模型目录未提供时的上下文窗口 |
 | `modelCacheTtlMs` | `300000` | 模型目录缓存时间 |

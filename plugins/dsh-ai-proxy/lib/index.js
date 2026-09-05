@@ -86,6 +86,39 @@ export function effortName(id) {
   return names[id] ?? id
 }
 
+/** Known effort ladder rungs from highest to lowest. */
+const EFFORT_ORDER = ['turbo', 'ultra', 'max', 'xhigh', 'high', 'medium', 'low', 'minimal', 'none']
+
+/**
+ * Resolve the default effort from a model's effort ladder and user preference.
+ * - exact match: use the configured id when the ladder includes it
+ * - 'highest': pick the highest known rung present on the ladder
+ * - 'lowest' / empty / unknown: keep the previous behavior of ladder[0]
+ * - known rung missing from the ladder: nearest available rung, preferring lower
+ */
+export function resolveDefaultEffort(ladder, configured) {
+  if (!Array.isArray(ladder) || ladder.length === 0) return undefined
+  const conf = typeof configured === 'string' ? configured.trim().toLowerCase() : ''
+  if (conf === '' || conf === 'lowest') return ladder[0]
+  if (ladder.includes(conf)) return conf
+  if (conf === 'highest') {
+    for (const effort of EFFORT_ORDER) {
+      if (ladder.includes(effort)) return effort
+    }
+    return ladder[ladder.length - 1]
+  }
+  const confIndex = EFFORT_ORDER.indexOf(conf)
+  if (confIndex !== -1) {
+    for (let i = confIndex; i < EFFORT_ORDER.length; i++) {
+      if (ladder.includes(EFFORT_ORDER[i])) return EFFORT_ORDER[i]
+    }
+    for (let i = confIndex - 1; i >= 0; i--) {
+      if (ladder.includes(EFFORT_ORDER[i])) return EFFORT_ORDER[i]
+    }
+  }
+  return ladder[0]
+}
+
 /**
  * Normalize reasoning effort to standard Anthropic output_config.effort values.
  * Anthropic API strictly permits: 'low', 'medium', 'high', 'max', 'xhigh'.
@@ -1262,7 +1295,7 @@ class AiProxyAdapter extends LlmAdapter {
     const ladder = entry?.effortLevels ?? []
     if (ladder.length === 0) return base
     const configured = opts.defaultReasoningEffort
-    const defaultEffort = configured !== '' && ladder.includes(configured) ? configured : ladder[0]
+    const defaultEffort = resolveDefaultEffort(ladder, configured)
     return {
       ...base,
       reasoning: {
@@ -1576,7 +1609,7 @@ export const internals = {
   serializeChatCompletionsRequest, serializeAnthropicRequest, serializeResponsesRequest,
   imageDataUrl, inputModalitiesOf,
   translate, translateChatCompletions, translateAnthropic, translateResponses,
-  parseSse, pkcePair, base64url, effortName, normalizeAnthropicEffort, mapUsage, mapFinishReason, httpErrorCode,
+  parseSse, pkcePair, base64url, effortName, resolveDefaultEffort, normalizeAnthropicEffort, mapUsage, mapFinishReason, httpErrorCode,
   discoverEndpoints, tokenRequest, startCallbackListener, handleAuthRpc,
   normalizeApiFormat, resolveInferenceEndpoint, resolveModelsEndpoint,
   API_FORMAT_CHAT_COMPLETIONS, API_FORMAT_ANTHROPIC_MESSAGES, API_FORMAT_RESPONSES, API_FORMATS, DEFAULT_API_FORMAT,
