@@ -499,6 +499,14 @@ test('drawer supports fullscreen toggle on PC and hides it on mobile', () => {
   assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-btn-fullscreen\{display:none!important\}/)
 })
 
+test('the selected file path is hidden in the mobile header', () => {
+  const source = read('lib/client.js')
+  // Desktop still shows the selected path in the header; phones do not have
+  // room for it, so the dedicated path crumb is hidden at the mobile breakpoint.
+  assert.match(source, /className: "fv-crumbs fv-file-path"/)
+  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-file-path\{display:none!important\}/)
+})
+
 test('the phone entry survives a session with no messages', () => {
   const source = read('lib/client.js')
 

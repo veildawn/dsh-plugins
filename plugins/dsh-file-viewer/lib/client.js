@@ -278,6 +278,7 @@ window.__ModuleLoader__.load({
         .fv-tree{width:100%!important;border-right:none}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}
         .fv-crumbs{font-size:11px}
+        .fv-file-path{display:none!important}
         .fv-context-backdrop{background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:fv-fade .16s ease-out}
         .fv-context-menu{position:fixed!important;bottom:max(16px,var(--dsh-sab,0px))!important;left:max(16px,var(--dsh-sal,0px))!important;right:max(16px,var(--dsh-sar,0px))!important;top:auto!important;width:auto!important;max-width:none!important;border-radius:18px!important;padding:8px!important;box-shadow:var(--dsw-shadow-lv3)!important;animation:fv-menu-slide-up .2s cubic-bezier(.2,.8,.2,1)!important}
         @keyframes fv-menu-slide-up{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
@@ -1491,7 +1492,7 @@ window.__ModuleLoader__.load({
                 : react.createElement("span", { className: "fv-crumbs" }, activeRoot ? activeRoot.label : ""),
               // The tree shows structure, so the header carries the selected
               // file's path instead of navigable breadcrumbs.
-              react.createElement("div", { className: "fv-crumbs", title: meta === null ? "" : meta.path },
+              react.createElement("div", { className: "fv-crumbs fv-file-path", title: meta === null ? "" : meta.path },
                 meta === null ? "" : meta.path),
               // Only offered where it changes anything: images, PDFs, sheets and
               // documents do not scroll sideways the way source lines do.
