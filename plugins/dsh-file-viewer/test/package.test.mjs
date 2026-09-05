@@ -765,8 +765,8 @@ test('workspaces.openPath redirects to file-viewer on remote access or failure',
   assert.match(source, /wrapWorkspaceOpenPath\(ctx, openStore, sessionStore\)/)
   assert.match(source, /wiredOpenPath\.has\(workspaces\)/)
   assert.match(source, /workspaces\.openPath = async function\(path\)/)
-  assert.match(source, /const isLoopback = ctx\.connection && ctx\.connection\.isLoopback === true/)
   assert.match(source, /openViewerForPath\(openStore, sessionStore, path\)/)
+  assert.doesNotMatch(source, /nativeOpenPath\(path\)/)
   assert.doesNotMatch(source, /ctx\.get\?\.\("workspaces"\)/)
 })
 
@@ -782,6 +782,33 @@ test('global file click interceptor captures file mention clicks directly into t
   assert.doesNotMatch(source, /ctx\.remote/)
   assert.doesNotMatch(source, /ctx\["remote\.session"\]/)
   assert.doesNotMatch(source, /ctx\.inject\(\["remote/)
+})
+
+test('clicked path extraction keeps Chinese filenames and prefers title over basename', () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const { internals } = definition.factory((id) =>
+    id === 'react' ? { createElement: () => null } : { ReadBlock: null, MarkdownText: null, JsonTree: null })
+
+  assert.equal(internals.normalizeClickedPath('20万落地国产纯电SUV选车报告.md'), '20万落地国产纯电SUV选车报告.md')
+  assert.equal(internals.normalizeClickedPath('打开 20万落地国产纯电SUV选车报告.md'), '20万落地国产纯电SUV选车报告.md')
+  assert.equal(internals.normalizeClickedPath('@`src/App.vue`'), 'src/App.vue')
+  assert.equal(internals.normalizeClickedPath('普通按钮'), '')
+
+  const button = {
+    getAttribute: (name) => ({
+      title: '/root/CodeSpace/dsh-workspace/20万落地国产纯电SUV选车报告.md',
+      'aria-label': '打开 20万落地国产纯电SUV选车报告.md',
+    })[name] || null,
+    textContent: '20万落地国产纯电SUV选车报告.md',
+  }
+  assert.equal(internals.extractClickedPath(button), '/root/CodeSpace/dsh-workspace/20万落地国产纯电SUV选车报告.md')
 })
 
 test('tree resizer supports dragging to adjust tree width and persists to storage', () => {
