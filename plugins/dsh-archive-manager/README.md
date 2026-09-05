@@ -1,9 +1,9 @@
 # dsh-archive-manager
 
 Archive manager plugin for DeepSeek Harness (DSH): an archive box entry with a
-live count badge in the sidebar footer, a manager dialog to **restore**
-(unarchive) archived sessions, a **soft-delete** recycle bin, and an opt-in
-**physical delete** (recycle bin for session log files).
+live count badge in the sidebar footer, a clean and direct dialog to **restore**
+(unarchive) archived sessions, and **彻底删除 (permanent purge)** to erase session
+logs directly from disk and reclaim storage space.
 
 ## Features
 
@@ -19,18 +19,14 @@ live count badge in the sidebar footer, a manager dialog to **restore**
   from `ctx.sessionTitle`; cold sessions read the zero-I/O `title` projection
   checkpoint from `ctx.sessionProjectionCache`; sessions without any title
   fall back to the cwd basename.
-- **Delete & Permanent Purge** — supports both soft-delete (tombstones, restorable)
-  and **彻底删除 (permanent purge)**, which invokes native Node.js `fs.rm` to
+- **Permanent Purge (彻底删除)** — invokes native Node.js `fs.rm` to
   permanently wipe the session's directory tree under `~/.dsh/profiles/...`, cleans
-  up search indexes, unarchives the session, and reclaims storage space.
-- **Physical delete (opt-in `physicalDelete: true`)** — moves the session's
-  log artifact into a plugin-owned trash directory (reversible), removes the
-  id from the archive set, and shows it in the "物理回收站" tab where it can
-  be **恢复** (moved back) or **销毁** (irreversible unlink).
+  up search indexes, unarchives the session, and reclaims disk storage immediately.
 - **Search & filter** — filter by title or workspace; select-all and batch
-  restore / delete / physical-delete / destroy. Debounced input with a clear
-  button; long lists render incrementally (50 per page) with a "load more"
-  hint, so hundreds of archived sessions stay smooth on phones.
+  restore / permanent delete. Debounced input with a clear button; long lists render
+  incrementally (50 per page) with a "load more" hint.
+- **Clean Single-List Interface** — no confusing tabs; directly inspect, filter,
+  and operate on all archived sessions with numeric index badges (#1, #2...).
 - **Mobile responsive** — the dialog becomes a bottom sheet under 768px with
   safe-area padding, larger touch targets (22px checkboxes, full-row tap to
   toggle selection, 16px search input to prevent iOS focus zoom, single-line

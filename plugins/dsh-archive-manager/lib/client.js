@@ -12,8 +12,8 @@
  *   `sidebar` shell — see @deepseek-ai/dsh-client-ui-sidebar). Root-scope
  *   slot components automatically receive the `useWorkspaces` selector hook,
  *   which drives the reactive archive-count badge.
- * - Mobile: bulletproof zero-overflow responsive layout, card-based item flow,
- *   touch-friendly targets, and `dsh:open-archive-manager` event listener.
+ * - Direct Archive Manager: list, search, batch unarchive (restore), and
+ *   permanent physical deletion via Node.js fs.rm.
  */
 
 window.__ModuleLoader__.load({
@@ -51,16 +51,10 @@ window.__ModuleLoader__.load({
       }
 
       /* 头部导航 */
-      .dam-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;width:100%;box-sizing:border-box;padding-bottom:2px}
+      .dam-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;width:100%;box-sizing:border-box;padding-bottom:4px}
       .dam-title{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;min-width:0}
       .dam-close{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:0;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);font-size:20px;cursor:pointer;flex:none}
       .dam-close:hover,.dam-close:active{background:var(--dsw-alias-interactive-bg-hover)}
-
-      /* 顶部 Tabs 栏 */
-      .dam-tabs{display:flex;gap:4px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);flex:none;width:100%;box-sizing:border-box;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-      .dam-tabs::-webkit-scrollbar{display:none}
-      .dam-tab{flex:1 1 0;min-width:max-content;height:32px;padding:0 10px;border:0;border-radius:7px;background:none;color:var(--dsw-alias-label-secondary);font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
-      .dam-tab[data-active="true"]{background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv1);font-weight:600}
 
       /* 搜索与工具栏 */
       .dam-toolbar{display:flex;flex-direction:column;gap:8px;width:100%;box-sizing:border-box;flex:none;margin-top:2px}
@@ -88,7 +82,7 @@ window.__ModuleLoader__.load({
       /* 反馈与全选状态栏 */
       .dam-sub-bar{display:flex;align-items:center;justify-content:space-between;padding:4px 2px;font-size:12px;color:var(--dsw-alias-label-tertiary);box-sizing:border-box;width:100%;flex:none}
 
-      /* 滚动列表容器：底部增加足够的安全留白，避免最后一项被截断 */
+      /* 滚动列表容器：底部增加充足留白 */
       .dam-list{flex:1 1 auto;min-height:0;width:100%;max-width:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-sizing:border-box;padding:4px 4px 28px 4px}
       .dam-empty{padding:48px 16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:14px}
 
@@ -103,22 +97,21 @@ window.__ModuleLoader__.load({
       .dam-card-index{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 4px;margin-top:1px;border-radius:4px;background:var(--dsw-alias-bg-layer-2, #e5e7eb);color:var(--dsw-alias-label-tertiary, #6b7280);font-size:11px;font-weight:600;line-height:1}
       .dam-card-title{flex:1 1 auto;min-width:0;font-size:14px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 
-      /* 中间行：标签与元信息 */
+      /* 中间行：工作区标签与时间 */
       .dam-card-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary);width:100%;min-width:0;box-sizing:border-box;padding-left:26px}
       .dam-card-ws{display:inline-flex;align-items:center;gap:3px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%}
       .dam-card-date{flex:none;color:var(--dsw-alias-label-tertiary)}
 
-      /* 路径行 (仅当存在时) */
+      /* 路径行 */
       .dam-card-path{font-size:10px;color:var(--dsw-alias-label-tertiary);word-break:break-all;padding-left:26px;box-sizing:border-box;width:100%;line-height:1.3}
 
-      /* 底部操作行 */
+      /* 底部操作行：恢复与彻底删除 */
       .dam-card-ops{display:flex;align-items:center;justify-content:flex-end;gap:6px;width:100%;box-sizing:border-box;padding-top:4px;border-top:1px dashed var(--dsw-alias-border-l3);margin-top:2px}
       .dam-op-btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;cursor:pointer;white-space:nowrap}
       .dam-op-btn:hover,.dam-op-btn:active{background:var(--dsw-alias-interactive-bg-hover)}
       .dam-op-restore{color:var(--dsw-alias-state-business-primary);font-weight:500}
       .dam-op-danger{color:var(--dsw-alias-state-error-primary)}
 
-      .dam-note{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;padding:4px 2px 0}
       .dam-list-more{padding:10px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
 
       @keyframes dam-fade{from{opacity:0}to{opacity:1}}
@@ -127,10 +120,7 @@ window.__ModuleLoader__.load({
     `;
 
     function ArchiveManagerModal({ open, onClose, rpc, useWorkspaces }) {
-      const [tab, setTab] = react.useState("archived");
       const [list, setList] = react.useState([]);
-      const [deleted, setDeleted] = react.useState([]);
-      const [caps, setCaps] = react.useState({ physicalDelete: false, trashDir: "" });
       const [loading, setLoading] = react.useState(false);
       const [searchInput, setSearchInput] = react.useState("");
       const [search, setSearch] = react.useState("");
@@ -141,8 +131,6 @@ window.__ModuleLoader__.load({
       const listRef = react.useRef(null);
 
       const archivedIds = useWorkspaces((state) => state.archivedSessionIds) || [];
-      const softRows = deleted.filter((item) => item.kind !== "physical");
-      const physicalRows = deleted.filter((item) => item.kind === "physical");
 
       const notify = (text) => {
         setFeedback(text);
@@ -157,20 +145,14 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => {
         setVisibleCount(PAGE_SIZE);
-      }, [tab, search]);
+      }, [search]);
 
       const loadData = react.useCallback(async () => {
         if (!rpc) return;
         setLoading(true);
         try {
-          const [listValue, deletedValue, capsValue] = await Promise.all([
-            rpc("list", {}),
-            rpc("deleted", {}),
-            rpc("capabilities", {}),
-          ]);
-          setList(listValue || []);
-          setDeleted(deletedValue || []);
-          setCaps(capsValue || { physicalDelete: false, trashDir: "" });
+          const res = await rpc("list", {});
+          setList(res || []);
         } catch (error) {
           notify(error instanceof Error ? error.message : "加载归档列表失败");
         } finally {
@@ -207,16 +189,15 @@ window.__ModuleLoader__.load({
         }
       }, [open, loadData]);
 
-      const rows = tab === "archived" ? list : tab === "deleted" ? softRows : physicalRows;
       const filtered = react.useMemo(() => {
         const q = search.trim().toLowerCase();
-        if (!q) return rows;
-        return rows.filter((item) =>
+        if (!q) return list;
+        return list.filter((item) =>
           (item.title && item.title.toLowerCase().includes(q)) ||
           (item.workspaceTitle && item.workspaceTitle.toLowerCase().includes(q)) ||
           (item.cwd && item.cwd.toLowerCase().includes(q))
         );
-      }, [rows, search]);
+      }, [list, search]);
 
       const visible = filtered.slice(0, visibleCount);
 
@@ -258,27 +239,9 @@ window.__ModuleLoader__.load({
       };
 
       const handleRestore = (ids) => run("unarchive", ids, `已恢复 ${ids.length} 个会话`);
-      const handleSoftDelete = (ids) => {
-        if (typeof window !== "undefined" && !window.confirm(`确定删除选中的 ${ids.length} 个会话？删除后将从归档箱消失（日志文件保留，可在"已删除"中恢复）。`)) return;
-        run("delete", ids, `已删除 ${ids.length} 个会话`);
-      };
-      const handleRestoreSoft = (ids) => run("restoreDeleted", ids, `已恢复 ${ids.length} 个会话到归档箱`);
-      const handlePhysicalDelete = (ids) => {
-        if (typeof window !== "undefined" && !window.confirm(
-          `确定对 ${ids.length} 个会话执行物理删除？\n\n会话日志将从存储中移入回收站目录（${caps.trashDir || "默认回收站"}），并从归档列表移除。移动前请确认会话未在运行。\n\n可在"物理回收站"标签页恢复。`
-        )) return;
-        run("deletePhysical", ids, `已将 ${ids.length} 个会话移入物理回收站`);
-      };
-      const handleRestorePhysical = (ids) => run("restorePhysical", ids, `已从回收站恢复 ${ids.length} 个会话`);
-      const handleDestroy = (ids) => {
-        if (typeof window !== "undefined" && !window.confirm(
-          `确定销毁 ${ids.length} 个会话的日志文件？\n\n此操作不可逆，文件将被永久删除，无法恢复！`
-        )) return;
-        run("destroyPhysical", ids, `已永久销毁 ${ids.length} 个会话的日志`);
-      };
       const handlePermanentPurge = (ids) => {
         if (typeof window !== "undefined" && !window.confirm(
-          `确定彻底物理删除选中的 ${ids.length} 个会话？\n\n⚠️ 警告：此操作将直接抹除磁盘上的会话日志目录与索引，完全不可逆！`
+          `确定彻底物理删除选中的 ${ids.length} 个会话？\n\n⚠️ 警告：此操作将直接抹除磁盘上的会话日志目录与索引，彻底释放存储空间，完全不可逆！`
         )) return;
         run("permanentPurge", ids, `已彻底物理删除 ${ids.length} 个会话`);
       };
@@ -286,7 +249,6 @@ window.__ModuleLoader__.load({
       if (!open) return null;
 
       const bulk = selectedIds.length;
-      const tabCount = (label, count) => `${label} (${count})`;
 
       return react.createElement("div", { className: "dam-backdrop", onClick: onClose },
         react.createElement("div", { className: "dam-card", role: "dialog", "aria-modal": "true", onClick: (e) => e.stopPropagation() },
@@ -295,21 +257,12 @@ window.__ModuleLoader__.load({
             react.createElement("div", { className: "dam-title" },
               react.createElement("span", { "aria-hidden": "true" }, "📦"),
               react.createElement("span", null, "归档管理"),
-              react.createElement("span", { className: "dam-badge" }, archivedIds.length)
+              react.createElement("span", { className: "dam-badge" }, list.length)
             ),
             react.createElement("button", { type: "button", className: "dam-close", "aria-label": "关闭", onClick: onClose }, "✕")
           ),
 
-          // Tabs
-          react.createElement("div", { className: "dam-tabs" },
-            react.createElement("button", { type: "button", className: "dam-tab", "data-active": String(tab === "archived"), onClick: () => { setTab("archived"); setSelectedIds([]); } }, tabCount("归档列表", list.length)),
-            react.createElement("button", { type: "button", className: "dam-tab", "data-active": String(tab === "deleted"), onClick: () => { setTab("deleted"); setSelectedIds([]); } }, tabCount("已删除", softRows.length)),
-            caps.physicalDelete
-              ? react.createElement("button", { type: "button", className: "dam-tab", "data-active": String(tab === "physical"), onClick: () => { setTab("physical"); setSelectedIds([]); } }, tabCount("物理回收站", physicalRows.length))
-              : null
-          ),
-
-          // Toolbar
+          // Toolbar (搜索 + 批量操作)
           react.createElement("div", { className: "dam-toolbar" },
             react.createElement("div", { className: "dam-search-wrap" },
               react.createElement("input", {
@@ -329,20 +282,8 @@ window.__ModuleLoader__.load({
                 : null
             ),
             react.createElement("div", { className: "dam-actions" },
-              tab === "archived"
-                ? react.createElement(react.Fragment, null,
-                    react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestore(selectedIds) }, `恢复 (${bulk})`),
-                    react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handlePermanentPurge(selectedIds) }, `彻底删除 (${bulk})`)
-                  )
-                : tab === "deleted"
-                  ? react.createElement(react.Fragment, null,
-                      react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestoreSoft(selectedIds) }, `恢复 (${bulk})`),
-                      react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handlePermanentPurge(selectedIds) }, `彻底删除 (${bulk})`)
-                    )
-                  : react.createElement(react.Fragment, null,
-                      react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestorePhysical(selectedIds) }, `恢复 (${bulk})`),
-                      react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handleDestroy(selectedIds) }, `彻底销毁 (${bulk})`)
-                    )
+              react.createElement("button", { type: "button", className: "dam-action dam-action-primary", disabled: bulk === 0, onClick: () => handleRestore(selectedIds) }, `恢复 (${bulk})`),
+              react.createElement("button", { type: "button", className: "dam-action dam-action-danger", disabled: bulk === 0, onClick: () => handlePermanentPurge(selectedIds) }, `彻底删除 (${bulk})`)
             )
           ),
 
@@ -362,9 +303,7 @@ window.__ModuleLoader__.load({
             loading
               ? react.createElement("div", { className: "dam-empty" }, "正在加载...")
               : filtered.length === 0
-                ? react.createElement("div", { className: "dam-empty" },
-                    tab === "archived" ? "暂无已归档会话" : tab === "deleted" ? "暂无已删除会话" : "回收站为空"
-                  )
+                ? react.createElement("div", { className: "dam-empty" }, "暂无已归档会话")
                 : react.createElement("div", { style: { width: "100%", maxWidth: "100%", boxSizing: "border-box", paddingBottom: "32px" } },
                     visible.map((item, index) => {
                       const checked = selectedIds.includes(item.id);
@@ -399,33 +338,18 @@ window.__ModuleLoader__.load({
                         // Row 2: Workspace + Date
                         react.createElement("div", { className: "dam-card-meta" },
                           react.createElement("div", { className: "dam-card-ws" }, `📁 ${item.workspaceTitle}`),
-                          item.createdAt || item.deletedAt
-                            ? react.createElement("div", { className: "dam-card-date" }, `🕒 ${new Date(item.deletedAt || item.createdAt).toLocaleDateString()}`)
+                          item.createdAt
+                            ? react.createElement("div", { className: "dam-card-date" }, `🕒 ${new Date(item.createdAt).toLocaleDateString()}`)
                             : null
                         ),
-                        // Row 3: Path (Optional)
+                        // Row 3: Path
                         item.cwd
                           ? react.createElement("div", { className: "dam-card-path", title: item.cwd }, `📍 ${item.cwd}`)
                           : null,
-                        item.trashPath
-                          ? react.createElement("div", { className: "dam-card-path", title: item.trashPath }, `🗑 ${item.trashPath}`)
-                          : null,
-                        // Row 4: Actions (Dedicated bottom right bar)
+                        // Row 4: Actions (Restore & Permanent Purge)
                         react.createElement("div", { className: "dam-card-ops", onClick: (e) => e.stopPropagation() },
-                          tab === "archived"
-                            ? react.createElement(react.Fragment, null,
-                                react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestore([item.id]) }, "恢复"),
-                                react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handlePermanentPurge([item.id]) }, "彻底删除")
-                              )
-                            : tab === "deleted"
-                              ? react.createElement(react.Fragment, null,
-                                  react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestoreSoft([item.id]) }, "恢复"),
-                                  react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handlePermanentPurge([item.id]) }, "彻底删除")
-                                )
-                              : react.createElement(react.Fragment, null,
-                                  react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestorePhysical([item.id]) }, "恢复"),
-                                  react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handleDestroy([item.id]) }, "销毁")
-                                )
+                          react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestore([item.id]) }, "恢复"),
+                          react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handlePermanentPurge([item.id]) }, "彻底删除")
                         )
                       );
                     }),
@@ -433,11 +357,7 @@ window.__ModuleLoader__.load({
                       ? react.createElement("div", { className: "dam-list-more" }, `已显示 ${visible.length} / ${filtered.length}，向下滚动加载更多`)
                       : null
                   )
-          ),
-
-          tab === "archived" && caps.physicalDelete
-            ? react.createElement("div", { className: "dam-note" }, "物理删除会将会话日志移入回收站目录（非即时销毁），仅对非运行中的会话生效。")
-            : null
+          )
         )
       );
     }
