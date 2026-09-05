@@ -117,6 +117,24 @@ export function shouldHandleHistoryGesture(direction, ctx) {
 }
 
 /**
+ * Whether this keydown should record the composer draft as a sent prompt.
+ * Default DSH send never enters phase "submitting" (it uses a detached sink
+ * while phase stays "plain"), so history must be captured on Enter / Cmd+Enter
+ * rather than waiting for a submit-plane transition.
+ * Shift+Enter is a newline and must not record.
+ * @param {{ key?: string, shiftKey?: boolean, ctrlKey?: boolean, metaKey?: boolean, altKey?: boolean, isComposing?: boolean, keyCode?: number }} event
+ * @returns {boolean}
+ */
+export function isComposerSendKey(event) {
+  if (!event) return false;
+  if (event.isComposing || event.keyCode === 229) return false;
+  if (event.altKey) return false;
+  if (event.key !== 'Enter') return false;
+  if (event.shiftKey) return false;
+  return true;
+}
+
+/**
  * Whether a DOM node is the conversation composer surface.
  * @param {Element | null | undefined} el
  * @returns {boolean}

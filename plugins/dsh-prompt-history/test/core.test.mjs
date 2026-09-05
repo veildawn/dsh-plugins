@@ -12,6 +12,7 @@ import {
   isSendButton,
   classifySwipe,
   shouldHandleHistoryGesture,
+  isComposerSendKey,
   sanitizeHistory,
   mergeHistories,
   pushHistory,
@@ -413,4 +414,14 @@ test('classifySwipe - fast vertical flicks only', () => {
 
 test('DEFAULT_MAX_HISTORY is 200', () => {
   assert.equal(DEFAULT_MAX_HISTORY, 200);
+});
+
+test('isComposerSendKey - Enter sends, Shift+Enter does not', () => {
+  assert.equal(isComposerSendKey({ key: 'Enter' }), true);
+  assert.equal(isComposerSendKey({ key: 'Enter', metaKey: true }), true);
+  assert.equal(isComposerSendKey({ key: 'Enter', ctrlKey: true }), true);
+  assert.equal(isComposerSendKey({ key: 'Enter', shiftKey: true }), false);
+  assert.equal(isComposerSendKey({ key: 'Enter', altKey: true }), false);
+  assert.equal(isComposerSendKey({ key: 'Enter', isComposing: true }), false);
+  assert.equal(isComposerSendKey({ key: 'ArrowUp' }), false);
 });

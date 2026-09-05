@@ -68,6 +68,15 @@ window.__ModuleLoader__.load({
       return /发送消息|Send message/i.test(label);
     }
 
+    function isComposerSendKey(event) {
+      if (!event) return false;
+      if (event.isComposing || event.keyCode === 229) return false;
+      if (event.altKey) return false;
+      if (event.key !== "Enter") return false;
+      if (event.shiftKey) return false;
+      return true;
+    }
+
     function classifySwipe(gesture) {
       const deltaX = Number(gesture?.deltaX) || 0;
       const deltaY = Number(gesture?.deltaY) || 0;
@@ -418,7 +427,6 @@ window.__ModuleLoader__.load({
       }
 
       function handleKeyDown(e) {
-        if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
         const target = e.target;
         const el = eventElement(target);
         if (!isComposerTarget(el)) return;
@@ -428,6 +436,7 @@ window.__ModuleLoader__.load({
         const session = currentSession();
 
         if (e.key === "Escape") {
+          if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
           const restored = session.restoreDraft();
           if (restored.changed) {
             e.preventDefault();
@@ -436,7 +445,7 @@ window.__ModuleLoader__.load({
           return;
         }
 
-        if (e.key === "Enter" && typeof access.setDraft !== "function") {
+        if (isComposerSendKey(e)) {
           if (!isTriggerMenuOpen(document)) {
             const draft = currentDraft(getComposerCaret(el).text);
             if (draft.trim()) recordPrompt(draft, access.sessionId);
@@ -444,6 +453,7 @@ window.__ModuleLoader__.load({
           return;
         }
 
+        if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
         if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
         if (isTriggerMenuOpen(document)) return;
         if (!canWrite()) return;
@@ -468,7 +478,6 @@ window.__ModuleLoader__.load({
       }
 
       function handleClick(e) {
-        if (typeof access.setDraft === "function") return;
         if (!isSendButton(e.target)) return;
         const draft = currentDraft();
         if (draft.trim()) recordPrompt(draft, access.sessionId);

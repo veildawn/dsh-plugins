@@ -21,7 +21,7 @@ DeepSeek Harness (DSH) 提示词历史导航与跨端同步插件（Shell-like P
 ```bash
 cd plugins/dsh-prompt-history
 npm pack
-dsh plugin add --profile web ./dsh-prompt-history-0.3.1.tgz
+dsh plugin add --profile web ./dsh-prompt-history-0.3.2.tgz
 ```
 
 ### 2. 重启生效
