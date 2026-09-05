@@ -245,12 +245,13 @@ window.__ModuleLoader__.load({
       .fv-shell[data-mobile="true"]{width:100%!important;border-left:none!important}
       .fv-shell[data-mobile="true"] .fv-btn-fullscreen{display:none!important}
       .fv-shell[data-mobile="true"] .fv-resizer{display:none!important}
-      .fv-shell[data-mobile="true"] .fv-tree{width:100%!important;border-right:none;padding:4px 2px}
-      .fv-shell[data-mobile="true"] .fv-row{min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
+      .fv-shell[data-mobile="true"] .fv-tree{flex:1 1 auto!important;width:100%!important;min-width:0!important;max-width:none!important;border-right:none!important;padding:6px 6px!important}
+      .fv-shell[data-mobile="true"] .fv-row-seat{width:100%!important;max-width:none!important}
+      .fv-shell[data-mobile="true"] .fv-row{flex:1 1 auto!important;min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
       .fv-shell[data-mobile="true"] .fv-tree-status{padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
       .fv-shell[data-mobile="true"] .fv-row .fv-glyph{margin-top:2px}
       .fv-shell[data-mobile="true"] .fv-row-name{white-space:normal;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:13px}
-      .fv-shell[data-mobile="true"] .fv-row-size{margin-top:2px;font-size:10px;opacity:.85;flex-shrink:0}
+      .fv-shell[data-mobile="true"] .fv-row-size{margin-top:2px;font-size:10px;opacity:.85;flex-shrink:0;margin-left:auto}
       .fv-shell[data-mobile="true"] .fv-body[data-pane="content"] .fv-tree,
       .fv-shell[data-mobile="true"] .fv-body[data-pane="tree"] .fv-main{display:none!important}
       .fv-shell[data-mobile="true"] .fv-crumbs{font-size:11px}
@@ -259,12 +260,13 @@ window.__ModuleLoader__.load({
         .fv-shell{width:100%!important;border-left:none!important}
         .fv-btn-fullscreen{display:none!important}
         .fv-resizer{display:none!important}
-        .fv-tree{width:100%!important;border-right:none;padding:4px 2px}
-        .fv-row{min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
+        .fv-tree{flex:1 1 auto!important;width:100%!important;min-width:0!important;max-width:none!important;border-right:none!important;padding:6px 6px!important}
+        .fv-row-seat{width:100%!important;max-width:none!important}
+        .fv-row{flex:1 1 auto!important;min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
         .fv-tree-status{padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
         .fv-row .fv-glyph{margin-top:2px}
         .fv-row-name{white-space:normal;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:13px}
-        .fv-row-size{margin-top:2px;font-size:10px;opacity:.85;flex-shrink:0}
+        .fv-row-size{margin-top:2px;font-size:10px;opacity:.85;flex-shrink:0;margin-left:auto}
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none!important}
         .fv-crumbs{font-size:11px}
         .fv-file-path{display:none!important}
@@ -303,13 +305,14 @@ window.__ModuleLoader__.load({
         .fv-shell{width:100%!important;border-left:none!important}
         .fv-btn-fullscreen{display:none!important}
         .fv-resizer{display:none!important}
-        .fv-tree{width:100%!important;border-right:none;padding:4px 2px}
-        .fv-row{min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
+        .fv-tree{flex:1 1 auto!important;width:100%!important;min-width:0!important;max-width:none!important;border-right:none;padding:6px 6px}
+        .fv-row-seat{width:100%!important;max-width:none!important}
+        .fv-row{flex:1 1 auto!important;min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
         .fv-tree-status{padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
         .fv-row .fv-glyph{margin-top:2px}
         .fv-row-name{white-space:normal;word-break:break-all;overflow-wrap:anywhere;line-height:1.35;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-size:13px}
-        .fv-row-size{margin-top:2px;font-size:10px;opacity:.85;flex-shrink:0}
-        .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none}
+        .fv-row-size{margin-top:2px;font-size:10px;opacity:.85;flex-shrink:0;margin-left:auto}
+        .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none!important}
         .fv-crumbs{font-size:11px}
         .fv-file-path{display:none!important}
         .fv-context-backdrop{background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:fv-fade .16s ease-out}
@@ -845,7 +848,7 @@ window.__ModuleLoader__.load({
               className: row.expanded ? "fv-glyph fv-glyph-open" : "fv-glyph",
               "aria-hidden": "true",
             }, isDirectory ? "▸" : "·"),
-            react.createElement("span", { className: "fv-row-name" }, entry.name),
+            react.createElement("span", { className: "fv-row-name" }, (entry && (entry.name || baseNameOf(entry.path) || entry.path)) || ""),
             typeof entry.size === "number" && !isDirectory
               ? react.createElement("span", { className: "fv-row-size" }, formatBytes(entry.size))
               : null),
@@ -1649,7 +1652,7 @@ window.__ModuleLoader__.load({
                 // button vanish with no way to reach it.
                 onMention: mention,
                 onContextMenu: (ctx) => setContextMenu(ctx),
-                width: treeWidth,
+                width: isMobile ? undefined : treeWidth,
               }),
               react.createElement("div", {
                 className: "fv-resizer",

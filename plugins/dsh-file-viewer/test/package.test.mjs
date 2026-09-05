@@ -1059,4 +1059,6 @@ test('mobile tree layout wraps long filenames and tightens indentation', () => {
   assert.match(source, /\.fv-shell\[data-mobile="true"\]\{width:100%!important;border-left:none!important\}/)
   assert.match(source, /\.fv-shell\[data-mobile="true"\] \.fv-body\[data-pane="tree"\] \.fv-main\{display:none!important\}/)
   assert.match(source, /"data-mobile": isMobile \? "true" : "false"/)
+  assert.match(source, /width: isMobile \? undefined : treeWidth/)
+  assert.match(source, /\.fv-tree\{flex:1 1 auto!important;width:100%!important;min-width:0!important;max-width:none!important/)
 })
