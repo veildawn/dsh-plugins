@@ -205,10 +205,24 @@ window.__ModuleLoader__.load({
             setError("");
           }
           try {
+            // DSH >= 0.1.2-rc.1 removed connection.api; the model catalog moved to
+            // the typed remote namespace (session.modelCatalog). Older deployments
+            // that still expose connection.api.llm.models keep the legacy path.
+            const catalogPromise = ctx.remote?.session?.modelCatalog
+              ? ctx.remote.session.modelCatalog()
+              : props.api?.llm?.models({});
             const [settingsView, modelsResponse] = await Promise.all([
-              settingsRequest("describe", {}, props.api), props.api.llm.models({}),
+              settingsRequest("describe", {}, props.api), catalogPromise,
             ]);
-            if (!modelsResponse.result.ok) throw new Error(modelsResponse.result.error.message);
+            const modelsValue = modelsResponse.ok === true
+              ? modelsResponse.value
+              : modelsResponse.result?.ok === true ? modelsResponse.result.value : null;
+            if (!modelsValue) {
+              const detail = modelsResponse.ok === false
+                ? modelsResponse.error?.message
+                : modelsResponse.result?.error?.message;
+              throw new Error(detail || "模型目录请求失败");
+            }
             const next = configurableRoutes(settingsView.value?.roles).map((route) => ({ ...route }));
             const nextAdvisor = {
               enabled: false, subagents: false, provider: "spawn", maxTranscriptChars: 60000,
@@ -216,8 +230,8 @@ window.__ModuleLoader__.load({
             };
             setWritable(settingsView.writable);
             setRevision(settingsView.revision);
-            setGroups(modelsResponse.result.value.groups || []);
-            setFailures(modelsResponse.result.value.failures || []);
+            setGroups(modelsValue.groups || []);
+            setFailures(modelsValue.failures || []);
             if (!silent || !dirtyRef.current) {
               setRoles(next);
               setAdvisor(nextAdvisor);
