@@ -152,7 +152,8 @@ test('core: listSummaries reads the real session title from live sessions and th
     get: (session) => session.id === 's1' ? { title: '为 DSH 开发归档管理器' } : undefined,
   };
   const projectionCache = {
-    cachedSnapshot: (header) => {
+    cachedSnapshot: (header, offset) => {
+      assert.equal(typeof offset, 'number');
       if (String(header.id) === 's2') return { asOfSeq: 5, values: { title: '设计一个归档管理插件' } };
       return undefined;
     },

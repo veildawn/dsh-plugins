@@ -74,8 +74,15 @@ export function resolveTrashDir(options) {
   }
 }
 
-export function errorResult(message, code = 'bad-request') {
-  return { ok: false, error: { code, message } }
+export function errorResult(message, code = 'bad-request', details = {}) {
+  return {
+    ok: false,
+    error: {
+      code,
+      message,
+      details: typeof details === 'object' && details !== null && !Array.isArray(details) ? details : {},
+    },
+  }
 }
 
 export function okResult(value) {
@@ -252,28 +259,35 @@ export async function destroyPhysicalSessions(ctx, scope, sessionIds, fsd = node
 /**
  * Resolve the durable session title:
  * 1. Live session -> `ctx.sessionTitle.get(session)` (real-time folded title).
- * 2. Cold session -> `ctx.sessionProjectionCache.cachedSnapshot(header)` —
+ * 2. Cold session -> `ctx.sessionProjectionCache.cachedSnapshot(header, 0)` —
  *    the `title` projection key (string | null), zero-I/O checkpoint read.
- * 3. Fallback -> the cwd basename (what this plugin used before).
+ *    Note: cachedSnapshot requires inheritedEventCount (pass 0).
+ * 3. Fallback -> the cwd basename.
+ * Wrapped in try-catch so an unexpected fault in title resolution never breaks
+ * listing the archived sessions.
  */
 function resolveSessionTitle(ctx, sessionId, liveSessions, headers) {
-  const live = liveSessions?.get?.(sessionId)
-  if (live) {
-    const service = ctx.get?.('sessionTitle')
-    const snapshot = typeof service?.get === 'function' ? service.get(live) : undefined
-    if (snapshot && typeof snapshot.title === 'string' && snapshot.title) return snapshot.title
-  }
-  const header = live?.header ?? headers.get(String(sessionId))
-  if (header) {
-    const cache = ctx.get?.('sessionProjectionCache')
-    if (typeof cache?.cachedSnapshot === 'function') {
-      const snapshot = cache.cachedSnapshot(header)
-      const title = snapshot?.values?.title
-      if (typeof title === 'string' && title) return title
+  try {
+    const live = liveSessions?.get?.(sessionId)
+    if (live) {
+      const service = ctx.get?.('sessionTitle')
+      const snapshot = typeof service?.get === 'function' ? service.get(live) : undefined
+      if (snapshot && typeof snapshot.title === 'string' && snapshot.title) return snapshot.title
     }
+    const header = live?.header ?? headers.get(String(sessionId))
+    if (header) {
+      const cache = ctx.get?.('sessionProjectionCache')
+      if (typeof cache?.cachedSnapshot === 'function') {
+        const snapshot = cache.cachedSnapshot(header, 0)
+        const title = snapshot?.values?.title
+        if (typeof title === 'string' && title) return title
+      }
+    }
+    const cwd = header?.cwd
+    if (cwd) return cwd.split(/[\\/]/).filter(Boolean).pop() || cwd
+  } catch {
+    // Fall through to fallback
   }
-  const cwd = header?.cwd
-  if (cwd) return cwd.split(/[\\/]/).filter(Boolean).pop() || cwd
   return `会话 ${String(sessionId).slice(0, 8)}`
 }
 
@@ -424,7 +438,8 @@ export async function handleArchiveRpc(ctx, scope, options, method, payload) {
         return errorResult(`unknown method '${method}'`, 'method-not-found')
     }
   } catch (error) {
-    return errorResult(error instanceof Error ? error.message : String(error), 'internal')
+    console.error('[dsh-archive-manager] RPC error in ' + method + ':', error);
+    return errorResult(error instanceof Error ? error.message : String(error), 'internal');
   }
 }
 
