@@ -105,6 +105,21 @@ window.__ModuleLoader__.load({
       return filtered;
     }
 
+    function mergeHistories(local, remote, maxItems = MAX_HISTORY) {
+      const cleanLocal = sanitizeHistory(local, maxItems);
+      const cleanRemote = sanitizeHistory(remote, maxItems);
+      const combined = [...cleanRemote];
+      for (const item of cleanLocal) {
+        if (!combined.includes(item)) combined.push(item);
+      }
+      if (combined.length > maxItems) return combined.slice(combined.length - maxItems);
+      return combined;
+    }
+
+    function normalizeSessionId(sessionId) {
+      return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+    }
+
     class PromptHistoryState {
       constructor(history = [], maxItems = MAX_HISTORY) {
         this.history = Array.isArray(history) ? [...history] : [];
@@ -172,6 +187,11 @@ window.__ModuleLoader__.load({
       }
       sync(newHistory) {
         this.state.replaceHistory(newHistory);
+      }
+      adoptRemote(remote) {
+        const merged = mergeHistories(this.history, remote, this.state.maxItems);
+        this.state.replaceHistory(merged);
+        return this.history;
       }
       navigate(direction, currentDraft) {
         const draft = typeof currentDraft === "string" ? currentDraft : "";
@@ -295,23 +315,31 @@ window.__ModuleLoader__.load({
 
       /** @type {Map<string, PromptHistorySession>} */
       const sessionMap = new Map();
+      /** @type {Map<string, { recordedForPhase: boolean, lastNonEmptyDraft: string }>} */
+      const sessionMeta = new Map();
       let activeSessionId = GLOBAL_SESSION_ID;
-      const access = { draft: "", setDraft: null, phase: "" };
-      let recordedForPhase = false;
-      let lastNonEmptyDraft = "";
+      const access = { draft: "", setDraft: null, phase: "", sessionId: GLOBAL_SESSION_ID };
       let touchStartY = 0;
       let touchStartX = 0;
       let touchStartTime = 0;
 
+      function metaFor(sessionId) {
+        const id = normalizeSessionId(sessionId);
+        let meta = sessionMeta.get(id);
+        if (!meta) {
+          meta = { recordedForPhase: false, lastNonEmptyDraft: "" };
+          sessionMeta.set(id, meta);
+        }
+        return meta;
+      }
+
       function getOrCreateSession(sessionId) {
-        const id = typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+        const id = normalizeSessionId(sessionId);
         let s = sessionMap.get(id);
         if (!s) {
           const local = loadLocalHistory(id);
           s = new PromptHistorySession(id, local);
           sessionMap.set(id, s);
-          // Sync with host in background
-          fetchHostHistory(id);
         }
         return s;
       }
@@ -321,45 +349,47 @@ window.__ModuleLoader__.load({
       }
 
       async function fetchHostHistory(sessionId) {
+        const id = normalizeSessionId(sessionId);
         const rpc = ctx.connection?.rpc;
         if (!rpc || typeof rpc.call !== "function") return;
         try {
-          const res = await rpc.call(RPC_CHANNEL, "load", { sessionId });
+          const res = await rpc.call(RPC_CHANNEL, "load", { sessionId: id });
           if (res && res.ok && Array.isArray(res.value?.history)) {
-            const history = res.value.history;
-            const s = sessionMap.get(sessionId);
+            const s = sessionMap.get(id);
             if (s) {
-              s.sync(history);
-              saveLocalHistory(sessionId, s.history);
+              s.adoptRemote(res.value.history);
+              saveLocalHistory(id, s.history);
             }
           }
-        } catch (e) {
+        } catch {
           // RPC may fail if network drops; fallback stays with local
         }
       }
 
       async function pushHostRecord(sessionId, prompt) {
+        const id = normalizeSessionId(sessionId);
         const rpc = ctx.connection?.rpc;
         if (!rpc || typeof rpc.call !== "function") return;
         try {
-          const res = await rpc.call(RPC_CHANNEL, "record", { sessionId, prompt });
+          const res = await rpc.call(RPC_CHANNEL, "record", { sessionId: id, prompt });
           if (res && res.ok && Array.isArray(res.value?.history)) {
-            const s = sessionMap.get(sessionId);
+            const s = sessionMap.get(id);
             if (s) {
-              s.sync(res.value.history);
-              saveLocalHistory(sessionId, s.history);
+              s.adoptRemote(res.value.history);
+              saveLocalHistory(id, s.history);
             }
           }
-        } catch (e) {
+        } catch {
           // RPC failed; local state already updated
         }
       }
 
-      function recordPrompt(prompt) {
-        const s = currentSession();
+      function recordPrompt(prompt, sessionId) {
+        const id = normalizeSessionId(sessionId ?? activeSessionId);
+        const s = getOrCreateSession(id);
         s.record(prompt);
-        saveLocalHistory(activeSessionId, s.history);
-        pushHostRecord(activeSessionId, prompt);
+        saveLocalHistory(id, s.history);
+        pushHostRecord(id, prompt);
       }
 
       function currentDraft(fallback) {
@@ -409,7 +439,7 @@ window.__ModuleLoader__.load({
         if (e.key === "Enter" && typeof access.setDraft !== "function") {
           if (!isTriggerMenuOpen(document)) {
             const draft = currentDraft(getComposerCaret(el).text);
-            if (draft.trim()) recordPrompt(draft);
+            if (draft.trim()) recordPrompt(draft, access.sessionId);
           }
           return;
         }
@@ -441,7 +471,7 @@ window.__ModuleLoader__.load({
         if (typeof access.setDraft === "function") return;
         if (!isSendButton(e.target)) return;
         const draft = currentDraft();
-        if (draft.trim()) recordPrompt(draft);
+        if (draft.trim()) recordPrompt(draft, access.sessionId);
       }
 
       function handleTouchStart(e) {
@@ -490,7 +520,7 @@ window.__ModuleLoader__.load({
       }
 
       function ComposerBridge(props) {
-        const sid = props?.sessionId || GLOBAL_SESSION_ID;
+        const sid = normalizeSessionId(props?.sessionId);
         const useInput = props && typeof props.useInput === "function" ? props.useInput : null;
         const snapshot = useInput
           ? useInput((s) => s)
@@ -500,25 +530,31 @@ window.__ModuleLoader__.load({
         const setDraft = props && props.inputActions ? props.inputActions.setDraft : null;
 
         react.useEffect(() => {
-          if (sid !== activeSessionId) {
-            activeSessionId = sid;
-            getOrCreateSession(sid);
-          }
+          activeSessionId = sid;
+          getOrCreateSession(sid);
+          fetchHostHistory(sid);
+        }, [sid]);
+
+        react.useEffect(() => {
+          activeSessionId = sid;
           access.draft = draft;
           access.setDraft = typeof setDraft === "function" ? setDraft : null;
           access.phase = phase || "";
-          if (draft.trim()) lastNonEmptyDraft = draft;
+          access.sessionId = sid;
 
-          const session = currentSession();
+          const meta = metaFor(sid);
+          if (draft.trim()) meta.lastNonEmptyDraft = draft;
+
+          const session = getOrCreateSession(sid);
           session.onExternalDraft(draft);
 
           const busy = phase === "submitting" || phase === "adjudicating";
-          if (busy && !recordedForPhase) {
-            recordedForPhase = true;
-            const toRecord = (draft && draft.trim()) ? draft : lastNonEmptyDraft;
-            if (toRecord && toRecord.trim()) recordPrompt(toRecord);
+          if (busy && !meta.recordedForPhase) {
+            meta.recordedForPhase = true;
+            const toRecord = (draft && draft.trim()) ? draft : meta.lastNonEmptyDraft;
+            if (toRecord && toRecord.trim()) recordPrompt(toRecord, sid);
           } else if (!busy) {
-            recordedForPhase = false;
+            meta.recordedForPhase = false;
           }
 
           return () => {

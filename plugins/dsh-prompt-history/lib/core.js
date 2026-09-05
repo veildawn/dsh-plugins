@@ -18,14 +18,42 @@ export const SWIPE_MIN_PX = 35;
 export const SWIPE_VERTICAL_RATIO = 1.5;
 
 /**
+ * Normalize a session id for storage keys and RPC.
+ * Empty / non-string values collapse to the global bucket.
+ * @param {unknown} sessionId
+ * @returns {string}
+ */
+export function normalizeSessionId(sessionId) {
+  return typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+}
+
+/**
  * Convert a sessionId into a safe filename (e.g., session-123.json).
  * @param {string} sessionId
  * @returns {string}
  */
 export function sessionFileName(sessionId) {
-  const raw = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+  const raw = normalizeSessionId(sessionId);
   const safe = raw.replace(/[^a-zA-Z0-9_.-]/g, (c) => '_' + c.charCodeAt(0).toString(16) + '_');
   return `${safe}.json`;
+}
+
+/**
+ * Structured RPC failure used by the host channel.
+ * @param {string} code
+ * @param {string} message
+ * @param {object} [details]
+ */
+export function rpcFailure(code, message, details = {}) {
+  return { ok: false, error: { code, message, details } };
+}
+
+/**
+ * Structured RPC success.
+ * @param {unknown} value
+ */
+export function rpcOk(value) {
+  return { ok: true, value };
 }
 
 /**
@@ -338,6 +366,18 @@ export class PromptHistorySession {
     this.state.replaceHistory(newHistory);
   }
 
+  /**
+   * Adopt a remote snapshot without dropping local-only entries.
+   * Remote order wins for shared items; local-only prompts are appended.
+   * @param {string[]} remote
+   * @returns {string[]}
+   */
+  adoptRemote(remote) {
+    const merged = mergeHistories(this.history, remote, this.state.maxItems);
+    this.state.replaceHistory(merged);
+    return this.history;
+  }
+
   navigate(direction, currentDraft) {
     const draft = typeof currentDraft === 'string' ? currentDraft : '';
     const result = direction === 'up'
@@ -388,7 +428,7 @@ export class SessionHistoryManager {
    * @returns {PromptHistorySession}
    */
   get(sessionId, initialHistory) {
-    const id = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+    const id = normalizeSessionId(sessionId);
     let s = this.sessions.get(id);
     if (!s) {
       s = new PromptHistorySession(id, initialHistory || [], this.maxItems);
@@ -404,7 +444,7 @@ export class SessionHistoryManager {
    * @param {string} sessionId
    */
   remove(sessionId) {
-    const id = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
+    const id = normalizeSessionId(sessionId);
     this.sessions.delete(id);
   }
 }

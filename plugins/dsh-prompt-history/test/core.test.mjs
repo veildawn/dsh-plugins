@@ -25,6 +25,7 @@ import {
   MAX_PROMPT_CHARS,
   SWIPE_MIN_PX,
   GLOBAL_SESSION_ID,
+  normalizeSessionId,
 } from '../lib/core.js';
 
 import {
@@ -91,7 +92,8 @@ test('Host persistence and RPC - load, record, and clear against filesystem', as
 
   // 1. Initial load should be empty
   const initial = await loadSessionHistory(testSession);
-  assert.deepEqual(initial, []);
+  assert.deepEqual(initial.history, []);
+  assert.equal(initial.missing, true);
 
   // 2. Record new prompts
   const after1 = await recordSessionPrompt(testSession, 'first prompt');
@@ -123,7 +125,61 @@ test('Host persistence and RPC - load, record, and clear against filesystem', as
   assert.deepEqual(rpcClear.value.history, []);
 
   const afterClear = await loadSessionHistory(testSession);
-  assert.deepEqual(afterClear, []);
+  assert.deepEqual(afterClear.history, []);
+  assert.equal(afterClear.missing, true);
+});
+
+test('Host record serializes concurrent writes for one session', async (t) => {
+  const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-test-lock-'));
+  const origDshHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = tmpHome;
+  t.after(async () => {
+    if (origDshHome !== undefined) process.env.DSH_HOME = origDshHome;
+    else delete process.env.DSH_HOME;
+    await fs.rm(tmpHome, { recursive: true, force: true });
+  });
+
+  const sid = 'concurrent-session';
+  await Promise.all([
+    recordSessionPrompt(sid, 'alpha'),
+    recordSessionPrompt(sid, 'beta'),
+    recordSessionPrompt(sid, 'gamma'),
+  ]);
+  const { history } = await loadSessionHistory(sid);
+  assert.equal(history.length, 3);
+  assert.deepEqual(new Set(history), new Set(['alpha', 'beta', 'gamma']));
+});
+
+test('Host load does not treat corrupt JSON as empty history', async (t) => {
+  const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-test-bad-'));
+  const origDshHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = tmpHome;
+  t.after(async () => {
+    if (origDshHome !== undefined) process.env.DSH_HOME = origDshHome;
+    else delete process.env.DSH_HOME;
+    await fs.rm(tmpHome, { recursive: true, force: true });
+  });
+
+  const sid = 'corrupt-session';
+  await fs.mkdir(path.dirname(sessionFilePath(sid)), { recursive: true });
+  await fs.writeFile(sessionFilePath(sid), '{not json', 'utf8');
+  await assert.rejects(() => loadSessionHistory(sid));
+  const rpc = await handleRpc({}, 'load', { sessionId: sid });
+  assert.equal(rpc.ok, false);
+  assert.equal(typeof rpc.error.code, 'string');
+  assert.equal(typeof rpc.error.message, 'string');
+});
+
+test('PromptHistorySession.adoptRemote merges instead of replacing', () => {
+  const session = new PromptHistorySession('s1', ['local-only', 'shared']);
+  session.adoptRemote(['shared', 'remote-only']);
+  assert.deepEqual(session.history, ['shared', 'remote-only', 'local-only']);
+});
+
+test('normalizeSessionId collapses empty values to global', () => {
+  assert.equal(normalizeSessionId(''), GLOBAL_SESSION_ID);
+  assert.equal(normalizeSessionId(null), GLOBAL_SESSION_ID);
+  assert.equal(normalizeSessionId('  abc  '), 'abc');
 });
 
 test('isCaretOnFirstLine', () => {

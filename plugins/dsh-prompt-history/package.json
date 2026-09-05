@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-history",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Per-session prompt history with host disk persistence and cross-browser synchronization for DeepSeek Harness",
   "type": "module",
   "main": "lib/index.js",
