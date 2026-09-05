@@ -457,51 +457,64 @@ window.__ModuleLoader__.load({
       const nativeOpenPath = workspaces.openPath.bind(workspaces);
       workspaces.openPath = async function(path) {
         const isLoopback = ctx.connection && ctx.connection.isLoopback === true;
-        if (!isLoopback) {
-          openViewerForPath(openStore, sessionStore, path);
-          return;
-        }
-        try {
-          return await nativeOpenPath(path);
-        } catch (err) {
-          void err;
-          openViewerForPath(openStore, sessionStore, path);
+        openViewerForPath(openStore, sessionStore, path);
+        if (isLoopback) {
+          try { nativeOpenPath(path).catch(() => {}); } catch (_) {}
         }
       };
     }
 
-    function wrapSessionOpenWorkspacePath(ctx, openStore, sessionStore) {
-      let remote
-      try {
-        remote = ctx.remote
-      } catch {
-        return
-      }
-      const session = remote && remote.session;
+    function hookSession(session, openStore, sessionStore) {
       if (!session || typeof session.openWorkspacePath !== "function" || wiredOpenPath === null || wiredOpenPath.has(session)) return;
       wiredOpenPath.add(session);
       const nativeOpen = session.openWorkspacePath.bind(session);
       session.openWorkspacePath = async function(request, signal) {
         const path = request && typeof request.path === "string" ? request.path : "";
-        if (path === "") return nativeOpen(request, signal);
-        const isLoopback = ctx.connection && ctx.connection.isLoopback === true;
-        if (!isLoopback) {
+        if (path !== "") {
           openViewerForPath(openStore, sessionStore, path);
           return { ok: true, value: { opened: true } };
         }
-        try {
-          const result = await nativeOpen(request, signal);
-          if (result && result.ok === false) {
-            openViewerForPath(openStore, sessionStore, path);
-            return { ok: true, value: { opened: true } };
-          }
-          return result;
-        } catch (err) {
-          void err;
-          openViewerForPath(openStore, sessionStore, path);
-          return { ok: true, value: { opened: true } };
-        }
+        return nativeOpen(request, signal);
       };
+    }
+
+    function wrapSessionOpenWorkspacePath(ctx, openStore, sessionStore) {
+      if (!ctx) return;
+      let remote;
+      try {
+        remote = ctx.remote;
+      } catch (_) {
+        remote = undefined;
+      }
+      const session = (ctx && ctx["remote.session"]) || (remote && remote.session);
+      if (session) hookSession(session, openStore, sessionStore);
+    }
+
+    function setupGlobalFileClickInterceptor(openStore, sessionStore) {
+      if (typeof document === "undefined") return;
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!target || typeof target.closest !== "function") return;
+        const btn = target.closest("button");
+        if (!btn) return;
+        if (btn.closest(".fv-shell") || btn.closest(".fv-float-entry") || btn.closest(".fv-context-menu")) return;
+
+        const cls = typeof btn.className === "string" ? btn.className : "";
+        const isMention = cls.includes("fileMention") || cls.includes("_file_") || btn.hasAttribute("data-file-path");
+        const isCodeParent = Boolean(btn.closest("code"));
+
+        if (isMention || isCodeParent) {
+          const raw = (btn.getAttribute("data-file-path") || btn.title || btn.textContent || "").trim();
+          const match = raw.match(/^@?(?:`([^`]+)`|"([^"]+)"|'([^']+)'|(\S+))/);
+          const candidate = (match ? (match[1] || match[2] || match[3] || match[4]) : raw).trim();
+          if (candidate && (candidate.includes("/") || candidate.includes("\\") || /\.[a-zA-Z0-9_-]+$/.test(candidate))) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+            openViewerForPath(openStore, sessionStore, candidate);
+          }
+        }
+      }, true);
     }
 
     function baseNameOf(path) {
@@ -1841,12 +1854,37 @@ window.__ModuleLoader__.load({
         order: -10,
       }, ViewerHeaderAction));
 
-      // Conversation path clicks currently call
-      // ctx.remote.session.openWorkspacePath. Older hosts used
-      // workspaces.openPath. Wrap both so a mention/path click opens this
-      // drawer instead of (or after failing) the native desktop opener.
+      // Global capture click listener catches file mentions before host handlers
+      setupGlobalFileClickInterceptor(openStore, sessionStore);
+
+      // Wrap legacy workspaces.openPath
       wrapWorkspaceOpenPath(ctx, openStore, sessionStore);
-      ctx.inject && ctx.inject(["remote"], (remoteCtx) => {
+
+      // Hook remote.session.openWorkspacePath across all injection timings
+      wrapSessionOpenWorkspacePath(ctx, openStore, sessionStore);
+
+      const tryHookRemote = (remoteCtx) => {
+        if (!remoteCtx) return;
+        wrapSessionOpenWorkspacePath(remoteCtx, openStore, sessionStore);
+        if (remoteCtx.remote) {
+          let cached = remoteCtx.remote.session;
+          if (cached) hookSession(cached, openStore, sessionStore);
+          try {
+            Object.defineProperty(remoteCtx.remote, "session", {
+              configurable: true,
+              enumerable: true,
+              get: () => cached,
+              set: (val) => {
+                cached = val;
+                if (val) hookSession(val, openStore, sessionStore);
+              },
+            });
+          } catch (_) {}
+        }
+      };
+
+      ctx.inject && ctx.inject(["remote"], tryHookRemote);
+      ctx.inject && ctx.inject(["remote.session"], (remoteCtx) => {
         wrapSessionOpenWorkspacePath(remoteCtx, openStore, sessionStore);
       });
 
@@ -1871,7 +1909,7 @@ window.__ModuleLoader__.load({
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, ErrorBoundary,
-      openViewerForPath, wrapWorkspaceOpenPath, wrapSessionOpenWorkspacePath,
+      openViewerForPath, wrapWorkspaceOpenPath, wrapSessionOpenWorkspacePath, hookSession, setupGlobalFileClickInterceptor,
     };
     return module.exports;
   }

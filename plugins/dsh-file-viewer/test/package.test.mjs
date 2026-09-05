@@ -779,6 +779,7 @@ test('session.openWorkspacePath redirects conversation path clicks into the file
   assert.match(source, /session\.openWorkspacePath = async function\(request, signal\)/)
   assert.match(source, /ctx\.inject && ctx\.inject\(\["remote"\]/)
   assert.match(source, /openViewerForPath\(openStore, sessionStore, path\)/)
+  assert.match(source, /setupGlobalFileClickInterceptor/)
 })
 
 test('tree resizer supports dragging to adjust tree width and persists to storage', () => {
