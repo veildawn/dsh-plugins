@@ -63,6 +63,25 @@ window.__ModuleLoader__.load({
       copyLabel: "复制",
       copiedLabel: "复制成功",
     });
+    // Host ReadBlock/JsonTree now require localized copy for banners, copy
+    // buttons and expand/collapse. Missing these throws during render:
+    // "Cannot read properties of undefined (reading 'copy'|'window')".
+    const READ_BLOCK_LABELS = Object.freeze({
+      copy: "复制",
+      copied: "已复制",
+      window: (shown, total) => `第 ${shown} / ${total} 行`,
+      collapse: "收起",
+      expand: (hidden) => `展开其余 ${hidden} 行`,
+      collapseAria: "收起隐藏行",
+      expandAria: (hidden) => `展开其余 ${hidden} 行`,
+    });
+    const JSON_TREE_LABELS = Object.freeze({
+      copy: "复制",
+      copied: "已复制",
+      copyFailed: "复制失败",
+      copyValue: "复制值",
+      copyPrettyJson: "复制格式化 JSON",
+    });
 
     const IconFullscreenExitOutline16 = ({ size = 16, className }) => react.createElement("svg", {
       width: size,
@@ -916,13 +935,18 @@ window.__ModuleLoader__.load({
             ),
           }, jsonBodyOf(data.text));
         } else {
-          body = react.createElement(ReadBlock, {
+          body = react.createElement(ErrorBoundary, {
+            resetKey: data.path + ":source",
+            fallback: (err) => react.createElement("div", { className: "fv-note fv-error" },
+              react.createElement("span", null, "查看源码失败（" + (err && err.message ? err.message : "未知错误") + "）。")),
+          }, react.createElement(ReadBlock, {
             label: data.name,
             lines: data.lines,
             totalLines: data.totalLines,
             lang: data.lang,
             maxLines: data.lines.length,
-          });
+            labels: READ_BLOCK_LABELS,
+          }));
         }
 
         const pager = data.hasBefore || data.hasAfter
@@ -968,7 +992,7 @@ window.__ModuleLoader__.load({
         try {
           const parsed = JSON.parse(text);
           if (parsed !== null && typeof parsed === "object") {
-            return react.createElement(JsonTree, { data: parsed, expandTopLevel: true, copyable: true });
+            return react.createElement(JsonTree, { data: parsed, expandTopLevel: true, copyable: true, labels: JSON_TREE_LABELS });
           }
         } catch (error) {
           void error;
@@ -1799,7 +1823,7 @@ window.__ModuleLoader__.load({
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
-      MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, ErrorBoundary,
+      MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, ErrorBoundary,
     };
     return module.exports;
   }

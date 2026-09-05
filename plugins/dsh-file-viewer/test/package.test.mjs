@@ -862,3 +862,41 @@ test('markdown rendering passes required labels and is protected by ErrorBoundar
   assert.match(source, /body\s*=\s*react\.createElement\(ErrorBoundary,\s*\{[\s\S]*?MarkdownText/)
   assert.match(source, /react\.createElement\(ErrorBoundary,\s*\{[\s\S]*?FileView/)
 })
+
+test('ReadBlock and JsonTree receive required host labels so source views do not crash', () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const { internals } = definition.factory((id) =>
+    id === 'react' ? { createElement: () => null } : { ReadBlock: null, MarkdownText: null, JsonTree: null })
+
+  // Host ReadBlock accesses labels.copy / labels.window / expand-collapse copy.
+  assert.equal(typeof internals.READ_BLOCK_LABELS.copy, 'string')
+  assert.equal(typeof internals.READ_BLOCK_LABELS.copied, 'string')
+  assert.equal(typeof internals.READ_BLOCK_LABELS.window, 'function')
+  assert.equal(internals.READ_BLOCK_LABELS.window(12, 40), '第 12 / 40 行')
+  assert.equal(typeof internals.READ_BLOCK_LABELS.collapse, 'string')
+  assert.equal(typeof internals.READ_BLOCK_LABELS.expand, 'function')
+  assert.equal(typeof internals.READ_BLOCK_LABELS.collapseAria, 'string')
+  assert.equal(typeof internals.READ_BLOCK_LABELS.expandAria, 'function')
+  assert.equal(internals.READ_BLOCK_LABELS.expand(8), '展开其余 8 行')
+
+  // Host JsonTree accesses labels.copyValue / copied / copyFailed / copyPrettyJson.
+  assert.equal(typeof internals.JSON_TREE_LABELS.copy, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.copied, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.copyFailed, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.copyValue, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.copyPrettyJson, 'string')
+
+  const source = read('lib/client.js')
+  assert.match(source, /labels:\s*READ_BLOCK_LABELS/)
+  assert.match(source, /labels:\s*JSON_TREE_LABELS/)
+  assert.match(source, /react\.createElement\(ReadBlock,\s*\{[\s\S]*?labels:\s*READ_BLOCK_LABELS/)
+  assert.match(source, /react\.createElement\(JsonTree,\s*\{[\s\S]*?labels:\s*JSON_TREE_LABELS/)
+  assert.match(source, /resetKey:\s*data\.path \+ ":source"/)
+})
