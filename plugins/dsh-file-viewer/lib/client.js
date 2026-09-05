@@ -471,7 +471,12 @@ window.__ModuleLoader__.load({
     }
 
     function wrapSessionOpenWorkspacePath(ctx, openStore, sessionStore) {
-      const remote = ctx.remote;
+      let remote
+      try {
+        remote = ctx.remote
+      } catch {
+        return
+      }
       const session = remote && remote.session;
       if (!session || typeof session.openWorkspacePath !== "function" || wiredOpenPath === null || wiredOpenPath.has(session)) return;
       wiredOpenPath.add(session);
@@ -1841,7 +1846,6 @@ window.__ModuleLoader__.load({
       // workspaces.openPath. Wrap both so a mention/path click opens this
       // drawer instead of (or after failing) the native desktop opener.
       wrapWorkspaceOpenPath(ctx, openStore, sessionStore);
-      wrapSessionOpenWorkspacePath(ctx, openStore, sessionStore);
       ctx.inject && ctx.inject(["remote"], (remoteCtx) => {
         wrapSessionOpenWorkspacePath(remoteCtx, openStore, sessionStore);
       });
