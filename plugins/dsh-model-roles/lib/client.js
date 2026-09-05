@@ -31,7 +31,7 @@ window.__ModuleLoader__.load({
     const OMP_ROLES = ["default", "smol", "slow", "vision", "plan", "designer", "commit", "tiny", "task", "advisor"];
     const BUILTIN = OMP_ROLES.filter((role) => role !== "default");
     const ROLE_PATTERN = /^[a-z][a-z0-9_-]*$/;
-    const inject = ["slots", "connection", "remote"];
+    const inject = ["slots", "connection", "remote", "remote.session"];
     const copy = {
       smol: { title: "快速", detail: "自动用于短小、机械、低风险、适合低成本模型的任务。" },
       slow: { title: "深度", detail: "自动用于复杂推理、疑难调试、架构、研究或高风险正确性任务。" },

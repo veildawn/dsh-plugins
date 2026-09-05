@@ -37,7 +37,7 @@ test('browser bundle loads with the expected client services', async () => {
     if (id === '@deepseek-ai/dsh-client-ui-primitives') return { IconBranchOutline16 }
     assert.fail('unexpected browser dependency: ' + id)
   })
-  assert.deepEqual(client.inject, ['slots', 'connection', 'remote'])
+  assert.deepEqual(client.inject, ['slots', 'connection', 'remote', 'remote.session'])
   assert.deepEqual(client.internals.OMP_ROLES, [
     'default', 'smol', 'slow', 'vision', 'plan', 'designer', 'commit', 'tiny', 'task', 'advisor',
   ])
@@ -76,6 +76,9 @@ test('browser bundle loads with the expected client services', async () => {
     connection: { api: { settings: {}, llm: {} } },
     remote: {
       $on() { const stop = () => {}; stops.push(stop); return stop },
+      session: {
+        modelCatalog: async () => ({ ok: true, value: { groups: [], failures: [] } }),
+      },
     },
     slots: {
       inject(name, install) {
