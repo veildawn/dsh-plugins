@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-control",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Token-authenticated remote access gate and privileged RPC bridge for DeepSeek Harness",
   "type": "module",
   "main": "lib/index.js",

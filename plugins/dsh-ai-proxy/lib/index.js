@@ -20,15 +20,17 @@
  * @module dsh-ai-proxy
  */
 import z from '@deepseek-ai/schemastery'
-import {
-  CallId, LlmAdapter, LlmError, ProviderRequestId, ReasoningEffortId,
+import * as DshLlm from '@deepseek-ai/dsh-llm'
+
+const {
+  LlmAdapter, LlmError, ProviderRequestId, ReasoningEffortId,
   RetryPolicySchema, assertUsableApiKey, attributionHeaders, contentHasImage,
   EMPTY_RESPONSE_CODE, QUOTA_EXCEEDED_CODE, CONTEXT_WINDOW_EXCEEDED_CODE,
   isQuotaExceededError, isContextWindowExceededError, resolveRetryPolicy,
-} from '@deepseek-ai/dsh-llm'
+} = DshLlm
+const CallId = DshLlm.CallId ?? DshLlm.ToolCallId ?? ((id) => id)
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { MAX_TIMER_DELAY_MS, idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import { deepEqualJson } from '@deepseek-ai/dsh-settings'
 import { EventSourceParserStream } from 'eventsource-parser/stream'
 import {
   ACCESS_REF, REFRESH_REF, EXPIRY_REF, CLIENT_ID_PATTERN, OAuthSession,
@@ -1517,9 +1519,17 @@ export function apply(ctx, config) {
 
   const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
   let registeredPolicy = options().retryPolicy
+  const isPolicyEqual = (a, b) => {
+    if (a === b) return true
+    try {
+      return JSON.stringify(a) === JSON.stringify(b)
+    } catch {
+      return false
+    }
+  }
   const ensureRegistrationFacts = () => {
     const policy = options().retryPolicy
-    if (deepEqualJson(policy, registeredPolicy)) return
+    if (isPolicyEqual(policy, registeredPolicy)) return
     registration.replace([PROVIDER])
     registeredPolicy = policy
   }
