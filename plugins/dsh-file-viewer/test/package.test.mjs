@@ -1033,6 +1033,13 @@ test('ReadBlock and JsonTree receive required host labels so source views do not
   assert.equal(typeof internals.JSON_TREE_LABELS.copyFailed, 'string')
   assert.equal(typeof internals.JSON_TREE_LABELS.copyValue, 'string')
   assert.equal(typeof internals.JSON_TREE_LABELS.copyPrettyJson, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.copyCompactJson, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.copyJson, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.copyPath, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.collapseNode, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.expandNode, 'string')
+  assert.equal(typeof internals.JSON_TREE_LABELS.copyButtonTitle, 'function')
+  assert.equal(internals.JSON_TREE_LABELS.copyButtonTitle('复制值'), '复制选项：复制值')
 
   const source = read('lib/client.js')
   assert.match(source, /labels:\s*READ_BLOCK_LABELS/)

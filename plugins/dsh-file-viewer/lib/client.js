@@ -66,7 +66,7 @@ window.__ModuleLoader__.load({
     // Host ReadBlock/JsonTree now require localized copy for banners, copy
     // buttons and expand/collapse. Missing these throws during render:
     // "Cannot read properties of undefined (reading 'copy'|'window')".
-    const READ_BLOCK_LABELS = Object.freeze({
+    const READ_BLOCK_LABELS = new Proxy({
       copy: "复制",
       copied: "已复制",
       window: (shown, total) => `第 ${shown} / ${total} 行`,
@@ -74,13 +74,35 @@ window.__ModuleLoader__.load({
       expand: (hidden) => `展开其余 ${hidden} 行`,
       collapseAria: "收起隐藏行",
       expandAria: (hidden) => `展开其余 ${hidden} 行`,
+    }, {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        if (typeof prop === "string" && (prop === "window" || prop === "expand" || prop.endsWith("Aria"))) {
+          return (...args) => String(args[0] ?? "");
+        }
+        return "复制";
+      }
     });
-    const JSON_TREE_LABELS = Object.freeze({
+    const JSON_TREE_LABELS = new Proxy({
       copy: "复制",
       copied: "已复制",
       copyFailed: "复制失败",
       copyValue: "复制值",
+      copyJson: "复制 JSON",
       copyPrettyJson: "复制格式化 JSON",
+      copyCompactJson: "复制紧凑 JSON",
+      copyPath: "复制属性路径",
+      collapseNode: "折叠节点",
+      expandNode: "展开节点",
+      copyButtonTitle: (action) => (action ? `复制选项：${action}` : "复制选项"),
+    }, {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        if (typeof prop === "string" && prop.endsWith("Title")) {
+          return (action) => (action ? `复制选项：${action}` : "复制选项");
+        }
+        return "复制";
+      }
     });
 
     const IconFullscreenExitOutline16 = ({ size = 16, className }) => react.createElement("svg", {
@@ -1066,8 +1088,8 @@ window.__ModuleLoader__.load({
         } else if (canPreview && !raw) {
           body = react.createElement(ErrorBoundary, {
             resetKey: data.path,
-            fallback: () => react.createElement("div", { className: "fv-note fv-error" },
-              react.createElement("span", null, "渲染 JSON 结构失败。"),
+            fallback: (err) => react.createElement("div", { className: "fv-note fv-error" },
+              react.createElement("span", null, "渲染 JSON 结构失败（" + (err && err.message ? err.message : "未知错误") + "）。"),
               react.createElement("button", {
                 type: "button",
                 className: "fv-button",
