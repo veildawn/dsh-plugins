@@ -852,43 +852,189 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(task.log.some((l) => l.includes('批量更新') || l.includes('无需更新')), true)
   })
 
-  it('schedules async host restart via systemd transient scope', () => {
-    const calls = []
-    const fakeRestartSpawn = (cmd, args) => {
-      calls.push({ cmd, args })
-      const child = new EventEmitter()
-      child.unref = () => {}
-      return child
+  function withPlatform(platform, fn) {
+    const original = process.platform
+    Object.defineProperty(process, 'platform', { value: platform })
+    try {
+      return fn()
+    } finally {
+      Object.defineProperty(process, 'platform', { value: original })
     }
-    const fakeProbe = () => ({ status: 0, error: null }) // systemctl status dsh-web -> active
-    const res = handleRestartHost({}, {}, { spawnFn: fakeRestartSpawn, spawnSyncFn: fakeProbe })
-    assert.equal(res.ok, true)
-    assert.equal(res.value.scheduled, true)
-    assert.equal(res.value.method, 'systemd')
-    assert.equal(calls.length, 1)
-    assert.equal(calls[0].cmd, 'systemd-run')
-    assert.equal(calls[0].args[0], '--no-block')
-    assert.match(calls[0].args.join(' '), /systemctl restart dsh-web/)
+  }
+
+  function fakeChild() {
+    const child = new EventEmitter()
+    child.unref = () => {}
+    return child
+  }
+
+  it('schedules async host restart via systemd transient scope', () => {
+    withPlatform('linux', () => {
+      const calls = []
+      const fakeRestartSpawn = (cmd, args) => {
+        calls.push({ cmd, args })
+        return fakeChild()
+      }
+      const fakeProbe = () => ({ status: 0, error: null }) // systemctl status dsh-web -> active
+      const res = handleRestartHost({}, {}, { spawnFn: fakeRestartSpawn, spawnSyncFn: fakeProbe })
+      assert.equal(res.ok, true)
+      assert.equal(res.value.scheduled, true)
+      assert.equal(res.value.method, 'systemd')
+      assert.equal(calls.length, 1)
+      assert.equal(calls[0].cmd, 'systemd-run')
+      assert.equal(calls[0].args[0], '--no-block')
+      assert.match(calls[0].args.join(' '), /systemctl restart dsh-web/)
+    })
   })
 
   it('refuses restart when systemd unit does not exist', () => {
-    const fakeProbe = () => ({ status: 4, error: null }) // unit not found
-    const res = handleRestartHost({}, {}, {
-      spawnFn: () => { throw new Error('should not spawn') },
-      spawnSyncFn: fakeProbe,
+    withPlatform('linux', () => {
+      const fakeProbe = () => ({ status: 4, error: null }) // unit not found
+      const res = handleRestartHost({}, {}, {
+        spawnFn: () => { throw new Error('should not spawn') },
+        spawnSyncFn: fakeProbe,
+      })
+      assert.equal(res.ok, false)
+      assert.equal(res.error.code, 'restart-unavailable')
+      assert.match(res.error.message, /不存在/)
     })
-    assert.equal(res.ok, false)
-    assert.equal(res.error.code, 'restart-unavailable')
-    assert.match(res.error.message, /不存在/)
   })
 
   it('refuses restart when systemctl is unavailable', () => {
-    const fakeProbe = () => ({ status: null, error: new Error('ENOENT') })
-    const res = handleRestartHost({}, {}, {
-      spawnFn: () => { throw new Error('should not spawn') },
-      spawnSyncFn: fakeProbe,
+    withPlatform('linux', () => {
+      const fakeProbe = () => ({ status: null, error: new Error('ENOENT') })
+      const res = handleRestartHost({}, {}, {
+        spawnFn: () => { throw new Error('should not spawn') },
+        spawnSyncFn: fakeProbe,
+      })
+      assert.equal(res.ok, false)
+      assert.equal(res.error.code, 'restart-unavailable')
     })
-    assert.equal(res.ok, false)
-    assert.equal(res.error.code, 'restart-unavailable')
+  })
+
+  it('schedules async host restart on macOS via launchd gui domain', () => {
+    withPlatform('darwin', () => {
+      const calls = []
+      const prints = []
+      const fakeRestartSpawn = (cmd, args) => {
+        calls.push({ cmd, args })
+        return fakeChild()
+      }
+      const fakeProbe = (cmd, args) => {
+        prints.push({ cmd, args })
+        if (cmd === 'launchctl' && args[0] === 'print' && String(args[1]).startsWith('gui/')) {
+          return { status: 0, error: null }
+        }
+        return { status: 113, error: null }
+      }
+      const res = handleRestartHost({}, {}, {
+        spawnFn: fakeRestartSpawn,
+        spawnSyncFn: fakeProbe,
+      })
+      assert.equal(res.ok, true)
+      assert.equal(res.value.scheduled, true)
+      assert.equal(res.value.method, 'macos-launchd')
+      assert.equal(res.value.serviceName, 'com.deepseek.dsh-web')
+      assert.match(res.value.domainTarget, /^gui\/\d+\/com\.deepseek\.dsh-web$/)
+      assert.equal(calls.length, 1)
+      assert.equal(calls[0].cmd, '/bin/sh')
+      assert.equal(calls[0].args[1], 'sleep 0.8 && exec launchctl kickstart -k "$1"')
+      assert.equal(calls[0].args[3], res.value.domainTarget)
+      assert.equal(prints[0].args[1], res.value.domainTarget)
+    })
+  })
+
+  it('schedules async host restart on macOS via launchd user domain when gui is missing', () => {
+    withPlatform('darwin', () => {
+      const calls = []
+      const fakeRestartSpawn = (cmd, args) => {
+        calls.push({ cmd, args })
+        return fakeChild()
+      }
+      const fakeProbe = (cmd, args) => {
+        if (cmd === 'launchctl' && args[0] === 'print' && String(args[1]).startsWith('user/')) {
+          return { status: 0, error: null }
+        }
+        return { status: 113, error: null }
+      }
+      const res = handleRestartHost({}, { serviceName: 'com.deepseek.dsh-web' }, {
+        spawnFn: fakeRestartSpawn,
+        spawnSyncFn: fakeProbe,
+      })
+      assert.equal(res.ok, true)
+      assert.equal(res.value.method, 'macos-launchd')
+      assert.match(res.value.domainTarget, /^user\/\d+\/com\.deepseek\.dsh-web$/)
+      assert.equal(calls[0].args[3], res.value.domainTarget)
+    })
+  })
+
+  it('refuses macOS restart when launchd is not configured', () => {
+    withPlatform('darwin', () => {
+      const originalRepo = process.env.DSH_PLUGINS_REPO
+      delete process.env.DSH_PLUGINS_REPO
+      try {
+        const res = handleRestartHost({}, {}, {
+          spawnFn: () => { throw new Error('should not spawn') },
+          spawnSyncFn: () => ({ status: 113, error: null }),
+        })
+        assert.equal(res.ok, false)
+        assert.equal(res.error.code, 'restart-unavailable')
+        assert.match(res.error.message, /未配置 launchd/)
+        assert.match(res.error.message, /LaunchAgent/)
+        assert.equal(res.error.details.serviceName, 'com.deepseek.dsh-web')
+      } finally {
+        if (originalRepo === undefined) delete process.env.DSH_PLUGINS_REPO
+        else process.env.DSH_PLUGINS_REPO = originalRepo
+      }
+    })
+  })
+
+  it('refuses macOS restart when launchctl is unavailable', () => {
+    withPlatform('darwin', () => {
+      const originalRepo = process.env.DSH_PLUGINS_REPO
+      delete process.env.DSH_PLUGINS_REPO
+      try {
+        const res = handleRestartHost({}, {}, {
+          spawnFn: () => { throw new Error('should not spawn') },
+          spawnSyncFn: () => ({ status: null, error: new Error('ENOENT') }),
+        })
+        assert.equal(res.ok, false)
+        assert.equal(res.error.code, 'restart-unavailable')
+        assert.match(res.error.message, /launchctl/)
+      } finally {
+        if (originalRepo === undefined) delete process.env.DSH_PLUGINS_REPO
+        else process.env.DSH_PLUGINS_REPO = originalRepo
+      }
+    })
+  })
+
+  it('schedules macOS script restart only when DSH_PLUGINS_REPO is set', () => {
+    withPlatform('darwin', () => {
+      const originalRepo = process.env.DSH_PLUGINS_REPO
+      const repoDir = mkdtempSync(join(tmpdir(), 'dsh-pm-repo-'))
+      mkdirSync(join(repoDir, 'scripts'))
+      writeFileSync(join(repoDir, 'scripts/dsh-web.sh'), '#!/bin/sh\n', 'utf8')
+      process.env.DSH_PLUGINS_REPO = repoDir
+      try {
+        const calls = []
+        const res = handleRestartHost({}, {}, {
+          spawnFn: (cmd, args) => {
+            calls.push({ cmd, args })
+            return fakeChild()
+          },
+          spawnSyncFn: () => ({ status: 113, error: null }),
+        })
+        assert.equal(res.ok, true)
+        assert.equal(res.value.method, 'macos-script')
+        assert.equal(calls.length, 1)
+        assert.equal(calls[0].cmd, '/bin/sh')
+        assert.equal(calls[0].args[1], 'sleep 0.8 && exec "$1" restart')
+        assert.equal(calls[0].args[3], join(repoDir, 'scripts/dsh-web.sh'))
+      } finally {
+        rmSync(repoDir, { recursive: true, force: true })
+        if (originalRepo === undefined) delete process.env.DSH_PLUGINS_REPO
+        else process.env.DSH_PLUGINS_REPO = originalRepo
+      }
+    })
   })
 })

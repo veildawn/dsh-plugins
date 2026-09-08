@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.deepseek.dsh-web</string>
+
+    <!--
+      LaunchAgent 会继承用户 HOME。不要在这里写死 /Users/<name>。
+      若 dsh 不在下面 PATH 里（nvm / fnm / volta / asdf），把 ProgramArguments
+      改成 dsh 的绝对路径，例如 /Users/you/.nvm/versions/node/v22.22.1/bin/dsh
+      加参数 web，不要走 /bin/sh -c。
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>exec dsh web</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- 崩溃后由 launchd 拉起；节流避免 PATH 配错时 tight-loop -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- /tmp 默认存在，不依赖 ~/.dsh/logs 是否已创建 -->
+    <key>StandardOutPath</key>
+    <string>/tmp/dsh-web.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/dsh-web.err.log</string>
+</dict>
+</plist>

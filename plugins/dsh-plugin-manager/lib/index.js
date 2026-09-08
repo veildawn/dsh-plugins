@@ -21,6 +21,7 @@
 
 import z from '@deepseek-ai/schemastery'
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici'
 import {
@@ -717,9 +718,9 @@ export function handleRemovePlugin(options, payload, deps = {}) {
  * Handle async graceful restart of the host process.
  *
  * The service name is resolved in this order:
- *   1. payload.serviceName  (validated against an allowlist of systemd unit names)
+ *   1. payload.serviceName  (validated against an allowlist of unit / launchd labels)
  *   2. DSH_WEB_SERVICE env var
- *   3. 'dsh-web' (default unit used by the repo's systemd template)
+ *   3. platform default: 'com.deepseek.dsh-web' on darwin, 'dsh-web' elsewhere
  *
  * Restart strategy (safe by construction):
  *   - systemd (linux): schedule a detached `systemd-run --no-block` transient
@@ -734,6 +735,12 @@ export function handleRemovePlugin(options, payload, deps = {}) {
  *     would leave the service dead).
  *   - win32: detached cmd.exe invoking the repo's dsh-web.cmd with an
  *     absolute repo path resolved from DSH_PLUGINS_REPO (fallback: cwd).
+ *   - darwin (macOS): only launchd. Probe `gui/<uid>/<label>` then
+ *     `user/<uid>/<label>` via `launchctl print`; if found, schedule a
+ *     detached `sleep 0.8 && launchctl kickstart -k <domain>`. Ordinary users
+ *     do not have this repo checked out, so there is no scripts/dsh-web.sh
+ *     fallback. A maintainer may still opt in with DSH_PLUGINS_REPO pointing
+ *     at a checkout that contains scripts/dsh-web.sh.
  *   - other: refused with a clear error (no supervisor contract to rely on).
  */
 export function handleRestartHost(options, payload = {}, deps = {}) {
@@ -741,10 +748,11 @@ export function handleRestartHost(options, payload = {}, deps = {}) {
   const spawnSyncFn = deps.spawnSyncFn || spawnSync
 
   const SYSTEMD_SERVICE_RE = /^[a-zA-Z0-9_.:-]+$/
+  const defaultServiceName = process.platform === 'darwin' ? 'com.deepseek.dsh-web' : 'dsh-web'
   const serviceName = (
     (typeof payload?.serviceName === 'string' && SYSTEMD_SERVICE_RE.test(payload.serviceName) && payload.serviceName)
     || (typeof process.env.DSH_WEB_SERVICE === 'string' && SYSTEMD_SERVICE_RE.test(process.env.DSH_WEB_SERVICE) && process.env.DSH_WEB_SERVICE)
-    || 'dsh-web'
+    || defaultServiceName
   )
 
   const unavailable = (message) => ({
@@ -819,7 +827,93 @@ export function handleRestartHost(options, payload = {}, deps = {}) {
     }
   }
 
-  return unavailable('当前环境不支持平滑重启（无法识别 systemd / Windows 服务管理）。请手动重启 DeepSeek Harness 服务。')
+  if (process.platform === 'darwin') {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 501
+    const domainCandidates = [`gui/${uid}/${serviceName}`, `user/${uid}/${serviceName}`]
+
+    let launchctlError = null
+    let domainTarget = null
+    for (const candidate of domainCandidates) {
+      let probe
+      try {
+        probe = spawnSyncFn('launchctl', ['print', candidate], { stdio: 'ignore' })
+      } catch (err) {
+        launchctlError = err instanceof Error ? err.message : String(err)
+        break
+      }
+      if (probe.error) {
+        launchctlError = probe.error.message || String(probe.error)
+        break
+      }
+      if (probe.status === 0) {
+        domainTarget = candidate
+        break
+      }
+    }
+
+    if (domainTarget) {
+      try {
+        const child = spawnFn('/bin/sh', [
+          '-c',
+          'sleep 0.8 && exec launchctl kickstart -k "$1"',
+          'dsh-plugin-manager-restart',
+          domainTarget,
+        ], {
+          detached: true,
+          stdio: 'ignore',
+        })
+        if (child.unref) child.unref()
+        return {
+          ok: true,
+          value: {
+            scheduled: true,
+            method: 'macos-launchd',
+            serviceName,
+            domainTarget,
+            message: `已调度异步重启 ${serviceName}（macOS launchd kickstart ${domainTarget}），正在重启 DeepSeek Harness 服务...`,
+          },
+        }
+      } catch (err) {
+        return unavailable(`无法调度 macOS launchd 重启（${err instanceof Error ? err.message : String(err)}），请手动执行 launchctl kickstart -k ${domainTarget}`)
+      }
+    }
+
+    const repoDir = typeof process.env.DSH_PLUGINS_REPO === 'string' ? process.env.DSH_PLUGINS_REPO.trim() : ''
+    const script = repoDir ? join(repoDir, 'scripts/dsh-web.sh') : ''
+    if (script && existsSync(script)) {
+      try {
+        const child = spawnFn('/bin/sh', [
+          '-c',
+          'sleep 0.8 && exec "$1" restart',
+          'dsh-plugin-manager-restart',
+          script,
+        ], {
+          detached: true,
+          stdio: 'ignore',
+        })
+        if (child.unref) child.unref()
+        return {
+          ok: true,
+          value: {
+            scheduled: true,
+            method: 'macos-script',
+            serviceName,
+            message: '已调度异步重启 dsh web 服务（DSH_PLUGINS_REPO 维护者脚本），正在重启 DeepSeek Harness 服务...',
+          },
+        }
+      } catch (err) {
+        return unavailable(`无法调度 macOS 脚本重启（${err instanceof Error ? err.message : String(err)}）。请手动执行 ${script} restart`)
+      }
+    }
+
+    if (launchctlError) {
+      return unavailable(`无法调用 launchctl（${launchctlError}）。请将 DSH 配置为用户 LaunchAgent（~/Library/LaunchAgents/${serviceName}.plist）后使用 launchctl bootstrap/kickstart，或在终端手动重启。`)
+    }
+
+    return unavailable(`当前 macOS 环境未配置 launchd 服务（已探测 ${domainCandidates.join('、')}）。请将 DSH 配置为用户 LaunchAgent（~/Library/LaunchAgents/${serviceName}.plist），执行 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/${serviceName}.plist 后即可使用平滑重启。`)
+  }
+
+  return unavailable('当前环境不支持平滑重启（无法识别 systemd / Windows / macOS 服务管理）。请手动重启 DeepSeek Harness 服务。')
 }
 
 export function apply(ctx, config) {

@@ -740,7 +740,7 @@ window.__ModuleLoader__.load({
                   : "🔄 正在平滑重启 DeepSeek Harness 服务…"),
             react.createElement("div", { style: { fontSize: "12px", color: "var(--dsw-alias-label-secondary)" } },
               restartingState === "ready" ? "新实例已就绪，正在自动刷新页面恢复..."
-                : restartingState === "timeout" ? "90 秒内未能确认新实例就绪。请检查服务进程（systemctl status dsh-web）或稍后手动重试。"
+                : restartingState === "timeout" ? "90 秒内未能确认新实例就绪。请检查服务进程状态或稍后手动重试。"
                   : "后台正在重新拉起守护进程，前端正自动探测端口并在就绪后无缝恢复，请稍候..."),
             restartingState === "timeout" ? react.createElement("button", {
               className: "dm-action-btn primary",
