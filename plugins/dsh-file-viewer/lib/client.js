@@ -238,6 +238,9 @@ window.__ModuleLoader__.load({
       .fv-context-item-icon{display:inline-grid;place-items:center;width:18px;height:18px;flex:none;color:var(--dsw-alias-label-secondary);font-size:14px}
       .fv-context-item-label{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
       .fv-context-divider{height:1px;margin:3px 4px;background:var(--dsw-alias-border-l1)}
+      .fv-context-head{padding:4px 8px 6px;border-bottom:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:2px;margin-bottom:3px}
+      .fv-context-title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);word-break:break-all;line-height:1.3}
+      .fv-context-path{font-size:11px;color:var(--dsw-alias-label-tertiary);word-break:break-all;line-height:1.3}
       .fv-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:110;padding:8px 18px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-button-floating-fill,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;box-shadow:var(--dsw-shadow-lv3);pointer-events:none;animation:fv-toast-in .15s ease-out}
       @keyframes fv-toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
       .fv-float-entry{display:none}
@@ -1263,8 +1266,10 @@ window.__ModuleLoader__.load({
             onContextMenu: (e) => e.preventDefault(),
           },
             react.createElement("div", { className: "fv-context-head" },
-              react.createElement("div", { className: "fv-context-title" }, entry.name),
-              react.createElement("div", { className: "fv-context-path" }, relPath)),
+              react.createElement("div", { className: "fv-context-title" }, entry.name || relPath),
+              (relPath && relPath !== entry.name)
+                ? react.createElement("div", { className: "fv-context-path" }, relPath)
+                : null),
             react.createElement("button", {
               type: "button",
               className: "fv-context-item",
