@@ -10,6 +10,10 @@ DeepSeek Harness (DSH) 提示词历史导航与跨端同步插件（Shell-like P
 - 📱 **移动端触控滑动（Swipe）**：在输入框区域向上快速轻扫切换上一条，向下轻扫切换下一条，并带触觉微震动反馈。
 - 💾 **自动草稿暂存（Draft Stashing）**：浏览历史前未发送的输入内容会自动暂存，翻回最下方或按 `Esc` 键即刻恢复。
 - 🎯 **智能避让**：输入法拼音合成（IME）或打开 `@` / `/` 触发菜单（`[data-trigger-menu]`）时自动让位。
+- ✏️ **已发提示词原地修改 (Edit)**：鼠标悬浮在任意一条自己已发送的消息气泡上，点击「✏️ 填回输入框修改」图标，自动将该提示词原样放回底部输入框并聚焦，可任意修改后重新提交。
+- 🔄 **已发提示词一键重发 (Resend)**：点击气泡上的「🔄 重新发送」图标，自动填入并直接触发重新提问。
+- 🕒 **提示词历史抽屉面板**：输入框左侧常驻历史图标入口，PC 端展示上方浮层，手机移动端自动自适应为**底部半屏抽屉 (Bottom Sheet)**，带拖拽把手、全屏半透明遮罩与大触控热区（44px），单击条目即刻填入输入框，行内按钮可一键修改或重发。
+- 📱 **移动端全场景深度适配**：手机触屏下用户气泡上的修改/重发按钮自动放大至 32px 圆形、带防误触反馈；在屏幕滑动或滚动时自动补齐视野内气泡操作；输入框手势轻扫带触觉微震动。
 - 🔄 **原子去重与安全截断**：每条限长 8192 字符，单会话最多保留 200 条，原子级文件存储防止读写冲突。草稿读写走官方 `conversation.input.left` 的 `useInput` + `inputActions.setDraft`，完美支持 Lexical contenteditable composer。
 
 ---
@@ -21,7 +25,7 @@ DeepSeek Harness (DSH) 提示词历史导航与跨端同步插件（Shell-like P
 ```bash
 cd plugins/dsh-prompt-history
 npm pack
-dsh plugin add --profile web ./dsh-prompt-history-0.3.2.tgz
+dsh plugin add --profile web ./dsh-prompt-history-0.4.0.tgz
 ```
 
 ### 2. 重启生效

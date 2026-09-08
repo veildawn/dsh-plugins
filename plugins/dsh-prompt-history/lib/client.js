@@ -6,6 +6,8 @@
  * - Persisted on host (~/.dsh/prompt-history/<sessionId>.json) via trusted-host RPC,
  *   enabling seamless sync across browsers, devices, and tabs.
  * - Reads/writes drafts through conversation.input.left (useInput + inputActions.setDraft).
+ * - Bubble Actions: hover on any sent user prompt to "✏️ Edit" or "🔄 Resend".
+ * - Prompt History Drawer: quick-access history popover on composer toolbar.
  */
 
 window.__ModuleLoader__.load({
@@ -26,6 +28,7 @@ window.__ModuleLoader__.load({
     const SWIPE_MIN_PX = 35;
     const SWIPE_VERTICAL_RATIO = 1.5;
     const COMPOSER_SLOT = "conversation.input.left";
+    const STYLE_ID = "dsh-prompt-history-styles";
 
     function storageKey(sessionId) {
       const id = typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : GLOBAL_SESSION_ID;
@@ -317,17 +320,212 @@ window.__ModuleLoader__.load({
       return target.nodeType === 3 ? target.parentElement : target;
     }
 
+    function extractUserBubbleText(el) {
+      if (!el) return "";
+      const bubble = (typeof el.querySelector === "function"
+        ? el.querySelector('[class*="_bubble"]')
+        : null) || el;
+      const clone = bubble.cloneNode(true);
+      if (clone.querySelectorAll) {
+        const extraBlocks = clone.querySelectorAll('[class*="_referenceSummary"], [class*="_contextRow"], [role="status"]');
+        for (const node of extraBlocks) node.remove();
+      }
+      return (clone.innerText ?? clone.textContent ?? "").trim();
+    }
+
+    function findUserRow(el) {
+      if (!el || typeof el.closest !== "function") return null;
+      return el.closest('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"], [class*="_userRow"]');
+    }
+
+    function findUserActions(userRow) {
+      if (!userRow || typeof userRow.querySelector !== "function") return null;
+      return userRow.querySelector('[class*="_actions"]');
+    }
+
+    function ensureStyles() {
+      if (typeof document === "undefined") return;
+      if (document.getElementById(STYLE_ID)) return;
+      const style = document.createElement("style");
+      style.id = STYLE_ID;
+      style.textContent = `
+        .dsh-ph-btn {
+          width: 24px;
+          height: 24px;
+          border-radius: 6px;
+          border: none;
+          background: transparent;
+          color: var(--dsw-alias-label-tertiary, #888);
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          padding: 2px;
+          transition: all 0.15s ease;
+        }
+        .dsh-ph-btn:hover {
+          background: var(--dsw-alias-interactive-bg-hover, rgba(125,125,125,0.12));
+          color: var(--dsw-alias-label-primary, #111);
+        }
+        .dsh-ph-btn svg {
+          width: 14px;
+          height: 14px;
+        }
+        .dsh-ph-backdrop {
+          display: none;
+        }
+        .dsh-ph-popover {
+          position: absolute;
+          bottom: 100%;
+          left: 0;
+          margin-bottom: 8px;
+          width: min(380px, 90vw);
+          max-height: 320px;
+          background: var(--dsw-alias-bg-layer-2, #fff);
+          border: 1px solid var(--dsw-alias-border-l2, #ddd);
+          border-radius: 10px;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+          z-index: 2000;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          font-family: inherit;
+        }
+        .dsh-ph-sheet-handle {
+          display: none;
+        }
+        @media (max-width: 768px), (pointer: coarse) {
+          .dsh-ph-backdrop {
+            display: block;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(2px);
+            z-index: 9998;
+          }
+          .dsh-ph-popover {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            width: 100vw;
+            max-width: 100vw;
+            max-height: min(70vh, 520px);
+            margin-bottom: 0;
+            border-radius: 18px 18px 0 0;
+            border-left: none;
+            border-right: none;
+            border-bottom: none;
+            box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+            z-index: 9999;
+            padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+          }
+          .dsh-ph-sheet-handle {
+            display: block;
+            width: 38px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--dsw-alias-border-l3, #ccc);
+            margin: 8px auto 4px auto;
+            flex: none;
+          }
+          .dsh-ph-btn {
+            width: 32px;
+            height: 32px;
+            min-width: 32px;
+            min-height: 32px;
+            border-radius: 50%;
+            background: var(--dsw-alias-interactive-bg-subtle, rgba(125,125,125,0.08));
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+          }
+          .dsh-ph-btn svg {
+            width: 16px;
+            height: 16px;
+          }
+          .dsh-ph-item {
+            min-height: 44px;
+            padding: 10px 12px;
+            font-size: 14px;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+          }
+          .dsh-ph-item-actions .dsh-ph-btn {
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
+            min-height: 36px;
+          }
+        }
+        .dsh-ph-popover-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          border-bottom: 1px solid var(--dsw-alias-border-l1, #eee);
+          background: var(--dsw-alias-bg-layer-1, #fafafa);
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--dsw-alias-label-secondary, #666);
+        }
+        .dsh-ph-list {
+          overflow-y: auto;
+          flex: 1;
+          padding: 4px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .dsh-ph-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 8px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 13px;
+          line-height: 1.4;
+          color: var(--dsw-alias-label-primary, #222);
+          transition: background 0.1s ease;
+        }
+        .dsh-ph-item:hover {
+          background: var(--dsw-alias-interactive-bg-hover, rgba(125,125,125,0.08));
+        }
+        .dsh-ph-item-text {
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          margin-right: 8px;
+        }
+        .dsh-ph-item-actions {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          flex: none;
+        }
+        .dsh-ph-empty {
+          padding: 24px;
+          text-align: center;
+          color: var(--dsw-alias-label-caption, #999);
+          font-size: 13px;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
     const inject = ["slots", "connection"];
 
     function apply(ctx) {
       if (typeof window === "undefined") return;
+      ensureStyles();
 
       /** @type {Map<string, PromptHistorySession>} */
       const sessionMap = new Map();
       /** @type {Map<string, { recordedForPhase: boolean, lastNonEmptyDraft: string }>} */
       const sessionMeta = new Map();
       let activeSessionId = GLOBAL_SESSION_ID;
-      const access = { draft: "", setDraft: null, phase: "", sessionId: GLOBAL_SESSION_ID };
+      const access = { draft: "", setDraft: null, submit: null, phase: "", sessionId: GLOBAL_SESSION_ID };
       let touchStartY = 0;
       let touchStartX = 0;
       let touchStartTime = 0;
@@ -371,7 +569,7 @@ window.__ModuleLoader__.load({
             }
           }
         } catch {
-          // RPC may fail if network drops; fallback stays with local
+          // RPC may fail if offline
         }
       }
 
@@ -389,7 +587,7 @@ window.__ModuleLoader__.load({
             }
           }
         } catch {
-          // RPC failed; local state already updated
+          // RPC failed
         }
       }
 
@@ -419,6 +617,29 @@ window.__ModuleLoader__.load({
         }
         const ta = findLegacyTextarea();
         if (ta) setTextareaValue(ta, text);
+      }
+
+      function applyDraftAndFocus(text) {
+        applyDraft(text);
+        const composer = document.querySelector("[data-composer-input], [data-composer-card] textarea");
+        if (composer) {
+          try {
+            composer.focus();
+            composer.scrollIntoView({ behavior: "smooth", block: "end" });
+          } catch {}
+        }
+      }
+
+      function resendPrompt(text) {
+        applyDraft(text);
+        if (typeof access.submit === "function") {
+          access.submit();
+          return;
+        }
+        const sendBtn = document.querySelector(
+          '[data-composer-card] button[aria-label="发送消息"], [data-composer-card] button[aria-label="Send message"], [data-composer-seat] button[aria-label="发送消息"], [data-composer-seat] button[aria-label="Send message"]',
+        );
+        if (sendBtn) sendBtn.click();
       }
 
       function isWorkspaceTrigger(el) {
@@ -528,26 +749,94 @@ window.__ModuleLoader__.load({
         }
       }
 
-      function ComposerBridge(props) {
+      // --- User Bubble Edit / Resend Actions Decoration ---
+      function decorateUserRow(userRow) {
+        if (!userRow || userRow.dataset.dshPhDecorated === "true") return;
+        const actionsContainer = findUserActions(userRow);
+        if (!actionsContainer) return;
+        if (actionsContainer.querySelector(".dsh-ph-btn")) {
+          userRow.dataset.dshPhDecorated = "true";
+          return;
+        }
+
+        userRow.dataset.dshPhDecorated = "true";
+
+        // 1. Edit Button (✏️ 填入修改)
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "dsh-ph-btn";
+        editBtn.title = "填回输入框修改 (Edit)";
+        editBtn.setAttribute("aria-label", "填回输入框修改");
+        editBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor">
+          <path d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708l-9.5 9.5a.5.5 0 0 1-.168.11l-4 1.5a.5.5 0 0 1-.65-.65l1.5-4a.5.5 0 0 1 .11-.168l9.5-9.5zM11.207 2.5L13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 3.5 10.207v1.293h1.293l7-7z"/>
+        </svg>`;
+        editBtn.onclick = (e) => {
+          e.stopPropagation();
+          const text = extractUserBubbleText(userRow);
+          if (text) applyDraftAndFocus(text);
+        };
+
+        // 2. Resend Button (🔄 立即重发)
+        const resendBtn = document.createElement("button");
+        resendBtn.type = "button";
+        resendBtn.className = "dsh-ph-btn";
+        resendBtn.title = "重新发送此提示词 (Resend)";
+        resendBtn.setAttribute("aria-label", "重新发送");
+        resendBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor">
+          <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+          <path d="M8 4.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V5H8.5a.5.5 0 0 1-.5-.5z"/>
+        </svg>`;
+        resendBtn.onclick = (e) => {
+          e.stopPropagation();
+          const text = extractUserBubbleText(userRow);
+          if (text) resendPrompt(text);
+        };
+
+        actionsContainer.appendChild(editBtn);
+        actionsContainer.appendChild(resendBtn);
+      }
+
+      function decorateVisibleUserRows(root) {
+        const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+        const rows = scope.querySelectorAll
+          ? scope.querySelectorAll('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"], [class*="_userRow"]')
+          : [];
+        for (const row of rows) decorateUserRow(row);
+        if (root && root.matches?.('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"], [class*="_userRow"]')) {
+          decorateUserRow(root);
+        }
+      }
+
+      function handleGlobalPointerOver(e) {
+        const row = findUserRow(eventElement(e.target));
+        if (row) decorateUserRow(row);
+      }
+
+      // --- Composer Toolbar History Trigger & Drawer ---
+      function ComposerHistoryControl(props) {
+        const [isOpen, setIsOpen] = react.useState(false);
+        const [history, setHistory] = react.useState([]);
+        const containerRef = react.useRef(null);
+
         const sid = normalizeSessionId(props?.sessionId);
         const useInput = props && typeof props.useInput === "function" ? props.useInput : null;
-        const snapshot = useInput
-          ? useInput((s) => s)
-          : (props && props.input ? props.input : null);
+        const snapshot = useInput ? useInput((s) => s) : null;
         const draft = snapshot && typeof snapshot.draft === "string" ? snapshot.draft : "";
         const phase = snapshot ? snapshot.phase : "";
         const setDraft = props && props.inputActions ? props.inputActions.setDraft : null;
+        const submit = props && props.inputActions ? props.inputActions.submit : null;
 
         react.useEffect(() => {
           activeSessionId = sid;
+          access.sessionId = sid;
           getOrCreateSession(sid);
           fetchHostHistory(sid);
         }, [sid]);
 
         react.useEffect(() => {
-          activeSessionId = sid;
           access.draft = draft;
           access.setDraft = typeof setDraft === "function" ? setDraft : null;
+          access.submit = typeof submit === "function" ? submit : null;
           access.phase = phase || "";
           access.sessionId = sid;
 
@@ -565,36 +854,166 @@ window.__ModuleLoader__.load({
           } else if (!busy) {
             meta.recordedForPhase = false;
           }
+        }, [sid, draft, phase, setDraft, submit]);
 
-          return () => {
-            if (access.setDraft === setDraft) access.setDraft = null;
+        const refreshHistory = () => {
+          const s = getOrCreateSession(sid);
+          setHistory([...s.history].reverse());
+        };
+
+        const toggleOpen = () => {
+          if (!isOpen) refreshHistory();
+          setIsOpen(!isOpen);
+        };
+
+        react.useEffect(() => {
+          if (!isOpen) return;
+          refreshHistory();
+        }, [isOpen, sid, draft]);
+
+        react.useEffect(() => {
+          if (!isOpen) return;
+          const onDocClick = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) {
+              setIsOpen(false);
+            }
           };
-        }, [sid, draft, phase, setDraft]);
+          document.addEventListener("mousedown", onDocClick);
+          return () => document.removeEventListener("mousedown", onDocClick);
+        }, [isOpen]);
 
-        return null;
+        return react.createElement("div", {
+          ref: containerRef,
+          style: { position: "relative", display: "inline-flex", alignItems: "center" }
+        },
+          react.createElement("button", {
+            type: "button",
+            className: "dsh-ph-btn",
+            title: "提示词历史 (Prompt History)",
+            "aria-label": "提示词历史",
+            onClick: toggleOpen
+          },
+            react.createElement("svg", { viewBox: "0 0 16 16", fill: "currentColor" },
+              react.createElement("path", { d: "M8 3.5a.5.5 0 0 0-1 0V8a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 7.71V3.5z" }),
+              react.createElement("path", { d: "M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" })
+            )
+          ),
+          isOpen && react.createElement(react.Fragment, null,
+            react.createElement("div", {
+              className: "dsh-ph-backdrop",
+              onClick: () => setIsOpen(false)
+            }),
+            react.createElement("div", { className: "dsh-ph-popover" },
+              react.createElement("div", { className: "dsh-ph-sheet-handle" }),
+              react.createElement("div", { className: "dsh-ph-popover-header" },
+              react.createElement("span", null, "提示词历史 (" + history.length + ")"),
+              react.createElement("button", {
+                type: "button",
+                className: "dsh-ph-btn",
+                title: "关闭",
+                onClick: () => setIsOpen(false)
+              }, "✕")
+            ),
+            react.createElement("div", { className: "dsh-ph-list" },
+              history.length === 0
+                ? react.createElement("div", { className: "dsh-ph-empty" }, "当前会话暂无历史提示词")
+                : history.map((item, idx) => react.createElement("div", {
+                    key: idx,
+                    className: "dsh-ph-item",
+                    onClick: () => {
+                      applyDraftAndFocus(item);
+                      setIsOpen(false);
+                    }
+                  },
+                    react.createElement("span", { className: "dsh-ph-item-text", title: item }, item),
+                    react.createElement("div", { className: "dsh-ph-item-actions" },
+                      react.createElement("button", {
+                        type: "button",
+                        className: "dsh-ph-btn",
+                        title: "填入输入框修改",
+                        onClick: (e) => {
+                          e.stopPropagation();
+                          applyDraftAndFocus(item);
+                          setIsOpen(false);
+                        }
+                      }, "✏️"),
+                      react.createElement("button", {
+                        type: "button",
+                        className: "dsh-ph-btn",
+                        title: "重新发送",
+                        onClick: (e) => {
+                          e.stopPropagation();
+                          resendPrompt(item);
+                          setIsOpen(false);
+                        }
+                      }, "🔄")
+                    )
+                  ))
+            )
+          )
+        )
+      );
       }
 
       if (ctx.slots && typeof ctx.slots.inject === "function") {
         ctx.slots.inject(COMPOSER_SLOT, () => ctx.slots.register({
           name: COMPOSER_SLOT,
           id: "prompt-history-composer",
-          order: 100,
-        }, ComposerBridge));
+          order: 90,
+        }, ComposerHistoryControl));
       }
 
       const touchStartOpts = { capture: true, passive: true };
       const touchEndOpts = { capture: true, passive: true };
+      const pointerOverOpts = { passive: true };
+      const scrollOpts = { passive: true };
+
+      let scrollTimer = null;
+      function handleScroll() {
+        if (scrollTimer !== null) return;
+        scrollTimer = setTimeout(() => {
+          scrollTimer = null;
+          decorateVisibleUserRows(document);
+        }, 120);
+      }
+
+      function handleGlobalTouchStart(e) {
+        handleTouchStart(e);
+        const row = findUserRow(eventElement(e.target));
+        if (row) decorateUserRow(row);
+      }
+
       window.addEventListener("keydown", handleKeyDown, true);
       window.addEventListener("click", handleClick, true);
-      window.addEventListener("touchstart", handleTouchStart, touchStartOpts);
+      window.addEventListener("pointerover", handleGlobalPointerOver, pointerOverOpts);
+      window.addEventListener("touchstart", handleGlobalTouchStart, touchStartOpts);
       window.addEventListener("touchend", handleTouchEnd, touchEndOpts);
+      window.addEventListener("scroll", handleScroll, scrollOpts);
+
+      decorateVisibleUserRows(document);
+      let observer = null;
+      if (typeof MutationObserver === "function") {
+        observer = new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            for (const node of m.addedNodes) {
+              if (node && node.nodeType === 1) decorateVisibleUserRows(node);
+            }
+          }
+        });
+        observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+      }
 
       ctx.on("dispose", () => {
         window.removeEventListener("keydown", handleKeyDown, true);
         window.removeEventListener("click", handleClick, true);
-        window.removeEventListener("touchstart", handleTouchStart, touchStartOpts);
+        window.removeEventListener("pointerover", handleGlobalPointerOver, pointerOverOpts);
+        window.removeEventListener("touchstart", handleGlobalTouchStart, touchStartOpts);
         window.removeEventListener("touchend", handleTouchEnd, touchEndOpts);
+        window.removeEventListener("scroll", handleScroll, scrollOpts);
+        if (scrollTimer !== null) clearTimeout(scrollTimer);
+        observer?.disconnect();
         access.setDraft = null;
+        access.submit = null;
       });
     }
 

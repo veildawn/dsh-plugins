@@ -427,8 +427,48 @@ export class PromptHistorySession {
 }
 
 /**
- * Manager that holds isolated PromptHistorySession instances per sessionId.
+ * Extract clean prompt text from a user message bubble element.
+ * Drops JSON extra blocks and reference summary tags.
+ * @param {Element | null | undefined} bubble
+ * @returns {string}
  */
+export function extractUserBubbleText(el) {
+  if (!el) return '';
+  const bubble = (typeof el.querySelector === 'function'
+    ? el.querySelector('[class*="_bubble"]')
+    : null) || el;
+  const clone = bubble.cloneNode(true);
+  if (clone.querySelectorAll) {
+    const extraBlocks = clone.querySelectorAll('[class*="_referenceSummary"], [class*="_contextRow"], [role="status"]');
+    for (const node of extraBlocks) {
+      node.remove();
+    }
+  }
+  const text = clone.innerText ?? clone.textContent ?? '';
+  return text.trim();
+}
+
+/**
+ * Check whether a node is inside a rendered user message row.
+ * Prefer the stable data attribute over hashed CSS module class names.
+ * @param {Element | null | undefined} el
+ * @returns {Element | null} The user row element, or null.
+ */
+export function findUserRow(el) {
+  if (!el || typeof el.closest !== 'function') return null;
+  return el.closest('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"], [class*="_userRow"]');
+}
+
+/**
+ * Locate the icon-actions row inside a user message.
+ * @param {Element | null | undefined} userRow
+ * @returns {Element | null}
+ */
+export function findUserActions(userRow) {
+  if (!userRow || typeof userRow.querySelector !== 'function') return null;
+  return userRow.querySelector('[class*="_actions"]');
+}
+
 export class SessionHistoryManager {
   /**
    * @param {number} [maxItems]

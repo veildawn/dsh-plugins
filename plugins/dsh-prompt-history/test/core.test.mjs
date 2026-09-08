@@ -27,6 +27,9 @@ import {
   SWIPE_MIN_PX,
   GLOBAL_SESSION_ID,
   normalizeSessionId,
+  extractUserBubbleText,
+  findUserRow,
+  findUserActions,
 } from '../lib/core.js';
 
 import {
@@ -424,4 +427,43 @@ test('isComposerSendKey - Enter sends, Shift+Enter does not', () => {
   assert.equal(isComposerSendKey({ key: 'Enter', altKey: true }), false);
   assert.equal(isComposerSendKey({ key: 'Enter', isComposing: true }), false);
   assert.equal(isComposerSendKey({ key: 'ArrowUp' }), false);
+});
+
+test('extractUserBubbleText - prefers inner bubble and trims text', () => {
+  const bubble = {
+    cloneNode: () => ({
+      querySelectorAll: () => [],
+      innerText: '  Please help me write a function  ',
+    }),
+  };
+  const row = {
+    querySelector: (sel) => (sel.includes('_bubble') ? bubble : null),
+    cloneNode: () => ({
+      querySelectorAll: () => [],
+      innerText: 'row fallback',
+    }),
+  };
+  assert.equal(extractUserBubbleText(row), 'Please help me write a function');
+  assert.equal(extractUserBubbleText(null), '');
+});
+
+test('findUserRow - prefers data-chat-flow-kind over hashed class', () => {
+  const userRow = { id: 'row1' };
+  const mockTarget = {
+    closest: (selector) => {
+      if (selector.includes('data-chat-flow-kind="user"')) return userRow;
+      return null;
+    },
+  };
+  assert.equal(findUserRow(mockTarget), userRow);
+  assert.equal(findUserRow(null), null);
+});
+
+test('findUserActions - returns actions row inside user message', () => {
+  const actions = { id: 'actions' };
+  const row = {
+    querySelector: (sel) => (sel.includes('_actions') ? actions : null),
+  };
+  assert.equal(findUserActions(row), actions);
+  assert.equal(findUserActions(null), null);
 });
