@@ -103,10 +103,10 @@ window.__ModuleLoader__.load({
       function AiProxySettings(props) {
         const [gateway, setGateway] = react.useState("");
         const [apiFormat, setApiFormat] = react.useState("chat/completions");
-        const [highestEffort, setHighestEffort] = react.useState(false);
+        const [highestEffort, setHighestEffort] = react.useState(true);
         const [savedGateway, setSavedGateway] = react.useState("");
         const [savedApiFormat, setSavedApiFormat] = react.useState("chat/completions");
-        const [savedHighestEffort, setSavedHighestEffort] = react.useState(false);
+        const [savedHighestEffort, setSavedHighestEffort] = react.useState(true);
         const [loaded, setLoaded] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
         const [auth, setAuth] = react.useState({ state: "checking", message: "正在检查登录状态…" });
@@ -130,7 +130,7 @@ window.__ModuleLoader__.load({
               setSavedApiFormat(value.apiFormat);
             }
             if (value?.defaultReasoningEffort !== undefined) {
-              const isHighest = value.defaultReasoningEffort === "highest";
+              const isHighest = value.defaultReasoningEffort === "highest" || (value.defaultReasoningEffort !== "lowest" && value.defaultReasoningEffort !== "none" && value.defaultReasoningEffort !== "off");
               setHighestEffort(isHighest);
               setSavedHighestEffort(isHighest);
             }
@@ -189,7 +189,7 @@ window.__ModuleLoader__.load({
         const commitGateway = async () => {
           if (invalidGateway) throw new Error(invalidGateway);
           if (!configChanged) return;
-          const defaultReasoningEffort = highestEffort ? "highest" : "";
+          const defaultReasoningEffort = highestEffort ? "highest" : "lowest";
           const value = await props.authRequest("setGateway", { baseURL: normalizedGateway, apiFormat, defaultReasoningEffort });
           if (typeof value?.baseURL === "string") {
             setGateway(value.baseURL);
@@ -200,7 +200,7 @@ window.__ModuleLoader__.load({
             setSavedApiFormat(value.apiFormat);
           }
           if (value?.defaultReasoningEffort !== undefined) {
-            const isHighest = value.defaultReasoningEffort === "highest";
+            const isHighest = value.defaultReasoningEffort === "highest" || (value.defaultReasoningEffort !== "lowest" && value.defaultReasoningEffort !== "none" && value.defaultReasoningEffort !== "off");
             setHighestEffort(isHighest);
             setSavedHighestEffort(isHighest);
           }

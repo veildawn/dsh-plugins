@@ -254,7 +254,7 @@ test('registration, catalog and reasoning ladders (static key)', async () => {
     assert.deepEqual(info.inputModalities, ['text', 'image'])
     assert.deepEqual(info.reasoning.efforts.map((e) => e.id), ['low', 'medium', 'high'])
     assert.deepEqual(info.reasoning.efforts.map((e) => e.name), ['Low', 'Medium', 'High'])
-    assert.equal(info.reasoning.defaultEffort, 'low')
+    assert.equal(info.reasoning.defaultEffort, 'high')
 
     const plain = await ctx.llm.resolveModelInfo('ai-proxy', 'gpt-image-2')
     assert.equal(plain.reasoning, undefined)
@@ -433,7 +433,7 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
         baseURL: 'http://localhost:18080',
         clientId: 'dsh',
         apiFormat: 'chat/completions',
-        defaultReasoningEffort: '',
+        defaultReasoningEffort: 'highest',
         endpoint: 'http://localhost:18080/v1/chat/completions',
       },
     })
@@ -442,10 +442,10 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
     assert.equal(written.value.baseURL, gw.url)
     assert.equal(settings.doc['ai-proxy'].baseURL, gw.url)
 
-    const writtenEffort = await handler('setGateway', { defaultReasoningEffort: 'highest' })
+    const writtenEffort = await handler('setGateway', { defaultReasoningEffort: 'lowest' })
     assert.equal(writtenEffort.ok, true)
-    assert.equal(writtenEffort.value.defaultReasoningEffort, 'highest')
-    assert.equal(settings.doc['ai-proxy'].defaultReasoningEffort, 'highest')
+    assert.equal(writtenEffort.value.defaultReasoningEffort, 'lowest')
+    assert.equal(settings.doc['ai-proxy'].defaultReasoningEffort, 'lowest')
     assert.equal((await handler('setBaseURL', { baseURL: 'ftp://nope' })).ok, false)
     assert.equal((await handler('setBaseURL', { baseURL: '  ' })).ok, false)
     assert.equal((await handler('setBaseURL', {})).ok, false)

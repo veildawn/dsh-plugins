@@ -60,6 +60,7 @@ export const DEFAULT_MODEL_CACHE_TTL_MS = 300000
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300000
 
 export const DEFAULT_API_KEY_ENV = 'AIPROXY_ACCESS_TOKEN'
+export const DEFAULT_REASONING_EFFORT = 'highest'
 
 export const API_FORMAT_CHAT_COMPLETIONS = 'chat/completions'
 export const API_FORMAT_ANTHROPIC_MESSAGES = 'anthropic-messages'
@@ -1102,7 +1103,7 @@ class AiProxyApi {
       baseURL: opts.baseURL,
       clientId: opts.clientId,
       apiFormat: opts.apiFormat,
-      defaultReasoningEffort: opts.defaultReasoningEffort ?? '',
+      defaultReasoningEffort: opts.defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT,
       endpoint: resolveInferenceEndpoint(opts.baseURL, opts.apiFormat),
     }
   }
@@ -1418,7 +1419,7 @@ export const Config = z.object({
   apiFormat: z.union(API_FORMATS).default(DEFAULT_API_FORMAT),
   clientId: z.string().default(DEFAULT_CLIENT_ID),
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
-  defaultReasoningEffort: z.string().default(''),
+  defaultReasoningEffort: z.string().default(DEFAULT_REASONING_EFFORT),
   maxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   modelCacheTtlMs: z.number().step(1).min(10000).default(DEFAULT_MODEL_CACHE_TTL_MS),
@@ -1451,7 +1452,7 @@ export function resolveOptions(raw) {
     apiFormat: normalizeApiFormat(raw.apiFormat),
     clientId,
     apiKeyEnv: raw.apiKeyEnv ?? DEFAULT_API_KEY_ENV,
-    defaultReasoningEffort: raw.defaultReasoningEffort ?? '',
+    defaultReasoningEffort: raw.defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT,
     maxTokens,
     defaultContextWindow,
     modelCacheTtlMs,
