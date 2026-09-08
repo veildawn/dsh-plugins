@@ -778,13 +778,19 @@ window.__ModuleLoader__.load({
 
       // --- User Bubble Edit / Resend Actions Decoration ---
       function decorateUserRow(userRow) {
-        if (!userRow || userRow.dataset.dshPhDecorated === "true") return;
+        if (!userRow) return;
         const actionsContainer = findUserActions(userRow);
         if (!actionsContainer) return;
-        if (actionsContainer.querySelector(".dsh-ph-btn")) {
+
+        // Strictly check if our buttons already exist inside the actions container
+        if (actionsContainer.querySelector(".dsh-ph-action-btn, [data-dsh-ph-action]")) {
           userRow.dataset.dshPhDecorated = "true";
           return;
         }
+
+        // Clean up any stale duplicate buttons before appending
+        const existing = actionsContainer.querySelectorAll(".dsh-ph-action-btn, [data-dsh-ph-action]");
+        for (const el of existing) el.remove();
 
         userRow.dataset.dshPhDecorated = "true";
 
@@ -797,6 +803,7 @@ window.__ModuleLoader__.load({
         const editBtn = document.createElement("button");
         editBtn.type = "button";
         editBtn.className = actionClass;
+        editBtn.dataset.dshPhAction = "edit";
         editBtn.title = "填回输入框修改";
         editBtn.setAttribute("aria-label", "填回输入框修改");
         editBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor">
@@ -812,6 +819,7 @@ window.__ModuleLoader__.load({
         const resendBtn = document.createElement("button");
         resendBtn.type = "button";
         resendBtn.className = actionClass;
+        resendBtn.dataset.dshPhAction = "resend";
         resendBtn.title = "重新发送此提示词";
         resendBtn.setAttribute("aria-label", "重新发送此提示词");
         resendBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor">
