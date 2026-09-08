@@ -759,3 +759,10 @@ test('the tools menu keeps its items tappable through the whole gesture', async 
   assert.match(source, /addEventListener\('click', \(e\) => runItem\(e, openTerminal\)\)/)
   assert.match(source, /if \(toolsPressedOutside && !toolsMenu\.hidden && !insideTools\(event\.target\)\)/)
 })
+
+test('the tools menu integrates prompt history when available', async () => {
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.match(source, /__dsh_open_prompt_history/)
+  assert.match(source, /openPromptHistory/)
+  assert.match(source, /<span>提示词历史<\/span>/)
+})

@@ -467,17 +467,24 @@ window.__ModuleLoader__.load({
         invokeOpen(win.__dsh_open_terminal)
       }
 
+      const openPromptHistory = () => {
+        closeToolsMenu()
+        invokeOpen(win.__dsh_open_prompt_history)
+      }
+
       const toggleToolsMenu = (e) => {
         e?.stopPropagation()
         const hasFv = typeof win.__dsh_open_file_viewer === 'function' || doc.querySelector('button[aria-label="查看项目文件"], button[title="查看项目文件"]') != null
         const hasTerm = typeof win.__dsh_open_terminal === 'function' || doc.querySelector('button[aria-label="打开本地终端"], button[title="打开本地终端"]') != null
+        const hasPh = typeof win.__dsh_open_prompt_history === 'function' || doc.querySelector('button[aria-label="提示词历史"], button[title="提示词历史"]') != null
 
-        if (hasFv && !hasTerm) {
-          openFileViewer()
-          return
-        }
-        if (hasTerm && !hasFv) {
-          openTerminal()
+        const activeTools = []
+        if (hasFv) activeTools.push(openFileViewer)
+        if (hasTerm) activeTools.push(openTerminal)
+        if (hasPh) activeTools.push(openPromptHistory)
+
+        if (activeTools.length === 1) {
+          activeTools[0]()
           return
         }
 
@@ -520,6 +527,18 @@ window.__ModuleLoader__.load({
           itemTerm.addEventListener('touchstart', holdGesture, { passive: true })
           itemTerm.addEventListener('click', (e) => runItem(e, openTerminal))
           toolsMenu.append(itemTerm)
+        }
+
+        if (hasPh) {
+          const itemPh = doc.createElement('button')
+          itemPh.type = 'button'
+          itemPh.className = 'dsh-mobile-tools-item'
+          itemPh.setAttribute('role', 'menuitem')
+          itemPh.innerHTML = '<span class="dsh-mobile-tools-icon">🕒</span><span>提示词历史</span>'
+          itemPh.addEventListener('pointerdown', holdGesture)
+          itemPh.addEventListener('touchstart', holdGesture, { passive: true })
+          itemPh.addEventListener('click', (e) => runItem(e, openPromptHistory))
+          toolsMenu.append(itemPh)
         }
 
         if (toolsMenu.children.length > 0) {
@@ -607,7 +626,8 @@ window.__ModuleLoader__.load({
             if (!toolsEl.contains(uploadBtn)) toolsEl.prepend(uploadBtn)
             const hasFv = typeof win.__dsh_open_file_viewer === 'function' || doc.querySelector('button[aria-label="查看项目文件"], button[title="查看项目文件"]') != null
             const hasTerm = typeof win.__dsh_open_terminal === 'function' || doc.querySelector('button[aria-label="打开本地终端"], button[title="打开本地终端"]') != null
-            if (hasFv || hasTerm) {
+            const hasPh = typeof win.__dsh_open_prompt_history === 'function' || doc.querySelector('button[aria-label="提示词历史"], button[title="提示词历史"]') != null
+            if (hasFv || hasTerm || hasPh) {
               // 位置：盾牌右侧。但不能插进盾牌所在的 .uV2eYG_modes —— 那是
               // .uV2eYG_tools 的子容器，插进去后工具箱吃内层 gap、上传按钮吃外层
               // gap，跨容器边界会让两档间距在视觉上不齐。

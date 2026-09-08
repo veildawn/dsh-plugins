@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-history",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Per-session prompt history, message bubble edit & resend actions, and cross-browser synchronization for DeepSeek Harness",
   "type": "module",
   "main": "lib/index.js",

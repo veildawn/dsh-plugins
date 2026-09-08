@@ -421,6 +421,11 @@ window.__ModuleLoader__.load({
         .dsh-ph-sheet-handle {
           display: none;
         }
+        @media (max-width: 768px) {
+          .dsh-ph-toolbar-btn {
+            display: none !important;
+          }
+        }
         @media (max-width: 768px), (pointer: coarse) {
           .dsh-ph-backdrop {
             display: block;
@@ -911,6 +916,21 @@ window.__ModuleLoader__.load({
         }, [isOpen, sid, draft]);
 
         react.useEffect(() => {
+          const handleExternalOpen = () => {
+            refreshHistory();
+            setIsOpen(true);
+          };
+          window.__dsh_open_prompt_history = handleExternalOpen;
+          window.addEventListener("dsh:open-prompt-history", handleExternalOpen);
+          return () => {
+            if (window.__dsh_open_prompt_history === handleExternalOpen) {
+              window.__dsh_open_prompt_history = undefined;
+            }
+            window.removeEventListener("dsh:open-prompt-history", handleExternalOpen);
+          };
+        }, [sid]);
+
+        react.useEffect(() => {
           if (!isOpen) return;
           const onDocClick = (e) => {
             if (containerRef.current && !containerRef.current.contains(e.target)) {
@@ -927,8 +947,8 @@ window.__ModuleLoader__.load({
         },
           react.createElement("button", {
             type: "button",
-            className: "dsh-ph-btn",
-            title: "提示词历史 (Prompt History)",
+            className: "dsh-ph-btn dsh-ph-toolbar-btn",
+            title: "提示词历史",
             "aria-label": "提示词历史",
             onClick: toggleOpen
           },
