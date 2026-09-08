@@ -15,7 +15,7 @@
 | **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、工作区行操作按钮触屏常显） | [`v0.1.29`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.29) |
 | **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.8`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.8) |
 | **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.9`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.9) |
-| **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端自适应底部抽屉Bottom Sheet与触屏大热区、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.0) |
+| **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、原生透明圆角图标精准对齐、移动端自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.1`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.1) |
 
 ---
 

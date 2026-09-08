@@ -371,6 +371,33 @@ window.__ModuleLoader__.load({
           width: 14px;
           height: 14px;
         }
+        .dsh-ph-action-btn,
+        button.dsh-ph-action-btn {
+          width: calc(28px + var(--dsh-content-font-delta, 0px)) !important;
+          height: calc(28px + var(--dsh-content-font-delta, 0px)) !important;
+          color: var(--dsw-alias-label-tertiary, #888) !important;
+          cursor: pointer !important;
+          background: transparent !important;
+          border: none !important;
+          border-radius: 28px !important;
+          justify-content: center !important;
+          align-items: center !important;
+          padding: 6px !important;
+          display: inline-flex !important;
+          box-sizing: border-box !important;
+          transition: background 80ms, color 80ms !important;
+          touch-action: manipulation;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .dsh-ph-action-btn:hover {
+          background: var(--dsw-alias-interactive-bg-hover, rgba(125,125,125,0.12)) !important;
+          color: var(--dsw-alias-label-secondary, #333) !important;
+        }
+        .dsh-ph-action-btn svg {
+          width: calc(15px + var(--dsh-content-font-delta, 0px)) !important;
+          height: calc(15px + var(--dsh-content-font-delta, 0px)) !important;
+          display: block !important;
+        }
         .dsh-ph-backdrop {
           display: none;
         }
@@ -429,7 +456,7 @@ window.__ModuleLoader__.load({
             margin: 8px auto 4px auto;
             flex: none;
           }
-          .dsh-ph-btn {
+          .dsh-ph-btn:not(.dsh-ph-action-btn) {
             width: 32px;
             height: 32px;
             min-width: 32px;
@@ -439,7 +466,7 @@ window.__ModuleLoader__.load({
             touch-action: manipulation;
             -webkit-tap-highlight-color: transparent;
           }
-          .dsh-ph-btn svg {
+          .dsh-ph-btn:not(.dsh-ph-action-btn) svg {
             width: 16px;
             height: 16px;
           }
@@ -761,14 +788,19 @@ window.__ModuleLoader__.load({
 
         userRow.dataset.dshPhDecorated = "true";
 
-        // 1. Edit Button (✏️ 填入修改)
+        // Inherit host action classes from existing action buttons (e.g. copy button)
+        const hostBtn = actionsContainer.querySelector("button");
+        const hostClass = hostBtn && hostBtn.className ? hostBtn.className : "";
+        const actionClass = (hostClass + " dsh-ph-action-btn").trim();
+
+        // 1. Edit Button (✏️ 填回修改) - Exact matching IconEditOutline16
         const editBtn = document.createElement("button");
         editBtn.type = "button";
-        editBtn.className = "dsh-ph-btn";
-        editBtn.title = "填回输入框修改 (Edit)";
+        editBtn.className = actionClass;
+        editBtn.title = "填回输入框修改";
         editBtn.setAttribute("aria-label", "填回输入框修改");
         editBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor">
-          <path d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708l-9.5 9.5a.5.5 0 0 1-.168.11l-4 1.5a.5.5 0 0 1-.65-.65l1.5-4a.5.5 0 0 1 .11-.168l9.5-9.5zM11.207 2.5L13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 3.5 10.207v1.293h1.293l7-7z"/>
+          <path d="M9.94076 1.34942C10.7047 0.90231 11.6503 0.902415 12.4143 1.34942C12.7061 1.52015 12.9688 1.79118 13.3104 2.13284C13.6521 2.47448 13.9231 2.73721 14.0939 3.02894C14.5408 3.79294 14.5409 4.73856 14.0939 5.50251C13.9231 5.79415 13.652 6.05704 13.3104 6.39861L6.65932 13.0497C6.28068 13.4284 6.00695 13.7108 5.66543 13.9097C5.32391 14.1085 4.94315 14.2074 4.42705 14.3498L3.24394 14.6761C2.77527 14.8054 2.34538 14.9262 2.00131 14.9684C1.65196 15.0112 1.17964 15.0013 0.810764 14.6325C0.441921 14.2637 0.432107 13.7913 0.47486 13.442C0.517035 13.0979 0.6379 12.668 0.767181 12.1993L1.09352 11.0162C1.23588 10.5001 1.33481 10.1193 1.5336 9.77784C1.7325 9.43632 2.0149 9.1626 2.39355 8.78395L9.04466 2.13284C9.38625 1.79126 9.64911 1.52016 9.94076 1.34942ZM15.5427 14.8398H7.55223L8.96707 13.425H15.5427V14.8398ZM3.39382 9.78422C2.965 10.213 2.84244 10.3436 2.75709 10.49C2.67183 10.6366 2.61862 10.8079 2.45733 11.3925L2.13099 12.5756C2.00183 13.0439 1.92194 13.3419 1.88863 13.5536C2.10041 13.5204 2.39872 13.4416 2.86764 13.3123L4.05075 12.9859C4.63544 12.8246 4.80669 12.7715 4.95323 12.6862C5.09968 12.6008 5.23022 12.4783 5.65905 12.0494L10.721 6.98644L8.45577 4.72121L3.39382 9.78422ZM11.7 2.57079C11.3774 2.38198 10.9777 2.38198 10.6551 2.57079C10.5602 2.62647 10.4487 2.72931 10.0449 3.13311L9.45604 3.72094L11.7213 5.98617L12.3102 5.39833C12.7139 4.99457 12.8168 4.88307 12.8725 4.78818C13.0613 4.46561 13.0612 4.06585 12.8725 3.74326C12.8169 3.64827 12.7146 3.53752 12.3102 3.13311C11.9057 2.72863 11.795 2.6264 11.7 2.57079Z"/>
         </svg>`;
         editBtn.onclick = (e) => {
           e.stopPropagation();
@@ -776,15 +808,14 @@ window.__ModuleLoader__.load({
           if (text) applyDraftAndFocus(text);
         };
 
-        // 2. Resend Button (🔄 立即重发)
+        // 2. Resend Button (🔄 立即重发) - Exact matching IconRefreshOutline16
         const resendBtn = document.createElement("button");
         resendBtn.type = "button";
-        resendBtn.className = "dsh-ph-btn";
-        resendBtn.title = "重新发送此提示词 (Resend)";
-        resendBtn.setAttribute("aria-label", "重新发送");
+        resendBtn.className = actionClass;
+        resendBtn.title = "重新发送此提示词";
+        resendBtn.setAttribute("aria-label", "重新发送此提示词");
         resendBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor">
-          <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-          <path d="M8 4.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V5H8.5a.5.5 0 0 1-.5-.5z"/>
+          <path d="M7.92136 0.349152C10.3744 0.349234 12.5564 1.5052 13.9557 3.29894L15.1281 2.12759C15.3303 1.92546 15.6767 2.06943 15.6767 2.35538V5.53923C15.6766 5.71626 15.5329 5.85976 15.3559 5.86002H12.171C11.8854 5.8597 11.7426 5.51465 11.9443 5.31249L12.9641 4.29056C11.8237 2.74305 9.98908 1.74106 7.92136 1.74097C4.46436 1.74097 1.66233 4.543 1.66233 8C1.66233 11.457 4.46436 14.259 7.92136 14.259C11.3782 14.2589 14.1804 11.4569 14.1804 8H15.5722C15.5722 12.2251 12.1465 15.6507 7.92136 15.6508C3.69614 15.6508 0.270508 12.2252 0.270508 8C0.270508 3.77478 3.69614 0.349152 7.92136 0.349152Z"/>
         </svg>`;
         resendBtn.onclick = (e) => {
           e.stopPropagation();
