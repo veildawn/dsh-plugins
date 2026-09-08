@@ -1102,6 +1102,7 @@ class AiProxyApi {
       baseURL: opts.baseURL,
       clientId: opts.clientId,
       apiFormat: opts.apiFormat,
+      defaultReasoningEffort: opts.defaultReasoningEffort ?? '',
       endpoint: resolveInferenceEndpoint(opts.baseURL, opts.apiFormat),
     }
   }
@@ -1110,6 +1111,9 @@ class AiProxyApi {
   async setGateway(params) {
     let baseURL = typeof params === 'string' ? params : params?.baseURL
     const apiFormat = typeof params === 'object' && params?.apiFormat ? normalizeApiFormat(params.apiFormat) : undefined
+    const defaultReasoningEffort = typeof params === 'object' && params?.defaultReasoningEffort !== undefined
+      ? (typeof params.defaultReasoningEffort === 'string' ? params.defaultReasoningEffort.trim() : '')
+      : undefined
 
     const mutations = []
     if (baseURL !== undefined) {
@@ -1128,6 +1132,9 @@ class AiProxyApi {
     }
     if (apiFormat !== undefined) {
       mutations.push({ op: 'set', path: ['apiFormat'], value: apiFormat })
+    }
+    if (defaultReasoningEffort !== undefined) {
+      mutations.push({ op: 'set', path: ['defaultReasoningEffort'], value: defaultReasoningEffort })
     }
 
     if (mutations.length > 0) {

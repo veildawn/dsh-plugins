@@ -52,6 +52,12 @@ window.__ModuleLoader__.load({
       .ai-proxy-callback-desc{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}
       .ai-proxy-callback-row{display:flex;gap:8px;align-items:center}
       .ai-proxy-callback-btn{white-space:nowrap;padding:0 16px;height:36px;font-weight:500}
+      .ai-proxy-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));cursor:pointer}
+      .ai-proxy-toggle-info{display:flex;flex-direction:column;gap:2px}
+      .ai-proxy-toggle-title{font:var(--dsw-font-s-14);font-weight:500;color:var(--dsw-alias-label-secondary)}
+      .ai-proxy-toggle-desc{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}
+      .ai-proxy-checkbox{width:18px;height:18px;flex:none;cursor:pointer;accent-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .ai-proxy-checkbox:disabled{opacity:.4;cursor:default}
       button:has([data-settings-nav-label="ai-proxy"]) > svg:first-child{display:none}
       .ai-proxy-nav-label{display:inline-flex;align-items:center;gap:8px}
     `;
@@ -97,14 +103,16 @@ window.__ModuleLoader__.load({
       function AiProxySettings(props) {
         const [gateway, setGateway] = react.useState("");
         const [apiFormat, setApiFormat] = react.useState("chat/completions");
+        const [highestEffort, setHighestEffort] = react.useState(false);
         const [savedGateway, setSavedGateway] = react.useState("");
         const [savedApiFormat, setSavedApiFormat] = react.useState("chat/completions");
+        const [savedHighestEffort, setSavedHighestEffort] = react.useState(false);
         const [loaded, setLoaded] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
         const [auth, setAuth] = react.useState({ state: "checking", message: "正在检查登录状态…" });
         const normalizedGateway = normalizeGateway(gateway);
         const invalidGateway = gatewayError(gateway);
-        const configChanged = loaded && (normalizedGateway !== savedGateway || apiFormat !== savedApiFormat);
+        const configChanged = loaded && (normalizedGateway !== savedGateway || apiFormat !== savedApiFormat || highestEffort !== savedHighestEffort);
         const pending = busy || auth.state === "authorizing" || auth.state === "checking";
 
         const [manualInput, setManualInput] = react.useState("");
@@ -120,6 +128,11 @@ window.__ModuleLoader__.load({
             if (value?.apiFormat) {
               setApiFormat(value.apiFormat);
               setSavedApiFormat(value.apiFormat);
+            }
+            if (value?.defaultReasoningEffort !== undefined) {
+              const isHighest = value.defaultReasoningEffort === "highest";
+              setHighestEffort(isHighest);
+              setSavedHighestEffort(isHighest);
             }
             setLoaded(true);
           }, () => { if (active) setLoaded(true); });
@@ -176,7 +189,8 @@ window.__ModuleLoader__.load({
         const commitGateway = async () => {
           if (invalidGateway) throw new Error(invalidGateway);
           if (!configChanged) return;
-          const value = await props.authRequest("setGateway", { baseURL: normalizedGateway, apiFormat });
+          const defaultReasoningEffort = highestEffort ? "highest" : "";
+          const value = await props.authRequest("setGateway", { baseURL: normalizedGateway, apiFormat, defaultReasoningEffort });
           if (typeof value?.baseURL === "string") {
             setGateway(value.baseURL);
             setSavedGateway(normalizeGateway(value.baseURL));
@@ -184,6 +198,11 @@ window.__ModuleLoader__.load({
           if (value?.apiFormat) {
             setApiFormat(value.apiFormat);
             setSavedApiFormat(value.apiFormat);
+          }
+          if (value?.defaultReasoningEffort !== undefined) {
+            const isHighest = value.defaultReasoningEffort === "highest";
+            setHighestEffort(isHighest);
+            setSavedHighestEffort(isHighest);
           }
         };
         const withBusy = async (action, prefix) => {
@@ -242,6 +261,18 @@ window.__ModuleLoader__.load({
               react.createElement("span", { className: "ai-proxy-endpoint-tag" }, "匹配请求地址"),
               react.createElement("span", null, predictedEndpoint)
             ) : null
+          ),
+          react.createElement("label", { className: "ai-proxy-toggle" },
+            react.createElement("div", { className: "ai-proxy-toggle-info" },
+              react.createElement("span", { className: "ai-proxy-toggle-title" }, "最高推理强度 (defaultReasoningEffort)"),
+              react.createElement("span", { className: "ai-proxy-toggle-desc" }, "开启后优先采用当前模型 ladder 的最高档位（如 max / xhigh / high），关闭则采用首档")
+            ),
+            react.createElement("input", {
+              type: "checkbox", role: "switch", className: "ai-proxy-checkbox",
+              checked: highestEffort, disabled: pending || !loaded,
+              "aria-label": "最高推理强度",
+              onChange: (event) => setHighestEffort(event.target.checked),
+            })
           ),
           react.createElement("div", { className: "ai-proxy-status", role: "status", "aria-live": "polite" },
             react.createElement("span", { className: "ai-proxy-dot", "data-active": auth.state === "signed-in" }),

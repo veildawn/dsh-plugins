@@ -433,6 +433,7 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
         baseURL: 'http://localhost:18080',
         clientId: 'dsh',
         apiFormat: 'chat/completions',
+        defaultReasoningEffort: '',
         endpoint: 'http://localhost:18080/v1/chat/completions',
       },
     })
@@ -440,6 +441,11 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
     assert.equal(written.ok, true)
     assert.equal(written.value.baseURL, gw.url)
     assert.equal(settings.doc['ai-proxy'].baseURL, gw.url)
+
+    const writtenEffort = await handler('setGateway', { defaultReasoningEffort: 'highest' })
+    assert.equal(writtenEffort.ok, true)
+    assert.equal(writtenEffort.value.defaultReasoningEffort, 'highest')
+    assert.equal(settings.doc['ai-proxy'].defaultReasoningEffort, 'highest')
     assert.equal((await handler('setBaseURL', { baseURL: 'ftp://nope' })).ok, false)
     assert.equal((await handler('setBaseURL', { baseURL: '  ' })).ok, false)
     assert.equal((await handler('setBaseURL', {})).ok, false)

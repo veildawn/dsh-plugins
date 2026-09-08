@@ -72,8 +72,8 @@ class ConnectionService extends Service {
     this.calls = []
     this.rpc = { call: async (channel, method, payload) => {
       this.calls.push({ channel, method, payload })
-      if (method === 'config') return { ok: true, value: { baseURL: 'http://gateway.test', clientId: 'dsh', apiFormat: 'chat/completions', endpoint: 'http://gateway.test/v1/chat/completions' } }
-      if (method === 'setGateway') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh', apiFormat: payload.apiFormat || 'chat/completions', endpoint: 'http://gateway.test/v1/chat/completions' } }
+      if (method === 'config') return { ok: true, value: { baseURL: 'http://gateway.test', clientId: 'dsh', apiFormat: 'chat/completions', defaultReasoningEffort: '', endpoint: 'http://gateway.test/v1/chat/completions' } }
+      if (method === 'setGateway') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh', apiFormat: payload.apiFormat || 'chat/completions', defaultReasoningEffort: payload.defaultReasoningEffort ?? '', endpoint: 'http://gateway.test/v1/chat/completions' } }
       if (method === 'setBaseURL') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh' } }
       return {
         ok: true,
@@ -148,11 +148,14 @@ test('browser client registers only the AI Proxy OAuth settings section', async 
   assert.equal(apiFormatSelect.props.value, 'chat/completions')
   assert.equal(apiFormatSelect.props.children.length, 3)
 
+  const effortSwitch = findElement(view, (node) => node?.type === 'input' && node.props['aria-label'] === '最高推理强度')
+  assert.equal(effortSwitch.props.checked, false)
+
   gateway.props.onChange({ target: { value: 'http://gateway-2.test/' } })
   view = render(section.component, props)
   await findElement(view, (node) => node?.type === 'button' && node.props.children.includes('登录')).props.onClick()
   assert.deepEqual(connection.calls.at(-2), {
-    channel: '/ai-proxy-auth', method: 'setGateway', payload: { baseURL: 'http://gateway-2.test', apiFormat: 'chat/completions' },
+    channel: '/ai-proxy-auth', method: 'setGateway', payload: { baseURL: 'http://gateway-2.test', apiFormat: 'chat/completions', defaultReasoningEffort: '' },
   })
   assert.deepEqual(connection.calls.at(-1), { channel: '/ai-proxy-auth', method: 'login', payload: {} })
   assert.equal(openedWindows.at(-1).location.href, 'https://gateway.test/oauth/authorize?state=local-state')
@@ -179,4 +182,37 @@ test('invalid gateways are rejected before an OAuth request', async () => {
   findElement(view, (node) => node?.props?.['aria-label'] === '网关地址').props.onChange({ target: { value: 'ftp://invalid' } })
   view = render(section.component, props)
   assert.equal(findElement(view, (node) => node?.type === 'button' && node.props.children.includes('登录')).props.disabled, true)
+})
+
+test('toggling highest reasoning effort sets defaultReasoningEffort to highest', async () => {
+  resetHooks()
+  const ctx = new Context()
+  const slots = new SlotsService(ctx)
+  const connection = new ConnectionService(ctx)
+  new RemoteService(ctx)
+  await ctx.plugin(plugin).await()
+  const section = slots.registrations[0]
+  const props = section.entry.inject()
+  render(section.component, props)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  // Simulate signed-in
+  hooks[authSlot()] = { state: 'signed-in', message: '已登录' }
+  let view = render(section.component, props)
+
+  const effortSwitch = findElement(view, (node) => node?.type === 'input' && node.props['aria-label'] === '最高推理强度')
+  assert.equal(effortSwitch.props.checked, false)
+
+  effortSwitch.props.onChange({ target: { checked: true } })
+  view = render(section.component, props)
+
+  const saveBtn = findElement(view, (node) => node?.type === 'button' && node.props.children.includes('保存'))
+  assert(saveBtn)
+  await saveBtn.props.onClick()
+
+  assert.deepEqual(connection.calls.at(-1), {
+    channel: '/ai-proxy-auth',
+    method: 'setGateway',
+    payload: { baseURL: 'http://gateway.test', apiFormat: 'chat/completions', defaultReasoningEffort: 'highest' },
+  })
 })
