@@ -40,6 +40,10 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
+    let reactDom = null;
+    try {
+      reactDom = require("react-dom");
+    } catch {}
 
     const MARKET_RPC_CHANNEL = "/dsh-plugin-manager-rpc";
     const SETTINGS_SLOT = "settings.section";
@@ -271,7 +275,7 @@ window.__ModuleLoader__.load({
       .dm-restart-modal{padding:14px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));display:flex;flex-direction:column;gap:8px;align-items:flex-start}
       @keyframes dm-fade-in{from{opacity:0}to{opacity:1}}
       @keyframes dm-pop-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
-      .dm-modal-scrim{position:fixed;inset:0;z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);animation:dm-fade-in .15s ease-out}
+      .dm-modal-scrim{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100vh;height:100dvh;z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.5);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);animation:dm-fade-in .15s ease-out;margin:0;max-width:none!important}
       .dm-modal-card{box-sizing:border-box;width:min(92vw,420px);max-width:100%;border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));border-radius:12px;background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));box-shadow:var(--dsw-shadow-lv3,0 16px 40px rgba(0,0,0,.22));overflow:hidden;display:flex;flex-direction:column;animation:dm-pop-in .15s cubic-bezier(.16,1,.3,1)}
       .dm-modal-head{display:flex;align-items:center;gap:12px;padding:18px 20px 12px}
       .dm-modal-icon{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:10px;flex-shrink:0}
@@ -906,7 +910,7 @@ window.__ModuleLoader__.load({
           ? `${taskState.kind === "remove" ? "卸载任务" : taskState.kind === "batch-update" ? "批量更新任务" : "安装/更新任务"}：${taskState.name}（${taskStatusText}）`
           : "";
 
-        return react.createElement("div", { className: "dm-container" },
+        const containerNode = react.createElement("div", { className: "dm-container" },
           react.createElement("style", null, css),
           react.createElement("h2", { className: "dm-title" },
             react.createElement(IconPluginManager16, { size: 20 }),
@@ -1108,39 +1112,52 @@ window.__ModuleLoader__.load({
               react.createElement("div", { className: "dm-card-actions" },
                 react.createElement("button", { className: "dm-action-btn", type: "button", onClick: () => setDraft({ ...config }) }, "撤销"),
                 react.createElement("button", { className: "dm-action-btn primary", type: "button", onClick: () => saveConfig(draft || {}) }, "保存配置")))
-          ) : null,
-          confirmState ? react.createElement("div", {
-            className: "dm-modal-scrim",
-            role: "dialog",
-            "aria-modal": "true",
-            onClick: () => closeConfirm(false),
-          },
-            react.createElement("div", {
-              className: "dm-modal-card",
-              onClick: (e) => e.stopPropagation(),
-            },
-              react.createElement("div", { className: "dm-modal-head" },
-                react.createElement("div", { className: `dm-modal-icon ${confirmState.variant || "primary"}` },
-                  confirmState.icon || react.createElement(IconAlertTriangle, { size: 20 })
-                ),
-                react.createElement("h3", { className: "dm-modal-title" }, confirmState.title || "确认操作")
-              ),
-              react.createElement("div", { className: "dm-modal-body" }, confirmState.message),
-              react.createElement("div", { className: "dm-modal-foot" },
-                react.createElement("button", {
-                  className: "dm-action-btn",
-                  type: "button",
-                  onClick: () => closeConfirm(false),
-                }, confirmState.cancelText || "取消"),
-                react.createElement("button", {
-                  className: `dm-action-btn ${confirmState.variant || "primary"}`,
-                  type: "button",
-                  autoFocus: true,
-                  onClick: () => closeConfirm(true),
-                }, confirmState.confirmText || "确定")
-              )
-            )
           ) : null
+        );
+
+        const modalNode = confirmState ? react.createElement("div", {
+          className: "dm-modal-scrim",
+          role: "dialog",
+          "aria-modal": "true",
+          onClick: () => closeConfirm(false),
+        },
+          react.createElement("div", {
+            className: "dm-modal-card",
+            onClick: (e) => e.stopPropagation(),
+          },
+            react.createElement("div", { className: "dm-modal-head" },
+              react.createElement("div", { className: `dm-modal-icon ${confirmState.variant || "primary"}` },
+                confirmState.icon || react.createElement(IconAlertTriangle, { size: 20 })
+              ),
+              react.createElement("h3", { className: "dm-modal-title" }, confirmState.title || "确认操作")
+            ),
+            react.createElement("div", { className: "dm-modal-body" }, confirmState.message),
+            react.createElement("div", { className: "dm-modal-foot" },
+              react.createElement("button", {
+                className: "dm-action-btn",
+                type: "button",
+                onClick: () => closeConfirm(false),
+              }, confirmState.cancelText || "取消"),
+              react.createElement("button", {
+                className: `dm-action-btn ${confirmState.variant || "primary"}`,
+                type: "button",
+                autoFocus: true,
+                onClick: () => closeConfirm(true),
+              }, confirmState.confirmText || "确定")
+            )
+          )
+        ) : null;
+
+        if (modalNode && typeof document !== "undefined" && document.body && reactDom && typeof reactDom.createPortal === "function") {
+          return react.createElement(react.Fragment, null,
+            containerNode,
+            reactDom.createPortal(modalNode, document.body)
+          );
+        }
+
+        return react.createElement(react.Fragment, null,
+          containerNode,
+          modalNode
         );
       }
 

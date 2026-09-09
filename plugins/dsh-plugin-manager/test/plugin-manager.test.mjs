@@ -591,6 +591,8 @@ describe('dsh-plugin-manager client bundle verification', () => {
     const okGuardCount = (clientCode.match(/if \(!ok\) return;/g) || []).length
     assert.ok(askConfirmCount >= 3)
     assert.equal(okGuardCount, askConfirmCount, 'Every askConfirm must guard cancellation with `if (!ok) return;`')
+    // Portal to document.body to bypass transformed drawer container clipping
+    assert.equal(clientCode.includes('createPortal(modalNode, document.body)'), true)
   })
 
   it('cordis patch entry id matches the host-side service name', () => {
