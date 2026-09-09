@@ -12,7 +12,7 @@ import {
 } from './core.js'
 
 export const name = 'archive-manager'
-export const inject = ['workspaceRegistry', 'sessionPersistence', 'settings']
+export const inject = ['workspaceRegistry', 'sessionPersistence', 'settings', 'sessions', 'agents']
 
 export const Config = z.object({
   tombstones: z.array(z.object({

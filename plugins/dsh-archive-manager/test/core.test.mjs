@@ -4,7 +4,7 @@ import {
   NS, RPC_CHANNEL, unarchiveSessions, deleteSessions, restoreDeleted,
   listSummaries, listDeleted, handleArchiveRpc,
   physicalDeleteSessions, restorePhysicalSessions, destroyPhysicalSessions,
-  permanentPurgeSessions, resolveOptions, resolveTrashDir,
+  permanentPurgeSessions, resolveOptions, resolveTrashDir, getService,
 } from '../lib/core.js';
 import * as HostPlugin from '../lib/index.js';
 
@@ -406,7 +406,7 @@ test('core: handleArchiveRpc dispatches with the ok/error envelope and gates phy
 
 test('host: apply registers the settings namespace and the trusted-host RPC channel', async () => {
   assert.equal(HostPlugin.name, 'archive-manager');
-  assert.deepEqual(HostPlugin.inject, ['workspaceRegistry', 'sessionPersistence', 'settings']);
+  assert.deepEqual(HostPlugin.inject, ['workspaceRegistry', 'sessionPersistence', 'settings', 'sessions', 'agents']);
   const calls = { handle: null, register: null };
   const ctx = {
     settings: {
@@ -431,6 +431,23 @@ test('host: apply registers the settings namespace and the trusted-host RPC chan
   assert.deepEqual(calls.handle.opts, { authority: 'trusted-host' });
   const result = await calls.handle.handler('list', {});
   assert.equal(result.ok, true);
+});
+
+test('core: getService safely handles proxy getter exceptions without inject', () => {
+  const mockProxy = new Proxy({}, {
+    get(target, prop) {
+      if (prop === 'get') return (name) => `service-${name}`;
+      throw new Error(`cannot get property "${String(prop)}" without inject`);
+    },
+  });
+  // Must return via get() and NEVER throw from the property trap
+  assert.equal(getService(mockProxy, 'sessions'), 'service-sessions');
+  assert.equal(getService(mockProxy, 'agents'), 'service-agents');
+
+  // Fallback on objects without get()
+  const plainObj = { testService: 123 };
+  assert.equal(getService(plainObj, 'testService'), 123);
+  assert.equal(getService(null, 'foo'), undefined);
 });
 
 test('client: bundle loads through __ModuleLoader__ with the single-arg factory contract', async () => {

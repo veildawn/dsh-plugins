@@ -90,13 +90,33 @@ export function okResult(value) {
 }
 
 /**
+ * Safely look up a Cordis service without triggering the Proxy getter trap
+ * that throws "cannot get property ... without inject".
+ * Tries ctx.get(name) first, falling back to ctx[name] safely.
+ */
+export function getService(ctx, name) {
+  if (!ctx) return undefined
+  try {
+    if (typeof ctx.get === 'function') {
+      const val = ctx.get(name)
+      if (val !== undefined) return val
+    }
+  } catch {}
+  try {
+    return ctx[name]
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Remove ids from the registry-global archive set, routed through the
  * registry's own serialized operation queue so it cannot interleave with
  * concurrent archive/create/delete operations. A session whose id is not in
  * the set resolves without writing (mirrors archiveSession's idempotence).
  */
 export async function unarchiveSessions(ctx, sessionIds) {
-  const registry = ctx.workspaceRegistry || ctx.get?.('workspaceRegistry')
+  const registry = getService(ctx, 'workspaceRegistry')
   if (!registry || typeof registry.enqueueOperation !== 'function' || typeof registry.setState !== 'function' || typeof registry.requireState !== 'function') {
     throw new Error('workspace registry does not expose the state surface required for unarchive (DSH version mismatch?)')
   }
@@ -146,11 +166,11 @@ export async function restoreDeleted(scope, sessionIds) {
 
 /** Resolve the backend artifact path for one session, or `undefined`. */
 async function resolveArtifactPath(ctx, sessionId, headers) {
-  const sessionsService = ctx.sessions || ctx.get?.('sessions')
+  const sessionsService = getService(ctx, 'sessions')
   const live = sessionsService?.get?.(sessionId)
   const header = live?.header ?? headers.get(String(sessionId))
   if (!header) return undefined
-  const persistence = ctx.sessionPersistence || ctx.get?.('sessionPersistence')
+  const persistence = getService(ctx, 'sessionPersistence')
   if (typeof persistence?.locate !== 'function') return undefined
   const located = persistence.locate(header)
   if (!located || typeof located.path !== 'string') return undefined
@@ -168,7 +188,8 @@ export async function physicalDeleteSessions(ctx, scope, sessionIds, options, fs
   const trashDir = resolveTrashDir(options)
   const headers = new Map()
   try {
-    const listed = await ctx.sessionPersistence?.list?.() || []
+    const persistence = getService(ctx, 'sessionPersistence')
+    const listed = await persistence?.list?.() || []
     for (const header of listed) headers.set(String(header.id), header)
   } catch {
     // best-effort; live headers still resolve below
@@ -182,13 +203,13 @@ export async function physicalDeleteSessions(ctx, scope, sessionIds, options, fs
       skipped.push({ id: sessionId, reason: 'already deleted' })
       continue
     }
-    const agentsService = ctx.agents || ctx.get?.('agents')
+    const agentsService = getService(ctx, 'agents')
     const agent = agentsService?.get?.(sessionId)
     if (agent?.status === 'running') {
       skipped.push({ id: sessionId, reason: 'session is live and actively running; close it first' })
       continue
     }
-    const sessionsService = ctx.sessions || ctx.get?.('sessions')
+    const sessionsService = getService(ctx, 'sessions')
     const live = sessionsService?.get?.(sessionId)
     if (live) {
       try {
@@ -284,13 +305,13 @@ export async function permanentPurgeSessions(ctx, scope, sessionIds, fsd = nodeF
 
   const headers = new Map()
   try {
-    const persistence = ctx.sessionPersistence || ctx.get?.('sessionPersistence')
+    const persistence = getService(ctx, 'sessionPersistence')
     const listed = await persistence?.list?.() || []
     for (const header of listed) headers.set(String(header.id), header)
   } catch {}
 
-  const sessionsService = ctx.sessions || ctx.get?.('sessions')
-  const agentsService = ctx.agents || ctx.get?.('agents')
+  const sessionsService = getService(ctx, 'sessions')
+  const agentsService = getService(ctx, 'agents')
 
   for (const sessionId of sessionIds) {
     const sid = String(sessionId)
@@ -373,13 +394,13 @@ function resolveSessionTitle(ctx, sessionId, liveSessions, headers) {
   try {
     const live = liveSessions?.get?.(sessionId)
     if (live) {
-      const service = ctx.get?.('sessionTitle')
+      const service = getService(ctx, 'sessionTitle')
       const snapshot = typeof service?.get === 'function' ? service.get(live) : undefined
       if (snapshot && typeof snapshot.title === 'string' && snapshot.title) return snapshot.title
     }
     const header = live?.header ?? headers.get(String(sessionId))
     if (header) {
-      const cache = ctx.get?.('sessionProjectionCache')
+      const cache = getService(ctx, 'sessionProjectionCache')
       if (typeof cache?.cachedSnapshot === 'function') {
         const snapshot = cache.cachedSnapshot(header, 0)
         const title = snapshot?.values?.title
@@ -401,7 +422,7 @@ function resolveSessionTitle(ctx, sessionId, liveSessions, headers) {
  * `title` projection checkpoint (falling back to the cwd basename).
  */
 export async function listSummaries(ctx, scope) {
-  const registry = ctx.workspaceRegistry
+  const registry = getService(ctx, 'workspaceRegistry')
   const archivedIds = Array.isArray(registry?.archivedSessionIds) ? registry.archivedSessionIds : []
   if (archivedIds.length === 0) return []
 
@@ -409,12 +430,13 @@ export async function listSummaries(ctx, scope) {
   const workspaces = registry?.list?.() || []
   const headers = new Map()
   try {
-    const listed = await ctx.sessionPersistence?.list?.() || []
+    const persistence = getService(ctx, 'sessionPersistence')
+    const listed = await persistence?.list?.() || []
     for (const header of listed) headers.set(String(header.id), header)
   } catch {
     // best-effort; live sessions still resolve below.
   }
-  const liveSessions = ctx.get?.('sessions')
+  const liveSessions = getService(ctx, 'sessions')
   const resolveHeader = (id) => liveSessions?.get?.(id)?.header ?? headers.get(String(id))
 
   const summaries = []
@@ -443,17 +465,18 @@ export async function listSummaries(ctx, scope) {
 
 /** Tombstoned summaries: soft ones (still archived) and physical ones (always). */
 export async function listDeleted(ctx, scope) {
-  const registry = ctx.workspaceRegistry
+  const registry = getService(ctx, 'workspaceRegistry')
   const archivedIds = new Set(Array.isArray(registry?.archivedSessionIds) ? registry.archivedSessionIds : [])
   const tombstones = resolveOptions(scope.get()).tombstones
   const headers = new Map()
   try {
-    const listed = await ctx.sessionPersistence?.list?.() || []
+    const persistence = getService(ctx, 'sessionPersistence')
+    const listed = await persistence?.list?.() || []
     for (const header of listed) headers.set(String(header.id), header)
   } catch {
     // best-effort
   }
-  const liveSessions = ctx.get?.('sessions')
+  const liveSessions = getService(ctx, 'sessions')
   const workspaces = registry?.list?.() || []
   const rows = []
   for (const entry of tombstones) {
