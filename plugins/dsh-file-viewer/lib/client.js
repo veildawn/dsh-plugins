@@ -2010,7 +2010,7 @@ window.__ModuleLoader__.load({
                         className: "fv-button",
                         style: { marginTop: "6px" },
                         onClick: () => {
-                          const reqPath = request_?.filePath || request_?.path || "";
+                          const reqPath = error?.details?.realPath || request_?.filePath || request_?.path || "";
                           setPrefillPath(reqPath ? parentOf(reqPath) : "");
                           setSafeModalOpen(true);
                         },

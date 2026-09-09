@@ -735,3 +735,44 @@ test('getSafePaths and updateSafePaths RPC methods support dynamic web configura
   assert.equal(getResAfter.value.safePaths[1].path, '/var/data')
 })
 
+test('symlink in workspace pointing to an authorized safe path is allowed, but unauthorized symlink is rejected', async () => {
+  const SAFE_DIR = 'D:/safe_pics'
+  const UNTRUSTED_DIR = 'D:/untrusted'
+
+  const fs = createFs({
+    'D:/workspace': { type: 'directory', entries: [] },
+    [`${SAFE_DIR}`]: { type: 'directory', entries: [] },
+    [`${SAFE_DIR}/photo.png`]: { type: 'file', size: 1024, content: 'img data' },
+    [`${UNTRUSTED_DIR}`]: { type: 'directory', entries: [] },
+    [`${UNTRUSTED_DIR}/passwd`]: { type: 'file', size: 200, content: 'root:x:0:0' },
+  })
+
+  // Custom resolve to simulate symlinks
+  const originalResolve = fs.resolve.bind(fs)
+  fs.resolve = async (p, opts) => {
+    if (p === 'D:/workspace/valid_link.png') {
+      return { targetKey: `${SAFE_DIR}/photo.png`, displayPath: p }
+    }
+    if (p === 'D:/workspace/untrusted_link.txt') {
+      return { targetKey: `${UNTRUSTED_DIR}/passwd`, displayPath: p }
+    }
+    return originalResolve(p, opts)
+  }
+
+  const ctx = createCtx(fs, { workspaces: ['D:/workspace'] })
+  const opts = options({ safePaths: [SAFE_DIR] })
+
+  // 1. Symlink pointing to safe path should succeed
+  const metaOk = await handleRpc(ctx, opts, 'meta', { root: 'D:/workspace', path: 'valid_link.png' })
+  assert.equal(metaOk.ok, true)
+  assert.equal(metaOk.value.kind, 'image')
+  assert.equal(metaOk.value.name, 'valid_link.png')
+
+  // 2. Symlink pointing to untrusted path outside safe paths should be rejected
+  const metaBlocked = await handleRpc(ctx, opts, 'meta', { root: 'D:/workspace', path: 'untrusted_link.txt' })
+  assert.equal(metaBlocked.ok, false)
+  assert.equal(metaBlocked.error.code, 'outside-root')
+  assert.equal(metaBlocked.error.details?.realPath, `${UNTRUSTED_DIR}/passwd`)
+})
+
+

@@ -129,11 +129,13 @@ export class ViewerError extends Error {
   /**
    * @param {string} code - stable machine-readable reason.
    * @param {string} message - operator-facing summary, free of path details.
+   * @param {object} [details] - structured machine-readable payload.
    */
-  constructor(code, message) {
+  constructor(code, message, details = {}) {
     super(message)
     this.name = 'ViewerError'
     this.code = code
+    this.details = details
   }
 }
 
@@ -203,7 +205,25 @@ export async function resolveInRoot(ctx, options, payload, signal) {
   const rootTarget = await ctx.fs.resolve(root.path, { signal })
   const target = relative === '' ? rootTarget : await ctx.fs.resolve(joinPath(root.path, relative), { signal })
   if (target.targetKey !== rootTarget.targetKey && !ctx.fs.contains(rootTarget, target)) {
-    throw new ViewerError('outside-root', 'the requested path escapes its root')
+    // If the path escapes the current root (e.g. symlink to an external target),
+    // check if the real target is contained within any other authorized root
+    // (such as a configured safe access path or another registered workspace).
+    let allowedByOtherRoot = false
+    for (const candidateRoot of roots) {
+      if (candidateRoot === root) continue
+      try {
+        const candidateTarget = await ctx.fs.resolve(candidateRoot.path, { signal })
+        if (target.targetKey === candidateTarget.targetKey || ctx.fs.contains(candidateTarget, target)) {
+          allowedByOtherRoot = true
+          break
+        }
+      } catch (_) {}
+    }
+    if (!allowedByOtherRoot) {
+      throw new ViewerError('outside-root', 'the requested path escapes its root', {
+        realPath: String(target.targetKey ?? target.displayPath),
+      })
+    }
   }
   return { root, target, relative, absolute: ctx.fs.processPath?.(target) ?? target.displayPath }
 }
@@ -771,7 +791,7 @@ export async function handleRpc(ctx, options, method, payload, signal) {
     return { ok: true, value: await handler(ctx, options, payload ?? {}, signal) }
   } catch (error) {
     if (error instanceof ViewerError) {
-      return { ok: false, error: { code: error.code, message: error.message, details: {} } }
+      return { ok: false, error: { code: error.code, message: error.message, details: error.details ?? {} } }
     }
     const code = typeof error?.code === 'string' ? error.code : 'internal'
     ctx.logger?.warn?.(`file-viewer: ${method} failed with ${code}`)
