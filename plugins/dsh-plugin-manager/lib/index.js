@@ -100,10 +100,10 @@ export function _resetHttpFetch() {
   httpFetch = defaultHttpFetch
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, timeoutMs = 4_000) {
   const res = await httpFetch(url, {
     headers: { 'User-Agent': 'dsh-market-plugin', 'Accept': 'application/vnd.github.v3+json' },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(timeoutMs),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
@@ -189,10 +189,15 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
 
   try {
     if (method === 'getRepoPlugins') {
-      const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
-      const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
-      let catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
-      catalog = applyMirror(catalog, resolved.mirrorUrl)
+      let catalog = null
+      try {
+        const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
+        const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
+        catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
+        catalog = applyMirror(catalog, resolved.mirrorUrl)
+      } catch {
+        catalog = resolveRepoCatalog(new Map(), resolved.repoOrigin)
+      }
       const merged = mergeInstalledVersions(catalog)
       return {
         ok: true,
@@ -206,7 +211,12 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
     }
 
     if (method === 'getCommunityPlugins') {
-      const raw = await fetchCommunityCatalog(resolved.communityCatalogUrl)
+      let raw = null
+      try {
+        raw = await fetchCommunityCatalog(resolved.communityCatalogUrl)
+      } catch {
+        raw = { updated: '', categories: {}, plugins: [] }
+      }
       const plugins = normalizeCommunityPlugins(raw, 'zh')
       const categories = communityCategories(raw)
       return {

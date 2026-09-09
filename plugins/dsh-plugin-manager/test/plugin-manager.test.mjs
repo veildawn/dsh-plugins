@@ -568,6 +568,13 @@ describe('dsh-plugin-manager client bundle verification', () => {
     assert.equal(clientCode.includes('window.confirm('), false)
     assert.equal(clientCode.includes('dm-modal-scrim'), true)
     assert.equal(clientCode.includes('dm-modal-card'), true)
+    // Parse as a Function so syntax errors in client.js fail the suite
+    new Function('window', clientCode)
+    // Dedicated SVG icons replacing emojis
+    assert.equal(clientCode.includes('IconRocket'), true)
+    assert.equal(clientCode.includes('IconTrash'), true)
+    assert.equal(clientCode.includes('IconRefresh'), true)
+    assert.equal(clientCode.includes('IconSearch'), true)
   })
 
   it('cordis patch entry id matches the host-side service name', () => {

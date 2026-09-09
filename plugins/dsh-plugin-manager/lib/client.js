@@ -68,105 +68,232 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * Clean UI SVG Icons (replacing unicode emojis)
+     */
+    function IconRefresh({ size = 14, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("path", { d: "M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19" })
+      );
+    }
+
+    function IconRocket({ size = 14, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("path", { d: "M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" }),
+        react.createElement("path", { d: "m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" }),
+        react.createElement("path", { d: "M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" }),
+        react.createElement("path", { d: "M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" })
+      );
+    }
+
+    function IconTrash({ size = 14, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("path", { d: "M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6" })
+      );
+    }
+
+    function IconSearch({ size = 14, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("circle", { cx: "11", cy: "11", r: "8" }),
+        react.createElement("path", { d: "m21 21-4.3-4.3" })
+      );
+    }
+
+    function IconTag({ size = 13, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("path", { d: "M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" }),
+        react.createElement("path", { d: "M7 7h.01" })
+      );
+    }
+
+    function IconAlertTriangle({ size = 20, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" }),
+        react.createElement("line", { x1: "12", y1: "9", x2: "12", y2: "13" }),
+        react.createElement("line", { x1: "12", y1: "17", x2: "12.01", y2: "17" })
+      );
+    }
+
+    function IconCheck({ size = 14, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("polyline", { points: "20 6 9 17 4 12" })
+      );
+    }
+
+    function IconGlobe({ size = 13, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("circle", { cx: "12", cy: "12", r: "10" }),
+        react.createElement("line", { x1: "2", y1: "12", x2: "22", y2: "12" }),
+        react.createElement("path", { d: "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" })
+      );
+    }
+
+    function IconArrowDown({ size = 13, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("path", { d: "M12 5v14M19 12l-7 7-7-7" })
+      );
+    }
+
+    /**
+     * Plugin Category/Type Avatar Generator
+     */
+    function getPluginIcon(plugin) {
+      const name = plugin.name || plugin.id || "";
+      const size = 20;
+      if (name.includes("role") || name.includes("model")) {
+        return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" },
+          react.createElement("path", { d: "M12 8V4H8" }),
+          react.createElement("rect", { width: "16", height: "12", x: "4", y: "8", rx: "2" }),
+          react.createElement("path", { d: "M2 14h2" }),
+          react.createElement("path", { d: "M20 14h2" }),
+          react.createElement("path", { d: "M15 13v2" }),
+          react.createElement("path", { d: "M9 13v2" })
+        );
+      }
+      if (name.includes("terminal")) {
+        return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" },
+          react.createElement("polyline", { points: "4 17 10 11 4 5" }),
+          react.createElement("line", { x1: "12", y1: "19", x2: "20", y2: "19" })
+        );
+      }
+      if (name.includes("file") || name.includes("viewer")) {
+        return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" },
+          react.createElement("path", { d: "M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" }),
+          react.createElement("polyline", { points: "14 2 14 8 20 8" }),
+          react.createElement("line", { x1: "16", y1: "13", x2: "8", y2: "13" }),
+          react.createElement("line", { x1: "16", y1: "17", x2: "8", y2: "17" })
+        );
+      }
+      if (name.includes("remote") || name.includes("control") || name.includes("lock")) {
+        return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" },
+          react.createElement("rect", { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2" }),
+          react.createElement("path", { d: "M7 11V7a5 5 0 0 1 10 0v4" })
+        );
+      }
+      if (name.includes("proxy") || name.includes("ai")) {
+        return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" },
+          react.createElement("polygon", { points: "13 2 3 14 12 14 11 22 21 10 12 10 13 2" })
+        );
+      }
+      if (name.includes("mobile")) {
+        return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" },
+          react.createElement("rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2" }),
+          react.createElement("line", { x1: "12", y1: "18", x2: "12.01", y2: "18" })
+        );
+      }
+      if (name.includes("archive")) {
+        return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" },
+          react.createElement("polyline", { points: "21 8 21 21 3 21 3 8" }),
+          react.createElement("rect", { width: "22", height: "5", x: "1", y: "3" }),
+          react.createElement("line", { x1: "10", y1: "12", x2: "14", y2: "12" })
+        );
+      }
+      return react.createElement(IconPluginManager16, { size: size });
+    }
+
     const css = `
-      .dm-container{display:flex;flex-direction:column;gap:14px;width:100%;max-width:920px;color:var(--dsw-alias-label-primary,#1f2328);font-family:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);color-scheme:light dark;-webkit-tap-highlight-color:transparent}
-      .dm-title{font-size:20px;font-weight:600;margin:0;display:flex;align-items:center;gap:8px}.dm-subtitle{font-size:13px;color:var(--dsw-alias-label-tertiary,#656d76);margin:0;line-height:20px}
-      .dm-tabs{display:flex;gap:8px;border-bottom:1px solid var(--dsw-alias-border-subtle,rgba(0,0,0,.1));padding-bottom:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-      .dm-tabs::-webkit-scrollbar{display:none}
-      .dm-tab-btn{padding:6px 14px;border-radius:6px;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#57606a);font-size:14px;cursor:pointer;font-weight:500;transition:all .15s ease;white-space:nowrap;flex-shrink:0}
-      .dm-tab-btn:hover{background:var(--dsw-alias-bg-module-platform,rgba(0,0,0,.05));color:var(--dsw-alias-label-primary,#1f2328)}
-      .dm-tab-btn.active{background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff}
+      .dm-container{display:flex;flex-direction:column;gap:14px;width:100%;max-width:960px;min-width:0;overflow-x:hidden;color:var(--dsw-alias-label-primary,#1f2328);font-family:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);color-scheme:light dark;-webkit-tap-highlight-color:transparent}
+      .dm-container button,.dm-container input,.dm-container a.dm-action-btn{-webkit-appearance:none;appearance:none;font:inherit;color:inherit}
+      .dm-container button{margin:0}
+      .dm-title{font-size:18px;font-weight:600;margin:0;display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-subtitle{font-size:12.5px;color:var(--dsw-alias-label-tertiary,#656d76);margin:0;line-height:18px}
+      .dm-repo-banner{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 14px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8))}
+      .dm-repo-info{font-size:12px;color:var(--dsw-alias-label-secondary,#57606a);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+      .dm-repo-info strong{color:var(--dsw-alias-label-primary,#1f2328);font-weight:600}
+      .dm-repo-badge{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));color:var(--dsw-alias-label-secondary,#57606a)}
+      .dm-tabs{display:flex;gap:4px;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));padding-bottom:0}
+      .dm-tab-btn{padding:7px 12px;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#57606a);font-size:13px;cursor:pointer;font-weight:500;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s ease}
+      .dm-tab-btn:hover{color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-tab-btn.active{color:var(--dsw-alias-label-primary,#1f2328);border-bottom-color:var(--dsw-alias-brand-primary,var(--dsw-alias-label-primary,#1f2328));font-weight:600}
       .dm-filter-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-      .dm-filter-group{display:inline-flex;align-items:center;padding:2px;border-radius:8px;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-bg-layer-1,#f6f8fa)}
-      .dm-filter-btn{padding:5px 12px;border-radius:6px;border:none;background:transparent;color:var(--dsw-alias-label-secondary,#57606a);font-size:12.5px;font-weight:500;cursor:pointer;transition:all .15s ease;white-space:nowrap}
+      .dm-filter-group{display:inline-flex;align-items:center;padding:2px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8))}
+      .dm-filter-btn{padding:5px 11px;border-radius:6px;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all .15s ease}
       .dm-filter-btn:hover{color:var(--dsw-alias-label-primary,#1f2328)}
-      .dm-filter-btn.active{background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 1px 3px rgba(0,0,0,.08);font-weight:600}
-      .dm-search-wrap{width:100%;box-sizing:border-box}
-      .dm-search-box{box-sizing:border-box;width:100%;height:38px;padding:0 14px;border-radius:8px;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);outline:none;font-size:13.5px}
-      .dm-search-box:focus{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 20%,transparent)}
-      .dm-action-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:34px;padding:0 12px;border-radius:6px;font-size:12.5px;font-weight:500;cursor:pointer;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);transition:all .15s ease;white-space:nowrap;touch-action:manipulation}
-      .dm-action-btn:hover{background:var(--dsw-alias-bg-module-platform,#f6f8fa)}.dm-action-btn:disabled{opacity:.55;cursor:default}
-      .dm-action-btn.primary{background:var(--dsw-alias-brand-primary,#4d6bfe);border-color:transparent;color:#fff}
-      .dm-action-btn.primary:hover{opacity:.9}
-      .dm-action-btn.success{border-color:transparent;background:#10b981;color:#fff}
-      .dm-action-btn.warning{border-color:transparent;background:#f59e0b;color:#fff}
-      .dm-action-btn.danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 35%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
-      .dm-action-btn.danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent)}
-      .dm-close-btn{padding:2px 8px;border-radius:4px;border:none;background:transparent;color:var(--dsw-alias-label-tertiary,#656d76);font-size:13px;cursor:pointer;font-weight:bold}
-      .dm-close-btn:hover{background:var(--dsw-alias-bg-module-platform,rgba(0,0,0,.08));color:var(--dsw-alias-label-primary,#1f2328)}
-      .dm-repo-banner{padding:12px 14px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 8%,transparent);border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 25%,transparent);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-      .dm-repo-info{font-size:13px;color:var(--dsw-alias-label-primary,#1f2328);line-height:18px}
-      .dm-chips-box{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--dsw-alias-bg-layer-1,#f6f8fa);border:1px solid var(--dsw-alias-border-subtle,#e1e4e8);width:100%;box-sizing:border-box}
+      .dm-filter-btn.active{background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));color:var(--dsw-alias-label-primary,#1f2328);box-shadow:var(--dsw-shadow-lv1,0 1px 3px rgba(0,0,0,.08));font-weight:600}
+      .dm-search-wrap{position:relative;width:100%;box-sizing:border-box}
+      .dm-search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--dsw-alias-label-tertiary,#656d76);pointer-events:none;display:flex;align-items:center}
+      .dm-search-box{box-sizing:border-box;width:100%;height:36px;padding:0 32px 0 32px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));color:var(--dsw-alias-label-primary,#1f2328);outline:none;font-size:13px}
+      .dm-search-box:focus{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}
+      .dm-search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:var(--dsw-alias-label-tertiary,#656d76);cursor:pointer;padding:4px;font-size:12px;line-height:1}
+      .dm-search-clear:hover{color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-chips-box{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8))}
       .dm-chips-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-      .dm-chips-title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary,#57606a)}
-      .dm-chips-toggle{padding:2px 8px;border-radius:4px;border:none;background:transparent;color:var(--dsw-alias-brand-primary,#4d6bfe);font-size:11.5px;font-weight:500;cursor:pointer}
+      .dm-chips-title{font-size:12px;font-weight:500;color:var(--dsw-alias-label-secondary,#57606a);display:inline-flex;align-items:center;gap:5px}
+      .dm-chips-toggle{padding:0;border:0;background:transparent;color:var(--dsw-alias-brand-primary,#4d6bfe);font-size:12px;font-weight:500;cursor:pointer}
       .dm-chips-toggle:hover{text-decoration:underline}
-      .dm-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;width:100%}
-      .dm-chip{box-sizing:border-box;padding:5px 12px;border-radius:14px;border:1px solid var(--dsw-alias-border-default,#d0d7de);background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;cursor:pointer;transition:all .15s ease;white-space:nowrap;flex-shrink:0;touch-action:manipulation}
+      .dm-chips{display:flex;gap:6px;flex-wrap:wrap}
+      .dm-chip{box-sizing:border-box;height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1,transparent);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;line-height:24px;transition:all .15s ease}
       .dm-chip:hover{border-color:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dm-chip.active{background:var(--dsw-alias-brand-primary,#4d6bfe);border-color:transparent;color:#fff}
-      .dm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
-      .dm-card{box-sizing:border-box;padding:14px;border-radius:10px;border:1px solid var(--dsw-alias-border-subtle,#e1e4e8);background:var(--dsw-alias-background-base,#fff);display:flex;flex-direction:column;justify-content:space-between;gap:10px;transition:box-shadow .15s ease}
-      .dm-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.06)}
+      .dm-toolbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .dm-action-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:30px;padding:0 11px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));color:var(--dsw-alias-label-primary,#1f2328);white-space:nowrap;text-decoration:none;transition:all .15s ease}
+      .dm-action-btn:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-module-platform,#f6f8fa))}
+      .dm-action-btn:disabled{opacity:.45;cursor:default}
+      .dm-action-btn.primary{background:var(--dsw-alias-brand-primary,var(--dsw-alias-button-primary-fill,#4d6bfe));border-color:transparent;color:#fff}
+      .dm-action-btn.primary:hover{opacity:.9}
+      .dm-action-btn.success{background:#10b981;border-color:transparent;color:#fff}
+      .dm-action-btn.warning{border-color:var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-action-btn.danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 45%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
+      .dm-action-btn.danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 12%,transparent)}
+      .dm-close-btn{padding:2px 6px;border:0;background:transparent;color:var(--dsw-alias-label-tertiary,#656d76);font-size:12px;cursor:pointer}
+      .dm-close-btn:hover{color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+      .dm-card{box-sizing:border-box;padding:12px 14px;border-radius:10px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));display:flex;gap:12px;align-items:flex-start;transition:border-color .15s ease,box-shadow .15s ease}
+      .dm-card:hover{border-color:var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));box-shadow:var(--dsw-shadow-lv1,0 2px 8px rgba(0,0,0,.04))}
+      .dm-card-icon{width:36px;height:36px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-primary,#1f2328);flex-shrink:0;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8))}
+      .dm-card-body{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
       .dm-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-      .dm-card-title{font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary,#1f2328);margin:0}
-      .dm-card-name{font-size:11px;color:var(--dsw-alias-label-tertiary,#656d76);margin:2px 0 0}
-      .dm-badge{font-size:11px;padding:2px 6px;border-radius:4px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 12%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe);font-weight:500;white-space:nowrap;flex-shrink:0}
-      .dm-badge.installed{background:color-mix(in srgb,#10b981 15%,transparent);color:#059669}
-      .dm-badge.update{background:color-mix(in srgb,#d98e00 18%,transparent);color:#b76e00;font-weight:600}
-      .dm-badge.uninstalled{background:var(--dsw-alias-bg-module-platform,rgba(0,0,0,.06));color:var(--dsw-alias-label-tertiary,#656d76)}
-      .dm-card-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#57606a);margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-      .dm-version-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--dsw-alias-label-secondary,#57606a);line-height:18px}
-      .dm-ver-installed{color:#059669;font-weight:500}
+      .dm-card-title-row{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
+      .dm-card-title{font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary,#1f2328);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .dm-card-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#57606a);margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+      .dm-badge{font-size:11px;padding:2px 6px;border-radius:4px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));color:var(--dsw-alias-label-secondary,#57606a);font-weight:500;white-space:nowrap;flex-shrink:0}
+      .dm-badge.installed{color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-badge.update{color:#b45309;background:color-mix(in srgb,#f59e0b 16%,transparent);font-weight:600}
+      .dm-badge.uninstalled{color:var(--dsw-alias-label-tertiary,#656d76)}
+      .dm-version-row{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#656d76);line-height:16px}
+      .dm-ver-installed{color:var(--dsw-alias-label-primary,#1f2328);font-weight:500}
       .dm-ver-latest{color:var(--dsw-alias-label-primary,#1f2328);font-weight:600}
-      .dm-ver-uptodate{color:var(--dsw-alias-label-tertiary,#656d76);font-size:11px}
-      .dm-card-meta{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--dsw-alias-label-tertiary,#656d76);border-top:1px solid var(--dsw-alias-border-subtle,#f0f0f0);padding-top:8px;gap:8px;flex-wrap:wrap}
-      .dm-card-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-      .dm-feedback{padding:9px 12px;border-radius:8px;font-size:12px;line-height:18px}.dm-feedback.ok{background:color-mix(in srgb,#10b981 10%,transparent);color:#059669}.dm-feedback.error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
-      .dm-empty{padding:28px 14px;text-align:center;color:var(--dsw-alias-label-tertiary,#656d76);font-size:13px}
-      .dm-install-box{border:1px solid var(--dsw-alias-border-default,#d0d7de);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#f6f8fa);overflow:hidden}
-      .dm-install-head{padding:8px 12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--dsw-alias-border-subtle,#e1e4e8);display:flex;justify-content:space-between;align-items:center;gap:8px}
+      .dm-ver-uptodate{color:var(--dsw-alias-label-tertiary,#656d76)}
+      .dm-card-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:4px;border-top:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.05))}
+      .dm-card-meta-text{font-size:11px;color:var(--dsw-alias-label-tertiary,#656d76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .dm-card-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+      .dm-feedback{padding:8px 12px;border-radius:8px;font-size:12px;line-height:18px;display:flex;align-items:center;gap:6px}.dm-feedback.ok{background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));color:var(--dsw-alias-label-primary,#1f2328);border:1px solid var(--dsw-alias-border-l1,#e1e4e8)}.dm-feedback.error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
+      .dm-empty{padding:28px 16px;text-align:center;color:var(--dsw-alias-label-tertiary,#656d76);font-size:13px}
+      .dm-install-box{border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa))}
+      .dm-install-head{padding:8px 12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));display:flex;justify-content:space-between;align-items:center;gap:8px}
       .dm-install-log{margin:0;padding:8px 12px;max-height:160px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#57606a);white-space:pre-wrap;word-break:break-all}
-      .dm-restart-modal{padding:18px;border-radius:10px;background:color-mix(in srgb,#f59e0b 12%,transparent);border:1px solid color-mix(in srgb,#f59e0b 35%,transparent);display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center}
+      .dm-restart-modal{padding:14px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));display:flex;flex-direction:column;gap:8px;align-items:flex-start}
       @keyframes dm-fade-in{from{opacity:0}to{opacity:1}}
       @keyframes dm-pop-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
       .dm-modal-scrim{position:fixed;inset:0;z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);animation:dm-fade-in .15s ease-out}
-      .dm-modal-card{box-sizing:border-box;width:min(92vw,420px);max-width:100%;border:1px solid var(--dsw-alias-border-default,#d0d7de);border-radius:14px;background:var(--dsw-alias-background-base,#fff);box-shadow:0 16px 40px rgba(0,0,0,.22);overflow:hidden;display:flex;flex-direction:column;animation:dm-pop-in .15s cubic-bezier(.16,1,.3,1)}
+      .dm-modal-card{box-sizing:border-box;width:min(92vw,420px);max-width:100%;border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));border-radius:12px;background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));box-shadow:var(--dsw-shadow-lv3,0 16px 40px rgba(0,0,0,.22));overflow:hidden;display:flex;flex-direction:column;animation:dm-pop-in .15s cubic-bezier(.16,1,.3,1)}
       .dm-modal-head{display:flex;align-items:center;gap:12px;padding:18px 20px 12px}
-      .dm-modal-icon{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:10px;font-size:20px;flex-shrink:0}
+      .dm-modal-icon{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:10px;flex-shrink:0}
       .dm-modal-icon.warning{background:color-mix(in srgb,#f59e0b 16%,transparent);color:#b45309}
       .dm-modal-icon.danger{background:color-mix(in srgb,#ef4444 16%,transparent);color:#b91c1c}
       .dm-modal-icon.primary{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 16%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe)}
-      .dm-modal-title{font-size:16px;font-weight:600;color:var(--dsw-alias-label-primary,#1f2328);margin:0}
-      .dm-modal-body{padding:0 20px 18px;font-size:13.5px;line-height:21px;color:var(--dsw-alias-label-secondary,#57606a);word-break:break-word}
-      .dm-modal-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:12px 20px;background:var(--dsw-alias-bg-layer-1,#f6f8fa);border-top:1px solid var(--dsw-alias-border-subtle,#e1e4e8)}
-      .dm-modal-foot .dm-action-btn{height:34px;padding:0 16px;font-size:13px;border-radius:7px}
+      .dm-modal-title{font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary,#1f2328);margin:0}
+      .dm-modal-body{padding:0 20px 18px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary,#57606a);word-break:break-word}
+      .dm-modal-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:12px 20px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));border-top:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8))}
+      .dm-modal-foot .dm-action-btn{height:32px;padding:0 14px;font-size:12.5px;border-radius:6px}
       .dm-config{display:flex;flex-direction:column;gap:12px;max-width:640px}
       .dm-field{display:flex;flex-direction:column;gap:5px}.dm-label{color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;font-weight:500}
-      .dm-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;border:1px solid var(--dsw-alias-border-default,#d0d7de);border-radius:8px;outline:none;background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);font-size:13px}
+      .dm-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));border-radius:8px;outline:none;background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));color:var(--dsw-alias-label-primary,#1f2328);font-size:13px}
       .dm-input:focus{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}
       .dm-check{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-secondary,#57606a);font-size:13px}
       @media(max-width:768px){
         .dm-container{gap:10px;padding-bottom:max(16px,env(safe-area-inset-bottom,16px))}
-        .dm-grid{grid-template-columns:1fr;gap:10px}
+        .dm-grid{grid-template-columns:1fr;gap:8px}
         .dm-filter-bar{flex-direction:column;align-items:stretch;gap:8px}
         .dm-filter-group{width:100%;display:grid;grid-template-columns:1fr 1fr 1fr;text-align:center}
         .dm-filter-btn{text-align:center;padding:6px 4px}
         .dm-toolbar-right{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:6px}
-        .dm-toolbar-right .dm-action-btn{width:100%;height:36px}
-        .dm-repo-banner{flex-direction:column;align-items:stretch;gap:8px}
-        .dm-repo-banner>div:last-child{width:100%;display:flex;justify-content:space-between;align-items:center}
-        .dm-repo-banner .dm-action-btn{flex:1}
-        .dm-card{padding:12px;gap:8px}
-        .dm-card-meta{flex-direction:column;align-items:stretch;gap:8px}
-        .dm-card-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));width:100%;gap:6px}
-        .dm-card-actions .dm-action-btn{height:36px;width:100%}
-        .dm-search-box{height:38px;font-size:14px}
-        .dm-tab-btn{padding:8px 14px;font-size:13.5px}
+        .dm-toolbar-right .dm-action-btn{width:100%;height:34px}
+        .dm-card-footer{flex-direction:column;align-items:stretch;gap:8px}
+        .dm-card-actions{justify-content:flex-end}
       }
       @media(max-width:480px){
         .dm-toolbar-right{grid-template-columns:1fr}
-        .dm-card-actions{grid-template-columns:1fr 1fr}
       }
     `;
 
@@ -237,7 +364,7 @@ window.__ModuleLoader__.load({
         const askConfirm = react.useCallback(({
           title = "确认操作",
           message = "确定要继续吗？",
-          icon = "⚠️",
+          icon = null,
           confirmText = "确定",
           cancelText = "取消",
           variant = "primary",
@@ -374,7 +501,7 @@ window.__ModuleLoader__.load({
           try {
             if (window.sessionStorage.getItem("dsh-pm-restarted")) {
               window.sessionStorage.removeItem("dsh-pm-restarted");
-              notify("✓ 服务已平滑重启完成，欢迎回来", "ok");
+              notify("服务已平滑重启完成，欢迎回来", "ok");
             }
           } catch {}
         }, [loadRepo, loadConfig, autoCleanLockfile, loadCommunity]);
@@ -387,13 +514,13 @@ window.__ModuleLoader__.load({
               if (task.status === "running") {
                 pollTask(taskId);
               } else {
+                const actionName = task.kind === "remove" ? "卸载" : "安装/更新";
                 if (task.status === "success") {
-                  const actionName = task.kind === "remove" ? "卸载" : "安装/更新";
-                  notify(`✓ ${task.name} ${actionName}成功，已刷新列表`);
+                  notify(`${task.name} ${actionName}成功，已刷新列表`);
                   void loadRepo();
                   if (tab === "community") void loadCommunity();
                 } else {
-                  notify(`✗ ${task.name} 操作失败：${task.error || "未知错误"}`, "error");
+                  notify(`${task.name} 操作失败：${task.error || "未知错误"}`, "error");
                 }
               }
             } catch (err) {
@@ -434,11 +561,10 @@ window.__ModuleLoader__.load({
           const ok = await askConfirm({
             title: "一键批量更新",
             message: `确定要一键更新全部 ${targetList.length} 款插件吗？（注意：更新后不会自动重启 DSH）`,
-            icon: "🚀",
+            icon: react.createElement(IconRocket, { size: 20 }),
             confirmText: `更新全部 (${targetList.length})`,
             variant: "primary",
           });
-          if (!ok) return;
 
           try {
             const value = await callRpc("batchUpdatePlugins", { kind });
@@ -457,11 +583,10 @@ window.__ModuleLoader__.load({
           const ok = await askConfirm({
             title: "卸载插件",
             message: `确定要从当前 profile (${profile}) 卸载插件 ${name} 吗？卸载后该插件功能将不可用。`,
-            icon: "🗑️",
+            icon: react.createElement(IconTrash, { size: 20 }),
             confirmText: "确认卸载",
             variant: "danger",
           });
-          if (!ok) return;
           try {
             const value = await callRpc("removePlugin", { name });
             setTaskState({ id: value.taskId, name, kind: "remove", status: "running", log: [], error: null });
@@ -475,11 +600,10 @@ window.__ModuleLoader__.load({
           const ok = await askConfirm({
             title: "平滑重启服务",
             message: "确定要平滑重启 DeepSeek Harness 服务吗？前端会在后台自动探测端口并在就绪后恢复连接。",
-            icon: "🔄",
+            icon: react.createElement(IconRefresh, { size: 20 }),
             confirmText: "立即重启",
             variant: "warning",
           });
-          if (!ok) return;
           try {
             setRestartingState("triggering");
             await callRpc("restartHost", {});
@@ -604,7 +728,8 @@ window.__ModuleLoader__.load({
         const busyFor = (name) => Boolean(taskState && taskState.status === "running" && taskState.name === name);
 
         /**
-         * Unified Card Component: used for both Monorepo (自有插件) and Community plugins.
+         * Streamlined Card Component: modern ZCode-style layout with SVG avatar,
+         * uncluttered meta details, clean status badge and responsive buttons.
          */
         const renderPluginCard = (plugin, kind) => {
           const installed = plugin.installedVersion || null;
@@ -613,90 +738,104 @@ window.__ModuleLoader__.load({
           const update = isInstalled && Boolean(plugin.hasUpdate);
           const busy = busyFor(plugin.name);
 
-          // Badge logic
-          let badgeClass = "dm-badge uninstalled";
-          let badgeText = "未安装";
+          // Status badge: only show when meaningful (has update or community category tag)
+          let badgeClass = null;
+          let badgeText = null;
           if (update) {
             badgeClass = "dm-badge update";
             badgeText = "可更新";
-          } else if (isInstalled) {
-            badgeClass = "dm-badge installed";
-            badgeText = "已安装";
-          } else if (kind === "repo") {
-            badgeClass = "dm-badge uninstalled";
-            badgeText = "自有";
-          } else if (plugin.category) {
+          } else if (!isInstalled && kind === "community" && plugin.category) {
             badgeClass = "dm-badge uninstalled";
             badgeText = categoryName(plugin.category);
           }
 
-          // Version row text
+          // Clean version indication
           let versionDetails = null;
           if (isInstalled && update) {
             versionDetails = react.createElement(react.Fragment, null,
-              react.createElement("span", { className: "dm-ver-installed" }, `当前版本: v${installed}`),
+              react.createElement("span", { className: "dm-ver-installed" }, `v${installed}`),
               react.createElement("span", null, " → "),
-              react.createElement("span", { className: "dm-ver-latest" }, `远程最新: v${remoteVer}`));
-          } else if (isInstalled && !update) {
-            versionDetails = react.createElement(react.Fragment, null,
-              react.createElement("span", { className: "dm-ver-installed" }, `当前版本: v${installed}`),
-              remoteVer ? react.createElement("span", { className: "dm-ver-uptodate" }, ` · 远程最新: v${remoteVer} (已是最新)`) : react.createElement("span", { className: "dm-ver-uptodate" }, " (已是最新)"));
-          } else {
-            versionDetails = react.createElement("span", { className: "dm-ver-latest" }, remoteVer ? `最新版本: v${remoteVer}` : (plugin.npm ? `包名: ${plugin.npm}` : ""));
+              react.createElement("span", { className: "dm-ver-latest" }, `v${remoteVer}`));
+          } else if (isInstalled) {
+            versionDetails = react.createElement("span", { className: "dm-ver-installed" }, `v${installed}`);
+          } else if (remoteVer) {
+            versionDetails = react.createElement("span", { className: "dm-ver-latest" }, `v${remoteVer}`);
+          } else if (plugin.npm) {
+            versionDetails = react.createElement("span", { className: "dm-ver-latest" }, plugin.npm);
           }
 
           // Primary button label & disabled
-          let btnLabel = "⬇ 安装";
+          let btnLabel = "安装";
           let btnClass = "dm-action-btn primary";
           let btnDisabled = busy;
 
           if (busy) {
-            btnLabel = "正在处理…";
+            btnLabel = "处理中…";
             btnDisabled = true;
           } else if (update) {
-            btnLabel = "🔄 更新";
+            btnLabel = "更新";
             btnClass = "dm-action-btn primary";
             btnDisabled = false;
           } else if (isInstalled) {
-            btnLabel = "✓ 已是最新";
-            btnClass = "dm-action-btn";
-            btnDisabled = true;
+            // When plugin is already installed and up to date, do not show a fake disabled button.
+            btnLabel = null;
           } else {
-            btnLabel = "⬇ 安装";
-            btnClass = "dm-action-btn success";
+            btnLabel = "安装";
+            btnClass = "dm-action-btn primary";
             btnDisabled = false;
           }
 
           const canInstall = kind === "repo" || Boolean(plugin.npm || plugin.name);
 
           return react.createElement("div", { className: "dm-card", key: plugin.id },
-            react.createElement("div", { className: "dm-card-head" },
-              react.createElement("div", null,
-                react.createElement("h3", { className: "dm-card-title" }, plugin.title || plugin.name),
-                react.createElement("p", { className: "dm-card-name" }, plugin.author ? `${plugin.author} / ${plugin.name}` : plugin.name)),
-              react.createElement("span", { className: badgeClass }, badgeText)),
-            react.createElement("p", { className: "dm-card-desc" }, plugin.description || "暂无描述"),
-            react.createElement("div", { className: "dm-version-row" },
-              versionDetails,
-              plugin.stars ? react.createElement("span", null, ` · ⭐ ${plugin.stars}`) : null,
-              plugin.downloads ? react.createElement("span", null, ` · ⬇ ${plugin.downloads}`) : null),
-            react.createElement("div", { className: "dm-card-meta" },
-              react.createElement("span", null, plugin.added ? `收录于 ${plugin.added}` : (plugin.author ? `作者: ${plugin.author}` : "")),
-              react.createElement("div", { className: "dm-card-actions" },
-                plugin.homepage ? react.createElement("a", { className: "dm-action-btn", href: plugin.homepage, target: "_blank", rel: "noreferrer", style: { textDecoration: "none" } }, "源码") : null,
-                react.createElement("button", { className: "dm-action-btn", type: "button", disabled: busy, onClick: () => copyCommand(plugin, kind) }, "复制指令"),
-                isInstalled ? react.createElement("button", {
-                  className: "dm-action-btn danger",
-                  type: "button",
-                  disabled: busy,
-                  onClick: () => void startRemove(plugin.name),
-                }, "🗑️ 卸载") : null,
-                canInstall ? react.createElement("button", {
-                  className: btnClass,
-                  type: "button",
-                  disabled: btnDisabled,
-                  onClick: () => void startInstall(plugin.name, kind),
-                }, btnLabel) : null)));
+            react.createElement("div", { className: "dm-card-icon" }, getPluginIcon(plugin)),
+            react.createElement("div", { className: "dm-card-body" },
+              react.createElement("div", { className: "dm-card-head" },
+                react.createElement("div", { className: "dm-card-title-row" },
+                  react.createElement("h3", { className: "dm-card-title" }, plugin.title || plugin.name),
+                  badgeClass ? react.createElement("span", { className: badgeClass }, badgeText) : null
+                ),
+                react.createElement("div", { className: "dm-version-row" },
+                  versionDetails,
+                  plugin.stars ? react.createElement("span", null, ` · ⭐ ${plugin.stars}`) : null,
+                  plugin.downloads ? react.createElement("span", null, ` · ⬇ ${plugin.downloads}`) : null
+                )
+              ),
+              react.createElement("p", { className: "dm-card-desc" }, plugin.description || "暂无描述"),
+              react.createElement("div", { className: "dm-card-footer" },
+                react.createElement("span", { className: "dm-card-meta-text" },
+                  plugin.author ? `作者: ${plugin.author}` : (plugin.added ? `收录于 ${plugin.added}` : "")
+                ),
+                react.createElement("div", { className: "dm-card-actions" },
+                  plugin.homepage ? react.createElement("a", {
+                    className: "dm-action-btn",
+                    href: plugin.homepage,
+                    target: "_blank",
+                    rel: "noreferrer",
+                    title: "查看源码"
+                  }, "源码") : null,
+                  react.createElement("button", {
+                    className: "dm-action-btn",
+                    type: "button",
+                    disabled: busy,
+                    onClick: () => copyCommand(plugin, kind)
+                  }, "复制指令"),
+                  isInstalled ? react.createElement("button", {
+                    className: "dm-action-btn danger",
+                    type: "button",
+                    disabled: busy,
+                    onClick: () => void startRemove(plugin.name),
+                  }, "卸载") : null,
+                  btnLabel && canInstall ? react.createElement("button", {
+                    className: btnClass,
+                    type: "button",
+                    disabled: btnDisabled,
+                    onClick: () => void startInstall(plugin.name, kind),
+                  }, btnLabel) : null
+                )
+              )
+            )
+          );
         };
 
         const saveConfig = async (next) => {
@@ -721,9 +860,6 @@ window.__ModuleLoader__.load({
         const uninstalledCount = totalCount - installedCount;
 
         const filteredRepo = repoPlugins.filter((p) => {
-          const isInst = Boolean(p.installedVersion);
-          if (filterStatus === "installed" && !isInst) return false;
-          if (filterStatus === "uninstalled" && isInst) return false;
           if (!q) return true;
           return [p.name, p.title, p.description, (p.tags || []).join(" ")].join(" ").toLowerCase().includes(q);
         });
@@ -741,9 +877,8 @@ window.__ModuleLoader__.load({
         const communityUpdateCount = communityPlugins.filter((p) => p.installedVersion && p.hasUpdate && p.npm).length;
 
         const taskStatusText = taskState
-          ? taskState.status === "running" ? "进行中…" : taskState.status === "success" ? "✓ 成功" : "✗ 失败"
+          ? taskState.status === "running" ? "进行中…" : taskState.status === "success" ? "成功" : "失败"
           : "";
-
         const taskHeaderTitle = taskState
           ? `${taskState.kind === "remove" ? "卸载任务" : taskState.kind === "batch-update" ? "批量更新任务" : "安装/更新任务"}：${taskState.name}（${taskStatusText}）`
           : "";
@@ -756,10 +891,10 @@ window.__ModuleLoader__.load({
           react.createElement("p", { className: "dm-subtitle" }, "管理自有插件更新与卸载，浏览并一键安装 2200+ 社区精选插件。"),
           feedback ? react.createElement("div", { className: `dm-feedback ${feedbackKind}`, role: "status" }, feedback) : null,
           restartingState ? react.createElement("div", { className: "dm-restart-modal" },
-            react.createElement("div", { style: { fontSize: "15px", fontWeight: "600" } },
-              restartingState === "ready" ? "✓ 服务重启完成！"
-                : restartingState === "timeout" ? "⚠️ 服务重启超时"
-                  : "🔄 正在平滑重启 DeepSeek Harness 服务…"),
+            react.createElement("div", { style: { fontSize: "14px", fontWeight: "600", display: "flex", alignItems: "center", gap: "6px" } },
+              restartingState === "ready" ? "服务重启完成"
+                : restartingState === "timeout" ? "服务重启超时"
+                  : "正在平滑重启 DeepSeek Harness 服务…"),
             react.createElement("div", { style: { fontSize: "12px", color: "var(--dsw-alias-label-secondary)" } },
               restartingState === "ready" ? "新实例已就绪，正在自动刷新页面恢复..."
                 : restartingState === "timeout" ? "90 秒内未能确认新实例就绪。请检查服务进程状态或稍后手动重试。"
@@ -772,7 +907,7 @@ window.__ModuleLoader__.load({
             : null,
           react.createElement("div", { className: "dm-repo-banner" },
             react.createElement("div", { className: "dm-repo-info" },
-              "📦 自有仓库: ", react.createElement("strong", null, repoOrigin),
+              "仓库: ", react.createElement("strong", null, repoOrigin),
               " · 当前 profile: ", react.createElement("strong", null, profile)),
             react.createElement("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
               react.createElement("button", {
@@ -780,8 +915,11 @@ window.__ModuleLoader__.load({
                 type: "button",
                 disabled: Boolean(restartingState),
                 onClick: startAsyncRestart,
-              }, restartingState ? "重启中…" : "🔄 立即重启 DSH 服务"),
-              react.createElement("span", { className: "dm-badge repo" }, `自有 ${repoPlugins.length} 款 · 社区 ${communityPlugins.length} 款`))),
+              },
+                react.createElement(IconRefresh, { size: 13 }),
+                react.createElement("span", null, restartingState ? "重启中…" : "立即重启服务")
+              ),
+              react.createElement("span", { className: "dm-repo-badge" }, `自有 ${repoPlugins.length} 款 · 社区 ${communityPlugins.length} 款`))),
           taskState ? react.createElement("div", { className: "dm-install-box" },
             react.createElement("div", { className: "dm-install-head" },
               react.createElement("span", null, taskHeaderTitle),
@@ -792,7 +930,7 @@ window.__ModuleLoader__.load({
                   type: "button",
                   title: "关闭任务日志面板",
                   onClick: () => setTaskState(null),
-                }, "✕ 关闭")
+                }, "✕")
               )),
             react.createElement("pre", { className: "dm-install-log" }, (taskState.log || []).slice(-20).join("\n") || "等待任务输出…"))
             : null,
@@ -802,7 +940,7 @@ window.__ModuleLoader__.load({
             react.createElement("button", { className: `dm-tab-btn ${tab === "config" ? "active" : ""}`, type: "button", onClick: () => setTab("config") }, "配置")),
           tab !== "config" ? react.createElement(react.Fragment, null,
             react.createElement("div", { className: "dm-filter-bar" },
-              react.createElement("div", { className: "dm-filter-group" },
+              tab === "community" ? react.createElement("div", { className: "dm-filter-group" },
                 react.createElement("button", {
                   className: `dm-filter-btn ${filterStatus === "all" ? "active" : ""}`,
                   type: "button",
@@ -817,7 +955,7 @@ window.__ModuleLoader__.load({
                   className: `dm-filter-btn ${filterStatus === "uninstalled" ? "active" : ""}`,
                   type: "button",
                   onClick: () => setFilterStatus("uninstalled"),
-                }, `未安装 (${uninstalledCount})`)),
+                }, `未安装 (${uninstalledCount})`)) : react.createElement("div", null),
               react.createElement("div", { className: "dm-toolbar-right" },
                 tab === "repo" ? react.createElement(react.Fragment, null,
                   react.createElement("button", {
@@ -825,8 +963,20 @@ window.__ModuleLoader__.load({
                     type: "button",
                     disabled: Boolean(taskState && taskState.status === "running") || repoUpdateCount === 0,
                     onClick: () => void startBatchUpdate("repo"),
-                  }, `🚀 一键更新全部 (${repoUpdateCount})`),
-                  react.createElement("button", { className: "dm-action-btn", type: "button", disabled: loading, onClick: () => void loadRepo() }, loading ? "正在同步…" : "🔄 检查最新更新"))
+                  },
+                    react.createElement(IconRocket, { size: 13 }),
+                    react.createElement("span", null, `一键更新全部 (${repoUpdateCount})`)
+                  ),
+                  react.createElement("button", {
+                    className: "dm-action-btn",
+                    type: "button",
+                    disabled: loading,
+                    onClick: () => void loadRepo()
+                  },
+                    react.createElement(IconRefresh, { size: 13 }),
+                    react.createElement("span", null, loading ? "正在同步…" : "检查更新")
+                  )
+                )
                   : null,
                 tab === "community" ? react.createElement(react.Fragment, null,
                   react.createElement("button", {
@@ -834,17 +984,38 @@ window.__ModuleLoader__.load({
                     type: "button",
                     disabled: Boolean(taskState && taskState.status === "running") || communityUpdateCount === 0,
                     onClick: () => void startBatchUpdate("community"),
-                  }, `🚀 一键更新全部 (${communityUpdateCount})`),
-                  react.createElement("button", { className: "dm-action-btn", type: "button", disabled: loadingCommunity, onClick: () => void loadCommunity(1, false) }, loadingCommunity ? "正在刷新…" : "🔄 刷新社区目录"))
-                  : null)),
+                  },
+                    react.createElement(IconRocket, { size: 13 }),
+                    react.createElement("span", null, `一键更新全部 (${communityUpdateCount})`)
+                  ),
+                  react.createElement("button", {
+                    className: "dm-action-btn",
+                    type: "button",
+                    disabled: loadingCommunity,
+                    onClick: () => void loadCommunity(1, false)
+                  },
+                    react.createElement(IconRefresh, { size: 13 }),
+                    react.createElement("span", null, loadingCommunity ? "正在刷新…" : "刷新目录")
+                  )
+                ) : null
+              )
+            ),
             react.createElement("div", { className: "dm-search-wrap" },
+              react.createElement("div", { className: "dm-search-icon" }, react.createElement(IconSearch, { size: 14 })),
               react.createElement("input", {
                 type: "text",
                 className: "dm-search-box",
-                placeholder: "🔍 搜索插件名称、描述或标签（如 terminal、vision、路由）…",
+                placeholder: "搜索插件名称、描述或标签（如 terminal、vision、路由）…",
                 value: search,
                 onChange: (e) => setSearch(e.target.value),
-              }))
+              }),
+              search ? react.createElement("button", {
+                className: "dm-search-clear",
+                type: "button",
+                onClick: () => setSearch(""),
+                title: "清空搜索",
+              }, "✕") : null
+            )
           ) : null,
           tab === "repo" ? (
             filteredRepo.length === 0
@@ -858,7 +1029,10 @@ window.__ModuleLoader__.load({
               const visibleCategories = isExpanded ? categories : categories.slice(0, 10);
               return react.createElement("div", { className: "dm-chips-box" },
                 react.createElement("div", { className: "dm-chips-head" },
-                  react.createElement("span", { className: "dm-chips-title" }, `🏷️ 目录分类 (${categories.length})`),
+                  react.createElement("span", { className: "dm-chips-title" },
+                    react.createElement(IconTag, { size: 13 }),
+                    react.createElement("span", null, `目录分类 (${categories.length})`)
+                  ),
                   categories.length > 10 ? react.createElement("button", {
                     className: "dm-chips-toggle",
                     type: "button",
@@ -882,7 +1056,10 @@ window.__ModuleLoader__.load({
                   ? react.createElement("div", { className: "dm-empty" },
                       q || category || filterStatus !== "all" ? "没有匹配的社区插件" : "社区插件索引为空或加载失败。",
                       react.createElement("br", null),
-                      react.createElement("a", { href: "https://awesome-dsh-plugin.com", target: "_blank", rel: "noreferrer", style: { color: "var(--dsw-alias-brand-primary)" } }, "🌐 访问 Awesome DSH Plugins 官方导航"),
+                      react.createElement("a", { href: "https://awesome-dsh-plugin.com", target: "_blank", rel: "noreferrer", style: { color: "var(--dsw-alias-brand-primary)", display: "inline-flex", alignItems: "center", gap: "4px" } },
+                        react.createElement(IconGlobe, { size: 13 }),
+                        react.createElement("span", null, "访问 Awesome DSH Plugins 官方导航")
+                      ),
                       react.createElement("br", null),
                       react.createElement("button", { className: "dm-action-btn", type: "button", onClick: () => void loadCommunity() }, "重试"))
                   : react.createElement(react.Fragment, null,
@@ -920,7 +1097,9 @@ window.__ModuleLoader__.load({
               onClick: (e) => e.stopPropagation(),
             },
               react.createElement("div", { className: "dm-modal-head" },
-                react.createElement("div", { className: `dm-modal-icon ${confirmState.variant || "primary"}` }, confirmState.icon || "⚠️"),
+                react.createElement("div", { className: `dm-modal-icon ${confirmState.variant || "primary"}` },
+                  confirmState.icon || react.createElement(IconAlertTriangle, { size: 20 })
+                ),
                 react.createElement("h3", { className: "dm-modal-title" }, confirmState.title || "确认操作")
               ),
               react.createElement("div", { className: "dm-modal-body" }, confirmState.message),
