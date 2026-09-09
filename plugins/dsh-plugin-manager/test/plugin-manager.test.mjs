@@ -564,6 +564,10 @@ describe('dsh-plugin-manager client bundle verification', () => {
     assert.equal(clientCode.includes('const rpc = ctx.connection.rpc'), false)
     assert.equal(clientCode.includes('conn && conn.rpc'), true)
     assert.equal(clientCode.includes('rpc.call(MARKET_RPC_CHANNEL'), true)
+    // Custom centered modal dialogs (no native window.confirm)
+    assert.equal(clientCode.includes('window.confirm('), false)
+    assert.equal(clientCode.includes('dm-modal-scrim'), true)
+    assert.equal(clientCode.includes('dm-modal-card'), true)
   })
 
   it('cordis patch entry id matches the host-side service name', () => {

@@ -128,6 +128,19 @@ window.__ModuleLoader__.load({
       .dm-install-head{padding:8px 12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--dsw-alias-border-subtle,#e1e4e8);display:flex;justify-content:space-between;align-items:center;gap:8px}
       .dm-install-log{margin:0;padding:8px 12px;max-height:160px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#57606a);white-space:pre-wrap;word-break:break-all}
       .dm-restart-modal{padding:18px;border-radius:10px;background:color-mix(in srgb,#f59e0b 12%,transparent);border:1px solid color-mix(in srgb,#f59e0b 35%,transparent);display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center}
+      @keyframes dm-fade-in{from{opacity:0}to{opacity:1}}
+      @keyframes dm-pop-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+      .dm-modal-scrim{position:fixed;inset:0;z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);animation:dm-fade-in .15s ease-out}
+      .dm-modal-card{box-sizing:border-box;width:min(92vw,420px);max-width:100%;border:1px solid var(--dsw-alias-border-default,#d0d7de);border-radius:14px;background:var(--dsw-alias-background-base,#fff);box-shadow:0 16px 40px rgba(0,0,0,.22);overflow:hidden;display:flex;flex-direction:column;animation:dm-pop-in .15s cubic-bezier(.16,1,.3,1)}
+      .dm-modal-head{display:flex;align-items:center;gap:12px;padding:18px 20px 12px}
+      .dm-modal-icon{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:10px;font-size:20px;flex-shrink:0}
+      .dm-modal-icon.warning{background:color-mix(in srgb,#f59e0b 16%,transparent);color:#b45309}
+      .dm-modal-icon.danger{background:color-mix(in srgb,#ef4444 16%,transparent);color:#b91c1c}
+      .dm-modal-icon.primary{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 16%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .dm-modal-title{font-size:16px;font-weight:600;color:var(--dsw-alias-label-primary,#1f2328);margin:0}
+      .dm-modal-body{padding:0 20px 18px;font-size:13.5px;line-height:21px;color:var(--dsw-alias-label-secondary,#57606a);word-break:break-word}
+      .dm-modal-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:12px 20px;background:var(--dsw-alias-bg-layer-1,#f6f8fa);border-top:1px solid var(--dsw-alias-border-subtle,#e1e4e8)}
+      .dm-modal-foot .dm-action-btn{height:34px;padding:0 16px;font-size:13px;border-radius:7px}
       .dm-config{display:flex;flex-direction:column;gap:12px;max-width:640px}
       .dm-field{display:flex;flex-direction:column;gap:5px}.dm-label{color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;font-weight:500}
       .dm-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;border:1px solid var(--dsw-alias-border-default,#d0d7de);border-radius:8px;outline:none;background:var(--dsw-alias-background-base,#fff);color:var(--dsw-alias-label-primary,#1f2328);font-size:13px}
@@ -216,11 +229,58 @@ window.__ModuleLoader__.load({
         const [draft, setDraft] = react.useState(null);
         const [taskState, setTaskState] = react.useState(null);
         const [restartingState, setRestartingState] = react.useState(null);
+        const [confirmState, setConfirmState] = react.useState(null);
+        const confirmResolverRef = react.useRef(null);
         const probeTimerRef = react.useRef(null);
         const mountedRef = react.useRef(true);
 
+        const askConfirm = react.useCallback(({
+          title = "确认操作",
+          message = "确定要继续吗？",
+          icon = "⚠️",
+          confirmText = "确定",
+          cancelText = "取消",
+          variant = "primary",
+        } = {}) => {
+          return new Promise((resolve) => {
+            confirmResolverRef.current = resolve;
+            setConfirmState({
+              title,
+              message,
+              icon,
+              confirmText,
+              cancelText,
+              variant,
+            });
+          });
+        }, []);
+
+        const closeConfirm = react.useCallback((result) => {
+          if (confirmResolverRef.current) {
+            confirmResolverRef.current(Boolean(result));
+            confirmResolverRef.current = null;
+          }
+          setConfirmState(null);
+        }, []);
+
+        react.useEffect(() => {
+          if (!confirmState) return;
+          const onKeyDown = (e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              closeConfirm(false);
+            }
+          };
+          window.addEventListener("keydown", onKeyDown, true);
+          return () => window.removeEventListener("keydown", onKeyDown, true);
+        }, [confirmState, closeConfirm]);
+
         react.useEffect(() => () => {
           mountedRef.current = false;
+          if (confirmResolverRef.current) {
+            confirmResolverRef.current(false);
+            confirmResolverRef.current = null;
+          }
           if (probeTimerRef.current) {
             window.clearInterval(probeTimerRef.current);
             probeTimerRef.current = null;
@@ -371,9 +431,14 @@ window.__ModuleLoader__.load({
             return;
           }
 
-          if (!window.confirm(`确定要一键更新全部 ${targetList.length} 款插件吗？（注意：更新后不会自动重启 DSH）`)) {
-            return;
-          }
+          const ok = await askConfirm({
+            title: "一键批量更新",
+            message: `确定要一键更新全部 ${targetList.length} 款插件吗？（注意：更新后不会自动重启 DSH）`,
+            icon: "🚀",
+            confirmText: `更新全部 (${targetList.length})`,
+            variant: "primary",
+          });
+          if (!ok) return;
 
           try {
             const value = await callRpc("batchUpdatePlugins", { kind });
@@ -389,9 +454,14 @@ window.__ModuleLoader__.load({
             notify(`已有任务进行中（${taskState.name}），请等待完成`, "error");
             return;
           }
-          if (!window.confirm(`确定要从当前 profile (${profile}) 卸载插件 ${name} 吗？`)) {
-            return;
-          }
+          const ok = await askConfirm({
+            title: "卸载插件",
+            message: `确定要从当前 profile (${profile}) 卸载插件 ${name} 吗？卸载后该插件功能将不可用。`,
+            icon: "🗑️",
+            confirmText: "确认卸载",
+            variant: "danger",
+          });
+          if (!ok) return;
           try {
             const value = await callRpc("removePlugin", { name });
             setTaskState({ id: value.taskId, name, kind: "remove", status: "running", log: [], error: null });
@@ -402,9 +472,14 @@ window.__ModuleLoader__.load({
         };
 
         const startAsyncRestart = async () => {
-          if (!window.confirm("确定要平滑重启 DeepSeek Harness 服务吗？前端会在服务就绪后自动恢复连接。")) {
-            return;
-          }
+          const ok = await askConfirm({
+            title: "平滑重启服务",
+            message: "确定要平滑重启 DeepSeek Harness 服务吗？前端会在后台自动探测端口并在就绪后恢复连接。",
+            icon: "🔄",
+            confirmText: "立即重启",
+            variant: "warning",
+          });
+          if (!ok) return;
           try {
             setRestartingState("triggering");
             await callRpc("restartHost", {});
@@ -833,7 +908,38 @@ window.__ModuleLoader__.load({
               react.createElement("div", { className: "dm-card-actions" },
                 react.createElement("button", { className: "dm-action-btn", type: "button", onClick: () => setDraft({ ...config }) }, "撤销"),
                 react.createElement("button", { className: "dm-action-btn primary", type: "button", onClick: () => saveConfig(draft || {}) }, "保存配置")))
-          ) : null);
+          ) : null,
+          confirmState ? react.createElement("div", {
+            className: "dm-modal-scrim",
+            role: "dialog",
+            "aria-modal": "true",
+            onClick: () => closeConfirm(false),
+          },
+            react.createElement("div", {
+              className: "dm-modal-card",
+              onClick: (e) => e.stopPropagation(),
+            },
+              react.createElement("div", { className: "dm-modal-head" },
+                react.createElement("div", { className: `dm-modal-icon ${confirmState.variant || "primary"}` }, confirmState.icon || "⚠️"),
+                react.createElement("h3", { className: "dm-modal-title" }, confirmState.title || "确认操作")
+              ),
+              react.createElement("div", { className: "dm-modal-body" }, confirmState.message),
+              react.createElement("div", { className: "dm-modal-foot" },
+                react.createElement("button", {
+                  className: "dm-action-btn",
+                  type: "button",
+                  onClick: () => closeConfirm(false),
+                }, confirmState.cancelText || "取消"),
+                react.createElement("button", {
+                  className: `dm-action-btn ${confirmState.variant || "primary"}`,
+                  type: "button",
+                  autoFocus: true,
+                  onClick: () => closeConfirm(true),
+                }, confirmState.confirmText || "确定")
+              )
+            )
+          ) : null
+        );
       }
 
       const label = () => react.createElement("span", {
