@@ -203,7 +203,7 @@ window.__ModuleLoader__.load({
 
     const css = `
       .dm-container{display:flex;flex-direction:column;gap:14px;width:100%;max-width:960px;min-width:0;overflow-x:hidden;color:var(--dsw-alias-label-primary,#1f2328);font-family:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);color-scheme:light dark;-webkit-tap-highlight-color:transparent}
-      .dm-container button,.dm-container input,.dm-container a.dm-action-btn{-webkit-appearance:none;appearance:none;font:inherit;color:inherit}
+      .dm-container button,.dm-container input:not([type="checkbox"]),.dm-container a.dm-action-btn{-webkit-appearance:none;appearance:none;font:inherit;color:inherit}
       .dm-container button{margin:0}
       .dm-title{font-size:18px;font-weight:600;margin:0;display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary,#1f2328)}
       .dm-subtitle{font-size:12.5px;color:var(--dsw-alias-label-tertiary,#656d76);margin:0;line-height:18px}
@@ -290,7 +290,17 @@ window.__ModuleLoader__.load({
       .dm-field{display:flex;flex-direction:column;gap:5px}.dm-label{color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;font-weight:500}
       .dm-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));border-radius:8px;outline:none;background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));color:var(--dsw-alias-label-primary,#1f2328);font-size:13px}
       .dm-input:focus{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}
-      .dm-check{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-secondary,#57606a);font-size:13px}
+      .dm-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));border-radius:10px;background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;transition:border-color .15s ease}
+      .dm-switch-row:hover{border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .dm-switch-info{display:flex;flex-direction:column;gap:2px}
+      .dm-switch-title{font-size:13.5px;font-weight:500;color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-switch-desc{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#656d76);line-height:16px}
+      .dm-switch{position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0}
+      .dm-switch input{opacity:0;width:0;height:0;margin:0;position:absolute}
+      .dm-slider{position:absolute;cursor:pointer;inset:0;background-color:var(--dsw-alias-border-default,#d0d7de);transition:.2s;border-radius:22px}
+      .dm-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:#fff;transition:.2s;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+      .dm-switch input:checked + .dm-slider{background-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .dm-switch input:checked + .dm-slider:before{transform:translateX(18px)}
       @media(max-width:768px){
         .dm-container{gap:10px;padding-bottom:max(16px,env(safe-area-inset-bottom,16px))}
         .dm-grid{grid-template-columns:1fr;gap:8px}
@@ -431,10 +441,10 @@ window.__ModuleLoader__.load({
           window.setTimeout(() => setFeedback(""), 4000);
         };
 
-        const loadRepo = react.useCallback(async () => {
+        const loadRepo = react.useCallback(async (force = false) => {
           setLoading(true);
           try {
-            const value = await callRpc("getRepoPlugins", {});
+            const value = await callRpc("getRepoPlugins", { force: Boolean(force) });
             // Merge server list with fallback list to guarantee newly added repo
             // plugins are never lost even when the server returns a partial list.
             const serverList = (value && Array.isArray(value.plugins)) ? value.plugins : [];
@@ -998,7 +1008,7 @@ window.__ModuleLoader__.load({
                     className: "dm-action-btn",
                     type: "button",
                     disabled: loading,
-                    onClick: () => void loadRepo()
+                    onClick: () => void loadRepo(true)
                   },
                     react.createElement(IconRefresh, { size: 13 }),
                     react.createElement("span", null, loading ? "正在同步…" : "检查更新")
@@ -1106,9 +1116,26 @@ window.__ModuleLoader__.load({
               react.createElement("label", { className: "dm-field" },
                 react.createElement("span", { className: "dm-label" }, "下载镜像前缀 (可选，如 https://gh-proxy.com/)"),
                 react.createElement("input", { className: "dm-input", value: draft?.mirrorUrl || "", placeholder: "留空则直接使用 GitHub", onChange: (e) => setDraft((d) => ({ ...d, mirrorUrl: e.target.value })) })),
-              react.createElement("label", { className: "dm-check" },
-                react.createElement("input", { type: "checkbox", checked: Boolean(draft?.autoCheckUpdates), onChange: (e) => setDraft((d) => ({ ...d, autoCheckUpdates: e.target.checked })) }),
-                "打开市场时自动检查更新"),
+              react.createElement("div", {
+                className: "dm-switch-row",
+                onClick: () => setDraft((d) => ({ ...(d || config || {}), autoCheckUpdates: !(d?.autoCheckUpdates ?? config?.autoCheckUpdates ?? true) }))
+              },
+                react.createElement("div", { className: "dm-switch-info" },
+                  react.createElement("span", { className: "dm-switch-title" }, "打开市场时自动检查更新"),
+                  react.createElement("span", { className: "dm-switch-desc" }, "启动插件管理时自动比对 GitHub 远程最新版本；关闭后仅读取本地已装状态，可随时手动点击「检查更新」")
+                ),
+                react.createElement("label", {
+                  className: "dm-switch",
+                  onClick: (e) => e.stopPropagation()
+                },
+                  react.createElement("input", {
+                    type: "checkbox",
+                    checked: Boolean(draft?.autoCheckUpdates ?? config?.autoCheckUpdates ?? true),
+                    onChange: (e) => setDraft((d) => ({ ...(d || config || {}), autoCheckUpdates: e.target.checked }))
+                  }),
+                  react.createElement("span", { className: "dm-slider" })
+                )
+              ),
               react.createElement("div", { className: "dm-card-actions" },
                 react.createElement("button", { className: "dm-action-btn", type: "button", onClick: () => setDraft({ ...config }) }, "撤销"),
                 react.createElement("button", { className: "dm-action-btn primary", type: "button", onClick: () => saveConfig(draft || {}) }, "保存配置")))

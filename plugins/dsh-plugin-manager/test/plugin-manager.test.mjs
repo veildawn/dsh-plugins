@@ -489,6 +489,29 @@ describe('dsh-market RPC handler (network stubbed)', () => {
     assert.equal(resolved.repoOrigin, 'veildawn/dsh-plugins')
     assert.equal(resolved.autoCheckUpdates, true)
   })
+
+  it('respects autoCheckUpdates: false and obeys force: true', async () => {
+    let fetchCalled = false
+    _setHttpFetch(async (url) => {
+      if (String(url).includes('api.github.com')) {
+        fetchCalled = true
+        return { ok: true, json: async () => FAKE_RELEASES }
+      }
+      return { ok: true, json: async () => ({}) }
+    })
+
+    // With autoCheckUpdates: false and no force -> should not fetch
+    fetchCalled = false
+    const resOff = await handleMarketRpc({}, { autoCheckUpdates: false }, 'getRepoPlugins', {})
+    assert.equal(resOff.ok, true)
+    assert.equal(fetchCalled, false, 'Should not fetch releases when autoCheckUpdates is false')
+
+    // With autoCheckUpdates: false but force: true -> should fetch
+    fetchCalled = false
+    const resForced = await handleMarketRpc({}, { autoCheckUpdates: false }, 'getRepoPlugins', { force: true })
+    assert.equal(resForced.ok, true)
+    assert.equal(fetchCalled, true, 'Should fetch releases when force is true')
+  })
 })
 
 
@@ -586,6 +609,9 @@ describe('dsh-plugin-manager client bundle verification', () => {
     assert.equal(clientCode.includes('IconTrash'), true)
     assert.equal(clientCode.includes('IconRefresh'), true)
     assert.equal(clientCode.includes('IconSearch'), true)
+    // Custom switch toggle for autoCheckUpdates setting
+    assert.equal(clientCode.includes('dm-switch-row'), true)
+    assert.equal(clientCode.includes('dm-slider'), true)
     // Every askConfirm invocation MUST be immediately followed by `if (!ok) return;`
     const askConfirmCount = (clientCode.match(/await askConfirm\(/g) || []).length
     const okGuardCount = (clientCode.match(/if \(!ok\) return;/g) || []).length

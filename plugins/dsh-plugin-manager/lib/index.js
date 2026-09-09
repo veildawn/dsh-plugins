@@ -190,12 +190,17 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
   try {
     if (method === 'getRepoPlugins') {
       let catalog = null
-      try {
-        const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
-        const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
-        catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
-        catalog = applyMirror(catalog, resolved.mirrorUrl)
-      } catch {
+      const shouldCheck = resolved.autoCheckUpdates || Boolean(payload && payload.force)
+      if (shouldCheck) {
+        try {
+          const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
+          const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
+          catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
+          catalog = applyMirror(catalog, resolved.mirrorUrl)
+        } catch {
+          catalog = resolveRepoCatalog(new Map(), resolved.repoOrigin)
+        }
+      } else {
         catalog = resolveRepoCatalog(new Map(), resolved.repoOrigin)
       }
       const merged = mergeInstalledVersions(catalog)
