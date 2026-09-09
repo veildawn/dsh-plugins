@@ -18,9 +18,12 @@ import {
   kindOf,
   langOf,
   mediaTypeOf,
+  parseGitStatus,
+  parsePatchToDiffs,
   resolveWindow,
   sortEntries,
   splitLines,
+  summarizeDiffs,
   windowRows,
 } from '../lib/core.js'
 
@@ -351,4 +354,62 @@ test('appendMention appends a file reference to the draft', () => {
   assert.equal(appendMention('保留', ''), '保留')
   assert.equal(appendMention('保留', '   '), '保留')
   assert.equal(appendMention(undefined, 'a.txt'), '@a.txt ')
+})
+
+test('parsePatchToDiffs converts unified diff into DiffBlock hunks and calculates stats', () => {
+  assert.deepEqual(parsePatchToDiffs('', 'a.js'), [])
+  assert.deepEqual(parsePatchToDiffs('   ', 'a.js'), [])
+
+  const patch = `diff --git a/a.js b/a.js
+index 123..456 100644
+--- a/a.js
++++ b/a.js
+@@ -1,4 +1,5 @@
+ context 1
+-old line 1
+-old line 2
++new line 1
++new line 2
++new line 3
+ context 2
+@@ -20,2 +21,1 @@
+-removed line
++added line
+`
+
+  const diffs = parsePatchToDiffs(patch, 'src/a.js')
+  assert.equal(diffs.length, 2)
+  assert.equal(diffs[0].path, 'src/a.js')
+  assert.equal(diffs[0].oldText, 'old line 1\nold line 2')
+  assert.equal(diffs[0].newText, 'new line 1\nnew line 2\nnew line 3')
+
+  assert.equal(diffs[1].path, 'src/a.js')
+  assert.equal(diffs[1].oldText, 'removed line')
+  assert.equal(diffs[1].newText, 'added line')
+
+  const summary = summarizeDiffs(diffs)
+  assert.equal(summary.added, 4)
+  assert.equal(summary.removed, 3)
+})
+
+test('parseGitStatus extracts modified and untracked file paths from porcelain output', () => {
+  assert.deepEqual(parseGitStatus(''), { modified: [], untracked: [] })
+
+  const porcelain = ` M plugins/dsh-file-viewer/lib/client.js
+M  plugins/dsh-file-viewer/package.json
+?? new-file.txt
+?? "file with spaces.md"
+ D deleted.js
+`
+
+  const status = parseGitStatus(porcelain)
+  assert.deepEqual(status.modified, [
+    'plugins/dsh-file-viewer/lib/client.js',
+    'plugins/dsh-file-viewer/package.json',
+    'deleted.js',
+  ])
+  assert.deepEqual(status.untracked, [
+    'new-file.txt',
+    'file with spaces.md',
+  ])
 })

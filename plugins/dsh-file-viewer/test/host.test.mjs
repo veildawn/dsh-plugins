@@ -590,3 +590,25 @@ test('a genuine binary exe with null bytes stays binary', async () => {
   assert.equal(result.ok, true)
   assert.equal(result.value.kind, 'binary', 'exe with null bytes stays binary')
 })
+
+test('diff RPC returns hasDiff false when git is not applicable or file has no diff', async () => {
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/notes.txt': { type: 'file', size: 10, text: 'hello' },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'diff', { path: 'notes.txt' })
+  assert.equal(result.ok, true)
+  assert.equal(typeof result.value.hasDiff, 'boolean')
+})
+
+test('status RPC returns modified and untracked lists gracefully', async () => {
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'status', {})
+  assert.equal(result.ok, true)
+  assert(Array.isArray(result.value.modified))
+  assert(Array.isArray(result.value.untracked))
+})

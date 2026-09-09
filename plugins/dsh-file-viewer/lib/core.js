@@ -449,3 +449,99 @@ export function appendMention(draft, displayPath) {
   const separator = /\s$/.test(current) ? '' : ' '
   return current + separator + reference + ' '
 }
+
+/**
+ * Parse a unified diff patch string (e.g. from git diff) into DiffBlock diff entries.
+ * @param {string} patch - unified diff output.
+ * @param {string} filePath - relative display path.
+ * @returns {Array<{path: string, oldText: string | null, newText: string}>} hunk diffs.
+ */
+export function parsePatchToDiffs(patch, filePath) {
+  if (typeof patch !== 'string' || patch.trim() === '') return []
+  const lines = patch.split('\n')
+  const hunks = []
+  let currentOld = []
+  let currentNew = [];
+  let inHunk = false
+
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      if (inHunk && (currentOld.length > 0 || currentNew.length > 0)) {
+        hunks.push({
+          path: filePath,
+          oldText: currentOld.length > 0 ? currentOld.join('\n') : null,
+          newText: currentNew.join('\n'),
+        })
+        currentOld = []
+        currentNew = []
+      }
+      inHunk = true
+      continue
+    }
+    if (!inHunk) continue
+    if (line.startsWith('-')) {
+      currentOld.push(line.slice(1))
+    } else if (line.startsWith('+')) {
+      currentNew.push(line.slice(1))
+    }
+  }
+
+  if (inHunk && (currentOld.length > 0 || currentNew.length > 0)) {
+    hunks.push({
+      path: filePath,
+      oldText: currentOld.length > 0 ? currentOld.join('\n') : null,
+      newText: currentNew.join('\n'),
+    })
+  }
+
+  return hunks
+}
+
+/**
+ * Summarize total added and removed line counts across diff hunks.
+ * @param {Array<{oldText: string | null, newText: string}>} diffs - diff entries.
+ * @returns {{added: number, removed: number}} line statistics.
+ */
+export function summarizeDiffs(diffs) {
+  let added = 0
+  let removed = 0
+  if (Array.isArray(diffs)) {
+    for (const item of diffs) {
+      if (typeof item.oldText === 'string' && item.oldText !== '') {
+        removed += item.oldText.split('\n').length
+      }
+      if (typeof item.newText === 'string' && item.newText !== '') {
+        added += item.newText.split('\n').length
+      }
+    }
+  }
+  return { added, removed }
+}
+
+/**
+ * Parse porcelain git status output into modified and untracked file sets.
+ * @param {string} statusText - stdout of git status --porcelain.
+ * @returns {{modified: string[], untracked: string[]}} path lists.
+ */
+export function parseGitStatus(statusText) {
+  if (typeof statusText !== 'string' || statusText.trim() === '') return { modified: [], untracked: [] }
+  const modified = []
+  const untracked = []
+  for (const rawLine of statusText.split('\n')) {
+    const line = rawLine.trimEnd()
+    if (!line || line.length < 3) continue
+    const code = line.slice(0, 2)
+    // Handle quotes around filenames with spaces or unicode
+    let file = line.slice(3).trim()
+    if (file.startsWith('"') && file.endsWith('"')) {
+      try { file = JSON.parse(file) } catch (_) {}
+    }
+    if (!file) continue
+    if (code.includes('?')) {
+      untracked.push(file)
+    } else {
+      modified.push(file)
+    }
+  }
+  return { modified, untracked }
+}

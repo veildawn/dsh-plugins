@@ -1069,3 +1069,34 @@ test('mobile tree layout wraps long filenames and tightens indentation', () => {
   assert.match(source, /width: isMobile \? undefined : treeWidth/)
   assert.match(source, /\.fv-tree\{flex:1 1 auto!important;width:100%!important;min-width:0!important;max-width:none!important/)
 })
+
+test('diff tab and DiffBlock labels are properly configured for viewing modifications', () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const { internals } = definition.factory((id) =>
+    id === 'react' ? { createElement: () => null } : { ReadBlock: null, MarkdownText: null, JsonTree: null, DiffBlock: null })
+
+  // Verify DIFF_BLOCK_LABELS contract
+  assert.equal(typeof internals.DIFF_BLOCK_LABELS.copy, 'string')
+  assert.equal(typeof internals.DIFF_BLOCK_LABELS.copied, 'string')
+  assert.equal(typeof internals.DIFF_BLOCK_LABELS.files, 'function')
+  assert.equal(internals.DIFF_BLOCK_LABELS.files(1), '1 个文件')
+  assert.equal(typeof internals.DIFF_BLOCK_LABELS.expand, 'function')
+  assert.equal(internals.DIFF_BLOCK_LABELS.expand(5), '展开其余 5 行')
+  assert.equal(typeof internals.DIFF_BLOCK_LABELS.collapse, 'string')
+  assert.equal(typeof internals.DIFF_BLOCK_LABELS.expandAria, 'function')
+  assert.equal(typeof internals.DIFF_BLOCK_LABELS.collapseAria, 'string')
+
+  const source = read('lib/client.js')
+  assert.match(source, /DiffBlock/)
+  assert.match(source, /labels:\s*DIFF_BLOCK_LABELS/)
+  assert.match(source, /className:\s*"fv-tab fv-tab-diff"/)
+  assert.match(source, /className:\s*"fv-badge fv-badge-mod"/)
+  assert.match(source, /className:\s*"fv-badge fv-badge-add"/)
+})

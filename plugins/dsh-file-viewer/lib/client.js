@@ -23,7 +23,7 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
     const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
-    const { ReadBlock, MarkdownText, JsonTree, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16, IconFullscreenOutline16, writeClipboard } = primitives;
+    const { ReadBlock, MarkdownText, JsonTree, DiffBlock, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16, IconFullscreenOutline16, writeClipboard } = primitives;
 
     const Component = react.Component || class Component { constructor(props) { this.props = props; this.state = {}; } setState(s) { Object.assign(this.state, typeof s === "function" ? s(this.state) : s); } };
     class ErrorBoundary extends Component {
@@ -100,6 +100,24 @@ window.__ModuleLoader__.load({
         if (prop in target) return target[prop];
         if (typeof prop === "string" && prop.endsWith("Title")) {
           return (action) => (action ? `复制选项：${action}` : "复制选项");
+        }
+        return "复制";
+      }
+    });
+
+    const DIFF_BLOCK_LABELS = new Proxy({
+      copy: "复制",
+      copied: "已复制",
+      files: (count) => `${count} 个文件`,
+      expand: (hidden) => `展开其余 ${hidden} 行`,
+      collapse: "收起",
+      expandAria: (hidden) => `展开其余 ${hidden} 行`,
+      collapseAria: "收起隐藏行",
+    }, {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        if (typeof prop === "string" && (prop === "files" || prop === "expand" || prop.endsWith("Aria"))) {
+          return (...args) => String(args[0] ?? "");
         }
         return "复制";
       }
@@ -239,6 +257,14 @@ window.__ModuleLoader__.load({
       .fv-sheet-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
       .fv-tab{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
       .fv-tab[aria-selected="true"]{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff}
+      .fv-tab-diff{display:inline-flex;align-items:center;gap:4px}
+      .fv-diff-stat{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;margin-left:2px}
+      .fv-diff-add{color:var(--dsw-alias-state-success-primary,#10b981)}
+      .fv-diff-del{color:var(--dsw-alias-state-error-primary,#ef4444)}
+      .fv-tab[aria-selected="true"] .fv-diff-add,.fv-tab[aria-selected="true"] .fv-diff-del{color:#fff}
+      .fv-badge{display:inline-block;padding:0 4px;font-size:10px;font-weight:600;line-height:14px;border-radius:4px;margin-left:4px;flex:none}
+      .fv-badge-mod{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d97706) 18%,transparent);color:var(--dsw-alias-state-warning-primary,#d97706)}
+      .fv-badge-add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#10b981) 18%,transparent);color:var(--dsw-alias-state-success-primary,#10b981)}
       .fv-table-wrap{overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:10px}
       .fv-table{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
       .fv-table th,.fv-table td{max-width:320px;padding:5px 9px;border:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-align:left;white-space:pre-wrap;vertical-align:top;word-break:break-word}
@@ -787,13 +813,15 @@ window.__ModuleLoader__.load({
        * listing, and a directory's children are requested the first time it
        * opens, so opening the viewer costs one listing regardless of tree size.
        */
-      function TreeRow({ row, selected, onToggle, onSelect, onMention, onContextMenu }) {
+      function TreeRow({ row, selected, onToggle, onSelect, onMention, onContextMenu, gitStatus }) {
         const entry = row.entry;
         const isDirectory = entry.type === "directory";
         const indent = { "--fv-depth": row.depth, paddingLeft: 8 + row.depth * 14 + "px" };
         const timerRef = react.useRef(null);
         const startPos = react.useRef(null);
         const longPressedRef = react.useRef(false);
+        const isModified = !isDirectory && Boolean(gitStatus?.modified?.has(entry.path));
+        const isUntracked = !isDirectory && Boolean(gitStatus?.untracked?.has(entry.path));
 
         const clearLongPress = () => {
           if (timerRef.current !== null) {
@@ -874,6 +902,11 @@ window.__ModuleLoader__.load({
               "aria-hidden": "true",
             }, isDirectory ? "▸" : "·"),
             react.createElement("span", { className: "fv-row-name" }, (entry && (entry.name || baseNameOf(entry.path) || entry.path)) || ""),
+            isModified
+              ? react.createElement("span", { className: "fv-badge fv-badge-mod", title: "工作区已修改" }, "M")
+              : isUntracked
+                ? react.createElement("span", { className: "fv-badge fv-badge-add", title: "新添加文件" }, "U")
+                : null,
             typeof entry.size === "number" && !isDirectory
               ? react.createElement("span", { className: "fv-row-size" }, formatBytes(entry.size))
               : null),
@@ -891,7 +924,7 @@ window.__ModuleLoader__.load({
             }, react.createElement("span", { "aria-hidden": "true" }, "@")));
       }
 
-      function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu, width }) {
+      function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu, width, gitStatus }) {
         const children = rows.map((row) => {
           const indent = { "--fv-depth": row.depth, paddingLeft: 8 + row.depth * 14 + "px" };
           if (row.kind === "status") {
@@ -912,6 +945,7 @@ window.__ModuleLoader__.load({
             onSelect,
             onMention,
             onContextMenu,
+            gitStatus,
           });
         });
         return react.createElement("div", {
@@ -1048,13 +1082,22 @@ window.__ModuleLoader__.load({
         const [state, setState] = react.useState({ status: "loading", data: null, error: null });
         const [offset, setOffset] = react.useState(1);
         const [raw, setRaw] = react.useState(false);
+        const [diffMode, setDiffMode] = react.useState(false);
+        const [diffData, setDiffData] = react.useState(null);
+
         react.useEffect(() => {
           let live = true;
           setState((current) => ({ status: "loading", data: current.data, error: null }));
+          setDiffMode(false);
           request("read", { root, path: meta.path, offset, limit: WINDOW_LINES }).then((value) => {
             if (live) setState({ status: "ready", data: value, error: null });
           }).catch((error) => {
             if (live) setState({ status: "error", data: null, error });
+          });
+          request("diff", { root, path: meta.path }).then((val) => {
+            if (live) setDiffData(val);
+          }).catch(() => {
+            if (live) setDiffData(null);
           });
           return () => { live = false; };
         }, [root, meta.path, offset]);
@@ -1068,8 +1111,21 @@ window.__ModuleLoader__.load({
         // A rendered preview needs the whole document. Past the host's preview
         // budget only windowed lines arrive, so the source view is all there is.
         const canPreview = (data.kind === "markdown" || data.kind === "json") && typeof data.text === "string";
+        const hasDiff = Boolean(diffData && diffData.hasDiff && diffData.diffs && diffData.diffs.length > 0);
+        const diffSummary = diffData && diffData.summary;
+        const showTabs = canPreview || hasDiff;
+
         let body;
-        if (canPreview && !raw && data.kind === "markdown") {
+        if (diffMode && hasDiff && Array.isArray(diffData.diffs)) {
+          body = react.createElement(ErrorBoundary, {
+            resetKey: data.path + ":diff",
+            fallback: () => react.createElement("div", { className: "fv-note fv-error" }, "渲染改动对比失败。"),
+          }, react.createElement(DiffBlock, {
+            diffs: diffData.diffs,
+            labels: DIFF_BLOCK_LABELS,
+            maxLines: Infinity,
+          }));
+        } else if (canPreview && !raw && data.kind === "markdown") {
           body = react.createElement(ErrorBoundary, {
             resetKey: data.path,
             fallback: (err) => react.createElement("div", { className: "fv-note fv-error" },
@@ -1137,14 +1193,36 @@ window.__ModuleLoader__.load({
               ? react.createElement("div", { className: "fv-note" },
                 data.kind === "markdown" ? "文档过大，仅显示源码。" : "文件过大，仅显示源码。")
               : null,
-            canPreview
+            showTabs
               ? react.createElement("div", { className: "fv-sheet-tabs" },
-                react.createElement("button", {
-                  type: "button", className: "fv-tab", "aria-selected": raw ? "false" : "true", onClick: () => setRaw(false),
-                }, data.kind === "markdown" ? "预览" : "结构"),
-                react.createElement("button", {
-                  type: "button", className: "fv-tab", "aria-selected": raw ? "true" : "false", onClick: () => setRaw(true),
-                }, "源码"))
+                canPreview
+                  ? react.createElement("button", {
+                    type: "button", className: "fv-tab", "aria-selected": (!raw && !diffMode) ? "true" : "false",
+                    onClick: () => { setRaw(false); setDiffMode(false); },
+                  }, data.kind === "markdown" ? "预览" : "结构")
+                  : react.createElement("button", {
+                    type: "button", className: "fv-tab", "aria-selected": (!raw && !diffMode) ? "true" : "false",
+                    onClick: () => { setRaw(false); setDiffMode(false); },
+                  }, "内容"),
+                canPreview
+                  ? react.createElement("button", {
+                    type: "button", className: "fv-tab", "aria-selected": (raw && !diffMode) ? "true" : "false",
+                    onClick: () => { setRaw(true); setDiffMode(false); },
+                  }, "源码")
+                  : null,
+                hasDiff
+                  ? react.createElement("button", {
+                    type: "button", className: "fv-tab fv-tab-diff", "aria-selected": diffMode ? "true" : "false",
+                    onClick: () => setDiffMode(true),
+                  },
+                    "改动",
+                    diffSummary && (diffSummary.added > 0 || diffSummary.removed > 0)
+                      ? react.createElement("span", { className: "fv-diff-stat" },
+                          diffSummary.added > 0 ? react.createElement("span", { className: "fv-diff-add" }, `+${diffSummary.added}`) : null,
+                          (diffSummary.added > 0 && diffSummary.removed > 0) ? " " : "",
+                          diffSummary.removed > 0 ? react.createElement("span", { className: "fv-diff-del" }, `-${diffSummary.removed}`) : null)
+                      : null)
+                  : null)
               : null,
             body),
           pager);
@@ -1413,6 +1491,20 @@ window.__ModuleLoader__.load({
         }, [open]);
 
         const [contextMenu, setContextMenu] = react.useState(null);
+        const [gitStatus, setGitStatus] = react.useState({ modified: new Set(), untracked: new Set() });
+
+        react.useEffect(() => {
+          if (!open || !root) return undefined;
+          let live = true;
+          request("status", { root }).then((val) => {
+            if (!live) return;
+            setGitStatus({
+              modified: new Set(val?.modified || []),
+              untracked: new Set(val?.untracked || []),
+            });
+          }).catch(() => {});
+          return () => { live = false; };
+        }, [open, root]);
         const [toast, setToast] = react.useState(null);
         const toastTimer = react.useRef(null);
         const showToast = react.useCallback((msg) => {
@@ -1583,6 +1675,12 @@ window.__ModuleLoader__.load({
           treeGeneration.current += 1;
           setNodes(new Map());
           for (const dirPath of ["", ...expanded]) loadDirectory(dirPath);
+          request("status", { root }).then((val) => {
+            setGitStatus({
+              modified: new Set(val?.modified || []),
+              untracked: new Set(val?.untracked || []),
+            });
+          }).catch(() => {});
         };
 
         // Clicking two files quickly must not let the slower answer win: only
@@ -1680,6 +1778,7 @@ window.__ModuleLoader__.load({
                 onMention: mention,
                 onContextMenu: (ctx) => setContextMenu(ctx),
                 width: isMobile ? undefined : treeWidth,
+                gitStatus,
               }),
               react.createElement("div", {
                 className: "fv-resizer",
@@ -2002,7 +2101,7 @@ window.__ModuleLoader__.load({
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
-      MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, ErrorBoundary,
+      MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl,
     };
     return module.exports;

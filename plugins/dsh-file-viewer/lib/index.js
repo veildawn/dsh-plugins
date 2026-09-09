@@ -11,6 +11,9 @@
  *
  * @module dsh-file-viewer
  */
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
 import z from '@deepseek-ai/schemastery'
 
 import {
@@ -28,9 +31,12 @@ import {
   kindOf,
   langOf,
   langOf as languageOf,
+  parseGitStatus,
+  parsePatchToDiffs,
   resolveWindow,
   sortEntries,
   splitLines,
+  summarizeDiffs,
   windowRows,
 } from './core.js'
 
@@ -48,11 +54,16 @@ export {
   joinPath,
   kindOf,
   langOf,
+  parseGitStatus,
+  parsePatchToDiffs,
   resolveWindow,
   sortEntries,
   splitLines,
+  summarizeDiffs,
   windowRows,
 }
+
+const execFileAsync = promisify(execFile)
 
 export const name = 'file-viewer'
 export const inject = ['fs', 'connection', 'settings', 'workspaceRegistry', 'sessions']
@@ -521,12 +532,101 @@ export async function resolveSessionRoot(ctx, options, payload) {
   }
 }
 
+/**
+ * Obtain git diff for a single file within a vetted root.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - config reader.
+ * @param {{root?: string, path?: string}} payload - client request.
+ * @param {AbortSignal} [signal] - cancellation signal.
+ * @returns {Promise<{hasDiff: boolean, source?: string, diffs: Array<{path: string, oldText: string | null, newText: string}>, summary?: {added: number, removed: number}}>}
+ */
+export async function getFileDiff(ctx, options, payload, signal) {
+  const { root, target, relative } = await resolveInRoot(ctx, options, payload, signal)
+  if (relative === '') return { hasDiff: false, diffs: [] }
+
+  const cwd = root.path
+  const normRel = relative.replace(/\\/g, '/')
+
+  // 1. Try working tree diff (covers both staged and unstaged edits)
+  try {
+    const { stdout: diffStdout } = await execFileAsync('git', ['diff', 'HEAD', '--', normRel], {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: 8 * 1024 * 1024,
+      signal,
+    })
+    if (diffStdout && diffStdout.trim() !== '') {
+      const diffs = parsePatchToDiffs(diffStdout, normRel)
+      if (diffs.length > 0) {
+        return { hasDiff: true, source: 'working-tree', diffs, summary: summarizeDiffs(diffs) }
+      }
+    }
+  } catch (_) {}
+
+  // 2. Check untracked files
+  try {
+    const { stdout: statusStdout } = await execFileAsync('git', ['status', '--porcelain', '--', normRel], {
+      cwd,
+      encoding: 'utf8',
+      signal,
+    })
+    if (statusStdout && statusStdout.trim().startsWith('??')) {
+      const text = await ctx.fs.readText(target, signal)
+      const diffs = [{ path: normRel, oldText: null, newText: text }]
+      return { hasDiff: true, source: 'untracked', diffs, summary: summarizeDiffs(diffs) }
+    }
+  } catch (_) {}
+
+  // 3. Fallback to latest commit diff for the file
+  try {
+    const { stdout: logStdout } = await execFileAsync('git', ['log', '-p', '-1', '--', normRel], {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: 8 * 1024 * 1024,
+      signal,
+    })
+    if (logStdout && logStdout.trim() !== '') {
+      const diffs = parsePatchToDiffs(logStdout, normRel)
+      if (diffs.length > 0) {
+        return { hasDiff: true, source: 'latest-commit', diffs, summary: summarizeDiffs(diffs) }
+      }
+    }
+  } catch (_) {}
+
+  return { hasDiff: false, diffs: [] }
+}
+
+/**
+ * Obtain workspace-wide git status for badges in the tree.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - config reader.
+ * @param {{root?: string}} payload - client request.
+ * @param {AbortSignal} [signal] - cancellation signal.
+ * @returns {Promise<{modified: string[], untracked: string[]}>}
+ */
+export async function getWorkspaceGitStatus(ctx, options, payload, signal) {
+  const { root } = await resolveInRoot(ctx, options, { root: payload?.root, path: '' }, signal)
+  try {
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
+      cwd: root.path,
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024,
+      signal,
+    })
+    return parseGitStatus(stdout)
+  } catch (_) {
+    return { modified: [], untracked: [] }
+  }
+}
+
 /** Method table; each entry receives `(ctx, options, payload, signal)`. */
 const METHODS = Object.freeze({
   roots: (ctx, options, payload) => resolveSessionRoot(ctx, options, payload),
   list: listDirectory,
   meta: describeFile,
   read: readText,
+  diff: getFileDiff,
+  status: getWorkspaceGitStatus,
   bytes: readBytes,
   sheet: readSheet,
   doc: readDoc,
