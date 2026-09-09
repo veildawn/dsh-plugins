@@ -769,3 +769,26 @@ export function formatDocTextToMarkdown(rawText) {
   return blocks.join('\n\n').trim()
 }
 
+/**
+ * Sanitize HTML generated from Word documents (mammoth) to strip dangerous tags,
+ * scripts, iframes, and event handlers while preserving safe layout tags
+ * (p, h1-h6, strong, em, table, tr, td, th, ul, ol, li, img, a).
+ *
+ * @param {string} html - raw HTML string from mammoth.
+ * @returns {string} sanitized HTML safe for browser rendering.
+ */
+export function sanitizeDocHtml(html) {
+  if (!html || typeof html !== 'string') return ''
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<object[\s\S]*?<\/object>/gi, '')
+    .replace(/<embed[\s\S]*?<\/embed>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/href\s*=\s*["']javascript:[^"']*["']/gi, 'href="#"')
+    .replace(/<a\s+id=["']_Toc[^"']*["']><\/a>/gi, '')
+    .trim()
+}
+
+

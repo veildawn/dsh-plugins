@@ -11,6 +11,7 @@ import {
   extensionOf,
   formatBytes,
   formatDocTextToMarkdown,
+  sanitizeDocHtml,
   isHiddenEntry,
   isSafeRelativePath,
   isTextContent,
@@ -532,5 +533,16 @@ test('formatDocTextToMarkdown converts raw document text into structured Markdow
   assert.match(md, /\| --- \| --- \| --- \|/)
   assert.match(md, /\| 计算节点 \| 8 \| 10000 \|/)
 })
+
+test('sanitizeDocHtml removes script and iframe tags while keeping tables and images', () => {
+  const dirtyHtml = '<p>安全正文</p><script>alert(1)</script><iframe src="evil.html"></iframe><table><tr><td>表格内容</td></tr></table><img src="data:image/png;base64,123" /><a href="javascript:evil()">链接</a>'
+  const clean = sanitizeDocHtml(dirtyHtml)
+  assert.equal(clean.includes('<script>'), false)
+  assert.equal(clean.includes('<iframe>'), false)
+  assert.equal(clean.includes('javascript:'), false)
+  assert.equal(clean.includes('<table><tr><td>表格内容</td></tr></table>'), true)
+  assert.equal(clean.includes('<img src="data:image/png;base64,123" />'), true)
+})
+
 
 

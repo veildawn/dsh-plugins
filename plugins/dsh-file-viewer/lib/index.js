@@ -40,6 +40,7 @@ import {
   parsePatchToDiffs,
   rebaseGitPaths,
   resolveWindow,
+  sanitizeDocHtml,
   sortEntries,
   splitLines,
   summarizeDiffs,
@@ -54,6 +55,7 @@ export {
   extensionOf,
   formatDocTextToMarkdown,
   parentOf,
+  sanitizeDocHtml,
   isHiddenEntry,
   isSafeRelativePath,
   isTextContent,
@@ -550,7 +552,7 @@ export async function readDoc(ctx, options, payload, signal) {
     }
   }
 
-  // 2. For .docx files, use mammoth for rich Markdown conversion
+  // 2. For .docx files, use mammoth for rich HTML and Markdown conversion
   let mammoth
   try {
     mammoth = (await import('mammoth')).default
@@ -559,13 +561,15 @@ export async function readDoc(ctx, options, payload, signal) {
   }
 
   try {
-    const converted = await mammoth.convertToMarkdown({ buffer: Buffer.from(bytes) })
+    const convertedHtml = await mammoth.convertToHtml({ buffer: Buffer.from(bytes) })
+    const convertedMd = await mammoth.convertToMarkdown({ buffer: Buffer.from(bytes) })
     return {
       root: root.id,
       path: relative,
       name: baseNameOf(relative),
-      markdown: converted.value ?? '',
-      warnings: (converted.messages ?? []).map((entry) => entry?.message ?? String(entry)),
+      html: sanitizeDocHtml(convertedHtml.value ?? ''),
+      markdown: convertedMd.value ?? '',
+      warnings: (convertedHtml.messages ?? []).map((entry) => entry?.message ?? String(entry)),
     }
   } catch (err) {
     // If mammoth failed (e.g. non-standard docx or renamed doc), fallback to word-extractor

@@ -1096,16 +1096,22 @@ window.__ModuleLoader__.load({
             : null);
       }
 
-      /** Word documents: host converts to Markdown, MarkdownText sanitizes it. */
+      /** Word documents: host converts to HTML/Markdown, styled cleanly. */
       function DocView({ meta, root }) {
-        const [state, setState] = react.useState({ status: "loading", markdown: "", warnings: [], error: null });
+        const [state, setState] = react.useState({ status: "loading", html: "", markdown: "", warnings: [], error: null });
         react.useEffect(() => {
           let live = true;
-          setState({ status: "loading", markdown: "", warnings: [], error: null });
+          setState({ status: "loading", html: "", markdown: "", warnings: [], error: null });
           request("doc", { root, path: meta.path }).then((value) => {
-            if (live) setState({ status: "ready", markdown: value.markdown || "", warnings: value.warnings || [], error: null });
+            if (live) setState({
+              status: "ready",
+              html: value?.html || "",
+              markdown: value?.markdown || "",
+              warnings: value?.warnings || [],
+              error: null,
+            });
           }).catch((error) => {
-            if (live) setState({ status: "error", markdown: "", warnings: [], error });
+            if (live) setState({ status: "error", html: "", markdown: "", warnings: [], error });
           });
           return () => { live = false; };
         }, [root, meta.path]);
@@ -1114,15 +1120,17 @@ window.__ModuleLoader__.load({
         if (state.status === "error") {
           return react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error));
         }
-        if (state.markdown.trim() === "") {
+        if (!state.html && !state.markdown.trim()) {
           return react.createElement("div", { className: "fv-note" }, "文档没有可提取的文本内容。");
         }
         return react.createElement("div", { className: "fv-doc-article" },
-          react.createElement(MarkdownText, {
-            text: state.markdown,
-            labels: MARKDOWN_LABELS,
-            codeLabels: MARKDOWN_CODE_LABELS,
-          }),
+          state.html
+            ? react.createElement("div", { dangerouslySetInnerHTML: { __html: state.html } })
+            : react.createElement(MarkdownText, {
+              text: state.markdown,
+              labels: MARKDOWN_LABELS,
+              codeLabels: MARKDOWN_CODE_LABELS,
+            }),
           state.warnings.length > 0
             ? react.createElement("div", { className: "fv-note", style: { marginTop: "16px" } }, `转换时有 ${state.warnings.length} 处格式降级（图片或复杂排版）。`)
             : null);
