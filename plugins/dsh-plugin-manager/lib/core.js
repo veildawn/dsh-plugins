@@ -172,6 +172,32 @@ export const LOCAL_MONOREPO_PLUGINS = [
     path: 'plugins/dsh-terminal',
     isRepoPlugin: true,
   },
+  {
+    id: 'dsh-archive-manager',
+    name: 'dsh-archive-manager',
+    title: '会话归档管理器',
+    description: '会话归档管理：侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间。',
+    author: 'veildawn',
+    category: 'tools',
+    tags: ['archive-manager', 'archive', 'session', 'cleanup'],
+    icon: 'archive',
+    repo: 'veildawn/dsh-plugins',
+    path: 'plugins/dsh-archive-manager',
+    isRepoPlugin: true,
+  },
+  {
+    id: 'dsh-prompt-history',
+    name: 'dsh-prompt-history',
+    title: '提示词历史与修改重发',
+    description: '提示词历史导航、气泡悬浮修改重发、自适应底部抽屉与跨端持久化漫游。',
+    author: 'veildawn',
+    category: 'tools',
+    tags: ['prompt-history', 'history', 'resend', 'composer', 'mobile'],
+    icon: 'history',
+    repo: 'veildawn/dsh-plugins',
+    path: 'plugins/dsh-prompt-history',
+    isRepoPlugin: true,
+  },
 ]
 
 /**
@@ -247,11 +273,22 @@ export function resolveRepoCatalog(releasesMap = new Map(), repoOrigin = DEFAULT
     if (!knownMap.has(name) && name.startsWith('dsh-') && !Object.hasOwn(REPO_RENAMED_PLUGINS, name)) {
       const latestVersion = releaseInfo.version || '0.1.0'
       const downloadUrl = releaseInfo.downloadUrl || buildReleaseDownloadUrl(repoOrigin, name, latestVersion)
+      let dynamicDesc = '自有仓库新增插件'
+      if (releaseInfo.releaseNotes) {
+        const lines = releaseInfo.releaseNotes.split('\n')
+        for (const rawLine of lines) {
+          const line = rawLine.replace(/^[#\s*`]+/, '').trim()
+          if (line && !line.startsWith('📦') && !line.startsWith('一键安装') && !line.startsWith('```') && !line.startsWith('dsh plugin add')) {
+            dynamicDesc = line
+            break
+          }
+        }
+      }
       results.push({
         id: name,
         name,
         title: name,
-        description: releaseInfo.releaseNotes ? releaseInfo.releaseNotes.split('\n')[0].replace(/^#+\s*/, '') : '自有仓库新增插件',
+        description: dynamicDesc,
         author: 'veildawn',
         category: 'tools',
         tags: ['repo', name],

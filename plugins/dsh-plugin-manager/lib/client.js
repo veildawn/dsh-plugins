@@ -188,6 +188,12 @@ window.__ModuleLoader__.load({
           react.createElement("line", { x1: "10", y1: "12", x2: "14", y2: "12" })
         );
       }
+      if (name.includes("history") || name.includes("prompt")) {
+        return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" },
+          react.createElement("circle", { cx: "12", cy: "12", r: "10" }),
+          react.createElement("polyline", { points: "12 6 12 12 16 14" })
+        );
+      }
       return react.createElement(IconPluginManager16, { size: size });
     }
 
@@ -305,7 +311,8 @@ window.__ModuleLoader__.load({
       { id: "dsh-mobile-adapter", name: "dsh-mobile-adapter", title: "移动端全量体验优化", description: "原生图片上传、底部操作栏圆形统一规范、视口高度自适应、Segmented Control Tabs。", author: "veildawn", category: "ui", version: "0.1.28", latestVersion: "0.1.28", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.28/dsh-mobile-adapter-0.1.28.tgz", isRepoPlugin: true },
       { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true },
       { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true },
-      { id: "dsh-archive-manager", name: "dsh-archive-manager", title: "会话归档管理器", description: "DeepSeek Harness 会话归档管理：恢复、永久删除、计数徽章，全移动端响应式适配。", author: "veildawn", category: "tools", version: "0.1.0", latestVersion: "0.1.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.1.0/dsh-archive-manager-0.1.0.tgz", isRepoPlugin: true },
+      { id: "dsh-archive-manager", name: "dsh-archive-manager", title: "会话归档管理器", description: "会话归档管理：侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间。", author: "veildawn", category: "tools", version: "0.2.1", latestVersion: "0.2.1", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.2.1/dsh-archive-manager-0.2.1.tgz", isRepoPlugin: true },
+      { id: "dsh-prompt-history", name: "dsh-prompt-history", title: "提示词历史与修改重发", description: "提示词历史导航、气泡悬浮修改重发、自适应底部抽屉与跨端持久化漫游。", author: "veildawn", category: "tools", version: "0.4.3", latestVersion: "0.4.3", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-prompt-history@v0.4.3/dsh-prompt-history-0.4.3.tgz", isRepoPlugin: true },
     ];
 
     function installSourceOf(plugin, kind) {
@@ -427,9 +434,19 @@ window.__ModuleLoader__.load({
             // Merge server list with fallback list to guarantee newly added repo
             // plugins are never lost even when the server returns a partial list.
             const serverList = (value && Array.isArray(value.plugins)) ? value.plugins : [];
+            const fallbackByName = new Map(FALLBACK_REPO_PLUGINS.map((p) => [p.name || p.id, p]));
             const byName = new Map();
             for (const p of [...FALLBACK_REPO_PLUGINS, ...serverList]) {
-              byName.set(p.name || p.id, p);
+              const fb = fallbackByName.get(p.name || p.id);
+              const hasCleanTitle = p.title && p.title !== p.name && p.title !== p.id;
+              const title = hasCleanTitle ? p.title : (fb?.title || p.title || p.name);
+              const hasCleanDesc = p.description && !p.description.startsWith("📦") && !p.description.startsWith("### 📦");
+              const description = hasCleanDesc ? p.description : (fb?.description || p.description);
+              byName.set(p.name || p.id, {
+                ...p,
+                title,
+                description,
+              });
             }
             setRepoPlugins(Array.from(byName.values()));
             if (value && value.repoOrigin) setRepoOrigin(value.repoOrigin);

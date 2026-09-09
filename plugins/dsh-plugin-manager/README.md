@@ -62,7 +62,7 @@ rm ~/Library/LaunchAgents/com.deepseek.dsh-web.plist
 使用 DSH 官方 CLI 安装本插件：
 
 ```bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.5/dsh-plugin-manager-0.3.5.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.6/dsh-plugin-manager-0.3.6.tgz
 ```
 
 或使用本地打包安装：
@@ -70,7 +70,7 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 ```bash
 cd plugins/dsh-plugin-manager
 npm pack
-dsh plugin add --profile web ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3.5.tgz
+dsh plugin add --profile web ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3.6.tgz
 ```
 
 ---
@@ -86,6 +86,8 @@ dsh plugin add --profile web ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3
 | **`dsh-mobile-adapter`** | `mobile-adapter` | 移动端全量体验适配与优化 |
 | **`dsh-file-viewer`** | `file-viewer` | 会话工作区文件查看器与富文本预览 |
 | **`dsh-terminal`** | `terminal` | 跨平台本地交互式终端与触控辅助键盘 |
+| **`dsh-archive-manager`** | `archive-manager` | 会话归档管理、一键恢复与彻底删除磁盘清理 |
+| **`dsh-prompt-history`** | `prompt-history` | 提示词历史导航、修改重发与跨端漫游 |
 
 ---
 

@@ -133,6 +133,17 @@ describe('dsh-market releases formatting and updates detection', () => {
     const modelRoles = catalog.find((p) => p.name === 'dsh-model-roles')
     assert.ok(modelRoles)
     assert.equal(modelRoles.version, '0.4.8')
+
+    // Verifies monorepo known plugins have friendly Chinese title and descriptions
+    const archiveMgr = catalog.find((p) => p.name === 'dsh-archive-manager')
+    assert.ok(archiveMgr)
+    assert.equal(archiveMgr.title, '会话归档管理器')
+    assert.ok(archiveMgr.description.includes('会话归档管理'))
+
+    const promptHist = catalog.find((p) => p.name === 'dsh-prompt-history')
+    assert.ok(promptHist)
+    assert.equal(promptHist.title, '提示词历史与修改重发')
+    assert.ok(promptHist.description.includes('提示词历史导航'))
   })
 
   it('dynamically discovers newly added repo plugins not in hardcoded base list', () => {
