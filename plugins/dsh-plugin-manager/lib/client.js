@@ -860,6 +860,9 @@ window.__ModuleLoader__.load({
         const uninstalledCount = totalCount - installedCount;
 
         const filteredRepo = repoPlugins.filter((p) => {
+          const isInst = Boolean(p.installedVersion);
+          if (filterStatus === "installed" && !isInst) return false;
+          if (filterStatus === "uninstalled" && isInst) return false;
           if (!q) return true;
           return [p.name, p.title, p.description, (p.tags || []).join(" ")].join(" ").toLowerCase().includes(q);
         });
@@ -940,7 +943,7 @@ window.__ModuleLoader__.load({
             react.createElement("button", { className: `dm-tab-btn ${tab === "config" ? "active" : ""}`, type: "button", onClick: () => setTab("config") }, "配置")),
           tab !== "config" ? react.createElement(react.Fragment, null,
             react.createElement("div", { className: "dm-filter-bar" },
-              tab === "community" ? react.createElement("div", { className: "dm-filter-group" },
+              react.createElement("div", { className: "dm-filter-group" },
                 react.createElement("button", {
                   className: `dm-filter-btn ${filterStatus === "all" ? "active" : ""}`,
                   type: "button",
@@ -955,7 +958,7 @@ window.__ModuleLoader__.load({
                   className: `dm-filter-btn ${filterStatus === "uninstalled" ? "active" : ""}`,
                   type: "button",
                   onClick: () => setFilterStatus("uninstalled"),
-                }, `未安装 (${uninstalledCount})`)) : react.createElement("div", null),
+                }, `未安装 (${uninstalledCount})`)),
               react.createElement("div", { className: "dm-toolbar-right" },
                 tab === "repo" ? react.createElement(react.Fragment, null,
                   react.createElement("button", {
