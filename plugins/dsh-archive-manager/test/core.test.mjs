@@ -60,8 +60,9 @@ function mockFsd(files = new Map()) {
   };
 }
 
-function mockCtx({ registry, scope, headers = [], live = [], artifacts = null, sessionTitle = null, projectionCache = null } = {}) {
+function mockCtx({ registry, scope, headers = [], live = [], runningAgents = [], artifacts = null, sessionTitle = null, projectionCache = null } = {}) {
   const liveSessions = new Map(live.map((id) => [id, { id, header: { id } }]));
+  const runningMap = new Map(runningAgents.map((id) => [id, { status: 'running' }]));
   let locateImpl = (header) => {
     if (!artifacts) return undefined;
     const entry = artifacts.find((a) => a.id === String(header.id));
@@ -69,6 +70,7 @@ function mockCtx({ registry, scope, headers = [], live = [], artifacts = null, s
   };
   const services = {
     sessions: { get: (id) => liveSessions.get(id) },
+    agents: { get: (id) => runningMap.get(id) },
   };
   if (sessionTitle) services.sessionTitle = sessionTitle;
   if (projectionCache) services.sessionProjectionCache = projectionCache;
@@ -210,6 +212,7 @@ test('core: physicalDeleteSessions moves artifacts to trash, records tombstone, 
   const ctx = mockCtx({
     registry,
     live: ['s3'], // s3 is live -> must be refused
+    runningAgents: ['s3'],
     headers: [
       { id: 's1', createdAt: 1000, cwd: '/work/a' },
       { id: 's2', createdAt: 2000, cwd: '/work/b' },
@@ -314,6 +317,7 @@ test('core: permanentPurgeSessions destroys artifact directory, removes from arc
   const ctx = mockCtx({
     registry,
     live: ['s3'], // live session
+    runningAgents: ['s3'], // running agent
     headers: [
       { id: 's1', createdAt: 1000, cwd: '/work/a' },
       { id: 's2', createdAt: 2000, cwd: '/work/b' },
@@ -340,7 +344,7 @@ test('core: permanentPurgeSessions destroys artifact directory, removes from arc
   assert.deepEqual(res.purged, ['s1', 's2']);
   assert.equal(res.skipped.length, 1);
   assert.equal(res.skipped[0].id, 's3');
-  assert.match(res.skipped[0].reason, /运行中/);
+  assert.match(res.skipped[0].reason, /后台任务/);
 
   // files wiped
   assert.equal(files.has('/logs/work/a/s1/session.zst'), false);

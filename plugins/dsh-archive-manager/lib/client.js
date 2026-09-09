@@ -229,10 +229,15 @@ window.__ModuleLoader__.load({
       const run = async (method, ids, success) => {
         if (!rpc || ids.length === 0) return;
         try {
-          await rpc(method, { sessionIds: ids });
+          const res = await rpc(method, { sessionIds: ids });
           setSelectedIds((prev) => prev.filter((id) => !ids.includes(id)));
           await loadData();
-          notify(success);
+          if (res && Array.isArray(res.skipped) && res.skipped.length > 0) {
+            const skipMsgs = res.skipped.map((s) => s.reason).filter(Boolean);
+            notify(`部分跳过: ${skipMsgs.join('; ')}`);
+          } else {
+            notify(success);
+          }
         } catch (error) {
           notify(error instanceof Error ? error.message : "操作失败");
         }

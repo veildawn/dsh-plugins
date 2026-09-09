@@ -96,15 +96,15 @@ export function okResult(value) {
  * the set resolves without writing (mirrors archiveSession's idempotence).
  */
 export async function unarchiveSessions(ctx, sessionIds) {
-  const registry = ctx.workspaceRegistry
+  const registry = ctx.workspaceRegistry || ctx.get?.('workspaceRegistry')
   if (!registry || typeof registry.enqueueOperation !== 'function' || typeof registry.setState !== 'function' || typeof registry.requireState !== 'function') {
     throw new Error('workspace registry does not expose the state surface required for unarchive (DSH version mismatch?)')
   }
-  const target = new Set(sessionIds)
+  const target = new Set(sessionIds.map(String))
   await registry.enqueueOperation(async () => {
     const state = registry.requireState()
     const current = Array.isArray(state.archivedSessionIds) ? state.archivedSessionIds : []
-    const next = current.filter((id) => !target.has(id))
+    const next = current.filter((id) => !target.has(String(id)))
     if (next.length === current.length) return
     await registry.setState({ ...state, archivedSessionIds: next })
   })
@@ -146,11 +146,13 @@ export async function restoreDeleted(scope, sessionIds) {
 
 /** Resolve the backend artifact path for one session, or `undefined`. */
 async function resolveArtifactPath(ctx, sessionId, headers) {
-  const live = ctx.get?.('sessions')?.get?.(sessionId)
+  const sessionsService = ctx.sessions || ctx.get?.('sessions')
+  const live = sessionsService?.get?.(sessionId)
   const header = live?.header ?? headers.get(String(sessionId))
   if (!header) return undefined
-  if (typeof ctx.sessionPersistence?.locate !== 'function') return undefined
-  const located = ctx.sessionPersistence.locate(header)
+  const persistence = ctx.sessionPersistence || ctx.get?.('sessionPersistence')
+  if (typeof persistence?.locate !== 'function') return undefined
+  const located = persistence.locate(header)
   if (!located || typeof located.path !== 'string') return undefined
   return { header, path: located.path, kind: located.kind }
 }
@@ -180,10 +182,19 @@ export async function physicalDeleteSessions(ctx, scope, sessionIds, options, fs
       skipped.push({ id: sessionId, reason: 'already deleted' })
       continue
     }
-    const live = ctx.get?.('sessions')?.get?.(sessionId)
-    if (live) {
-      skipped.push({ id: sessionId, reason: 'session is live (running or open); close it first' })
+    const agentsService = ctx.agents || ctx.get?.('agents')
+    const agent = agentsService?.get?.(sessionId)
+    if (agent?.status === 'running') {
+      skipped.push({ id: sessionId, reason: 'session is live and actively running; close it first' })
       continue
+    }
+    const sessionsService = ctx.sessions || ctx.get?.('sessions')
+    const live = sessionsService?.get?.(sessionId)
+    if (live) {
+      try {
+        const entry = sessionsService.liveEntryFor?.(live)
+        if (entry) sessionsService.detachEntered?.(entry)
+      } catch {}
     }
     const artifact = await resolveArtifactPath(ctx, sessionId, headers)
     if (!artifact) {
@@ -258,58 +269,90 @@ export async function destroyPhysicalSessions(ctx, scope, sessionIds, fsd = node
 
 /**
  * Completely and irreversibly purge sessions from disk, registry and tombstones.
- * 1. Checks if session is active (refuses if live).
- * 2. Locates artifact path, determines its session directory, and deletes via rm -rf.
- * 3. Cleans up any trashPath if it was previously moved.
- * 4. Removes session from archivedSessionIds.
- * 5. Purges any matching tombstone from plugin settings.
+ * 1. Checks if session's agent is actively running (refuses only if active).
+ * 2. Detaches idle live sessions from the memory store so files can be deleted safely.
+ * 3. Locates artifact path, determines its session directory, and deletes via rm -rf.
+ * 4. Cleans up any trashPath if it was previously moved.
+ * 5. Cleans up projection cache files and cleans up from archivedSessionIds.
+ * 6. Purges any matching tombstone from plugin settings.
  */
 export async function permanentPurgeSessions(ctx, scope, sessionIds, fsd = nodeFs) {
   const current = resolveOptions(scope.get()).tombstones
-  const target = new Set(sessionIds)
+  const target = new Set(sessionIds.map(String))
   const purged = []
   const skipped = []
 
   const headers = new Map()
   try {
-    const listed = await ctx.sessionPersistence?.list?.() || []
+    const persistence = ctx.sessionPersistence || ctx.get?.('sessionPersistence')
+    const listed = await persistence?.list?.() || []
     for (const header of listed) headers.set(String(header.id), header)
   } catch {}
 
+  const sessionsService = ctx.sessions || ctx.get?.('sessions')
+  const agentsService = ctx.agents || ctx.get?.('agents')
+
   for (const sessionId of sessionIds) {
-    const live = ctx.get?.('sessions')?.get?.(sessionId)
-    if (live) {
-      skipped.push({ id: sessionId, reason: '会话正在运行中，无法物理删除' })
+    const sid = String(sessionId)
+    // 1. 只有当智能体正在运行/生成时才拒绝
+    const agent = agentsService?.get?.(sid)
+    if (agent?.status === 'running') {
+      skipped.push({ id: sid, reason: '会话正在执行后台任务中，无法删除' })
       continue
     }
 
-    // 1. 若曾移入回收站，删除其回收站中的文件
-    const tombstone = current.find((t) => t.id === sessionId)
+    // 2. 若会话常驻于内存 sessions store 中，安全卸载释放
+    const live = sessionsService?.get?.(sid)
+    if (live) {
+      try {
+        const entry = sessionsService.liveEntryFor?.(live)
+        if (entry) sessionsService.detachEntered?.(entry)
+      } catch {}
+    }
+
+    // 3. 若曾移入回收站，删除其回收站中的文件
+    const tombstone = current.find((t) => String(t.id) === sid)
     if (tombstone?.trashPath) {
       try {
         await fsd.rm(tombstone.trashPath, { recursive: true, force: true }).catch(() => {})
       } catch {}
     }
 
-    // 2. 定位磁盘持久化目录并物理抹除 (整个 sessionDir)
-    const artifact = await resolveArtifactPath(ctx, sessionId, headers)
+    // 4. 定位并物理抹除原始会话目录 (整个 sessionDir)
+    const artifact = await resolveArtifactPath(ctx, sid, headers)
     if (artifact?.path) {
       try {
         const sessionDir = dirname(artifact.path)
         await fsd.rm(sessionDir, { recursive: true, force: true }).catch(() => {})
       } catch (err) {
-        console.warn(`[archive-manager] Failed to rm sessionDir for ${sessionId}:`, err)
+        console.warn(`[archive-manager] Failed to rm sessionDir for ${sid}:`, err)
       }
     }
 
-    purged.push(sessionId)
+    // 5. 跨项目直接清理 ~/.dsh/sessions/ 各目录下的专属 sessionId 文件夹 (兜底防御)
+    try {
+      const rootSessions = dshHomePath('sessions')
+      const projects = await fsd.readdir(rootSessions).catch(() => [])
+      for (const p of projects) {
+        const targetDir = join(rootSessions, p, sid)
+        await fsd.rm(targetDir, { recursive: true, force: true }).catch(() => {})
+      }
+    } catch {}
+
+    // 6. 清理 session_projcache 缓存文件
+    try {
+      const cacheFile = dshHomePath('storages', 'session_projcache', 'sessions', `${sid}.json`)
+      await fsd.unlink(cacheFile).catch(() => {})
+    } catch {}
+
+    purged.push(sid)
   }
 
-  // 3. 从归档集合完全移出
+  // 7. 从归档集合完全移出
   if (purged.length > 0) {
     await unarchiveSessions(ctx, purged)
-    // 4. 清除 tombstones 记录
-    const remaining = current.filter((t) => !target.has(t.id))
+    // 8. 清除 tombstones 记录
+    const remaining = current.filter((t) => !target.has(String(t.id)))
     await scope.replace({ tombstones: remaining })
   }
 
