@@ -545,3 +545,37 @@ export function parseGitStatus(statusText) {
   }
   return { modified, untracked }
 }
+
+/**
+ * Rebase a list of git-status paths (relative to the repository root) onto the
+ * selected root so they match the tree's root-relative `entry.path`.
+ *
+ * `git status --porcelain` always reports paths relative to the repository root,
+ * but a workspace root may be a subdirectory of that repository. Paths outside
+ * the selected root are dropped, and the repository root itself is not listed.
+ * @param {string[]} paths - repo-relative paths from git status.
+ * @param {string} prefix - repo-relative path of the selected root ('' when the
+ *   selected root is the repository root itself).
+ * @returns {string[]} root-relative paths.
+ */
+export function rebaseGitPaths(paths, prefix) {
+  if (!Array.isArray(paths)) return []
+  const normalized = typeof prefix === 'string' ? prefix.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') : ''
+  const out = []
+  for (let candidate of paths) {
+    if (typeof candidate !== 'string') continue
+    let p = candidate.replace(/\\/g, '/')
+    let rootRelative
+    if (normalized === '') {
+      rootRelative = p
+    } else if (p.startsWith(normalized + '/')) {
+      rootRelative = p.slice(normalized.length + 1)
+    } else if (p === normalized) {
+      rootRelative = ''
+    } else {
+      continue
+    }
+    if (rootRelative !== '') out.push(rootRelative)
+  }
+  return out
+}

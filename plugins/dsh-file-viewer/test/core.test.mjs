@@ -20,6 +20,7 @@ import {
   mediaTypeOf,
   parseGitStatus,
   parsePatchToDiffs,
+  rebaseGitPaths,
   resolveWindow,
   sortEntries,
   splitLines,
@@ -412,4 +413,30 @@ M  plugins/dsh-file-viewer/package.json
     'new-file.txt',
     'file with spaces.md',
   ])
+})
+
+test('rebaseGitPaths converts repo-relative paths onto the selected root', () => {
+  // Selected root IS the repository root: paths pass through unchanged.
+  assert.deepEqual(
+    rebaseGitPaths(['plugins/dsh-file-viewer/lib/client.js', 'src/index.ts'], ''),
+    ['plugins/dsh-file-viewer/lib/client.js', 'src/index.ts'],
+  )
+
+  // Selected root is a repo subdirectory: strip the repo-relative prefix.
+  assert.deepEqual(
+    rebaseGitPaths(['plugins/dsh-file-viewer/lib/client.js', 'plugins/dsh-file-viewer/package.json'], 'plugins/dsh-file-viewer'),
+    ['lib/client.js', 'package.json'],
+  )
+
+  // Paths outside the selected root are dropped to keep badges honest.
+  assert.deepEqual(
+    rebaseGitPaths(['plugins/dsh-file-viewer/lib/client.js', 'other/pkg/x.ts'], 'plugins/dsh-file-viewer'),
+    ['lib/client.js'],
+  )
+
+  // The selected root itself is not listed.
+  assert.deepEqual(rebaseGitPaths(['plugins/dsh-file-viewer'], 'plugins/dsh-file-viewer'), [])
+
+  // Windows backslashes are normalized.
+  assert.deepEqual(rebaseGitPaths(['plugins\\dsh-file-viewer\\lib\\client.js'], 'plugins/dsh-file-viewer'), ['lib/client.js'])
 })

@@ -33,6 +33,7 @@ import {
   langOf as languageOf,
   parseGitStatus,
   parsePatchToDiffs,
+  rebaseGitPaths,
   resolveWindow,
   sortEntries,
   splitLines,
@@ -56,6 +57,7 @@ export {
   langOf,
   parseGitStatus,
   parsePatchToDiffs,
+  rebaseGitPaths,
   resolveWindow,
   sortEntries,
   splitLines,
@@ -547,6 +549,12 @@ export async function getFileDiff(ctx, options, payload, signal) {
   const cwd = root.path
   const normRel = relative.replace(/\\/g, '/')
 
+  // Parse a patch into hunks but always stamp the root-relative display path.
+  // `git diff`/`git log -p` report paths relative to the repository root, which
+  // may be a parent of the selected workspace root; DiffBlock should show the
+  // same root-relative path as the tree column for consistency.
+  const parseForDisplay = (patch) => parsePatchToDiffs(patch, normRel).map((hunk) => ({ ...hunk, path: normRel }))
+
   // 1. Try working tree diff (covers both staged and unstaged edits)
   try {
     const { stdout: diffStdout } = await execFileAsync('git', ['diff', 'HEAD', '--', normRel], {
@@ -556,7 +564,7 @@ export async function getFileDiff(ctx, options, payload, signal) {
       signal,
     })
     if (diffStdout && diffStdout.trim() !== '') {
-      const diffs = parsePatchToDiffs(diffStdout, normRel)
+      const diffs = parseForDisplay(diffStdout)
       if (diffs.length > 0) {
         return { hasDiff: true, source: 'working-tree', diffs, summary: summarizeDiffs(diffs) }
       }
@@ -586,7 +594,7 @@ export async function getFileDiff(ctx, options, payload, signal) {
       signal,
     })
     if (logStdout && logStdout.trim() !== '') {
-      const diffs = parsePatchToDiffs(logStdout, normRel)
+      const diffs = parseForDisplay(logStdout)
       if (diffs.length > 0) {
         return { hasDiff: true, source: 'latest-commit', diffs, summary: summarizeDiffs(diffs) }
       }
@@ -598,6 +606,12 @@ export async function getFileDiff(ctx, options, payload, signal) {
 
 /**
  * Obtain workspace-wide git status for badges in the tree.
+ *
+ * `git status --porcelain` reports paths relative to the repository root, but
+ * the tree's `entry.path` is relative to the selected root, which may be a
+ * subdirectory of that repository. Rebase every reported path onto the selected
+ * root so the badges match the tree entries exactly; paths outside the selected
+ * root are dropped.
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
  * @param {() => object} options - config reader.
  * @param {{root?: string}} payload - client request.
@@ -606,6 +620,34 @@ export async function getFileDiff(ctx, options, payload, signal) {
  */
 export async function getWorkspaceGitStatus(ctx, options, payload, signal) {
   const { root } = await resolveInRoot(ctx, options, { root: payload?.root, path: '' }, signal)
+
+  // Determine the repository root so we can rebase paths onto the selected root.
+  let repoRoot = ''
+  try {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: root.path,
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024,
+      signal,
+    })
+    repoRoot = stdout.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  } catch (_) {
+    // Not a git checkout (or git unavailable): no diffs to report.
+    return { modified: [], untracked: [] }
+  }
+
+  const rootKey = root.path.replace(/\\/g, '/').replace(/\/+$/, '')
+  const repoKey = repoRoot
+  // Prefix (repo-relative) that must be stripped so a path becomes root-relative.
+  let prefix = ''
+  if (rootKey !== repoKey) {
+    if (!rootKey.startsWith(repoKey + '/')) {
+      // Selected root is outside this repository; skip to avoid mismatched badges.
+      return { modified: [], untracked: [] }
+    }
+    prefix = rootKey.slice(repoKey.length + 1)
+  }
+
   try {
     const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
       cwd: root.path,
@@ -613,7 +655,11 @@ export async function getWorkspaceGitStatus(ctx, options, payload, signal) {
       maxBuffer: 4 * 1024 * 1024,
       signal,
     })
-    return parseGitStatus(stdout)
+    const raw = parseGitStatus(stdout)
+    return {
+      modified: rebaseGitPaths(raw.modified, prefix),
+      untracked: rebaseGitPaths(raw.untracked, prefix),
+    }
   } catch (_) {
     return { modified: [], untracked: [] }
   }
