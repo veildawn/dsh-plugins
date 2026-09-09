@@ -198,6 +198,19 @@ export const LOCAL_MONOREPO_PLUGINS = [
     path: 'plugins/dsh-prompt-history',
     isRepoPlugin: true,
   },
+  {
+    id: 'dsh-zcode-theme',
+    name: 'dsh-zcode-theme',
+    title: 'ZCode 全平台视觉主题',
+    description: 'ZCode Design System：深炭灰画布、暖橙红品牌色，Desktop / Tablet / Mobile 共享同一套视觉 Token。',
+    author: 'veildawn',
+    category: 'ui',
+    tags: ['theme', 'zcode', 'design-system', 'ui'],
+    icon: 'palette',
+    repo: 'veildawn/dsh-plugins',
+    path: 'plugins/dsh-zcode-theme',
+    isRepoPlugin: true,
+  },
 ]
 
 /**

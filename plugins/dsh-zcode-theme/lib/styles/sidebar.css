@@ -1,0 +1,90 @@
+/* Sidebar / Session：低对比 Surface + 左侧品牌指示条，不用大面积橙色。 */
+[data-dsh-theme="zcode"] [data-slot="sidebar"],
+[data-dsh-theme="zcode"] .hHd-Xa_root {
+  background: var(--dsw-specific-sidebar-fill);
+}
+
+/* 顶部品牌区：消除高亮刺眼的纯白底块，弱化为低对比胶囊质感 */
+[data-dsh-theme="zcode"] .hHd-Xa_brand {
+  color: #A3A3A3;
+}
+
+[data-dsh-theme="zcode"] .hHd-Xa_brand:hover {
+  color: #F2F2F2;
+}
+
+/* HARNESS 徽标背景与文字：柔和半透明中性灰底，字色为深暗画布色 */
+[data-dsh-theme="zcode"] .hHd-Xa_brand svg rect,
+[data-dsh-theme="zcode"] .hHd-Xa_brandName svg rect {
+  fill: #A3A3A3;
+  opacity: 0.85;
+}
+
+[data-dsh-theme="zcode"] .hHd-Xa_brand:hover svg rect,
+[data-dsh-theme="zcode"] .hHd-Xa_brandName:hover svg rect {
+  fill: #F2F2F2;
+  opacity: 1;
+}
+
+/* 纯本地开发构建指示器 tag 弱化 */
+[data-dsh-theme="zcode"] .hHd-Xa_buildVersion {
+  background: rgba(255, 255, 255, 0.12);
+  color: #A3A3A3;
+}
+
+[data-dsh-theme="zcode"] .hHd-Xa_newSession {
+  background: #2A2A2A;
+  border-color: var(--dsw-alias-border-l1);
+  color: #F2F2F2;
+}
+
+[data-dsh-theme="zcode"] .hHd-Xa_newSession:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+[data-dsh-theme="zcode"] .YDXeBa_sessionRow,
+[data-dsh-theme="zcode"] .YDXeBa_projectRow,
+[data-dsh-theme="zcode"] .YDXeBa_searchResultRow {
+  border-radius: 10px;
+}
+
+[data-dsh-theme="zcode"] .YDXeBa_sessionRow:hover,
+[data-dsh-theme="zcode"] .YDXeBa_projectRow:hover,
+[data-dsh-theme="zcode"] .YDXeBa_searchResultRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+[data-dsh-theme="zcode"] .YDXeBa_sessionRow.YDXeBa_selected,
+[data-dsh-theme="zcode"] .YDXeBa_searchResultRow.YDXeBa_selected {
+  background: #2A2A2A;
+  color: #F2F2F2;
+}
+
+/* 工作区 / 项目行选中状态：完全对齐 ZCode 天蓝风格，绝不用红色 */
+[data-dsh-theme="zcode"] .YDXeBa_projectRow.YDXeBa_selected,
+[data-dsh-theme="zcode"] .YDXeBa_projectRow:has([aria-selected="true"]),
+[data-dsh-theme="zcode"] .YDXeBa_projectRow[data-active="true"] {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38BDF8;
+  border: none;
+}
+
+[data-dsh-theme="zcode"] .YDXeBa_folderActive,
+[data-dsh-theme="zcode"] .YDXeBa_projectRow.YDXeBa_selected .YDXeBa_folder,
+[data-dsh-theme="zcode"] .YDXeBa_projectRow.YDXeBa_selected .YDXeBa_title {
+  color: #38BDF8;
+}
+
+/* 侧边栏底部连接状态指示器 (ConnectionIndicator)：消除刺眼白底，融入暗色质感 */
+[data-dsh-theme="zcode"] div[class*="_indicator_tixn7"],
+[data-dsh-theme="zcode"] div[class*="_warning_tixn7"],
+[data-dsh-theme="zcode"] div[class*="_success_tixn7"] {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #D4D4D4;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+[data-dsh-theme="zcode"] div[class*="_indicator_tixn7"] svg {
+  color: #F59E0B;
+}

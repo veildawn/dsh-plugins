@@ -1,0 +1,26 @@
+/* Chip：默认胶囊灰底，选中才用品牌色。 */
+[data-dsh-theme="zcode"] .rS3zOq_chip,
+[data-dsh-theme="zcode"] .uV2eYG_select,
+[data-dsh-theme="zcode"] [class*="_chip"] {
+  background: #2A2A2A;
+  border: 1px solid var(--dsw-alias-border-l1);
+  color: #A3A3A3;
+  border-radius: 999px;
+}
+
+[data-dsh-theme="zcode"] .rS3zOq_chip[data-selected],
+[data-dsh-theme="zcode"] .rS3zOq_chip[aria-pressed="true"],
+[data-dsh-theme="zcode"] [class*="_chip"][data-selected],
+[data-dsh-theme="zcode"] [class*="_chip"][aria-selected="true"] {
+  background: #3A3A3A;
+  color: #F2F2F2;
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+
+/* 欢迎区 / 顶部等通用预览版徽标 (previewBadge)，弱化为低对比胶囊质感 */
+[data-dsh-theme="zcode"] [class*="_previewBadge"] {
+  background: rgba(232, 93, 58, 0.12);
+  color: #E85D3A;
+  border: 1px solid rgba(232, 93, 58, 0.25);
+  border-radius: 999px;
+}

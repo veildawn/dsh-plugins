@@ -1,0 +1,10 @@
+/* 主题作用域：避免污染未启用 ZCode 的页面。 */
+[data-dsh-theme="zcode"] {
+  color-scheme: dark;
+}
+
+[data-dsh-theme="zcode"],
+[data-dsh-theme="zcode"] body {
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}

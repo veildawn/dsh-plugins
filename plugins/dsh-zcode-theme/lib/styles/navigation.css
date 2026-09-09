@@ -1,0 +1,21 @@
+/* Top Bar / 会话头：半透明 Surface + blur，并提供实色 fallback。 */
+[data-dsh-theme="zcode"] [data-slot="conversation.session.header"] > header,
+[data-dsh-theme="zcode"] .wSkVaW_header,
+[data-dsh-theme="zcode"] .dsh-mobile-bar {
+  background: #1A1A1A;
+  background: color-mix(in srgb, #1A1A1A 92%, transparent);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+[data-dsh-theme="zcode"] .wSkVaW_tab[aria-selected="true"],
+[data-dsh-theme="zcode"] .wSkVaW_tab.wSkVaW_tabActive,
+[data-dsh-theme="zcode"] .wSkVaW_crumbCurrent {
+  color: var(--dsw-alias-label-primary);
+}
+
+[data-dsh-theme="zcode"] .wSkVaW_tab[aria-selected="true"]:after,
+[data-dsh-theme="zcode"] .wSkVaW_tabActive:after {
+  background: #F2F2F2;
+}

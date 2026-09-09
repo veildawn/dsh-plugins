@@ -1,0 +1,19 @@
+/* Surface 层级：Canvas / Layer1 / Layer2 / Module / Code。 */
+[data-dsh-theme="zcode"] html,
+[data-dsh-theme="zcode"] body,
+[data-dsh-theme="zcode"] #root,
+[data-dsh-theme="zcode"] [data-slot="root"],
+[data-dsh-theme="zcode"] [data-slot="conversation"] {
+  background: var(--dsw-alias-bg-base);
+}
+
+[data-dsh-theme="zcode"] [data-slot="sidebar"],
+[data-dsh-theme="zcode"] [data-slot="sidebar.settings"] {
+  background: var(--dsw-specific-sidebar-fill);
+}
+
+[data-dsh-theme="zcode"] [role="dialog"],
+[data-dsh-theme="zcode"] [role="menu"],
+[data-dsh-theme="zcode"] [data-slot="details"] {
+  background: var(--dsw-alias-bg-layer-2);
+}

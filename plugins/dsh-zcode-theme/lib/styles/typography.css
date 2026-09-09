@@ -1,0 +1,46 @@
+/* 三级文字：主文 / 辅助 / 弱提示，全面对齐 ZCode 官方字体规范 */
+[data-dsh-theme="zcode"] {
+  --dsw-font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --ds-font-family-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+[data-dsh-theme="zcode"],
+[data-dsh-theme="zcode"] body,
+[data-dsh-theme="zcode"] button,
+[data-dsh-theme="zcode"] input,
+[data-dsh-theme="zcode"] textarea {
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 消息流与正文排版：重设宿主 markdown 简写字体，彻底消除中英文字号/字形落差 */
+[data-dsh-theme="zcode"] [class*="_markdown_"],
+[data-dsh-theme="zcode"] [class*="_markdown_"] p,
+[data-dsh-theme="zcode"] [class*="_markdown_"] li,
+[data-dsh-theme="zcode"] [data-chat-flow] p,
+[data-dsh-theme="zcode"] [data-chat-flow] li {
+  font-family: var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 1.65;
+  letter-spacing: -0.01em;
+  color: #D4D4D4; /* 截图里正文细腻柔和灰白 */
+}
+
+[data-dsh-theme="zcode"] pre,
+[data-dsh-theme="zcode"] code,
+[data-dsh-theme="zcode"] kbd,
+[data-dsh-theme="zcode"] samp {
+  font-family: var(--ds-font-family-code);
+}
+
+[data-dsh-theme="zcode"] ::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+[data-dsh-theme="zcode"] [class*="_time"],
+[data-dsh-theme="zcode"] [class*="_meta"],
+[data-dsh-theme="zcode"] [class*="_caption"] {
+  color: var(--dsw-alias-label-tertiary);
+}

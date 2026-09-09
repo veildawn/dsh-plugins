@@ -1,0 +1,46 @@
+/* Code Block 是一级组件：更深的 Code Surface，不用品牌色。 */
+[data-dsh-theme="zcode"] .md-code-block,
+[data-dsh-theme="zcode"] pre,
+[data-dsh-theme="zcode"] [class*="_code"] {
+  background: #161616;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+}
+
+[data-dsh-theme="zcode"] .md-code-block [class*="_banner"],
+[data-dsh-theme="zcode"] .md-code-block [class*="banner"] {
+  background: #222222;
+}
+
+[data-dsh-theme="zcode"] .md-code-block [class*="_infostring"],
+[data-dsh-theme="zcode"] .md-code-block [class*="infostring"] {
+  color: #737373;
+}
+
+[data-dsh-theme="zcode"] .md-code-block button,
+[data-dsh-theme="zcode"] .md-code-block [class*="_copyButton"] {
+  background: rgba(255,255,255,0.06);
+  color: var(--dsw-alias-label-secondary);
+  border-radius: 8px;
+}
+
+[data-dsh-theme="zcode"] .md-code-block button:hover,
+[data-dsh-theme="zcode"] .md-code-block [class*="_copyButton"]:hover {
+  background: rgba(255,255,255,0.10);
+}
+
+/* 行内代码标签 (Inline Code)：完全对齐 ZCode，浅灰白字体与深灰底，消除中英文基线落差 */
+[data-dsh-theme="zcode"] :not(pre) > code,
+[data-dsh-theme="zcode"] ._markdown_177e0_5 :not(pre) > code {
+  background-color: rgba(255, 255, 255, 0.07);
+  color: #E2E8F0; /* 对齐 ZCode，浅灰白字体 */
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 1.5px 6px;
+  margin: 0 3px;
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  font-size: 12.5px;
+  line-height: 1.5;
+  vertical-align: baseline;
+  font-weight: 400;
+}

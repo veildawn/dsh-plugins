@@ -1,0 +1,136 @@
+/* 大屏保持宿主原有内容宽度；整列同一画布色，避免两侧看成竖条。 */
+[data-dsh-theme="zcode"] .pI_x6G_centerCol,
+[data-dsh-theme="zcode"] .wSkVaW_root,
+[data-dsh-theme="zcode"] .wSkVaW_body,
+[data-dsh-theme="zcode"] .wSkVaW_scrollBody,
+[data-dsh-theme="zcode"] .wSkVaW_viewArea,
+[data-dsh-theme="zcode"] .EvIC1a_root,
+[data-dsh-theme="zcode"] .EvIC1a_scroll,
+[data-dsh-theme="zcode"] .EvIC1a_column,
+[data-dsh-theme="zcode"] [data-chat-flow] {
+  background: #1A1A1A;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Chat：用户气泡为 Module Surface，AI 消息融入画布。 */
+[data-dsh-theme="zcode"] .Sixlwa_bubble {
+  background: #2A2A2A;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 16px;
+  color: var(--dsw-alias-label-primary);
+}
+
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"],
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"] .Sixlwa_bubble {
+  background: transparent;
+  border-color: transparent;
+}
+
+[data-dsh-theme="zcode"] [data-chat-flow] [class*="_timeStart"],
+[data-dsh-theme="zcode"] [data-chat-flow] [class*="_timeEnd"] {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 思考 / 探索：无底灰字，不要背景框。 */
+[data-dsh-theme="zcode"] .EvIC1a_turnStatus {
+  background: none;
+  color: #A3A3A3;
+  -webkit-text-fill-color: #A3A3A3;
+  animation: none;
+}
+
+[data-dsh-theme="zcode"] .EvIC1a_turnStatusClock {
+  color: #737373;
+  -webkit-text-fill-color: #737373;
+}
+
+[data-dsh-theme="zcode"] .lcKema_root,
+[data-dsh-theme="zcode"] .lcKema_row,
+[data-dsh-theme="zcode"] .lcKema_thinkBody {
+  background: transparent;
+}
+
+/* 恢复会话区拖动手柄的透明底，绝不误填大灰条。 */
+[data-dsh-theme="zcode"] .wSkVaW_widthHandle {
+  background: transparent;
+}
+
+/* 系统消息 / 工具调用中断与错误卡片：对齐 ZCode，文本使用柔和浅灰，绝不用红色，也不用亮蓝 */
+[data-dsh-theme="zcode"] .CY-8Ka_errorSummary,
+[data-dsh-theme="zcode"] .o3BgMG_errorSummary,
+[data-dsh-theme="zcode"] ._5OnbHa_summary[data-error],
+[data-dsh-theme="zcode"] ._5OnbHa_body[data-error],
+[data-dsh-theme="zcode"] [data-error],
+[data-dsh-theme="zcode"] [class*="_errorSummary"],
+[data-dsh-theme="zcode"] [class*="_turnError"],
+[data-dsh-theme="zcode"] [class*="_requestError"] {
+  color: #A3A3A3; /* 对齐 ZCode 文本，次级灰，不使用亮蓝，不使用红 */
+}
+
+[data-dsh-theme="zcode"] .CY-8Ka_title,
+[data-dsh-theme="zcode"] .o3BgMG_title,
+[data-dsh-theme="zcode"] ._5OnbHa_title {
+  color: #F2F2F2;
+}
+
+[data-dsh-theme="zcode"] .CY-8Ka_ioText[data-error] {
+  color: #A3A3A3;
+}
+
+[data-dsh-theme="zcode"] .CY-8Ka_card,
+[data-dsh-theme="zcode"] .o3BgMG_root {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: transparent;
+}
+
+/* 对齐 ZCode 消息正文排版 (Markdown、列表、段落、表格) */
+[data-dsh-theme="zcode"] .Sixlwa_bubble,
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"] {
+  font-size: 14.5px;
+  line-height: 1.7;
+  letter-spacing: -0.01em;
+}
+
+[data-dsh-theme="zcode"] [data-chat-flow] p {
+  margin-top: 0.6em;
+  margin-bottom: 0.6em;
+  line-height: 1.7;
+}
+
+[data-dsh-theme="zcode"] [data-chat-flow] strong,
+[data-dsh-theme="zcode"] [data-chat-flow] b {
+  color: #F8FAFC;
+  font-weight: 600;
+}
+
+[data-dsh-theme="zcode"] [data-chat-flow] table {
+  width: 100%;
+  margin: 1em 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+[data-dsh-theme="zcode"] [data-chat-flow] th {
+  background: rgba(255, 255, 255, 0.03);
+  color: #A3A3A3;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+}
+
+[data-dsh-theme="zcode"] [data-chat-flow] td {
+  color: #D4D4D4;
+  font-size: 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+[data-dsh-theme="zcode"] [data-chat-flow] tr:last-child td {
+  border-bottom: none;
+}

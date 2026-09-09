@@ -1,0 +1,24 @@
+/* Terminal 与 Code Block 共用 Code Surface。成功/错误用低饱和色，不用品牌橙。 */
+[data-dsh-theme="zcode"] .CY-8Ka_terminal,
+[data-dsh-theme="zcode"] .CY-8Ka_ioCard,
+[data-dsh-theme="zcode"] [class*="_terminal"] {
+  background: #161616;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 12px;
+}
+
+[data-dsh-theme="zcode"] .CY-8Ka_ioLabel,
+[data-dsh-theme="zcode"] [class*="_terminal"] [class*="_meta"] {
+  color: #737373;
+}
+
+[data-dsh-theme="zcode"] [data-state="success"],
+[data-dsh-theme="zcode"] [class*="_success"] {
+  color: #5A9A6A;
+}
+
+[data-dsh-theme="zcode"] [data-state="error"],
+[data-dsh-theme="zcode"] [data-error],
+[data-dsh-theme="zcode"] [class*="_error"] {
+  color: #C45C5C;
+}

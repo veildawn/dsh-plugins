@@ -1,0 +1,187 @@
+/* Composer 输入卡与发送按钮。移动端 44px 触控区由 dsh-mobile-adapter 负责。 */
+[data-dsh-theme="zcode"] [data-composer-card],
+[data-dsh-theme="zcode"] .uV2eYG_card {
+  background: #2A2A2A;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 14px;
+  color: #F2F2F2;
+}
+
+[data-dsh-theme="zcode"] [data-composer-card]:focus-within,
+[data-dsh-theme="zcode"] .uV2eYG_card:focus-within {
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: none;
+}
+
+[data-dsh-theme="zcode"] [data-composer-card] textarea,
+[data-dsh-theme="zcode"] .uV2eYG_input {
+  color: #F2F2F2;
+}
+
+[data-dsh-theme="zcode"] [data-composer-card] textarea::placeholder,
+[data-dsh-theme="zcode"] .uV2eYG_placeholder {
+  color: #737373;
+}
+
+[data-dsh-theme="zcode"] .uV2eYG_primary {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: #F2F2F2;
+  color: #1A1A1A;
+}
+
+[data-dsh-theme="zcode"] .uV2eYG_primary:hover {
+  background: #FFFFFF;
+  color: #1A1A1A;
+}
+
+[data-dsh-theme="zcode"] .uV2eYG_primary:active {
+  background: #E5E5E5;
+  color: #1A1A1A;
+  transform: scale(0.95);
+}
+
+/* ZCode 底部控制栏按钮样式（+号、权限、模型选择、推理强度等） */
+[data-dsh-theme="zcode"] .uV2eYG_tools,
+[data-dsh-theme="zcode"] .uV2eYG_trailing {
+  gap: 8px;
+  align-items: center;
+}
+
+[data-dsh-theme="zcode"] .uV2eYG_add {
+  background: transparent;
+  color: #A3A3A3;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  display: grid;
+  place-items: center;
+}
+
+[data-dsh-theme="zcode"] .uV2eYG_add:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #F2F2F2;
+}
+
+/* 权限模式选择器 (Sh0Q9G_trigger) */
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: #A3A3A3;
+  font-size: 13px;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 下拉箭头始终保持低调暗灰，分离主图标与文字高亮 */
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger .Sh0Q9G_chevron {
+  color: #737373;
+}
+
+/* 1. 仅可查看 (read-only)：安全绿高亮 (#5A9A6A) */
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M12.1654"]),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="仅可查看"],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="只读"],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Read Only" i],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"] {
+  color: #5A9A6A;
+}
+
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M12.1654"]):hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="仅可查看"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="只读"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Read Only" i]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"]:hover:not(:disabled) {
+  background: rgba(90, 154, 106, 0.12);
+  color: #6EB580;
+}
+
+/* 2. 工作区内修改 (workspace-write)：ZCode 品牌橙红高亮 (#E85D3A) */
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M11.3525"]),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区内修改"],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区写入"],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Workspace Write" i],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"] {
+  color: #E85D3A;
+}
+
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M11.3525"]):hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区内修改"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区写入"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Workspace Write" i]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"]:hover:not(:disabled) {
+  background: rgba(232, 93, 58, 0.12);
+  color: #F06A48;
+}
+
+/* 3. 完全权限 (danger-full-access)：暖橙色高亮 (#FF8A30) */
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M9.10094"]),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="完全权限"],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="完全访问"],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full access" i],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full Access"],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="danger-full-access"],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="Full file access"],
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"] {
+  color: #FF8A30;
+}
+
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M9.10094"]):hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="完全权限"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="完全访问"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full access" i]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full Access"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="danger-full-access"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="Full file access"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"]:hover:not(:disabled) {
+  background: rgba(255, 138, 48, 0.12);
+  color: #FFA052;
+}
+
+/* 模型与思考强度选择器 (_7KE1Ra_trigger) */
+[data-dsh-theme="zcode"] ._7KE1Ra_trigger {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: #A3A3A3;
+  font-size: 13px;
+  font-weight: 400;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-dsh-theme="zcode"] ._7KE1Ra_trigger:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #F2F2F2;
+}
+
+[data-dsh-theme="zcode"] ._7KE1Ra_triggerEffort {
+  color: #737373;
+  font-size: 12px;
+  padding-left: 2px;
+}
+
+[data-dsh-theme="zcode"] .JObwrW_trigger {
+  color: #737373;
+}
+
+[data-dsh-theme="zcode"] .JObwrW_trigger:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #F2F2F2;
+}

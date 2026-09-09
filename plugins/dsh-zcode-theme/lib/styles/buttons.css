@@ -1,0 +1,39 @@
+/* Primary / Secondary / Ghost 按钮。 */
+[data-dsh-theme="zcode"] button[data-variant="primary"] {
+  background: #E85D3A;
+  color: #FFFFFF;
+  border-radius: 12px;
+}
+
+[data-dsh-theme="zcode"] button[data-variant="primary"]:hover {
+  background: #F06A48;
+}
+
+[data-dsh-theme="zcode"] button[data-variant="primary"]:active {
+  background: #D14F2E;
+}
+
+[data-dsh-theme="zcode"] button[data-variant="secondary"] {
+  background: #2A2A2A;
+  border: 1px solid var(--dsw-alias-border-l1);
+  color: #F2F2F2;
+  border-radius: 12px;
+}
+
+[data-dsh-theme="zcode"] button[data-variant="ghost"],
+[data-dsh-theme="zcode"] .hHd-Xa_iconButton,
+[data-dsh-theme="zcode"] .YDXeBa_iconButton {
+  background: transparent;
+  border-radius: 8px;
+}
+
+[data-dsh-theme="zcode"] button[data-variant="ghost"]:hover,
+[data-dsh-theme="zcode"] .hHd-Xa_iconButton:hover,
+[data-dsh-theme="zcode"] .YDXeBa_iconButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+[data-dsh-theme="zcode"] button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

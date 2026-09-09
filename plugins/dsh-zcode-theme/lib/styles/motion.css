@@ -1,0 +1,14 @@
+@media (prefers-reduced-motion: reduce) {
+  [data-dsh-theme="zcode"] *,
+  [data-dsh-theme="zcode"] *::before,
+  [data-dsh-theme="zcode"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  [data-dsh-theme="zcode"] .uV2eYG_primary:active {
+    transform: none;
+  }
+}

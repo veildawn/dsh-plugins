@@ -1,0 +1,4 @@
+# Cordis bundle patch: 挂载 ZCode 全平台视觉主题。
+- insert:
+    - id: zcode-theme
+      name: dsh-zcode-theme
