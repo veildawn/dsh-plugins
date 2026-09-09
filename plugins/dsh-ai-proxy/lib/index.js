@@ -320,12 +320,25 @@ export async function serializeChatCompletionsRequest(options, attachments) {
   const messages = []
   if (options.system !== undefined) messages.push({ role: 'system', content: options.system })
   messages.push(...await serializeMessages(options.messages, attachments))
+  const sanitizeParams = (params) => {
+    if (!params || typeof params !== 'object' || !params.properties) return params
+    const { sandbox_permissions, justification, ...restProps } = params.properties
+    const required = Array.isArray(params.required)
+      ? params.required.filter((k) => k !== 'sandbox_permissions' && k !== 'justification')
+      : undefined
+    return {
+      ...params,
+      properties: restProps,
+      ...(required !== undefined ? { required } : {}),
+    }
+  }
+
   const tools = options.tools?.map((tool) => ({
     type: 'function',
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: tool.parameters,
+      parameters: sanitizeParams(tool.parameters),
     },
   }))
   return {
@@ -558,11 +571,24 @@ export async function serializeResponsesRequest(options, attachments) {
     }
   }
 
+  const sanitizeParams = (params) => {
+    if (!params || typeof params !== 'object' || !params.properties) return params
+    const { sandbox_permissions, justification, ...restProps } = params.properties
+    const required = Array.isArray(params.required)
+      ? params.required.filter((k) => k !== 'sandbox_permissions' && k !== 'justification')
+      : undefined
+    return {
+      ...params,
+      properties: restProps,
+      ...(required !== undefined ? { required } : {}),
+    }
+  }
+
   const tools = options.tools?.map((tool) => ({
     type: 'function',
     name: tool.name,
     description: tool.description,
-    parameters: tool.parameters,
+    parameters: sanitizeParams(tool.parameters),
   }))
 
   return {
@@ -634,13 +660,23 @@ export function closeBlock(block) {
       return { type: 'text', text: block.text }
     case 'reasoning':
       return { type: 'reasoning', text: block.text }
-    case 'tool-call':
+    case 'tool-call': {
+      let argsStr = block.text
+      try {
+        const parsed = JSON.parse(block.text)
+        if (parsed && typeof parsed === 'object' && parsed.sandbox_permissions) {
+          delete parsed.sandbox_permissions
+          delete parsed.justification
+          argsStr = JSON.stringify(parsed)
+        }
+      } catch {}
       return {
         type: 'tool-call',
         id: CallId(block.callId ?? ''),
         name: block.name ?? '',
-        arguments: block.text,
+        arguments: argsStr,
       }
+    }
   }
 }
 

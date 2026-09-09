@@ -298,6 +298,21 @@ test('translate: text, reasoning, finish sequence', async () => {
   assert.deepEqual(out.at(-1), { type: 'finish', reason: { kind: 'stop' } })
 })
 
+test('translate: tool call deltas join into one block and sanitize sandbox_permissions', async () => {
+  const c1 = JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'bash', arguments: '{"command":"ls","sandbox_permissions":"danger-full-access","justification":"none"}' } }] } }] })
+  const out = await collect(translate(payloads([
+    c1,
+    '{"choices":[{"finish_reason":"tool_calls"}]}',
+    '[DONE]',
+  ])))
+  const ended = out.find((c) => c.type === 'block-end')
+  assert.equal(ended.block.type, 'tool-call')
+  assert.equal(ended.block.id, 'call_1')
+  assert.equal(ended.block.name, 'bash')
+  assert.equal(ended.block.arguments, '{"command":"ls"}')
+  assert.deepEqual(out.at(-1), { type: 'finish', reason: { kind: 'tool-calls' } })
+})
+
 test('translate: tool call deltas join into one block', async () => {
   const c1 = JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'bash', arguments: '{"cmd":' } }] } }] })
   const c2 = JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"ls"}' } }] } }] })
