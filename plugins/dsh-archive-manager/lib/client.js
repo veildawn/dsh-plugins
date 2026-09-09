@@ -31,6 +31,24 @@ window.__ModuleLoader__.load({
     const inject = ["slots", "connection", "workspaces"];
     const PAGE_SIZE = 50;
 
+    function IconAlertTriangle({ size = 20, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("path", { d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" }),
+        react.createElement("line", { x1: "12", y1: "9", x2: "12", y2: "13" }),
+        react.createElement("line", { x1: "12", y1: "17", x2: "12.01", y2: "17" })
+      );
+    }
+
+    function IconTrash({ size = 18, className }) {
+      return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", className },
+        react.createElement("path", { d: "M3 6h18" }),
+        react.createElement("path", { d: "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" }),
+        react.createElement("path", { d: "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" }),
+        react.createElement("line", { x1: "10", y1: "11", x2: "10", y2: "17" }),
+        react.createElement("line", { x1: "14", y1: "11", x2: "14", y2: "17" })
+      );
+    }
+
     const css = `
       /* 侧边栏入口按钮 */
       .dam-btn{display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;width:100%;min-height:36px;padding:4px 10px;margin:2px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer;text-align:left;user-select:none}
@@ -114,6 +132,24 @@ window.__ModuleLoader__.load({
 
       .dam-list-more{padding:10px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
 
+      /* 确认弹窗样式 (参照 dsh-plugin-manager 精美规范) */
+      .dam-modal-scrim{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,.48);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);animation:dam-fade .14s ease-out}
+      .dam-modal-card{box-sizing:border-box;width:min(92vw,430px);max-width:100%;border:1px solid var(--dsw-alias-border-l2, #d0d7de);border-radius:12px;background:var(--dsw-alias-bg-base,#fff);box-shadow:var(--dsw-shadow-lv3, 0 16px 40px rgba(0,0,0,.22));overflow:hidden;display:flex;flex-direction:column;animation:dam-pop .16s cubic-bezier(.16,1,.3,1)}
+      .dam-modal-head{display:flex;align-items:center;gap:12px;padding:18px 20px 10px}
+      .dam-modal-icon{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;flex-shrink:0}
+      .dam-modal-icon.danger{background:color-mix(in srgb,#ef4444 14%,transparent);color:#dc2626}
+      .dam-modal-icon.primary{background:color-mix(in srgb,var(--dsw-alias-state-business-primary,#2563eb) 14%,transparent);color:var(--dsw-alias-state-business-primary,#2563eb)}
+      .dam-modal-title{font-size:16px;font-weight:600;color:var(--dsw-alias-label-primary,#111827);margin:0}
+      .dam-modal-body{padding:0 20px 18px;font-size:13.5px;line-height:22px;color:var(--dsw-alias-label-secondary,#4b5563);word-break:break-word}
+      .dam-modal-highlight{display:inline-block;padding:2px 6px;margin:4px 0;background:var(--dsw-alias-bg-layer-1,#f3f4f6);border:1px solid var(--dsw-alias-border-l2,#e5e7eb);border-radius:6px;font-weight:600;color:var(--dsw-alias-label-primary,#111827);word-break:break-all}
+      .dam-modal-warn-text{margin-top:8px;font-size:12px;color:var(--dsw-alias-state-error-primary,#dc2626);display:flex;align-items:center;gap:4px}
+      .dam-modal-foot{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:12px 18px;background:var(--dsw-alias-bg-layer-1,#f9fafb);border-top:1px solid var(--dsw-alias-border-l2,#e5e7eb)}
+      .dam-modal-btn{height:34px;padding:0 14px;font-size:13px;font-weight:500;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+      .dam-modal-btn.cancel{border:1px solid var(--dsw-alias-border-l2,#d1d5db);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#374151)}
+      .dam-modal-btn.cancel:hover{background:var(--dsw-alias-interactive-bg-hover,#f3f4f6)}
+      .dam-modal-btn.danger{border:none;background:var(--dsw-alias-state-error-primary,#dc2626);color:#fff}
+      .dam-modal-btn.danger:hover{background:#b91c1c}
+
       @keyframes dam-fade{from{opacity:0}to{opacity:1}}
       @keyframes dam-slide-up{from{transform:translateY(100%)}to{transform:translateY(0)}}
       @keyframes dam-pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
@@ -127,6 +163,8 @@ window.__ModuleLoader__.load({
       const [selectedIds, setSelectedIds] = react.useState([]);
       const [feedback, setFeedback] = react.useState("");
       const [visibleCount, setVisibleCount] = react.useState(PAGE_SIZE);
+      const [confirmState, setConfirmState] = react.useState(null);
+      const confirmResolverRef = react.useRef(null);
       const searchRef = react.useRef(null);
       const listRef = react.useRef(null);
 
@@ -136,6 +174,49 @@ window.__ModuleLoader__.load({
         setFeedback(text);
         window.setTimeout(() => setFeedback(""), 4000);
       };
+
+      const askConfirm = react.useCallback(({
+        title = "确认操作",
+        message = "确定要继续吗？",
+        targetTitle = null,
+        confirmText = "确定",
+        cancelText = "取消",
+        variant = "danger",
+        warnText = null,
+      } = {}) => {
+        return new Promise((resolve) => {
+          confirmResolverRef.current = resolve;
+          setConfirmState({
+            title,
+            message,
+            targetTitle,
+            confirmText,
+            cancelText,
+            variant,
+            warnText,
+          });
+        });
+      }, []);
+
+      const closeConfirm = react.useCallback((result) => {
+        if (confirmResolverRef.current) {
+          confirmResolverRef.current(Boolean(result));
+          confirmResolverRef.current = null;
+        }
+        setConfirmState(null);
+      }, []);
+
+      react.useEffect(() => {
+        if (!confirmState) return;
+        const onKeyDown = (e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            closeConfirm(false);
+          }
+        };
+        window.addEventListener("keydown", onKeyDown, true);
+        return () => window.removeEventListener("keydown", onKeyDown, true);
+      }, [confirmState, closeConfirm]);
 
       // 搜索防抖
       react.useEffect(() => {
@@ -244,11 +325,27 @@ window.__ModuleLoader__.load({
       };
 
       const handleRestore = (ids) => run("unarchive", ids, `已恢复 ${ids.length} 个会话`);
-      const handlePermanentPurge = (ids) => {
-        if (typeof window !== "undefined" && !window.confirm(
-          `确定彻底物理删除选中的 ${ids.length} 个会话？\n\n⚠️ 警告：此操作将直接抹除磁盘上的会话日志目录与索引，彻底释放存储空间，完全不可逆！`
-        )) return;
-        run("permanentPurge", ids, `已彻底物理删除 ${ids.length} 个会话`);
+      const handlePermanentPurge = async (ids, singleTitle = null) => {
+        const count = ids.length;
+        if (count === 0) return;
+        const isSingle = count === 1 && singleTitle;
+        const title = isSingle ? "彻底删除该会话？" : `彻底物理删除 ${count} 个会话？`;
+        const message = isSingle
+          ? "此操作将永久抹除该会话在磁盘上的日志文件及关联索引，并从工作区完全注销。删除后不可找回！"
+          : `确定要彻底删除选中的 ${count} 个归档会话吗？其磁盘日志目录将被永久抹除，释放存储空间，操作完全不可逆！`;
+
+        const confirmed = await askConfirm({
+          title,
+          message,
+          targetTitle: isSingle ? singleTitle : null,
+          confirmText: "彻底删除",
+          cancelText: "取消",
+          variant: "danger",
+          warnText: "⚠️ 警告：磁盘物理删除不可撤销",
+        });
+
+        if (!confirmed) return;
+        await run("permanentPurge", ids, `已彻底物理删除 ${count} 个会话`);
       };
 
       if (!open) return null;
@@ -354,7 +451,7 @@ window.__ModuleLoader__.load({
                         // Row 4: Actions (Restore & Permanent Purge)
                         react.createElement("div", { className: "dam-card-ops", onClick: (e) => e.stopPropagation() },
                           react.createElement("button", { type: "button", className: "dam-op-btn dam-op-restore", onClick: () => handleRestore([item.id]) }, "恢复"),
-                          react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handlePermanentPurge([item.id]) }, "彻底删除")
+                          react.createElement("button", { type: "button", className: "dam-op-btn dam-op-danger", onClick: () => handlePermanentPurge([item.id], item.title) }, "彻底删除")
                         )
                       );
                     }),
@@ -362,7 +459,49 @@ window.__ModuleLoader__.load({
                       ? react.createElement("div", { className: "dam-list-more" }, `已显示 ${visible.length} / ${filtered.length}，向下滚动加载更多`)
                       : null
                   )
-          )
+          ),
+
+          // 美化的二次确认模态弹窗 (参照 dsh-plugin-manager 规范)
+          confirmState ? react.createElement("div", {
+            className: "dam-modal-scrim",
+            role: "dialog",
+            "aria-modal": "true",
+            onClick: () => closeConfirm(false),
+          },
+            react.createElement("div", {
+              className: "dam-modal-card",
+              onClick: (e) => e.stopPropagation(),
+            },
+              react.createElement("div", { className: "dam-modal-head" },
+                react.createElement("div", { className: `dam-modal-icon ${confirmState.variant || "danger"}` },
+                  confirmState.variant === "primary" ? react.createElement(IconTrash, { size: 20 }) : react.createElement(IconAlertTriangle, { size: 20 })
+                ),
+                react.createElement("h3", { className: "dam-modal-title" }, confirmState.title)
+              ),
+              react.createElement("div", { className: "dam-modal-body" },
+                confirmState.targetTitle
+                  ? react.createElement("div", { className: "dam-modal-highlight" }, `📄 ${confirmState.targetTitle}`)
+                  : null,
+                react.createElement("div", null, confirmState.message),
+                confirmState.warnText
+                  ? react.createElement("div", { className: "dam-modal-warn-text" }, confirmState.warnText)
+                  : null
+              ),
+              react.createElement("div", { className: "dam-modal-foot" },
+                react.createElement("button", {
+                  className: "dam-modal-btn cancel",
+                  type: "button",
+                  onClick: () => closeConfirm(false),
+                }, confirmState.cancelText || "取消"),
+                react.createElement("button", {
+                  className: `dam-modal-btn ${confirmState.variant || "danger"}`,
+                  type: "button",
+                  autoFocus: true,
+                  onClick: () => closeConfirm(true),
+                }, confirmState.confirmText || "确定")
+              )
+            )
+          ) : null
         )
       );
     }
