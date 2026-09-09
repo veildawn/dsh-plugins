@@ -586,6 +586,11 @@ describe('dsh-plugin-manager client bundle verification', () => {
     assert.equal(clientCode.includes('IconTrash'), true)
     assert.equal(clientCode.includes('IconRefresh'), true)
     assert.equal(clientCode.includes('IconSearch'), true)
+    // Every askConfirm invocation MUST be immediately followed by `if (!ok) return;`
+    const askConfirmCount = (clientCode.match(/await askConfirm\(/g) || []).length
+    const okGuardCount = (clientCode.match(/if \(!ok\) return;/g) || []).length
+    assert.ok(askConfirmCount >= 3)
+    assert.equal(okGuardCount, askConfirmCount, 'Every askConfirm must guard cancellation with `if (!ok) return;`')
   })
 
   it('cordis patch entry id matches the host-side service name', () => {

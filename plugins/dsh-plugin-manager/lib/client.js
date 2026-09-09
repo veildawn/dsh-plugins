@@ -582,6 +582,7 @@ window.__ModuleLoader__.load({
             confirmText: `更新全部 (${targetList.length})`,
             variant: "primary",
           });
+          if (!ok) return;
 
           try {
             const value = await callRpc("batchUpdatePlugins", { kind });
@@ -604,6 +605,7 @@ window.__ModuleLoader__.load({
             confirmText: "确认卸载",
             variant: "danger",
           });
+          if (!ok) return;
           try {
             const value = await callRpc("removePlugin", { name });
             setTaskState({ id: value.taskId, name, kind: "remove", status: "running", log: [], error: null });
@@ -621,6 +623,7 @@ window.__ModuleLoader__.load({
             confirmText: "立即重启",
             variant: "warning",
           });
+          if (!ok) return;
           try {
             setRestartingState("triggering");
             await callRpc("restartHost", {});
