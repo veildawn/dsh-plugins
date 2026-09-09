@@ -31,6 +31,7 @@ import {
   kindOf,
   langOf,
   langOf as languageOf,
+  normalizeSafePaths,
   parseGitStatus,
   parsePatchToDiffs,
   rebaseGitPaths,
@@ -55,6 +56,7 @@ export {
   joinPath,
   kindOf,
   langOf,
+  normalizeSafePaths,
   parseGitStatus,
   parsePatchToDiffs,
   rebaseGitPaths,
@@ -72,8 +74,19 @@ export const inject = ['fs', 'connection', 'settings', 'workspaceRegistry', 'ses
 export const NS = 'file-viewer'
 export const RPC_CHANNEL = '/dsh-file-viewer'
 
+const PathEntry = z.union([
+  z.string(),
+  z.object({
+    path: z.string(),
+    label: z.string().default(''),
+    name: z.string().default(''),
+  }),
+])
+
 export const Config = z.object({
-  extraRoots: z.array(z.string()).default([]),
+  safePaths: z.union([z.array(PathEntry), z.string()]).default([]).description('安全访问路径（除工作区外的可访问路径列表）'),
+  safeAccessPaths: z.union([z.array(PathEntry), z.string()]).default([]).description('安全访问路径（safePaths 别名）'),
+  extraRoots: z.union([z.array(PathEntry), z.string()]).default([]).description('额外根目录（向后兼容 safePaths）'),
   maxBytes: z.natural().default(MAX_BYTES),
 })
 
@@ -126,25 +139,36 @@ export class ViewerError extends Error {
 
 /**
  * Collect the directories this deployment is willing to serve: every
- * registered workspace, every live session's cwd, and any operator-configured
- * extras. There is no host-side notion of an "active" workspace — that lives
+ * registered workspace, every live session's cwd, and configured safe access paths
+ * (or legacy extra roots). There is no host-side notion of an "active" workspace — that lives
  * only in browser UI state — so the client picks from this set.
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
- * @param {() => {extraRoots: string[]}} options - resolved config reader.
- * @returns {{id: string, label: string, path: string}[]} ordered, de-duplicated roots.
+ * @param {() => {safePaths?: unknown, safeAccessPaths?: unknown, extraRoots?: unknown}} options - resolved config reader.
+ * @returns {{id: string, label: string, path: string, kind: 'workspace'|'session'|'safe-path'}[]} ordered, de-duplicated roots.
  */
 export function collectRoots(ctx, options) {
   const seen = new Map()
-  const add = (path, label) => {
+  const add = (path, label, kind = 'workspace') => {
     if (typeof path !== 'string' || path === '') return
-    const key = path.replace(/[\\/]+$/, '')
+    const isSlash = path === '/' || path === '\\'
+    const key = isSlash ? '/' : path.replace(/[\\/]+$/, '')
     if (key === '' || seen.has(key)) return
-    seen.set(key, { id: key, label: label || baseNameOf(key) || key, path: key })
+    const defaultLabel = isSlash ? '根目录 (/)' : (baseNameOf(key) || key)
+    seen.set(key, { id: key, label: label || defaultLabel, path: key, kind })
   }
 
-  for (const workspace of ctx.workspaceRegistry?.list?.() ?? []) add(workspace?.path, workspace?.name)
-  for (const session of ctx.sessions?.list?.() ?? []) add(session?.header?.cwd)
-  for (const extra of options().extraRoots) add(extra)
+  for (const workspace of ctx.workspaceRegistry?.list?.() ?? []) add(workspace?.path, workspace?.name, 'workspace')
+  for (const session of ctx.sessions?.list?.() ?? []) add(session?.header?.cwd, undefined, 'session')
+
+  const opts = typeof options === 'function' ? (options() ?? {}) : (options ?? {})
+  const safeEntries = [
+    ...normalizeSafePaths(opts.safePaths),
+    ...normalizeSafePaths(opts.safeAccessPaths),
+    ...normalizeSafePaths(opts.extraRoots),
+  ]
+  for (const entry of safeEntries) {
+    add(entry.path, entry.label, 'safe-path')
+  }
   return [...seen.values()]
 }
 
@@ -156,19 +180,21 @@ export function collectRoots(ctx, options) {
  * compares canonicalized identities afterwards, which is the only check a
  * symlink cannot walk around.
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
- * @param {() => {extraRoots: string[]}} options - resolved config reader.
+ * @param {() => {safePaths?: unknown, safeAccessPaths?: unknown, extraRoots?: unknown}} options - resolved config reader.
  * @param {{root?: string, path?: string}} payload - client request.
  * @param {AbortSignal} [signal] - caller cancellation.
- * @returns {Promise<{root: {id: string, path: string}, target: object, relative: string, absolute: string}>} the vetted target.
+ * @returns {Promise<{root: {id: string, path: string, kind?: string}, target: object, relative: string, absolute: string}>} the vetted target.
  */
 export async function resolveInRoot(ctx, options, payload, signal) {
   const roots = collectRoots(ctx, options)
   if (roots.length === 0) throw new ViewerError('no-roots', 'no workspace roots are available to browse')
 
   const requested = payload?.root
+  const isSlash = requested === '/' || requested === '\\'
+  const reqKey = isSlash ? '/' : String(requested ?? '').replace(/[\\/]+$/, '')
   const root = requested === undefined || requested === null || requested === ''
     ? roots[0]
-    : roots.find((candidate) => candidate.id === String(requested).replace(/[\\/]+$/, ''))
+    : roots.find((candidate) => candidate.id === reqKey)
   if (root === undefined) throw new ViewerError('unknown-root', 'the requested root is not served by this deployment')
 
   const relative = payload?.path === undefined || payload?.path === null ? '' : String(payload.path)
@@ -462,14 +488,16 @@ export async function resolveSessionRoot(ctx, options, payload) {
 
   if (candidatePath === '') return { roots }
 
-  const key = candidatePath.replace(/[\\/]+$/, '').replace(/\\/g, '/')
+  const isSlashCandidate = candidatePath === '/' || candidatePath === '\\'
+  const key = isSlashCandidate ? '/' : candidatePath.replace(/[\\/]+$/, '').replace(/\\/g, '/')
   const fold = (value) => value.toLowerCase()
   let best
   for (const root of roots) {
-    const rootKey = root.id.replace(/[\\/]+$/, '').replace(/\\/g, '/')
+    const isSlash = root.id === '/' || root.id === '\\'
+    const rootKey = isSlash ? '/' : root.id.replace(/[\\/]+$/, '').replace(/\\/g, '/')
     const sameRoot = fold(key) === fold(rootKey)
-    if (sameRoot || fold(key).startsWith(fold(rootKey) + '/')) {
-      if (best === undefined || rootKey.length > best.rootKey.length) best = { root, rootKey, sameRoot }
+    if (sameRoot || (isSlash ? fold(key).startsWith('/') : fold(key).startsWith(fold(rootKey) + '/'))) {
+      if (best === undefined || rootKey.length > best.rootKey.length) best = { root, rootKey, sameRoot, isSlash }
     }
   }
 
@@ -500,7 +528,11 @@ export async function resolveSessionRoot(ctx, options, payload) {
     return { roots }
   }
 
-  const relative = best.sameRoot ? '' : key.slice(best.rootKey.length + 1)
+  const relative = best.sameRoot
+    ? ''
+    : best.isSlash
+      ? key.replace(/^\/+/, '')
+      : key.slice(best.rootKey.length + 1)
   // The exists-guard applies only to a clicked target path, never to the
   // session cwd reveal: the working directory must always open in the tree
   // even when the backing store cannot stat it (e.g. an empty fake in tests,
@@ -665,6 +697,46 @@ export async function getWorkspaceGitStatus(ctx, options, payload, signal) {
   }
 }
 
+/**
+ * Retrieve current safe access paths configuration along with built-in workspaces.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - config reader.
+ * @returns {Promise<{safePaths: Array<{path: string, label: string}>, builtInWorkspaces: Array<{path: string, name: string}>}>}
+ */
+export async function getSafePathsConfig(ctx, options) {
+  const opts = typeof options === 'function' ? options() : options
+  const safePaths = [
+    ...normalizeSafePaths(opts?.safePaths),
+    ...normalizeSafePaths(opts?.safeAccessPaths),
+    ...normalizeSafePaths(opts?.extraRoots),
+  ]
+  const builtInWorkspaces = (ctx.workspaceRegistry?.list?.() ?? []).map((w) => ({
+    path: w?.path ?? '',
+    name: w?.name || baseNameOf(w?.path) || '',
+  }))
+  return {
+    safePaths,
+    builtInWorkspaces,
+  }
+}
+
+/**
+ * Update safe access paths configuration dynamically from Web UI.
+ * Updates settings scope if available, and updates runtime options state.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - config reader.
+ * @param {{safePaths?: unknown}} payload - client request.
+ * @returns {Promise<{ok: boolean, safePaths: Array<{path: string, label: string}>}>}
+ */
+export async function updateSafePathsConfig(ctx, options, payload) {
+  const normalized = normalizeSafePaths(payload?.safePaths)
+  const opts = typeof options === 'function' ? options() : options
+  if (typeof opts?._updateSafePaths === 'function') {
+    await opts._updateSafePaths(normalized)
+  }
+  return { ok: true, safePaths: normalized }
+}
+
 /** Method table; each entry receives `(ctx, options, payload, signal)`. */
 const METHODS = Object.freeze({
   roots: (ctx, options, payload) => resolveSessionRoot(ctx, options, payload),
@@ -673,6 +745,8 @@ const METHODS = Object.freeze({
   read: readText,
   diff: getFileDiff,
   status: getWorkspaceGitStatus,
+  getSafePaths: getSafePathsConfig,
+  updateSafePaths: updateSafePathsConfig,
   bytes: readBytes,
   sheet: readSheet,
   doc: readDoc,
@@ -716,10 +790,27 @@ export function apply(ctx, config = {}) {
   scope?.watch?.((next) => {
     settings = next
   })
-  const options = () => ({
-    extraRoots: settings?.extraRoots ?? [],
-    maxBytes: settings?.maxBytes ?? MAX_BYTES,
-  })
+
+  let dynamicSafePaths = null
+  const updateSafePaths = async (paths) => {
+    dynamicSafePaths = paths
+    try {
+      if (scope?.update) {
+        await scope.update({ safePaths: paths })
+      }
+    } catch (_) {}
+  }
+
+  const options = () => {
+    const rawSafe = dynamicSafePaths ?? settings?.safePaths ?? []
+    return {
+      safePaths: rawSafe,
+      safeAccessPaths: settings?.safeAccessPaths ?? [],
+      extraRoots: settings?.extraRoots ?? [],
+      maxBytes: settings?.maxBytes ?? MAX_BYTES,
+      _updateSafePaths: updateSafePaths,
+    }
+  }
 
   ctx.inject(['connection'], (connectionCtx) => {
     connectionCtx.connection.rpc.handle(

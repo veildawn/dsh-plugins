@@ -1100,3 +1100,57 @@ test('diff tab and DiffBlock labels are properly configured for viewing modifica
   assert.match(source, /className:\s*"fv-badge fv-badge-mod"/)
   assert.match(source, /className:\s*"fv-badge fv-badge-add"/)
 })
+
+test('renderRootOptions groups safe access paths and workspaces into optgroups', () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const { internals } = definition.factory((id) =>
+    id === 'react' ? { createElement: (type, props, ...children) => ({ type, props, children }) } : { ReadBlock: null, MarkdownText: null, JsonTree: null, DiffBlock: null })
+
+  const { renderRootOptions } = internals
+  assert.equal(typeof renderRootOptions, 'function')
+
+  // Only workspaces: flat options without optgroups
+  const workspaceOnly = [
+    { id: 'D:/ws1', label: '项目一', kind: 'workspace' },
+    { id: 'D:/ws2', label: '项目二', kind: 'workspace' },
+  ]
+  const flatOpts = renderRootOptions(workspaceOnly)
+  assert.equal(flatOpts.length, 2)
+  assert.equal(flatOpts[0].type, 'option')
+  assert.equal(flatOpts[0].props.value, 'D:/ws1')
+
+  // Workspaces + safe paths: optgroup for each
+  const mixed = [
+    { id: 'D:/ws1', label: '工作区项目', kind: 'workspace' },
+    { id: 'D:/data', label: '数据盘', kind: 'safe-path' },
+    { id: '/var/log', label: '日志目录', kind: 'safe-path' },
+  ]
+  const groupedOpts = renderRootOptions(mixed)
+  assert.equal(groupedOpts.length, 2)
+  assert.equal(groupedOpts[0].type, 'optgroup')
+  assert.equal(groupedOpts[0].props.label, '工作区')
+  assert.equal(groupedOpts[0].children.length, 1)
+  assert.equal(groupedOpts[1].type, 'optgroup')
+  assert.equal(groupedOpts[1].props.label, '安全访问路径')
+  assert.equal(groupedOpts[1].children.length, 2)
+})
+
+test('client bundle contains SafePathsModal and toolbar safepaths button for web configuration', () => {
+  const source = read('lib/client.js')
+  assert.match(source, /className:\s*"fv-icon-button fv-btn-safepaths"/)
+  assert.match(source, /"aria-label":\s*"安全访问路径设置"/)
+  assert.match(source, /function SafePathsModal\(/)
+  assert.match(source, /request\("getSafePaths"/)
+  assert.match(source, /request\("updateSafePaths"/)
+  assert.match(source, /配置安全访问路径/)
+  assert.match(source, /\.fv-modal-scrim\{/)
+  assert.match(source, /\.fv-safe-item\{/)
+})
+

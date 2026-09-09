@@ -18,6 +18,7 @@ import {
   kindOf,
   langOf,
   mediaTypeOf,
+  normalizeSafePaths,
   parseGitStatus,
   parsePatchToDiffs,
   rebaseGitPaths,
@@ -440,3 +441,52 @@ test('rebaseGitPaths converts repo-relative paths onto the selected root', () =>
   // Windows backslashes are normalized.
   assert.deepEqual(rebaseGitPaths(['plugins\\dsh-file-viewer\\lib\\client.js'], 'plugins/dsh-file-viewer'), ['lib/client.js'])
 })
+
+test('normalizeSafePaths converts various formats into structured path-label records', () => {
+  // Array of plain strings
+  assert.deepEqual(normalizeSafePaths(['/opt/data', 'D:/Notes']), [
+    { path: '/opt/data', label: '' },
+    { path: 'D:/Notes', label: '' },
+  ])
+
+  // Array of objects with label or name
+  assert.deepEqual(normalizeSafePaths([
+    { path: '/opt/data', label: '数据目录' },
+    { path: 'D:/Notes', name: '笔记目录' },
+    { path: '/var/log' },
+  ]), [
+    { path: '/opt/data', label: '数据目录' },
+    { path: 'D:/Notes', label: '笔记目录' },
+    { path: '/var/log', label: '' },
+  ])
+
+  // Delimited strings (comma and newline separated)
+  assert.deepEqual(normalizeSafePaths('/opt/data, /var/log; D:/Notes'), [
+    { path: '/opt/data', label: '' },
+    { path: '/var/log', label: '' },
+    { path: 'D:/Notes', label: '' },
+  ])
+  assert.deepEqual(normalizeSafePaths('/opt/data\n/var/log\r\nD:/Notes'), [
+    { path: '/opt/data', label: '' },
+    { path: '/var/log', label: '' },
+    { path: 'D:/Notes', label: '' },
+  ])
+
+  // Filters empty, whitespace, and non-string paths
+  assert.deepEqual(normalizeSafePaths(['', '   ', null, undefined, 123, { path: '  ' }, { path: '/valid' }]), [
+    { path: '/valid', label: '' },
+  ])
+  assert.deepEqual(normalizeSafePaths(null), [])
+  assert.deepEqual(normalizeSafePaths(undefined), [])
+  assert.deepEqual(normalizeSafePaths(''), [])
+})
+
+test('joinPath and baseNameOf handle root slash cleanly', () => {
+  assert.equal(baseNameOf('/'), '/')
+  assert.equal(baseNameOf('\\'), '/')
+  assert.equal(joinPath('/', ''), '/')
+  assert.equal(joinPath('/', 'etc'), '/etc')
+  assert.equal(joinPath('/', '/etc/nginx'), '/etc/nginx')
+  assert.equal(joinPath('/', 'var/log/syslog'), '/var/log/syslog')
+})
+

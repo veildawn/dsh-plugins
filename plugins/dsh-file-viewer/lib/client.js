@@ -265,6 +265,29 @@ window.__ModuleLoader__.load({
       .fv-badge{display:inline-block;padding:0 4px;font-size:10px;font-weight:600;line-height:14px;border-radius:4px;margin-left:4px;flex:none}
       .fv-badge-mod{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d97706) 18%,transparent);color:var(--dsw-alias-state-warning-primary,#d97706)}
       .fv-badge-add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#10b981) 18%,transparent);color:var(--dsw-alias-state-success-primary,#10b981)}
+      .fv-modal-scrim{position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:16px;background:color-mix(in srgb,#000 45%,transparent);animation:fv-fade .15s ease-out;color-scheme:light dark}
+      .fv-modal{width:min(94vw,560px);max-height:86vh;display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);overflow:hidden;font-family:var(--dsw-font-family)}
+      .fv-modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+      .fv-modal-title{font:var(--dsw-font-m-16);font-weight:600;display:flex;align-items:center;gap:6px}
+      .fv-modal-body{flex:1 1 auto;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:16px}
+      .fv-modal-sec{display:flex;flex-direction:column;gap:8px}
+      .fv-modal-sec-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+      .fv-modal-sec-hint{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.4}
+      .fv-tag-list{display:flex;flex-wrap:wrap;gap:6px}
+      .fv-tag{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-3,rgba(0,0,0,.05));font-size:12px;color:var(--dsw-alias-label-secondary);word-break:break-all}
+      .fv-safe-item{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-alias-bg-layer-1,transparent);font-size:13px}
+      .fv-safe-item-info{display:flex;flex-direction:column;min-width:0;flex:1 1 auto}
+      .fv-safe-item-path{font-family:monospace;font-size:12px;word-break:break-all;color:var(--dsw-alias-label-primary)}
+      .fv-safe-item-label{font-size:11px;color:var(--dsw-alias-label-tertiary)}
+      .fv-btn-del{border:none;background:none;color:var(--dsw-alias-state-error-primary,#ef4444);font-size:12px;cursor:pointer;padding:4px 8px;border-radius:4px}
+      .fv-btn-del:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 10%,transparent)}
+      .fv-add-box{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:8px;background:var(--dsw-alias-bg-layer-1,rgba(0,0,0,.02));border:1px dashed var(--dsw-alias-border-l2)}
+      .fv-input-row{display:flex;gap:8px}
+      .fv-input{flex:1 1 auto;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font-size:13px;outline:none}
+      .fv-input:focus{border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .fv-modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--dsw-alias-border-l1)}
+      .fv-btn-primary{background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff;border-color:transparent}
+      .fv-btn-primary:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 85%,#000)}
       .fv-table-wrap{overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:10px}
       .fv-table{border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
       .fv-table th,.fv-table td{max-width:320px;padding:5px 9px;border:1px solid var(--dsw-alias-border-l1);overflow:hidden;text-align:left;white-space:pre-wrap;vertical-align:top;word-break:break-word}
@@ -729,7 +752,7 @@ window.__ModuleLoader__.load({
     const ERROR_COPY = {
       "no-roots": "没有可浏览的工作区。请先在 DSH 中打开一个工作区。",
       "unknown-root": "该根目录不在本部署的可访问范围内。",
-      "outside-root": "该路径超出了工作区范围，已拒绝访问。",
+      "outside-root": "该路径超出安全访问路径或工作区范围，已拒绝访问。",
       "not-found": "文件或目录不存在。",
       "not-a-directory": "该路径不是目录。",
       "is-a-directory": "该路径是目录。",
@@ -788,6 +811,26 @@ window.__ModuleLoader__.load({
         value = Math.floor(value / 26) - 1;
       } while (value >= 0);
       return label;
+    }
+
+    /** Render root selector options, grouping safe access paths separately if present. */
+    function renderRootOptions(roots) {
+      const hasSafe = Array.isArray(roots) && roots.some((row) => row.kind === "safe-path");
+      if (!hasSafe) {
+        return (roots || []).map((row) => react.createElement("option", { key: row.id, value: row.id }, row.label));
+      }
+      const workspaces = roots.filter((row) => row.kind !== "safe-path");
+      const safePaths = roots.filter((row) => row.kind === "safe-path");
+      const groups = [];
+      if (workspaces.length > 0) {
+        groups.push(react.createElement("optgroup", { key: "workspaces", label: "工作区" },
+          ...workspaces.map((row) => react.createElement("option", { key: row.id, value: row.id }, row.label))));
+      }
+      if (safePaths.length > 0) {
+        groups.push(react.createElement("optgroup", { key: "safe-paths", label: "安全访问路径" },
+          ...safePaths.map((row) => react.createElement("option", { key: row.id, value: row.id }, row.label))));
+      }
+      return groups;
     }
 
     function apply(ctx) {
@@ -1403,6 +1446,150 @@ window.__ModuleLoader__.load({
         return react.createElement("div", { className: "fv-toast", role: "status" }, toast);
       }
 
+      /** Safe Access Paths Configuration Dialog */
+      function SafePathsModal({ open, onClose, onToast, onUpdated, prefillPath }) {
+        const [loading, setLoading] = react.useState(false);
+        const [saving, setSaving] = react.useState(false);
+        const [safePaths, setSafePaths] = react.useState([]);
+        const [workspaces, setWorkspaces] = react.useState([]);
+        const [newPath, setNewPath] = react.useState("");
+        const [newLabel, setNewLabel] = react.useState("");
+
+        react.useEffect(() => {
+          if (!open) return;
+          setLoading(true);
+          if (prefillPath) setNewPath(prefillPath);
+          request("getSafePaths", {})
+            .then((res) => {
+              setSafePaths(res?.safePaths || []);
+              setWorkspaces(res?.builtInWorkspaces || []);
+              setLoading(false);
+            })
+            .catch(() => setLoading(false));
+        }, [open, prefillPath]);
+
+        if (!open) return null;
+
+        const handleAdd = () => {
+          const p = newPath.trim();
+          if (!p) return;
+          if (safePaths.some((item) => item.path === p)) {
+            if (onToast) onToast("该路径已在安全路径列表中");
+            return;
+          }
+          setSafePaths([...safePaths, { path: p, label: newLabel.trim() }]);
+          setNewPath("");
+          setNewLabel("");
+        };
+
+        const handleRemove = (idx) => {
+          setSafePaths(safePaths.filter((_, i) => i !== idx));
+        };
+
+        const handleSave = () => {
+          setSaving(true);
+          const currentList = [...safePaths];
+          const p = newPath.trim();
+          if (p && !currentList.some((item) => item.path === p)) {
+            currentList.push({ path: p, label: newLabel.trim() });
+          }
+          request("updateSafePaths", { safePaths: currentList })
+            .then(() => {
+              setSaving(false);
+              if (onToast) onToast("安全访问路径已更新");
+              if (onUpdated) onUpdated();
+              onClose();
+            })
+            .catch((err) => {
+              setSaving(false);
+              if (onToast) onToast("保存失败：" + (err?.message || "未知错误"));
+            });
+        };
+
+        const workspacesSection = react.createElement("div", { className: "fv-modal-sec" },
+          react.createElement("span", { className: "fv-modal-sec-title" }, "内置工作区（默认可访问）"),
+          react.createElement("span", { className: "fv-modal-sec-hint" }, "以下为当前环境已注册的工作区目录，文件查看器内置默认放行，无需重复添加："),
+          react.createElement("div", { className: "fv-tag-list" },
+            workspaces.length > 0
+              ? workspaces.map((w, idx) => react.createElement("span", { key: idx, className: "fv-tag" },
+                react.createElement("span", { "aria-hidden": "true" }, "\u{1F4C1}"),
+                w.name ? (w.name + " (" + w.path + ")") : w.path))
+              : react.createElement("span", { className: "fv-modal-sec-hint" }, "暂无内置工作区")));
+
+        const safePathsList = loading
+          ? react.createElement("div", { className: "fv-tree-status" }, "加载配置中...")
+          : (safePaths.length === 0
+            ? react.createElement("div", { className: "fv-tree-status" }, "暂未添加任何外部安全路径。添加后即可在下拉菜单中直接浏览。")
+            : react.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } },
+              ...safePaths.map((item, idx) => react.createElement("div", { key: idx, className: "fv-safe-item" },
+                react.createElement("div", { className: "fv-safe-item-info" },
+                  react.createElement("span", { className: "fv-safe-item-path" }, item.path),
+                  item.label ? react.createElement("span", { className: "fv-safe-item-label" }, item.label) : null),
+                react.createElement("button", {
+                  type: "button",
+                  className: "fv-btn-del",
+                  onClick: () => handleRemove(idx),
+                }, "删除")))));
+
+        const safePathsSection = react.createElement("div", { className: "fv-modal-sec" },
+          react.createElement("span", { className: "fv-modal-sec-title" }, "额外安全访问路径"),
+          react.createElement("span", { className: "fv-modal-sec-hint" }, "允许文件查看器访问工作区以外的指定安全目录或磁盘路径："),
+          safePathsList);
+
+        const addSection = react.createElement("div", { className: "fv-add-box" },
+          react.createElement("span", { style: { fontSize: "12px", fontWeight: 600 } }, "添加安全访问路径"),
+          react.createElement("div", { className: "fv-input-row" },
+            react.createElement("input", {
+              className: "fv-input",
+              placeholder: "例如 /opt/data 或 D:/Notes",
+              value: newPath,
+              onChange: (e) => setNewPath(e.target.value),
+              onKeyDown: (e) => { if (e.key === "Enter") handleAdd(); },
+            }),
+            react.createElement("input", {
+              className: "fv-input",
+              style: { maxWidth: "130px" },
+              placeholder: "名称 (可选)",
+              value: newLabel,
+              onChange: (e) => setNewLabel(e.target.value),
+              onKeyDown: (e) => { if (e.key === "Enter") handleAdd(); },
+            }),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-button",
+              onClick: handleAdd,
+            }, "添加")));
+
+        return react.createElement("div", {
+          className: "fv-modal-scrim",
+          onClick: (e) => { if (e.target === e.currentTarget) onClose(); },
+        },
+          react.createElement("div", { className: "fv-modal", role: "dialog", "aria-modal": "true" },
+            react.createElement("div", { className: "fv-modal-head" },
+              react.createElement("span", { className: "fv-modal-title" },
+                react.createElement("span", { "aria-hidden": "true" }, "\u{1F6E1}"),
+                "安全访问路径配置"),
+              react.createElement("button", {
+                type: "button", className: "fv-icon-button", "aria-label": "关闭", onClick: onClose,
+              }, react.createElement("span", { "aria-hidden": "true" }, "\u2715"))),
+            react.createElement("div", { className: "fv-modal-body" },
+              workspacesSection,
+              safePathsSection,
+              addSection),
+            react.createElement("div", { className: "fv-modal-foot" },
+              react.createElement("button", {
+                type: "button",
+                className: "fv-button",
+                onClick: onClose,
+              }, "取消"),
+              react.createElement("button", {
+                type: "button",
+                className: "fv-button fv-btn-primary",
+                disabled: saving,
+                onClick: handleSave,
+              }, saving ? "保存中..." : "保存并应用"))));
+      }
+
       /** The overlay page: root picker, breadcrumbs, tree and viewer. */
       function ViewerOverlay(props) {
         const request_ = useStore(openStore);
@@ -1422,6 +1609,8 @@ window.__ModuleLoader__.load({
         const [nodes, setNodes] = react.useState(() => new Map());
         const [meta, setMeta] = react.useState(null);
         const [hidden, setHidden] = react.useState(false);
+        const [safeModalOpen, setSafeModalOpen] = react.useState(false);
+        const [prefillPath, setPrefillPath] = react.useState("");
         const [treeWidth, setTreeWidth] = react.useState(readTreeWidth);
         const [isResizing, setIsResizing] = react.useState(false);
         const resizeRef = react.useRef(null);
@@ -1721,9 +1910,9 @@ window.__ModuleLoader__.load({
                 ? react.createElement("select", {
                   className: "fv-root-select",
                   value: root,
-                  "aria-label": "工作区",
+                  "aria-label": "工作区与安全路径",
                   onChange: (event) => setRoot(event.target.value),
-                }, ...roots.map((row) => react.createElement("option", { key: row.id, value: row.id }, row.label)))
+                }, ...renderRootOptions(roots))
                 : react.createElement("span", { className: "fv-crumbs" }, activeRoot ? activeRoot.label : ""),
               // The tree shows structure, so the header carries the selected
               // file's path instead of navigable breadcrumbs.
@@ -1751,6 +1940,13 @@ window.__ModuleLoader__.load({
                 title: hidden ? "隐藏点文件" : "显示点文件",
                 onClick: () => setHidden((current) => !current),
               }, react.createElement("span", { "aria-hidden": "true" }, "\u00B7*")),
+              react.createElement("button", {
+                type: "button",
+                className: "fv-icon-button fv-btn-safepaths",
+                "aria-label": "安全访问路径设置",
+                title: "安全访问路径设置",
+                onClick: () => setSafeModalOpen(true),
+              }, react.createElement("span", { "aria-hidden": "true", style: { fontSize: "14px" } }, "\u{1F6E1}")),
               react.createElement("button", {
                 type: "button",
                 className: "fv-icon-button fv-btn-fullscreen",
@@ -1806,7 +2002,20 @@ window.__ModuleLoader__.load({
                     ? react.createElement("span", null, formatBytes(meta.size))
                     : null),
                 error !== null && meta === null
-                  ? react.createElement("div", { className: "fv-note fv-error" }, messageOf(error))
+                  ? react.createElement("div", { className: "fv-note fv-error" },
+                    react.createElement("span", null, messageOf(error)),
+                    error?.code === "outside-root"
+                      ? react.createElement("button", {
+                        type: "button",
+                        className: "fv-button",
+                        style: { marginTop: "6px" },
+                        onClick: () => {
+                          const reqPath = request_?.filePath || request_?.path || "";
+                          setPrefillPath(reqPath ? parentOf(reqPath) : "");
+                          setSafeModalOpen(true);
+                        },
+                      }, "配置安全访问路径")
+                      : null)
                   : react.createElement(ErrorBoundary, {
                     resetKey: meta ? meta.path : "",
                   }, react.createElement(FileView, { meta, root, api: props.api, wrap })))),
@@ -1817,6 +2026,19 @@ window.__ModuleLoader__.load({
                 onClose: () => setContextMenu(null),
                 onMention: mention,
                 onToast: showToast,
+              })
+              : null,
+            safeModalOpen
+              ? react.createElement(SafePathsModal, {
+                open: safeModalOpen,
+                onClose: () => { setSafeModalOpen(false); setPrefillPath(""); },
+                onToast: showToast,
+                onUpdated: () => {
+                  request("roots", {}).then((val) => {
+                    setRoots(val?.roots || []);
+                  }).catch(() => {});
+                },
+                prefillPath,
               })
               : null,
             toast !== null ? react.createElement(ToastView, { toast }) : null));
@@ -2102,7 +2324,7 @@ window.__ModuleLoader__.load({
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
-      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl,
+      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, renderRootOptions,
     };
     return module.exports;
   }

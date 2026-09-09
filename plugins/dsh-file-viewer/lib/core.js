@@ -162,6 +162,8 @@ export function isTextContent(buffer) {
  */
 export function baseNameOf(path) {
   if (typeof path !== 'string') return ''
+  const isSlash = path === '/' || path === '\\'
+  if (isSlash) return '/'
   const trimmed = path.replace(/[\\/]+$/, '')
   const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
   return cut < 0 ? trimmed : trimmed.slice(cut + 1)
@@ -326,9 +328,12 @@ export function isSafeRelativePath(relative) {
  * @returns {string} the joined path.
  */
 export function joinPath(root, relative) {
-  const base = String(root).replace(/[\\/]+$/, '')
+  const str = String(root ?? '')
+  const isSlash = str === '/' || str === '\\'
+  const base = isSlash ? '/' : str.replace(/[\\/]+$/, '')
   if (relative === undefined || relative === null || relative === '') return base
-  return base + '/' + String(relative).replace(/^[\\/]+/, '')
+  const rel = String(relative).replace(/^[\\/]+/, '')
+  return isSlash ? `/${rel}` : `${base}/${rel}`
 }
 
 /**
@@ -578,4 +583,37 @@ export function rebaseGitPaths(paths, prefix) {
     if (rootRelative !== '') out.push(rootRelative)
   }
   return out
+}
+
+/**
+ * Normalize safe access paths from any supported configuration format
+ * (array of strings, array of objects, or delimited string) into clean
+ * `{ path, label }` records. Empty paths and non-string inputs are filtered.
+ *
+ * @param {unknown} input - configured safe paths.
+ * @returns {{path: string, label: string}[]} normalized safe path list.
+ */
+export function normalizeSafePaths(input) {
+  if (input === null || input === undefined) return []
+  const items = []
+  if (typeof input === 'string') {
+    const parts = input.split(/[\r\n,;]+/)
+    for (const part of parts) {
+      const trimmed = part.trim()
+      if (trimmed !== '') items.push({ path: trimmed, label: '' })
+    }
+    return items
+  }
+  if (!Array.isArray(input)) return []
+  for (const item of input) {
+    if (typeof item === 'string') {
+      const trimmed = item.trim()
+      if (trimmed !== '') items.push({ path: trimmed, label: '' })
+    } else if (item && typeof item === 'object') {
+      const p = typeof item.path === 'string' ? item.path.trim() : ''
+      const l = typeof item.label === 'string' ? item.label.trim() : (typeof item.name === 'string' ? item.name.trim() : '')
+      if (p !== '') items.push({ path: p, label: l })
+    }
+  }
+  return items
 }

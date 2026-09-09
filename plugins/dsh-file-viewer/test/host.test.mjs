@@ -612,3 +612,126 @@ test('status RPC returns modified and untracked lists gracefully', async () => {
   assert(Array.isArray(result.value.modified))
   assert(Array.isArray(result.value.untracked))
 })
+
+test('safePaths configures safe access paths outside workspace with labels and kinds', () => {
+  const ctx = createCtx(createFs({}), { workspaces: ['D:/repo'], sessions: [] })
+  const roots = collectRoots(ctx, options({
+    safePaths: [
+      { path: 'D:/external-data', label: '外部数据盘' },
+      'D:/logs',
+      '/',
+    ],
+  }))
+
+  assert.equal(roots.length, 4)
+  assert.deepEqual(roots[0], { id: 'D:/repo', label: 'repo', path: 'D:/repo', kind: 'workspace' })
+  assert.deepEqual(roots[1], { id: 'D:/external-data', label: '外部数据盘', path: 'D:/external-data', kind: 'safe-path' })
+  assert.deepEqual(roots[2], { id: 'D:/logs', label: 'logs', path: 'D:/logs', kind: 'safe-path' })
+  assert.deepEqual(roots[3], { id: '/', label: '根目录 (/)', path: '/', kind: 'safe-path' })
+})
+
+test('safeAccessPaths and extraRoots merge into safe access paths', () => {
+  const ctx = createCtx(createFs({}), { workspaces: ['D:/repo'], sessions: [] })
+  const roots = collectRoots(ctx, options({
+    safeAccessPaths: ['D:/safe1'],
+    extraRoots: ['D:/extra1', 'D:/safe1'],
+  }))
+
+  assert.deepEqual(roots.map((r) => r.path), ['D:/repo', 'D:/safe1', 'D:/extra1'])
+  assert.equal(roots[1].kind, 'safe-path')
+  assert.equal(roots[2].kind, 'safe-path')
+})
+
+test('file operations succeed in safe access paths outside the workspace', async () => {
+  const SAFE_DIR = 'D:/safe-zone'
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [SAFE_DIR]: {
+      type: 'directory',
+      entries: [
+        { name: 'config.json', type: 'file', size: 30 },
+        { name: 'data.txt', type: 'file', size: 20 },
+      ],
+    },
+    [`${SAFE_DIR}/config.json`]: { type: 'file', size: 30, text: '{"enabled": true}' },
+    [`${SAFE_DIR}/data.txt`]: { type: 'file', size: 20, text: 'safe content here\n' },
+  })
+  const ctx = createCtx(fs, { workspaces: [ROOT] })
+  const opts = options({ safePaths: [{ path: SAFE_DIR, label: '安全目录' }] })
+
+  // 1. list directory in safe path
+  const listResult = await handleRpc(ctx, opts, 'list', { root: SAFE_DIR })
+  assert.equal(listResult.ok, true)
+  assert.equal(listResult.value.entries.length, 2)
+  assert.equal(listResult.value.entries[0].name, 'config.json')
+
+  // 2. read text in safe path
+  const readResult = await handleRpc(ctx, opts, 'read', { root: SAFE_DIR, path: 'data.txt' })
+  assert.equal(readResult.ok, true)
+  assert.equal(readResult.value.lines[0].text, 'safe content here')
+
+  // 3. describe file in safe path
+  const metaResult = await handleRpc(ctx, opts, 'meta', { root: SAFE_DIR, path: 'config.json' })
+  assert.equal(metaResult.ok, true)
+  assert.equal(metaResult.value.kind, 'json')
+  assert.equal(metaResult.value.name, 'config.json')
+
+  // 4. accessing path escaping the safe path is refused
+  const outsideResult = await handleRpc(ctx, opts, 'read', { root: SAFE_DIR, path: '../other.txt' })
+  assert.equal(outsideResult.ok, false)
+  assert.equal(outsideResult.error.code, 'outside-root')
+})
+
+test('resolveSessionRoot resolves target file located in safe access path', async () => {
+  const SAFE_DIR = 'D:/safe-zone'
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    [SAFE_DIR]: { type: 'directory', entries: [] },
+    [`${SAFE_DIR}/logs`]: { type: 'directory', entries: [] },
+    [`${SAFE_DIR}/logs/app.log`]: { type: 'file', size: 100 },
+  })
+  const ctx = createCtx(fs, { workspaces: ['D:/repo'] })
+  const opts = options({ safePaths: [SAFE_DIR] })
+
+  const res = await handleRpc(ctx, opts, 'roots', { filePath: `${SAFE_DIR}/logs/app.log` })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.root, SAFE_DIR)
+  assert.equal(res.value.reveal, 'logs')
+  assert.equal(res.value.selectFile, 'logs/app.log')
+})
+
+test('getSafePaths and updateSafePaths RPC methods support dynamic web configuration', async () => {
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+  })
+  const ctx = createCtx(fs, { workspaces: ['D:/repo'] })
+  let currentPaths = [{ path: 'D:/init', label: '初始安全路径' }]
+
+  const opts = () => ({
+    safePaths: currentPaths,
+    _updateSafePaths: async (newPaths) => { currentPaths = newPaths },
+  })
+
+  // 1. getSafePaths returns current safe paths and builtInWorkspaces
+  const getRes = await handleRpc(ctx, opts, 'getSafePaths', {})
+  assert.equal(getRes.ok, true)
+  assert.deepEqual(getRes.value.safePaths, [{ path: 'D:/init', label: '初始安全路径' }])
+  assert.equal(getRes.value.builtInWorkspaces.length, 1)
+  assert.equal(getRes.value.builtInWorkspaces[0].path, 'D:/repo')
+
+  // 2. updateSafePaths updates the safe paths dynamically
+  const updateRes = await handleRpc(ctx, opts, 'updateSafePaths', {
+    safePaths: [
+      { path: 'D:/init', label: '初始安全路径' },
+      { path: '/var/data', label: 'Web添加路径' },
+    ],
+  })
+  assert.equal(updateRes.ok, true)
+  assert.equal(updateRes.value.safePaths.length, 2)
+
+  // 3. getSafePaths reflects the new state
+  const getResAfter = await handleRpc(ctx, opts, 'getSafePaths', {})
+  assert.equal(getResAfter.value.safePaths.length, 2)
+  assert.equal(getResAfter.value.safePaths[1].path, '/var/data')
+})
+
