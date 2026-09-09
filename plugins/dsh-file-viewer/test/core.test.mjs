@@ -75,6 +75,7 @@ test('kind classification routes every requested format to one viewer', () => {
   assert.equal(kindOf('manual.pdf'), 'pdf')
   assert.equal(kindOf('report.xlsx'), 'sheet')
   assert.equal(kindOf('spec.docx'), 'doc')
+  assert.equal(kindOf('legacy.doc'), 'doc')
   assert.equal(kindOf('app.exe'), 'binary')
   assert.equal(kindOf('bundle.wasm'), 'binary')
 })

@@ -452,6 +452,40 @@ export async function readDoc(ctx, options, payload, signal) {
   if (info === undefined) throw new ViewerError('not-found', 'the requested file does not exist')
   if (info.type === 'directory') throw new ViewerError('is-a-directory', 'the requested path is a directory')
 
+  const bytes = await ctx.fs.readBytes(target, signal, options().maxBytes)
+  const ext = extensionOf(relative)
+
+  // 1. For legacy .doc binary files (OLE2 format), use word-extractor
+  if (ext === 'doc') {
+    let WordExtractor
+    try {
+      WordExtractor = (await import('word-extractor')).default
+    } catch {
+      throw new ViewerError('unsupported', 'the host is missing the document reader dependency')
+    }
+    try {
+      const extractor = new WordExtractor()
+      const doc = await extractor.extract(Buffer.from(bytes))
+      const body = (doc.getBody() ?? '').trim()
+      const footers = (doc.getFootnotes() ?? '').trim()
+      let markdown = body
+      if (footers) {
+        markdown += '\n\n---\n**脚注 / 尾注：**\n' + footers
+      }
+      return {
+        root: root.id,
+        path: relative,
+        name: baseNameOf(relative),
+        markdown: markdown || '',
+        warnings: [],
+      }
+    } catch (err) {
+      ctx.logger?.warn?.(`file-viewer: word-extractor failed on ${relative}: ${err?.message}`)
+      throw new ViewerError('read-failed', '无法解析该 .doc 文档，文件可能已损坏或格式不兼容')
+    }
+  }
+
+  // 2. For .docx files, use mammoth for rich Markdown conversion
   let mammoth
   try {
     mammoth = (await import('mammoth')).default
@@ -459,14 +493,32 @@ export async function readDoc(ctx, options, payload, signal) {
     throw new ViewerError('unsupported', 'the host is missing the document reader dependency')
   }
 
-  const bytes = await ctx.fs.readBytes(target, signal, options().maxBytes)
-  const converted = await mammoth.convertToMarkdown({ buffer: Buffer.from(bytes) })
-  return {
-    root: root.id,
-    path: relative,
-    name: baseNameOf(relative),
-    markdown: converted.value ?? '',
-    warnings: (converted.messages ?? []).map((entry) => entry?.message ?? String(entry)),
+  try {
+    const converted = await mammoth.convertToMarkdown({ buffer: Buffer.from(bytes) })
+    return {
+      root: root.id,
+      path: relative,
+      name: baseNameOf(relative),
+      markdown: converted.value ?? '',
+      warnings: (converted.messages ?? []).map((entry) => entry?.message ?? String(entry)),
+    }
+  } catch (err) {
+    // If mammoth failed (e.g. non-standard docx or renamed doc), fallback to word-extractor
+    try {
+      const WordExtractor = (await import('word-extractor')).default
+      const extractor = new WordExtractor()
+      const doc = await extractor.extract(Buffer.from(bytes))
+      const body = (doc.getBody() ?? '').trim()
+      return {
+        root: root.id,
+        path: relative,
+        name: baseNameOf(relative),
+        markdown: body || '',
+        warnings: ['由备用文档提取器解析'],
+      }
+    } catch {
+      throw new ViewerError('read-failed', '无法解析该文档内容')
+    }
   }
 }
 

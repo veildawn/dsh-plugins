@@ -1,6 +1,6 @@
 {
   "name": "dsh-file-viewer",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Workspace file viewer for DeepSeek Harness: file tree, syntax-highlighted code, images, PDF, Excel and Word",
   "type": "module",
   "main": "lib/index.js",
@@ -30,17 +30,18 @@
   ],
   "dependencies": {
     "exceljs": "4.4.0",
-    "mammoth": "1.12.1"
+    "mammoth": "1.12.1",
+    "word-extractor": "1.0.4"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/schemastery": "^3.18.1",
     "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-fs": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dsh": {
     "bundle": {

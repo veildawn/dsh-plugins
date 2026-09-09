@@ -12,7 +12,7 @@
 | 图片 | PNG、JPEG、GIF、WebP、AVIF、BMP、ICO、SVG |
 | PDF | 交给浏览器内置阅读器（可搜索、翻页、缩放） |
 | Excel | `.xlsx` / `.xlsm` / `.xls`，工作表标签 + 表格 |
-| Word | `.docx`，转 Markdown 后渲染 |
+| Word | `.docx` / `.doc`，转 Markdown / 提取文本后渲染 |
 | 其他二进制 | 显示文件信息，可用本地程序打开 |
 
 ## 安装

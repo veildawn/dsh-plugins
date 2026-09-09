@@ -775,4 +775,28 @@ test('symlink in workspace pointing to an authorized safe path is allowed, but u
   assert.equal(metaBlocked.error.details?.realPath, `${UNTRUSTED_DIR}/passwd`)
 })
 
+test('readDoc supports .doc files via word-extractor', async () => {
+  const fsSync = (await import('fs')).default
+  const sampleDocx = fsSync.readFileSync('node_modules/mammoth/test/test-data/single-paragraph.docx')
+
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/sample.doc': { type: 'file', size: sampleDocx.length },
+  })
+  fs.readBytes = async () => sampleDocx
+
+  const ctx = createCtx(fs, { workspaces: ['D:/repo'] })
+
+  // 1. Meta identifies .doc as 'doc'
+  const metaRes = await handleRpc(ctx, options(), 'meta', { path: 'sample.doc' })
+  assert.equal(metaRes.ok, true)
+  assert.equal(metaRes.value.kind, 'doc')
+
+  // 2. doc RPC extracts content
+  const docRes = await handleRpc(ctx, options(), 'doc', { path: 'sample.doc' })
+  assert.equal(docRes.ok, true)
+  assert.match(docRes.value.markdown, /Walking on imported air/)
+})
+
+
 

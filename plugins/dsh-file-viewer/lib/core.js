@@ -218,7 +218,7 @@ export function kindOf(path) {
   if (IMAGE_EXTENSIONS.includes(ext)) return 'image'
   if (ext === 'pdf') return 'pdf'
   if (ext === 'xlsx' || ext === 'xlsm' || ext === 'xls') return 'sheet'
-  if (ext === 'docx') return 'doc'
+  if (ext === 'docx' || ext === 'doc') return 'doc'
   if (langOf(path) !== undefined) return 'text'
   if (TEXT_EXTENSIONS.includes(ext)) return 'text'
   if (ext === '' && TEXT_BASENAMES.includes(base.replace(/^\./, ''))) return 'text'
