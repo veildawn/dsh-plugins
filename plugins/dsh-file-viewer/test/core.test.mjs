@@ -10,6 +10,7 @@ import {
   flattenTree,
   extensionOf,
   formatBytes,
+  formatDocTextToMarkdown,
   isHiddenEntry,
   isSafeRelativePath,
   isTextContent,
@@ -490,4 +491,46 @@ test('joinPath and baseNameOf handle root slash cleanly', () => {
   assert.equal(joinPath('/', '/etc/nginx'), '/etc/nginx')
   assert.equal(joinPath('/', 'var/log/syslog'), '/var/log/syslog')
 })
+
+test('formatDocTextToMarkdown converts raw document text into structured Markdown', () => {
+  const raw = [
+    '项目技术规格与实施方案',
+    '目录',
+    '第一章 项目概述\t3',
+    '1.1 建设目标\t3',
+    '第二章 方案设计\t6',
+    '第一章 项目概述',
+    '1.1 建设目标',
+    '按照国家相关标准建设高可用云平台。',
+    '采用先进微服务架构设计。',
+    '（1）高可用性',
+    '系统保证 99.99% 的在线率。',
+    '服务器选型\t数量\t单价',
+    '计算节点\t8\t10000',
+    '存储节点\t4\t20000',
+  ].join('\n')
+
+  const md = formatDocTextToMarkdown(raw)
+
+  // 1. Document title
+  assert.match(md, /# 项目技术规格与实施方案/)
+
+  // 2. TOC list
+  assert.match(md, /## 目录/)
+  assert.match(md, /- \*\*第一章 项目概述\*\* \.{10,} \*第 3 页\*/)
+
+  // 3. Chapter and section hierarchy
+  assert.match(md, /## 第一章 项目概述/)
+  assert.match(md, /### 1.1 建设目标/)
+
+  // 4. Bullet points and paragraphs
+  assert.match(md, /\*\*（1）高可用性\*\*/)
+  assert.match(md, /系统保证 99\.99% 的在线率。/)
+
+  // 5. Table converted with header and separator
+  assert.match(md, /\| 服务器选型 \| 数量 \| 单价 \|/)
+  assert.match(md, /\| --- \| --- \| --- \|/)
+  assert.match(md, /\| 计算节点 \| 8 \| 10000 \|/)
+})
+
 

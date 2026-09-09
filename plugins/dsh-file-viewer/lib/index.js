@@ -13,6 +13,9 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import os from 'node:os'
+import fsPromises from 'node:fs/promises'
+import path from 'node:path'
 
 import z from '@deepseek-ai/schemastery'
 
@@ -22,6 +25,7 @@ import {
   MAX_TEXT_BYTES,
   baseNameOf,
   extensionOf,
+  formatDocTextToMarkdown,
   parentOf,
   isHiddenEntry,
   isSafeRelativePath,
@@ -48,6 +52,7 @@ export {
   MAX_TEXT_BYTES,
   baseNameOf,
   extensionOf,
+  formatDocTextToMarkdown,
   parentOf,
   isHiddenEntry,
   isSafeRelativePath,
@@ -437,6 +442,48 @@ export async function readSheet(ctx, options, payload, signal) {
 }
 
 /**
+ * Try converting a .doc file to .docx using host tools (soffice / libreoffice) if available.
+ * Returns null if no host tool is available, or if conversion fails/times out.
+ * @param {string} filePath - absolute path on host.
+ * @param {AbortSignal} [signal] - cancellation signal.
+ * @returns {Promise<Buffer|null>} converted docx buffer or null.
+ */
+async function tryConvertDocWithHost(filePath, signal) {
+  if (typeof filePath !== 'string' || filePath === '') return null
+  const candidates = process.platform === 'win32'
+    ? ['soffice.exe', 'soffice']
+    : ['soffice', 'libreoffice']
+
+  for (const cmd of candidates) {
+    try {
+      const tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'dsh-doc-'))
+      try {
+        await execFileAsync(cmd, [
+          '--headless',
+          '--invisible',
+          '--nologo',
+          '--convert-to',
+          'docx',
+          filePath,
+          '--outdir',
+          tmpDir,
+        ], { timeout: 8000, signal })
+
+        const convertedName = path.basename(filePath, path.extname(filePath)) + '.docx'
+        const convertedPath = path.join(tmpDir, convertedName)
+        const docxBuffer = await fsPromises.readFile(convertedPath)
+        if (docxBuffer && docxBuffer.length > 0) return docxBuffer
+      } finally {
+        await fsPromises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      }
+    } catch (_) {
+      // Command absent or conversion failed -> try next or fallback
+    }
+  }
+  return null
+}
+
+/**
  * Convert a Word document to Markdown. Markdown rather than mammoth's HTML on
  * purpose: the client renders it with `MarkdownText`, which already refuses raw
  * HTML and unsafe protocols, so an untrusted document cannot inject markup.
@@ -455,8 +502,26 @@ export async function readDoc(ctx, options, payload, signal) {
   const bytes = await ctx.fs.readBytes(target, signal, options().maxBytes)
   const ext = extensionOf(relative)
 
-  // 1. For legacy .doc binary files (OLE2 format), use word-extractor
+  // 1. For legacy .doc binary files:
   if (ext === 'doc') {
+    // 1a. Try host office conversion (soffice / libreoffice) if available
+    const hostPath = ctx.fs.processPath?.(target) ?? target.displayPath
+    const convertedDocx = await tryConvertDocWithHost(hostPath, signal)
+    if (convertedDocx) {
+      try {
+        const mammoth = (await import('mammoth')).default
+        const converted = await mammoth.convertToMarkdown({ buffer: convertedDocx })
+        return {
+          root: root.id,
+          path: relative,
+          name: baseNameOf(relative),
+          markdown: converted.value ?? '',
+          warnings: (converted.messages ?? []).map((entry) => entry?.message ?? String(entry)),
+        }
+      } catch (_) {}
+    }
+
+    // 1b. Universal pure Node.js fallback: word-extractor + formatDocTextToMarkdown
     let WordExtractor
     try {
       WordExtractor = (await import('word-extractor')).default
@@ -466,11 +531,11 @@ export async function readDoc(ctx, options, payload, signal) {
     try {
       const extractor = new WordExtractor()
       const doc = await extractor.extract(Buffer.from(bytes))
-      const body = (doc.getBody() ?? '').trim()
-      const footers = (doc.getFootnotes() ?? '').trim()
-      let markdown = body
+      const body = doc.getBody({ filterUnicode: false }) ?? ''
+      const footers = (doc.getFootnotes({ filterUnicode: false }) ?? '').trim()
+      let markdown = formatDocTextToMarkdown(body)
       if (footers) {
-        markdown += '\n\n---\n**脚注 / 尾注：**\n' + footers
+        markdown += '\n\n---\n**脚注 / 尾注：**\n\n' + formatDocTextToMarkdown(footers)
       }
       return {
         root: root.id,
@@ -508,12 +573,12 @@ export async function readDoc(ctx, options, payload, signal) {
       const WordExtractor = (await import('word-extractor')).default
       const extractor = new WordExtractor()
       const doc = await extractor.extract(Buffer.from(bytes))
-      const body = (doc.getBody() ?? '').trim()
+      const body = doc.getBody({ filterUnicode: false }) ?? ''
       return {
         root: root.id,
         path: relative,
         name: baseNameOf(relative),
-        markdown: body || '',
+        markdown: formatDocTextToMarkdown(body),
         warnings: ['由备用文档提取器解析'],
       }
     } catch {

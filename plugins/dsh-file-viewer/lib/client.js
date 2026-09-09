@@ -243,6 +243,17 @@ window.__ModuleLoader__.load({
       .fv-main-name{flex:1 1 auto;min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-weight:500;white-space:nowrap;text-overflow:ellipsis}
       .fv-content{flex:1 1 auto;min-height:0;overflow:auto;padding:12px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
       .fv-content>*{max-width:100%}
+      .fv-doc-article{max-width:880px;margin:0 auto;padding:12px 16px;line-height:1.8;font-size:14px;word-break:break-word}
+      .fv-doc-article h1{font-size:22px;font-weight:700;margin:28px 0 16px;line-height:1.35;border-bottom:1px solid var(--dsw-alias-border-l1);padding-bottom:8px}
+      .fv-doc-article h2{font-size:18px;font-weight:600;margin:24px 0 12px;line-height:1.4;border-bottom:1px dashed var(--dsw-alias-border-l1);padding-bottom:6px}
+      .fv-doc-article h3{font-size:16px;font-weight:600;margin:18px 0 8px;line-height:1.4}
+      .fv-doc-article h4{font-size:14px;font-weight:600;margin:14px 0 6px}
+      .fv-doc-article p{margin:12px 0;text-align:justify}
+      .fv-doc-article ul,.fv-doc-article ol{padding-left:24px;margin:12px 0}
+      .fv-doc-article li{margin:6px 0}
+      .fv-doc-article table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
+      .fv-doc-article th,.fv-doc-article td{border:1px solid var(--dsw-alias-border-l1);padding:8px 12px;text-align:left}
+      .fv-doc-article th{background:var(--dsw-alias-surface-l2,rgba(0,0,0,.03));font-weight:600}
       .fv-note{display:flex;flex-direction:column;gap:10px;align-items:flex-start;padding:16px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}
       .fv-note strong{color:var(--dsw-alias-label-primary);font-weight:600}
       .fv-error{color:var(--dsw-alias-state-error-primary)}
@@ -1106,14 +1117,14 @@ window.__ModuleLoader__.load({
         if (state.markdown.trim() === "") {
           return react.createElement("div", { className: "fv-note" }, "文档没有可提取的文本内容。");
         }
-        return react.createElement(react.Fragment, null,
+        return react.createElement("div", { className: "fv-doc-article" },
           react.createElement(MarkdownText, {
             text: state.markdown,
             labels: MARKDOWN_LABELS,
             codeLabels: MARKDOWN_CODE_LABELS,
           }),
           state.warnings.length > 0
-            ? react.createElement("div", { className: "fv-note" }, `转换时有 ${state.warnings.length} 处格式降级（图片或复杂排版）。`)
+            ? react.createElement("div", { className: "fv-note", style: { marginTop: "16px" } }, `转换时有 ${state.warnings.length} 处格式降级（图片或复杂排版）。`)
             : null);
       }
 

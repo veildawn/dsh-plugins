@@ -617,3 +617,155 @@ export function normalizeSafePaths(input) {
   }
   return items
 }
+
+/**
+ * Intelligently convert raw text extracted from a Word .doc binary document
+ * into clean, beautifully structured Markdown.
+ *
+ * It restores paragraph breaks (preventing Markdown from collapsing single
+ * newlines into unreadable run-on text), auto-detects titles, chapters,
+ * numbered subheadings, Chinese bullet lists, tables, and tables of contents.
+ *
+ * @param {string} rawText - raw body text from word-extractor.
+ * @returns {string} structured Markdown.
+ */
+export function formatDocTextToMarkdown(rawText) {
+  if (!rawText || typeof rawText !== 'string') return ''
+
+  // 1. Strip OLE control codes and normalize newlines
+  const cleaned = rawText
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+
+  const rawLines = cleaned.split('\n')
+  const blocks = []
+  let currentTabGroup = []
+
+  const flushTabGroup = () => {
+    if (currentTabGroup.length === 0) return
+    const lines = currentTabGroup
+    currentTabGroup = []
+
+    // Check if lines are a Table of Contents (title \t pageNumber)
+    const isToc = lines.every((l) => {
+      const parts = l.split('\t').map((p) => p.trim()).filter(Boolean)
+      return parts.length >= 2 && /^\d+$/.test(parts[parts.length - 1])
+    })
+
+    if (isToc) {
+      const tocFormatted = lines.map((l) => {
+        const parts = l.split('\t').map((p) => p.trim()).filter(Boolean)
+        const title = parts.slice(0, -1).join(' ')
+        const page = parts[parts.length - 1]
+        return `- **${title}** ................ *第 ${page} 页*`
+      }).join('\n')
+      blocks.push(tocFormatted)
+      return
+    }
+
+    // Otherwise format as a Markdown table
+    const rows = lines.map((l) => l.split('\t').map((c) => c.trim().replace(/\|/g, '\\|')))
+    const maxCols = Math.max(...rows.map((r) => r.length))
+    if (maxCols >= 2) {
+      const padded = rows.map((r) => {
+        const copy = [...r]
+        while (copy.length < maxCols) copy.push('')
+        return '| ' + copy.join(' | ') + ' |'
+      })
+      const divider = '| ' + Array(maxCols).fill('---').join(' | ') + ' |'
+      padded.splice(1, 0, divider)
+      blocks.push(padded.join('\n'))
+    } else {
+      blocks.push(lines.join('\n\n'))
+    }
+  }
+
+  let titleEmitted = false
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i].trim()
+    // Skip empty lines, standalone dots or bullet markers left by Word
+    if (!line || line === '.' || line === '•' || line === '·') continue
+
+    // Tab-delimited lines are batched for table or TOC handling
+    if (line.includes('\t')) {
+      currentTabGroup.push(line)
+      continue
+    } else {
+      flushTabGroup()
+    }
+
+    // TOC Section Heading
+    if (line === '目录' || line === '目 录' || /^table\s+of\s+contents$/i.test(line) || /^contents$/i.test(line)) {
+      blocks.push('## 目录')
+      continue
+    }
+
+    // Document Title: the first standalone headline before sections
+    if (!titleEmitted && blocks.length === 0 && line.length <= 80 && !/[。！？!?；;]$/.test(line)) {
+      blocks.push('# ' + line)
+      titleEmitted = true
+      continue
+    }
+
+    // Major Chapter: 第一章 ... / 第二章 ... / 附录一 ...
+    if (/^第[一二三四五六七八九十0-9]+[章节卷篇部]|^附录[0-9一二三四五六七八九十]/.test(line)) {
+      blocks.push('## ' + line)
+      continue
+    }
+
+    // English Major Chapter: Chapter 1, Section 2, Part III
+    if (/^(chapter|section|part|appendix)\s+([0-9]+|[ivxlcdm]+)/i.test(line)) {
+      blocks.push('## ' + line)
+      continue
+    }
+
+    // Decimal subsections: 1.1 ..., 1.4.1 ..., A.1 ...
+    if (/^[A-Za-z0-9]+(\.[A-Za-z0-9]+)+\s*[^\d\.]/.test(line)) {
+      const depth = (line.match(/\./g) || []).length
+      const prefix = depth >= 2 ? '#### ' : '### '
+      const formatted = line.replace(/^([A-Za-z0-9]+(?:\.[A-Za-z0-9]+)+)\s*/, '$1 ')
+      blocks.push(prefix + formatted)
+      continue
+    }
+
+    // Chinese numerical sections: 一、 ..., 二、 ...
+    if (/^[一二三四五六七八九十0-9]+[、.]\s*[\u4e00-\u9fa5]/.test(line) && line.length <= 40) {
+      blocks.push('### ' + line)
+      continue
+    }
+
+    // Enumerated bullet points: （1）..., (1)..., [1]...
+    if (/^[（\(\[][0-9a-zA-Z一二三四五六七八九十]+[）\)\]]/.test(line)) {
+      if (line.length <= 30 && !/[。！？!?；;]$/.test(line)) {
+        blocks.push('**' + line + '**')
+      } else {
+        blocks.push('- ' + line)
+      }
+      continue
+    }
+
+    // Numbered list item: 1. ..., 2. ..., 3) ...
+    if (/^[0-9]+[\.、\)]\s*[\u4e00-\u9fa5]/.test(line)) {
+      blocks.push(line)
+      continue
+    }
+
+    // Short section titles: concise standalone phrase (<= 30 chars) without punctuation
+    // (Exclude pure date/time strings or front-matter metadata right under the title)
+    const isDateOrMeta = /^\d{4}年|\d{1,2}月|\d{4}[-\/]\d{1,2}/.test(line) || (blocks.length <= 3 && !titleEmitted)
+    if (!isDateOrMeta && line.length <= 30 && !/[。！？!?；;,，、：:]$/.test(line) && !/[，,。]/.test(line) && blocks.length > 2) {
+      blocks.push('### ' + line)
+      continue
+    }
+
+    // Standard paragraph: distinct block ensuring \n\n separation
+    blocks.push(line)
+  }
+
+  flushTabGroup()
+
+  return blocks.join('\n\n').trim()
+}
+
