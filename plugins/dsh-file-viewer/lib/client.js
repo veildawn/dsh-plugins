@@ -194,7 +194,7 @@ window.__ModuleLoader__.load({
     const inject = ["slots", "connection", "workspaces"];
 
     const css = `
-      .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:color-mix(in srgb,#000 32%,transparent);pointer-events:auto;color-scheme:light dark;animation:fv-fade .16s ease-out}
+      .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:transparent;pointer-events:auto;color-scheme:light dark;animation:fv-fade .16s ease-out}
       .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1);transition:width .2s cubic-bezier(.2,.8,.2,1)}
       .fv-shell[data-fullscreen="true"]{width:100vw;border-left:none}
       @keyframes fv-fade{from{opacity:0}to{opacity:1}}
@@ -572,6 +572,53 @@ window.__ModuleLoader__.load({
       openStore.set({ filePath: path, sessionId: sid, _t: Date.now() });
     }
 
+    function parseFileResource(address) {
+      if (typeof address !== "string" || !address.startsWith("dsh-resource://file/")) return null;
+      try {
+        const end = address.search(/[?#]/);
+        const sliced = address.slice("dsh-resource://file/".length, end === -1 ? undefined : end);
+        const parts = sliced.split("/");
+        const scope = parts[0];
+        if (scope === "session") {
+          const sessionId = decodeURIComponent(parts[1] || "");
+          const path = parts.slice(2).map(decodeURIComponent).join("/");
+          return { scope, sessionId, path };
+        }
+        if (scope === "absolute") {
+          const path = "/" + parts.slice(1).map(decodeURIComponent).join("/");
+          return { scope, path };
+        }
+      } catch {}
+      return null;
+    }
+
+    function wrapSidebarRight(sr, openStore, sessionStore) {
+      if (!sr || typeof sr.openResource !== "function" || wiredOpenPath === null || wiredOpenPath.has(sr)) return;
+      wiredOpenPath.add(sr);
+      const originalOpenResource = sr.openResource.bind(sr);
+      sr.openResource = function(address, options) {
+        const parsed = parseFileResource(address);
+        if (parsed && parsed.path) {
+          const sid = parsed.sessionId || sessionStore.get();
+          openStore.set({ filePath: parsed.path, sessionId: sid, _t: Date.now() });
+          return;
+        }
+        return originalOpenResource(address, options);
+      };
+      if (typeof sr.openResourceIn === "function") {
+        const originalOpenResourceIn = sr.openResourceIn.bind(sr);
+        sr.openResourceIn = function(sessionId, address, options) {
+          const parsed = parseFileResource(address);
+          if (parsed && parsed.path) {
+            const sid = sessionId || parsed.sessionId || sessionStore.get();
+            openStore.set({ filePath: parsed.path, sessionId: sid, _t: Date.now() });
+            return;
+          }
+          return originalOpenResourceIn(sessionId, address, options);
+        };
+      }
+    }
+
     function wrapWorkspaceOpenPath(ctx, openStore, sessionStore) {
       const workspaces = ctx.workspaces;
       if (!workspaces || typeof workspaces.openPath !== "function" || wiredOpenPath === null || wiredOpenPath.has(workspaces)) return;
@@ -644,6 +691,7 @@ window.__ModuleLoader__.load({
       if (element.closest("[data-produced-files-row]")) return true;
       const cls = typeof element.className === "string" ? element.className : "";
       if (cls.includes("fileMention") || cls.includes("file-mention")) return true;
+      if (cls.includes("fileLink") || cls.includes("file-link")) return true;
       return false;
     }
 
@@ -652,11 +700,25 @@ window.__ModuleLoader__.load({
       document.addEventListener("click", (event) => {
         const target = event.target;
         if (!target || typeof target.closest !== "function") return;
-        const btn = target.closest("button, [role='button'], a");
-        if (!btn) return;
-        if (btn.closest(".fv-shell") || btn.closest(".fv-float-entry") || btn.closest(".fv-context-menu") || btn.closest(".fv-scrim")) return;
-        if (!isFileOpenControl(btn)) return;
-        const path = extractClickedPath(btn);
+        // In chat, file links can be buttons, links, or inline code tags
+        const el = target.closest("button, [role='button'], a, code");
+        if (!el) return;
+        if (el.closest(".fv-shell") || el.closest(".fv-float-entry") || el.closest(".fv-context-menu") || el.closest(".fv-scrim")) return;
+        if (!isFileOpenControl(el)) {
+          // If it's a code block, only open if text strictly looks like a file path
+          if (el.tagName === "CODE" || el.closest("code")) {
+            const path = extractClickedPath(el);
+            if (path) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+              openViewerForPath(openStore, sessionStore, path);
+              return;
+            }
+          }
+          return;
+        }
+        const path = extractClickedPath(el);
         if (!path) return;
         event.preventDefault();
         event.stopPropagation();
@@ -2322,6 +2384,36 @@ window.__ModuleLoader__.load({
       // Intercept any openWorkspacePath RPC calls (connection is declared in inject)
       wrapConnectionRpc(ctx, openStore, sessionStore);
 
+      // Hook ctx.reflect.provide to intercept sidebarRight when registered
+      if (ctx.reflect && typeof ctx.reflect.provide === "function" && (wiredOpenPath === null || !wiredOpenPath.has(ctx.reflect))) {
+        wiredOpenPath.add(ctx.reflect);
+        const originalProvide = ctx.reflect.provide.bind(ctx.reflect);
+        ctx.reflect.provide = function(name, service, check) {
+          if (name === "sidebarRight" && service) {
+            wrapSidebarRight(service, openStore, sessionStore);
+          }
+          return originalProvide(name, service, check);
+        };
+      }
+
+      // Wrap sidebarRight if already registered
+      if (ctx.sidebarRight) {
+        wrapSidebarRight(ctx.sidebarRight, openStore, sessionStore);
+      }
+      if (typeof ctx.get === "function") {
+        const sr = ctx.get("sidebarRight");
+        if (sr) wrapSidebarRight(sr, openStore, sessionStore);
+      }
+      if (typeof ctx.inject === "function") {
+        try {
+          ctx.inject(["sidebarRight"], (srCtx) => {
+            if (srCtx && srCtx.sidebarRight) {
+              wrapSidebarRight(srCtx.sidebarRight, openStore, sessionStore);
+            }
+          });
+        } catch (_) {}
+      }
+
       if (typeof window !== "undefined") {
         const triggerOpen = (payload) => {
           const sid = (payload && payload.sessionId) || sessionStore.get();
@@ -2343,7 +2435,7 @@ window.__ModuleLoader__.load({
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
-      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, renderRootOptions,
+      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, renderRootOptions,
     };
     return module.exports;
   }

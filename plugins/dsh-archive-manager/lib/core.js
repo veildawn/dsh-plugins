@@ -190,7 +190,10 @@ export async function physicalDeleteSessions(ctx, scope, sessionIds, options, fs
   try {
     const persistence = getService(ctx, 'sessionPersistence')
     const listed = await persistence?.list?.() || []
-    for (const header of listed) headers.set(String(header.id), header)
+    for (const item of listed) {
+      const header = item?.header ?? item
+      if (header?.id) headers.set(String(header.id), header)
+    }
   } catch {
     // best-effort; live headers still resolve below
   }
@@ -307,7 +310,10 @@ export async function permanentPurgeSessions(ctx, scope, sessionIds, fsd = nodeF
   try {
     const persistence = getService(ctx, 'sessionPersistence')
     const listed = await persistence?.list?.() || []
-    for (const header of listed) headers.set(String(header.id), header)
+    for (const item of listed) {
+      const header = item?.header ?? item
+      if (header?.id) headers.set(String(header.id), header)
+    }
   } catch {}
 
   const sessionsService = getService(ctx, 'sessions')
@@ -401,18 +407,33 @@ function resolveSessionTitle(ctx, sessionId, liveSessions, headers) {
     const header = live?.header ?? headers.get(String(sessionId))
     if (header) {
       const cache = getService(ctx, 'sessionProjectionCache')
-      if (typeof cache?.cachedSnapshot === 'function') {
-        const snapshot = cache.cachedSnapshot(header, 0)
-        const title = snapshot?.values?.title
-        if (typeof title === 'string' && title) return title
+      if (cache) {
+        if (typeof cache.cachedSnapshot === 'function') {
+          const snapshot = cache.cachedSnapshot(header, 0)
+          const title = snapshot?.values?.title
+          if (typeof title === 'string' && title) return title
+        }
+        if (typeof cache.cachedPredecessorTitle === 'function') {
+          const snapshot = cache.cachedPredecessorTitle(header, 0)
+          const title = snapshot?.values?.title
+          if (typeof title === 'string' && title) return title
+        }
       }
     }
+    // Direct table lookup from sessionProjectionCache storage domain table if available
+    try {
+      const cache = getService(ctx, 'sessionProjectionCache')
+      const tableRecord = cache?.table?.get?.(String(sessionId))
+      const tableTitle = tableRecord?.rows?.title?.val
+      if (typeof tableTitle === 'string' && tableTitle) return tableTitle
+    } catch {}
+
     const cwd = header?.cwd
     if (cwd) return cwd.split(/[\\/]/).filter(Boolean).pop() || cwd
   } catch {
     // Fall through to fallback
   }
-  return `会话 ${String(sessionId).slice(0, 8)}`
+  return `会话 ${String(sessionId)}`
 }
 
 /**
@@ -432,7 +453,10 @@ export async function listSummaries(ctx, scope) {
   try {
     const persistence = getService(ctx, 'sessionPersistence')
     const listed = await persistence?.list?.() || []
-    for (const header of listed) headers.set(String(header.id), header)
+    for (const item of listed) {
+      const header = item?.header ?? item
+      if (header?.id) headers.set(String(header.id), header)
+    }
   } catch {
     // best-effort; live sessions still resolve below.
   }
@@ -472,7 +496,10 @@ export async function listDeleted(ctx, scope) {
   try {
     const persistence = getService(ctx, 'sessionPersistence')
     const listed = await persistence?.list?.() || []
-    for (const header of listed) headers.set(String(header.id), header)
+    for (const item of listed) {
+      const header = item?.header ?? item
+      if (header?.id) headers.set(String(header.id), header)
+    }
   } catch {
     // best-effort
   }

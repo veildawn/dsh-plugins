@@ -901,6 +901,52 @@ test('model selector and ordinary buttons are not treated as file-open controls'
     closest: (sel) => sel === '[data-produced-files-row]' ? {} : null,
   })
   assert.equal(internals.isFileOpenControl(producedButton), true)
+
+  const toolRowFileLink = fakeEl({
+    className: 'o3BgMG_fileLink',
+    textContent: 'lib/client.js',
+  })
+  assert.equal(internals.isFileOpenControl(toolRowFileLink), true)
+})
+
+test('wrapSidebarRight intercepts file addresses and routes them to openStore', () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value } } }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const { internals } = definition.factory((id) =>
+    id === 'react' ? { createElement: () => null } : { ReadBlock: null, MarkdownText: null, JsonTree: null })
+
+  const opened = []
+  const openStore = {
+    set: (val) => opened.push(val),
+  }
+  const sessionStore = {
+    get: () => 'sess-current',
+  }
+
+  let originalCalled = false
+  const fakeSidebarRight = {
+    openResource: (address, opts) => { originalCalled = true; },
+    openResourceIn: (sid, address, opts) => { originalCalled = true; },
+  }
+
+  internals.wrapSidebarRight(fakeSidebarRight, openStore, sessionStore)
+
+  // File address should be intercepted
+  fakeSidebarRight.openResource('dsh-resource://file/session/sess-1/src/test.js')
+  assert.equal(originalCalled, false)
+  assert.equal(opened.length, 1)
+  assert.equal(opened[0].filePath, 'src/test.js')
+  assert.equal(opened[0].sessionId, 'sess-1')
+
+  // Non-file address should pass through
+  fakeSidebarRight.openResource('dsh-resource://other/something')
+  assert.equal(originalCalled, true)
 })
 
 test('tree resizer supports dragging to adjust tree width and persists to storage', () => {

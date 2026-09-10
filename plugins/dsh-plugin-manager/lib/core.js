@@ -260,8 +260,10 @@ export function formatMonorepoReleases(githubReleases, repoOrigin = DEFAULT_REPO
 
     const existing = releaseMap.get(parsed.name)
     if (!existing || compareVersions(parsed.version, existing.version) > 0) {
-      // Find asset
-      const asset = (rel.assets || []).find((a) => a?.name?.endsWith('.tgz'))
+      // Find asset matching the exact parsed plugin name and version, or fallback to any matching name, or standard URL
+      const expectedFileName = `${parsed.name}-${parsed.version}.tgz`
+      const exactAsset = (rel.assets || []).find((a) => a?.name === expectedFileName)
+      const asset = exactAsset || (rel.assets || []).find((a) => a?.name?.startsWith(`${parsed.name}-`) && a?.name?.endsWith('.tgz')) || (rel.assets || []).find((a) => a?.name?.endsWith('.tgz'))
       const downloadUrl = asset?.browser_download_url || buildReleaseDownloadUrl(repoOrigin, parsed.name, parsed.version)
       releaseMap.set(parsed.name, {
         name: parsed.name,
@@ -588,12 +590,18 @@ export function safePackageName(name) {
  *   (github.com/<origin>/releases/download/<name>@v<version>/<name>-<version>.tgz)
  * - community plugins: must be a package name present in the community catalog
  */
-export function isAllowedRepoUrl(downloadUrl, repoOrigin) {
+export function isAllowedRepoUrl(downloadUrl, repoOrigin, mirrorUrl = '') {
   if (typeof downloadUrl !== 'string') return false
   const cleanRepo = String(repoOrigin).replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
   const prefix = `https://github.com/${cleanRepo}/releases/download/`
-  if (!downloadUrl.startsWith(prefix)) return false
-  const tail = downloadUrl.slice(prefix.length)
+
+  let unmirrored = downloadUrl
+  if (mirrorUrl && typeof mirrorUrl === 'string' && unmirrored.startsWith(mirrorUrl)) {
+    unmirrored = unmirrored.replace(mirrorUrl, 'https://github.com/')
+  }
+
+  if (!unmirrored.startsWith(prefix)) return false
+  const tail = unmirrored.slice(prefix.length)
   // <plugin>@v<version>/<plugin>-<version>.tgz — version may be URL-encoded (@ -> %40)
   const decoded = tail.includes('%40') ? tail.replace(/%40/g, '@') : tail
   const match = decoded.match(/^([a-z0-9-]+)@v(\d+\.\d+\.\d+)\/\1-(\d+\.\d+\.\d+)\.tgz$/i)

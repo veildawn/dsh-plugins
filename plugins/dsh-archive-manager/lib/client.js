@@ -109,11 +109,13 @@ window.__ModuleLoader__.load({
       .dam-card-item:last-child{margin-bottom:16px}
       .dam-card-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
 
-      /* 顶部行：勾选框 + 序号 + 标题 */
-      .dam-card-top{display:flex;align-items:flex-start;gap:6px;width:100%;min-width:0;box-sizing:border-box}
+      /* 顶部行：勾选框 + 序号 + 标题与ID容器 */
+      .dam-card-top{display:flex;align-items:flex-start;gap:8px;width:100%;min-width:0;box-sizing:border-box}
       .dam-card-checkbox{flex:none;width:18px;height:18px;margin-top:2px;accent-color:var(--dsw-alias-state-business-primary);cursor:pointer}
       .dam-card-index{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 4px;margin-top:1px;border-radius:4px;background:var(--dsw-alias-bg-layer-2, #e5e7eb);color:var(--dsw-alias-label-tertiary, #6b7280);font-size:11px;font-weight:600;line-height:1}
-      .dam-card-title{flex:1 1 auto;min-width:0;font-size:14px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+      .dam-card-title-wrap{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+      .dam-card-title{font-size:14px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary);word-break:break-word;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+      .dam-card-id{font-size:11px;font-family:var(--dsw-font-mono, monospace);color:var(--dsw-alias-label-tertiary, #8c8c8c);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
       /* 中间行：工作区标签与时间 */
       .dam-card-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--dsw-alias-label-secondary);width:100%;min-width:0;box-sizing:border-box;padding-left:26px}
@@ -275,6 +277,7 @@ window.__ModuleLoader__.load({
         if (!q) return list;
         return list.filter((item) =>
           (item.title && item.title.toLowerCase().includes(q)) ||
+          (item.id && String(item.id).toLowerCase().includes(q)) ||
           (item.workspaceTitle && item.workspaceTitle.toLowerCase().includes(q)) ||
           (item.cwd && item.cwd.toLowerCase().includes(q))
         );
@@ -424,7 +427,7 @@ window.__ModuleLoader__.load({
                           }
                         },
                       },
-                        // Row 1: Checkbox + Index + Title
+                        // Row 1: Checkbox + Index + Title & Session ID
                         react.createElement("div", { className: "dam-card-top" },
                           react.createElement("input", {
                             type: "checkbox",
@@ -435,7 +438,10 @@ window.__ModuleLoader__.load({
                             "aria-label": `选择第 ${itemIndex} 项会话`,
                           }),
                           react.createElement("span", { className: "dam-card-index", "aria-hidden": "true" }, itemIndex),
-                          react.createElement("div", { className: "dam-card-title", title: item.title }, item.title)
+                          react.createElement("div", { className: "dam-card-title-wrap" },
+                            react.createElement("div", { className: "dam-card-title", title: item.title }, item.title),
+                            react.createElement("div", { className: "dam-card-id", title: item.id }, item.id)
+                          )
                         ),
                         // Row 2: Workspace + Date
                         react.createElement("div", { className: "dam-card-meta" },

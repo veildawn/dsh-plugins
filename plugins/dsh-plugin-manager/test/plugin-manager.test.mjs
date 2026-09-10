@@ -738,6 +738,9 @@ describe('dsh-market install source allowlist', () => {
     assert.equal(isAllowedRepoUrl(url, 'veildawn/dsh-plugins'), true)
     // URL-encoded @ form is also accepted
     assert.equal(isAllowedRepoUrl(url.replace('@', '%40'), 'veildawn/dsh-plugins'), true)
+    // Mirror URL is accepted when mirrorUrl prefix is supplied
+    const mirror = 'https://gh-proxy.com/'
+    assert.equal(isAllowedRepoUrl(url.replace('https://github.com/', mirror), 'veildawn/dsh-plugins', mirror), true)
   })
 
   it('rejects foreign origins, wrong shapes and hand-crafted URLs', () => {

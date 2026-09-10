@@ -150,13 +150,14 @@ test('core: listSummaries joins persistence headers with workspace accounting an
   assert.equal(list[0].workspaceTitle, '未分组 (Ungrouped)');
 });
 
-test('core: listSummaries reads the real session title from live sessions and the title projection cache', async () => {
+test('core: listSummaries reads the real session title from live sessions, projection cache and snapshot headers', async () => {
   const registry = mockRegistry({
-    archivedSessionIds: ['s1', 's2', 's3'],
-    workspaces: [{ id: 'w1', title: 'Work', sessionIds: ['s1', 's2'] }],
+    archivedSessionIds: ['s1', 's2', 's3', 's4'],
+    workspaces: [{ id: 'w1', title: 'Work', sessionIds: ['s1', 's2', 's4'] }],
   });
   // s1 live with a folded title; s2 cold with a cached title projection;
-  // s3 cold without any title projection -> cwd basename fallback.
+  // s3 cold without any title projection -> cwd basename fallback;
+  // s4 returned from persistence.list() wrapped in snapshot object { header: { id, ... } }.
   const sessionTitle = {
     get: (session) => session.id === 's1' ? { title: '为 DSH 开发归档管理器' } : undefined,
   };
@@ -164,6 +165,10 @@ test('core: listSummaries reads the real session title from live sessions and th
     cachedSnapshot: (header, offset) => {
       assert.equal(typeof offset, 'number');
       if (String(header.id) === 's2') return { asOfSeq: 5, values: { title: '设计一个归档管理插件' } };
+      return undefined;
+    },
+    cachedPredecessorTitle: (header, offset) => {
+      if (String(header.id) === 's4') return { asOfSeq: -1, values: { title: '前置版本会话标题' } };
       return undefined;
     },
   };
@@ -174,6 +179,8 @@ test('core: listSummaries reads the real session title from live sessions and th
       { id: 's1', createdAt: 1000, cwd: '/work/a' },
       { id: 's2', createdAt: 2000, cwd: '/work/b' },
       { id: 's3', createdAt: 3000, cwd: '/work/c' },
+      // Wrapped in snapshot object as real dsh-session-persistence does
+      { header: { id: 's4', createdAt: 4000, cwd: '/work/d' }, revision: 'r1' },
     ],
     sessionTitle,
     projectionCache,
@@ -184,6 +191,7 @@ test('core: listSummaries reads the real session title from live sessions and th
   assert.equal(byId['s1'].title, '为 DSH 开发归档管理器'); // live title wins
   assert.equal(byId['s2'].title, '设计一个归档管理插件');   // projection cache title
   assert.equal(byId['s3'].title, 'c');                       // fallback: cwd basename
+  assert.equal(byId['s4'].title, '前置版本会话标题');       // predecessor title from snapshot header
 });
 
 test('core: listDeleted lists soft (still archived) and physical tombstones', async () => {

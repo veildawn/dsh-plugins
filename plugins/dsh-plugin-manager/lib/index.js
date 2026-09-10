@@ -578,7 +578,7 @@ async function resolveInstallSource(name, kind, resolved) {
     const catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
     const plugin = catalog.find((p) => p.name === name)
     if (!plugin) return { error: `仓库中不存在插件: ${name}` }
-    if (!isAllowedRepoUrl(plugin.downloadUrl, resolved.repoOrigin)) {
+    if (!isAllowedRepoUrl(plugin.downloadUrl, resolved.repoOrigin, resolved.mirrorUrl)) {
       return { error: `拒绝安装：来源不在白名单内（${plugin.downloadUrl}）` }
     }
     return { source: plugin.downloadUrl, kind: 'repo' }
