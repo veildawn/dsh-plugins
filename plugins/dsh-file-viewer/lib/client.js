@@ -433,6 +433,10 @@ window.__ModuleLoader__.load({
       /* Below the mobile-adapter breakpoint the drawer takes the full width and
          the two panes swap instead of sitting side by side. */
       @media(max-width:768px){
+        .fv-head{gap:4px!important;padding:8px 8px!important}
+        .fv-root-select{flex:1 1 90px!important;min-width:70px!important;max-width:none!important}
+        .fv-icon-button{width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none!important}
+        .fv-btn-close{flex:none!important;margin-left:auto!important}
         /* The narrow layout replaces the session header, so the header entry is
            unreachable there and this floating one takes over. It clears the
            composer and the safe area, and sits under the drawer's z-index.
@@ -2112,7 +2116,7 @@ window.__ModuleLoader__.load({
                 onClick: () => setFullscreen((current) => !current),
               }, react.createElement(SvgIconFullscreen, { size: 15, exit: Boolean(fullscreen) })),
               react.createElement("button", {
-                type: "button", className: "fv-icon-button", "aria-label": "关闭", onClick: () => openStore.set(null),
+                type: "button", className: "fv-icon-button fv-btn-close", "aria-label": "关闭", title: "关闭文件查看器", onClick: () => openStore.set(null),
               }, react.createElement(SvgIconClose, { size: 15 }))),
             react.createElement("div", { className: "fv-body", "data-pane": pane, "data-resizing": isResizing ? "true" : "false", "data-mobile": isMobile ? "true" : "false" },
               react.createElement(Tree, {

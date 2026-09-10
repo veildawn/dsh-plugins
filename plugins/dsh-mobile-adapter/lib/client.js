@@ -232,10 +232,11 @@ window.__ModuleLoader__.load({
            settles, and both edges respect the safe-area insets. */
         .fv-scrim{box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw!important;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff))!important;animation:none!important}
         .fv-shell{box-sizing:border-box;width:100vw!important;height:100%!important;max-width:none!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff))!important;animation:none!important}
-        .fv-head{box-sizing:border-box;flex:none;gap:6px!important;padding:calc(6px + var(--dsh-sat)) max(8px,var(--dsh-sar)) 6px max(8px,var(--dsh-sal))!important}
+        .fv-head{box-sizing:border-box;flex:none;gap:4px!important;padding:calc(6px + var(--dsh-sat)) max(8px,var(--dsh-sar)) 6px max(8px,var(--dsh-sal))!important;justify-content:space-between!important;min-width:0;width:100%!important;overflow:hidden!important}
         .fv-title{display:none!important}
-        .fv-root-select{flex:none;max-width:38vw!important}
-        .fv-icon-button{width:40px!important;height:40px!important;flex:none}
+        .fv-root-select{flex:1 1 90px!important;min-width:70px!important;max-width:none!important}
+        .fv-icon-button{width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none!important}
+        .fv-btn-close{flex:none!important;margin-left:auto!important}
         .fv-tree,.fv-content{padding-bottom:max(12px,var(--dsh-sab))!important;overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important}
         .fv-row{min-height:40px!important}
         .fv-pager{padding-bottom:max(8px,var(--dsh-sab))!important}

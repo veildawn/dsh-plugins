@@ -423,7 +423,7 @@ test('the drawer can be dismissed on a phone', () => {
   assert.match(source, /state\.fileViewer === true\) window\.history\.back\(\)/)
 
   // The close button stays in the head on every width.
-  assert.match(source, /"aria-label": "关闭", onClick: \(\) => openStore\.set\(null\)/)
+  assert.match(source, /"aria-label": "关闭",[^}]*onClick: \(\) => openStore\.set\(null\)/)
 })
 
 test('the entry reads clearly and precedes the session log download', () => {

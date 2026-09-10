@@ -693,9 +693,9 @@ test('the file viewer drawer is adapted for phones', () => {
   assert.match(css, /\.fv-head\{[^}]*var\(--dsh-sat\)[^}]*var\(--dsh-sal\)/)
   assert.match(css, /\.fv-tree,\.fv-content\{[^}]*var\(--dsh-sab\)/)
 
-  // Touch targets reach 40px, and the slide-in is dropped since the drawer is
+  // Touch targets reach 32px or 40px, and the slide-in is dropped since the drawer is
   // full-screen here.
-  assert.match(css, /\.fv-icon-button\{[^}]*width:40px!important;height:40px!important/)
+  assert.match(css, /\.fv-icon-button\{[^}]*width:(?:32px|40px)!important;height:(?:32px|40px)!important/)
   assert.match(css, /\.fv-row\{min-height:40px!important\}/)
   assert.match(css, /\.fv-shell\{[^}]*animation:none!important/)
 
