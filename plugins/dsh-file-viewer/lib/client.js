@@ -2384,25 +2384,15 @@ window.__ModuleLoader__.load({
       // Intercept any openWorkspacePath RPC calls (connection is declared in inject)
       wrapConnectionRpc(ctx, openStore, sessionStore);
 
-      // Hook ctx.reflect.provide to intercept sidebarRight when registered
-      if (ctx.reflect && typeof ctx.reflect.provide === "function" && (wiredOpenPath === null || !wiredOpenPath.has(ctx.reflect))) {
-        wiredOpenPath.add(ctx.reflect);
-        const originalProvide = ctx.reflect.provide.bind(ctx.reflect);
-        ctx.reflect.provide = function(name, service, check) {
-          if (name === "sidebarRight" && service) {
-            wrapSidebarRight(service, openStore, sessionStore);
-          }
-          return originalProvide(name, service, check);
-        };
-      }
-
-      // Wrap sidebarRight if already registered
+      // Wrap sidebarRight if already registered or whenever injected
       if (ctx.sidebarRight) {
         wrapSidebarRight(ctx.sidebarRight, openStore, sessionStore);
       }
       if (typeof ctx.get === "function") {
-        const sr = ctx.get("sidebarRight");
-        if (sr) wrapSidebarRight(sr, openStore, sessionStore);
+        try {
+          const sr = ctx.get("sidebarRight", false);
+          if (sr) wrapSidebarRight(sr, openStore, sessionStore);
+        } catch (_) {}
       }
       if (typeof ctx.inject === "function") {
         try {
