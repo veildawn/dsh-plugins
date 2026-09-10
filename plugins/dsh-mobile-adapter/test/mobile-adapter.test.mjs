@@ -434,7 +434,7 @@ test('Mobile dialogs and in-place menus stay usable without overwriting portal c
   assert.match(css, /\._3e4SsG_menu\{position:absolute!important;bottom:calc\(100% \+ 4px\)!important;left:0!important;right:auto!important;width:min\(320px,calc\(100vw - 24px\)\)!important\}/)
   assert.match(css, /\._3e4SsG_item\{[^}]*min-height:44px!important;padding:8px 12px!important\}/)
   assert.match(css, /\._3e4SsG_itemName\{max-width:50%!important;[^}]*text-overflow:ellipsis!important;white-space:nowrap!important\}/)
-  assert.match(css, /\._7KE1Ra_menu\{position:absolute!important;bottom:calc\(100% \+ 8px\)!important;right:-80px!important;left:auto!important;width:min\(280px,calc\(100vw - 32px\)\)!important;max-width:calc\(100vw - 32px\)!important\}/)
+  assert.match(css, /\._7KE1Ra_menu\{position:fixed!important;[^}]*right:12px!important;[^}]*z-index:1400!important\}/)
   assert.match(css, /\._7KE1Ra_option,\._7KE1Ra_cell\{[^}]*width:100%!important;min-width:0!important\}/)
   assert.match(css, /\._7KE1Ra_modelName,\._7KE1Ra_description,\._7KE1Ra_cellLabel,\._7KE1Ra_cellValue\{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important\}/)
   assert.doesNotMatch(css, /\[role="dialog"\]\[aria-modal="true"\]:(?:has\(>nav\)|not\(:has\(>nav\)\))\{/)
@@ -647,8 +647,9 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   assert.equal(uploadBtn.title, '添加附件')
 
   const infoEl = f.doc.composer.children.find((node) => node.className === 'dsh-mobile-composer-info')
-  assert(infoEl, 'composer info element should be rendered below card in mobile mode')
+  assert(infoEl, 'composer info element should be rendered above card in mobile mode')
   assert.equal(infoEl.textContent, 'antigravity/gemini-3-flash · High')
+  assert.equal(f.doc.composer.children.indexOf(infoEl) < f.doc.composer.children.indexOf(f.doc.card), true)
 
   const fileInput = f.doc.body.children.find((node) => node.tagName === 'INPUT' && node.type === 'file')
   assert(fileInput, 'hidden file input should be present in document body')

@@ -146,7 +146,7 @@ window.__ModuleLoader__.load({
         ._7KE1Ra_root{flex:none!important;width:32px!important;max-width:32px!important;min-width:32px!important}
         ._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon{display:none!important}
         ._7KE1Ra_trigger::before{content:"";width:16px;height:16px;display:block;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat}
-        .dsh-mobile-composer-info{box-sizing:border-box;width:100%;padding:4px 12px 2px;font-size:11px;line-height:14px;color:var(--dsw-alias-label-tertiary);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.2px}
+        .dsh-mobile-composer-info{box-sizing:border-box;width:100%;padding:2px 12px 4px;font-size:11px;line-height:14px;color:var(--dsw-alias-label-tertiary);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.2px}
         .dsh-mobile-tools-backdrop:not([hidden]){display:block;position:fixed;inset:0;z-index:1340;background:transparent}
         /* 这条规则必须压过上面的 [role="menu"]{z-index:1300!important}：
            本菜单也带 role="menu"，被那条 !important 压到 1300 后会低于自己的
@@ -211,7 +211,7 @@ window.__ModuleLoader__.load({
         ._3e4SsG_menu{position:absolute!important;bottom:calc(100% + 4px)!important;left:0!important;right:auto!important;width:min(320px,calc(100vw - 24px))!important}
         ._3e4SsG_item{box-sizing:border-box;min-height:44px!important;padding:8px 12px!important}
         ._3e4SsG_itemName{max-width:50%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-        ._7KE1Ra_menu{position:absolute!important;bottom:calc(100% + 8px)!important;right:-80px!important;left:auto!important;width:min(280px,calc(100vw - 32px))!important;max-width:calc(100vw - 32px)!important}
+        ._7KE1Ra_menu{position:fixed!important;top:auto!important;bottom:calc(64px + var(--dsh-keyboard-inset,0px) + var(--dsh-sab,0px))!important;right:12px!important;left:auto!important;width:min(280px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important;max-height:min(360px,calc(var(--dsh-vvh,100dvh) - 140px))!important;z-index:1400!important}
         ._7KE1Ra_option,._7KE1Ra_cell{box-sizing:border-box!important;width:100%!important;min-width:0!important}
         ._7KE1Ra_modelName,._7KE1Ra_description,._7KE1Ra_cellLabel,._7KE1Ra_cellValue{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
         ._7KE1Ra_cell{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:6px!important;max-width:100%!important;overflow:hidden!important}
@@ -661,9 +661,9 @@ window.__ModuleLoader__.load({
           if (cardEl && modelName) {
             const nextInfo = effort ? `${modelName} · ${effort}` : modelName
             if (infoEl.textContent !== nextInfo) infoEl.textContent = nextInfo
-            if (cardEl.nextSibling !== infoEl) {
-              if (typeof cardEl.after === 'function') cardEl.after(infoEl)
-              else if (cardEl.parentElement) cardEl.parentElement.append(infoEl)
+            if (cardEl.previousSibling !== infoEl) {
+              if (typeof cardEl.before === 'function') cardEl.before(infoEl)
+              else if (cardEl.parentElement) cardEl.parentElement.prepend(infoEl)
             }
           } else {
             infoEl.remove()
