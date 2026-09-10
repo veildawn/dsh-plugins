@@ -643,7 +643,8 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
 
   const uploadBtn = f.doc.tools.children.find((node) => node.className === 'dsh-mobile-upload-btn')
   assert(uploadBtn, 'upload button should be prepended into composer tools in mobile mode')
-  assert.equal(uploadBtn.getAttribute('aria-label'), '上传图片')
+  assert.equal(uploadBtn.getAttribute('aria-label'), '添加附件')
+  assert.equal(uploadBtn.title, '添加附件')
 
   const infoEl = f.doc.composer.children.find((node) => node.className === 'dsh-mobile-composer-info')
   assert(infoEl, 'composer info element should be rendered below card in mobile mode')
@@ -651,7 +652,6 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
 
   const fileInput = f.doc.body.children.find((node) => node.tagName === 'INPUT' && node.type === 'file')
   assert(fileInput, 'hidden file input should be present in document body')
-  assert.equal(fileInput.accept, 'image/*')
 
   let fileInputClicked = false
   fileInput.click = () => { fileInputClicked = true }

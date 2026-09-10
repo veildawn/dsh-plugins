@@ -389,7 +389,6 @@ window.__ModuleLoader__.load({
 
       const fileInput = doc.createElement('input')
       fileInput.type = 'file'
-      fileInput.accept = 'image/*'
       fileInput.multiple = true
       fileInput.style.display = 'none'
       fileInput.setAttribute('aria-hidden', 'true')
@@ -397,8 +396,8 @@ window.__ModuleLoader__.load({
       const uploadBtn = doc.createElement('button')
       uploadBtn.type = 'button'
       uploadBtn.className = 'dsh-mobile-upload-btn'
-      uploadBtn.setAttribute('aria-label', '上传图片')
-      uploadBtn.title = '上传图片'
+      uploadBtn.setAttribute('aria-label', '添加附件')
+      uploadBtn.title = '添加附件'
       uploadBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5.5498 9.75V5H6.9502V9.75C6.9502 10.3299 7.4201 10.7998 8 10.7998C8.5799 10.7998 9.0498 10.3299 9.0498 9.75V4.5C9.0498 2.9536 7.7964 1.7002 6.25 1.7002C4.7036 1.7002 3.4502 2.9536 3.4502 4.5V9.75C3.4502 12.2629 5.4871 14.2998 8 14.2998C10.5129 14.2998 12.5498 12.2629 12.5498 9.75V4H13.9502V9.75C13.9502 13.0361 11.2861 15.7002 8 15.7002C4.71391 15.7002 2.0498 13.0361 2.0498 9.75V4.5C2.04981 2.1804 3.9304 0.299806 6.25 0.299805C8.5696 0.299805 10.4502 2.1804 10.4502 4.5V9.75C10.4502 11.1031 9.3531 12.2002 8 12.2002C6.6469 12.2002 5.5498 11.1031 5.5498 9.75Z" fill="currentColor"/></svg>'
 
       const infoEl = doc.createElement('div')
@@ -420,7 +419,12 @@ window.__ModuleLoader__.load({
       }
 
       uploadBtn.addEventListener('click', () => {
-        fileInput.click()
+        const nativeFileInput = doc.querySelector('[data-composer-card] input[type="file"]')
+        if (nativeFileInput && nativeFileInput !== fileInput) {
+          nativeFileInput.click()
+        } else {
+          fileInput.click()
+        }
       })
 
       fileInput.addEventListener('change', () => {
