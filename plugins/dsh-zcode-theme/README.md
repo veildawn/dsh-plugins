@@ -6,7 +6,7 @@ DeepSeek Harness (DSH) Web 的 ZCode Design System。以官方 ZCode 桌面端�
 
 ## 视觉要点
 
-- 深炭灰画布 `#1A1A1A`，禁止纯黑与 GitHub Dark 蓝黑
+- 深炭灰画布 `#1A1A1A`，浅色画布 `#F7F7F5`；跟随宿主 Appearance 的 light / dark / system
 - 暖橙红品牌色 `#E85D3A`，只用于主操作 / 选中 / Focus
 - 低对比 Surface 层级、Hairline 边框、大圆角
 - Active 使用 Module 抬升 + 左侧 3px 品牌指示条

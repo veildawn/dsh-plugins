@@ -21,7 +21,7 @@ test('Host 给 html 打上主题 Scope 并注入 CSS', () => {
   const patched = patchIndex(html)
   assert.match(patched, new RegExp(`<html ${THEME_ATTR}="${THEME_SCOPE}"`))
   assert.match(patched, new RegExp(`<style id="${STYLE_ID}">`))
-  assert.match(patched, /--dsw-alias-bg-base:\s*#1A1A1A/)
+  assert.match(patched, /--dsw-alias-bg-base:\s*light-dark\(#F7F7F5, #1A1A1A\)/)
   assert.match(patched, /--dsw-alias-brand-primary:\s*#E85D3A/)
 })
 
@@ -30,7 +30,7 @@ test('Host 幂等替换已有主题标签与属性', () => {
   const patched = patchIndex(html)
   assert.match(patched, new RegExp(`${THEME_ATTR}="${THEME_SCOPE}"`))
   assert.equal(patched.includes('__stale_theme__'), false)
-  assert.match(patched, /--dsw-alias-bg-base:\s*#1A1A1A/)
+  assert.match(patched, /--dsw-alias-bg-base:\s*light-dark\(#F7F7F5, #1A1A1A\)/)
   assert.equal(patched.split(`id="${STYLE_ID}"`).length - 1, 1)
 })
 
@@ -49,7 +49,7 @@ test('Client 注入 theme 服务，Token 映射与宿主一致', () => {
   assert.deepEqual(client.inject, ['theme'])
   assert.deepEqual(client.internals.HOST_TOKEN_MAP, HOST_TOKEN_MAP)
   for (const name of REQUIRED_HOST_TOKENS) {
-    assert.equal(client.internals.HOST_TOKEN_MAP[name], HOST_TOKEN_MAP[name])
+    assert.deepEqual(client.internals.HOST_TOKEN_MAP[name], HOST_TOKEN_MAP[name])
   }
 })
 
@@ -120,6 +120,7 @@ test('规范目录结构齐全', async () => {
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   assert.equal(manifest.name, 'dsh-zcode-theme')
   assert.ok(manifest.files.includes('lib/styles'))
-  assert.ok(STYLE_FILES.includes('tokens.css'))
+  assert.equal(STYLE_FILES.includes('tokens.css'), false)
   assert.ok(STYLE_FILES.includes('motion.css'))
+  assert.ok(STYLE_FILES.includes('reset.css'))
 })

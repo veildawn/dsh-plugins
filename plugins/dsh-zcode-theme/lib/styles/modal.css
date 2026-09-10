@@ -1,8 +1,8 @@
 /* Desktop Modal / 浮层。Bottom Sheet 位置由 dsh-mobile-adapter 负责。 */
 [data-dsh-theme="zcode"] [role="dialog"][aria-modal="true"],
 [data-dsh-theme="zcode"] .ZuhsRW_dialog {
-  background: #262626;
-  border: 1px solid rgba(255,255,255,0.12);
+  background: var(--dsw-alias-bg-layer-2);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 20px;
   box-shadow: var(--dsw-shadow-lv3);
 }
@@ -23,12 +23,12 @@
 
 [data-dsh-theme="zcode"] [class*="sheet"],
 [data-dsh-theme="zcode"] [class*="Sheet"] {
-  background: #222222;
-  border-color: rgba(255,255,255,0.12);
+  background: var(--dsw-specific-sidebar-fill);
+  border-color: var(--dsw-alias-border-l2);
 }
 
 [data-dsh-theme="zcode"] [class*="sheet"] [class*="handle"],
 [data-dsh-theme="zcode"] [class*="Sheet"] [class*="Handle"] {
-  background: #444444;
+  background: var(--zcode-handle);
   border-radius: 999px;
 }

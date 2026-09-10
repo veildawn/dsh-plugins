@@ -1,22 +1,22 @@
 /* Primary / Secondary / Ghost 按钮。 */
 [data-dsh-theme="zcode"] button[data-variant="primary"] {
-  background: #E85D3A;
+  background: var(--dsw-alias-button-primary-fill);
   color: #FFFFFF;
   border-radius: 12px;
 }
 
 [data-dsh-theme="zcode"] button[data-variant="primary"]:hover {
-  background: #F06A48;
+  background: var(--dsw-alias-button-primary-hover);
 }
 
 [data-dsh-theme="zcode"] button[data-variant="primary"]:active {
-  background: #D14F2E;
+  background: var(--dsw-alias-button-primary-dimmed);
 }
 
 [data-dsh-theme="zcode"] button[data-variant="secondary"] {
-  background: #2A2A2A;
+  background: var(--dsw-alias-bg-module-platform);
   border: 1px solid var(--dsw-alias-border-l1);
-  color: #F2F2F2;
+  color: var(--dsw-alias-label-primary);
   border-radius: 12px;
 }
 

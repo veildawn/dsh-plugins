@@ -1,6 +1,6 @@
-/* 主题作用域：避免污染未启用 ZCode 的页面。 */
+/* 主题作用域：避免污染未启用 ZCode 的页面。color-scheme 跟随宿主 light/dark。 */
 [data-dsh-theme="zcode"] {
-  color-scheme: dark;
+  color-scheme: light dark;
 }
 
 [data-dsh-theme="zcode"],

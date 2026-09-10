@@ -1,26 +1,26 @@
 /* Composer 输入卡与发送按钮。移动端 44px 触控区由 dsh-mobile-adapter 负责。 */
 [data-dsh-theme="zcode"] [data-composer-card],
 [data-dsh-theme="zcode"] .uV2eYG_card {
-  background: #2A2A2A;
-  border: 1px solid rgba(255,255,255,0.10);
+  background: var(--dsw-specific-input-major);
+  border: 1px solid var(--zcode-border-input);
   border-radius: 14px;
-  color: #F2F2F2;
+  color: var(--dsw-alias-label-primary);
 }
 
 [data-dsh-theme="zcode"] [data-composer-card]:focus-within,
 [data-dsh-theme="zcode"] .uV2eYG_card:focus-within {
-  border-color: rgba(255,255,255,0.16);
+  border-color: var(--dsw-alias-border-l2);
   box-shadow: none;
 }
 
 [data-dsh-theme="zcode"] [data-composer-card] textarea,
 [data-dsh-theme="zcode"] .uV2eYG_input {
-  color: #F2F2F2;
+  color: var(--dsw-alias-label-primary);
 }
 
 [data-dsh-theme="zcode"] [data-composer-card] textarea::placeholder,
 [data-dsh-theme="zcode"] .uV2eYG_placeholder {
-  color: #737373;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 [data-dsh-theme="zcode"] .uV2eYG_primary {
@@ -30,18 +30,18 @@
   min-height: 32px;
   border: none;
   border-radius: 50%;
-  background: #F2F2F2;
-  color: #1A1A1A;
+  background: var(--dsw-alias-button-info-fill);
+  color: var(--dsw-alias-bg-base);
 }
 
 [data-dsh-theme="zcode"] .uV2eYG_primary:hover {
-  background: #FFFFFF;
-  color: #1A1A1A;
+  background: var(--dsw-alias-button-info-hover);
+  color: var(--dsw-alias-bg-base);
 }
 
 [data-dsh-theme="zcode"] .uV2eYG_primary:active {
-  background: #E5E5E5;
-  color: #1A1A1A;
+  background: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-bg-base);
   transform: scale(0.95);
 }
 
@@ -54,7 +54,7 @@
 
 [data-dsh-theme="zcode"] .uV2eYG_add {
   background: transparent;
-  color: #A3A3A3;
+  color: var(--dsw-alias-label-secondary);
   width: 28px;
   height: 28px;
   border-radius: 8px;
@@ -64,8 +64,8 @@
 }
 
 [data-dsh-theme="zcode"] .uV2eYG_add:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  color: #F2F2F2;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
 }
 
 /* 权限模式选择器 (Sh0Q9G_trigger) */
@@ -74,7 +74,7 @@
   padding: 0 8px;
   border-radius: 8px;
   background: transparent;
-  color: #A3A3A3;
+  color: var(--dsw-alias-label-secondary);
   font-size: 13px;
   border: none;
   display: inline-flex;
@@ -83,21 +83,21 @@
 }
 
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* 下拉箭头始终保持低调暗灰，分离主图标与文字高亮 */
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger .Sh0Q9G_chevron {
-  color: #737373;
+  color: var(--dsw-alias-label-tertiary);
 }
 
-/* 1. 仅可查看 (read-only)：安全绿高亮 (#5A9A6A) */
+/* 1. 仅可查看 (read-only)：安全绿高亮 */
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M12.1654"]),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="仅可查看"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="只读"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Read Only" i],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"] {
-  color: #5A9A6A;
+  color: var(--zcode-success);
 }
 
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M12.1654"]):hover:not(:disabled),
@@ -105,17 +105,17 @@
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="只读"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Read Only" i]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"]:hover:not(:disabled) {
-  background: rgba(90, 154, 106, 0.12);
-  color: #6EB580;
+  background: color-mix(in srgb, var(--zcode-success) 12%, transparent);
+  color: var(--zcode-success);
 }
 
-/* 2. 工作区内修改 (workspace-write)：ZCode 品牌橙红高亮 (#E85D3A) */
+/* 2. 工作区内修改 (workspace-write)：ZCode 品牌橙红高亮 */
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M11.3525"]),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区内修改"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区写入"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Workspace Write" i],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"] {
-  color: #E85D3A;
+  color: var(--dsw-alias-brand-primary);
 }
 
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M11.3525"]):hover:not(:disabled),
@@ -123,8 +123,8 @@
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区写入"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Workspace Write" i]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"]:hover:not(:disabled) {
-  background: rgba(232, 93, 58, 0.12);
-  color: #F06A48;
+  background: var(--dsw-alias-brand-subtle);
+  color: var(--dsw-alias-button-primary-hover);
 }
 
 /* 3. 完全权限 (danger-full-access)：暖橙色高亮 (#FF8A30) */
@@ -157,7 +157,7 @@
   padding: 0 10px;
   border-radius: 8px;
   background: transparent;
-  color: #A3A3A3;
+  color: var(--dsw-alias-label-secondary);
   font-size: 13px;
   font-weight: 400;
   border: none;
@@ -167,21 +167,21 @@
 }
 
 [data-dsh-theme="zcode"] ._7KE1Ra_trigger:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  color: #F2F2F2;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
 }
 
 [data-dsh-theme="zcode"] ._7KE1Ra_triggerEffort {
-  color: #737373;
+  color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   padding-left: 2px;
 }
 
 [data-dsh-theme="zcode"] .JObwrW_trigger {
-  color: #737373;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 [data-dsh-theme="zcode"] .JObwrW_trigger:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #F2F2F2;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
 }

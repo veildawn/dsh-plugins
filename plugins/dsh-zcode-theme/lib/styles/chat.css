@@ -8,14 +8,14 @@
 [data-dsh-theme="zcode"] .EvIC1a_scroll,
 [data-dsh-theme="zcode"] .EvIC1a_column,
 [data-dsh-theme="zcode"] [data-chat-flow] {
-  background: #1A1A1A;
+  background: var(--dsw-alias-bg-base);
   border-radius: 0;
   box-shadow: none;
 }
 
 /* Chat：用户气泡为 Module Surface，AI 消息融入画布。 */
 [data-dsh-theme="zcode"] .Sixlwa_bubble {
-  background: #2A2A2A;
+  background: var(--dsw-specific-bubble);
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 16px;
   color: var(--dsw-alias-label-primary);
@@ -35,14 +35,14 @@
 /* 思考 / 探索：无底灰字，不要背景框。 */
 [data-dsh-theme="zcode"] .EvIC1a_turnStatus {
   background: none;
-  color: #A3A3A3;
-  -webkit-text-fill-color: #A3A3A3;
+  color: var(--dsw-alias-label-secondary);
+  -webkit-text-fill-color: var(--dsw-alias-label-secondary);
   animation: none;
 }
 
 [data-dsh-theme="zcode"] .EvIC1a_turnStatusClock {
-  color: #737373;
-  -webkit-text-fill-color: #737373;
+  color: var(--dsw-alias-label-tertiary);
+  -webkit-text-fill-color: var(--dsw-alias-label-tertiary);
 }
 
 [data-dsh-theme="zcode"] .lcKema_root,
@@ -65,22 +65,22 @@
 [data-dsh-theme="zcode"] [class*="_errorSummary"],
 [data-dsh-theme="zcode"] [class*="_turnError"],
 [data-dsh-theme="zcode"] [class*="_requestError"] {
-  color: #A3A3A3; /* 对齐 ZCode 文本，次级灰，不使用亮蓝，不使用红 */
+  color: var(--dsw-alias-label-secondary);
 }
 
 [data-dsh-theme="zcode"] .CY-8Ka_title,
 [data-dsh-theme="zcode"] .o3BgMG_title,
 [data-dsh-theme="zcode"] ._5OnbHa_title {
-  color: #F2F2F2;
+  color: var(--dsw-alias-label-primary);
 }
 
 [data-dsh-theme="zcode"] .CY-8Ka_ioText[data-error] {
-  color: #A3A3A3;
+  color: var(--dsw-alias-label-secondary);
 }
 
 [data-dsh-theme="zcode"] .CY-8Ka_card,
 [data-dsh-theme="zcode"] .o3BgMG_root {
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--dsw-alias-border-l1);
   background: transparent;
 }
 
@@ -100,7 +100,7 @@
 
 [data-dsh-theme="zcode"] [data-chat-flow] strong,
 [data-dsh-theme="zcode"] [data-chat-flow] b {
-  color: #F8FAFC;
+  color: var(--zcode-text-strong);
   font-weight: 600;
 }
 
@@ -109,26 +109,26 @@
   margin: 1em 0;
   border-collapse: separate;
   border-spacing: 0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 8px;
   overflow: hidden;
 }
 
 [data-dsh-theme="zcode"] [data-chat-flow] th {
-  background: rgba(255, 255, 255, 0.03);
-  color: #A3A3A3;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
   font-size: 13px;
   font-weight: 500;
   padding: 8px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
   text-align: left;
 }
 
 [data-dsh-theme="zcode"] [data-chat-flow] td {
-  color: #D4D4D4;
+  color: var(--zcode-text-body);
   font-size: 14px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
 }
 
 [data-dsh-theme="zcode"] [data-chat-flow] tr:last-child td {

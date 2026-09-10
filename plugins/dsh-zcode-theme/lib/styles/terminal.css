@@ -2,23 +2,23 @@
 [data-dsh-theme="zcode"] .CY-8Ka_terminal,
 [data-dsh-theme="zcode"] .CY-8Ka_ioCard,
 [data-dsh-theme="zcode"] [class*="_terminal"] {
-  background: #161616;
+  background: var(--dsw-alias-markdown-code-block);
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 12px;
 }
 
 [data-dsh-theme="zcode"] .CY-8Ka_ioLabel,
 [data-dsh-theme="zcode"] [class*="_terminal"] [class*="_meta"] {
-  color: #737373;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 [data-dsh-theme="zcode"] [data-state="success"],
 [data-dsh-theme="zcode"] [class*="_success"] {
-  color: #5A9A6A;
+  color: var(--zcode-success);
 }
 
 [data-dsh-theme="zcode"] [data-state="error"],
 [data-dsh-theme="zcode"] [data-error],
 [data-dsh-theme="zcode"] [class*="_error"] {
-  color: #C45C5C;
+  color: var(--zcode-error);
 }

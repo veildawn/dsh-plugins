@@ -1,16 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import {
   HOST_TOKEN_MAP,
   REQUIRED_HOST_TOKENS,
   hostTokenOverrides,
+  lightDark,
+  tokensCss,
+  zcodeLightTokens,
   zcodeTokens,
 } from '../lib/tokens.js'
-
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 test('ZCode Token 色值符合设计规范', () => {
   const { color, radius, touch } = zcodeTokens
@@ -40,29 +38,42 @@ test('ZCode Token 色值符合设计规范', () => {
   assert.equal(touch.min, '44px')
 })
 
+test('浅色 Token 与暗色成对且背景/文字反转', () => {
+  const dark = zcodeTokens.color
+  const light = zcodeLightTokens.color
+  assert.equal(light.brand, dark.brand)
+  assert.equal(light.bgBase, '#F7F7F5')
+  assert.equal(light.textPrimary, '#1A1A1A')
+  assert.equal(light.borderL1, 'rgba(0,0,0,0.08)')
+  assert.notEqual(light.bgBase, dark.bgBase)
+  assert.notEqual(light.textPrimary, dark.textPrimary)
+})
+
 test('规范要求的宿主 Token 全部存在且映射到 ZCode 色值', () => {
   for (const name of REQUIRED_HOST_TOKENS) {
-    assert.equal(typeof HOST_TOKEN_MAP[name], 'string', `缺少 ${name}`)
-    assert.notEqual(HOST_TOKEN_MAP[name], '')
+    assert.equal(typeof HOST_TOKEN_MAP[name]?.dark, 'string', `缺少 ${name}`)
+    assert.equal(typeof HOST_TOKEN_MAP[name]?.light, 'string', `缺少 ${name}.light`)
   }
-  assert.equal(HOST_TOKEN_MAP['--dsw-alias-bg-base'], zcodeTokens.color.bgBase)
-  assert.equal(HOST_TOKEN_MAP['--dsw-specific-sidebar-fill'], zcodeTokens.color.bgLayer1)
-  assert.equal(HOST_TOKEN_MAP['--dsw-alias-brand-primary'], zcodeTokens.color.brand)
-  assert.equal(HOST_TOKEN_MAP['--dsw-alias-button-primary-fill'], zcodeTokens.color.brand)
-  assert.equal(HOST_TOKEN_MAP['--dsw-alias-brand-subtle'], zcodeTokens.color.brandSubtle)
+  assert.equal(HOST_TOKEN_MAP['--dsw-alias-bg-base'].dark, zcodeTokens.color.bgBase)
+  assert.equal(HOST_TOKEN_MAP['--dsw-alias-bg-base'].light, zcodeLightTokens.color.bgBase)
+  assert.equal(HOST_TOKEN_MAP['--dsw-specific-sidebar-fill'].dark, zcodeTokens.color.bgLayer1)
+  assert.equal(HOST_TOKEN_MAP['--dsw-alias-brand-primary'].dark, zcodeTokens.color.brand)
+  assert.equal(HOST_TOKEN_MAP['--dsw-alias-button-primary-fill'].dark, zcodeTokens.color.brand)
+  assert.equal(HOST_TOKEN_MAP['--dsw-alias-brand-subtle'].dark, zcodeTokens.color.brandSubtle)
 })
 
 test('overrideTokens 为每个 Token 提供 light/dark 成对值', () => {
   const overrides = hostTokenOverrides()
   for (const name of REQUIRED_HOST_TOKENS) {
-    assert.equal(overrides[name].light, HOST_TOKEN_MAP[name])
-    assert.equal(overrides[name].dark, HOST_TOKEN_MAP[name])
+    assert.equal(overrides[name].light, HOST_TOKEN_MAP[name].light)
+    assert.equal(overrides[name].dark, HOST_TOKEN_MAP[name].dark)
   }
 })
 
-test('tokens.css 与 HOST_TOKEN_MAP 一致', async () => {
-  const css = await readFile(join(root, 'lib/styles/tokens.css'), 'utf8')
-  for (const [name, value] of Object.entries(HOST_TOKEN_MAP)) {
-    assert.match(css, new RegExp(`${name}:\\s*${value.replace(/[()]/g, '\\$&')}`), `${name} 未写入 tokens.css`)
+test('生成的 Token CSS 用 light-dark 覆盖宿主变量', () => {
+  const css = tokensCss()
+  for (const [name, modes] of Object.entries(HOST_TOKEN_MAP)) {
+    const value = lightDark(modes.light, modes.dark).replace(/[()]/g, '\\$&')
+    assert.match(css, new RegExp(`${name}:\\s*${value}`), `${name} 未写入 tokensCss`)
   }
 })

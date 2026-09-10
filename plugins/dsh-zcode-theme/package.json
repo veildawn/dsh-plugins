@@ -1,6 +1,6 @@
 {
   "name": "dsh-zcode-theme",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "ZCode Design System for DeepSeek Harness Web: charcoal surfaces, warm vermilion brand, shared Desktop/Tablet/Mobile visual tokens",
   "type": "module",
   "main": "lib/index.js",

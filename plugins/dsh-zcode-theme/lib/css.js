@@ -4,10 +4,10 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tokensCss } from './tokens.js'
 
 export const STYLE_FILES = [
   'reset.css',
-  'tokens.css',
   'surfaces.css',
   'typography.css',
   'navigation.css',
@@ -27,8 +27,9 @@ export function stylesDir() {
   return join(dirname(fileURLToPath(import.meta.url)), 'styles')
 }
 
-/** 按规范目录顺序拼接全部主题 CSS。 */
+/** 按规范目录顺序拼接全部主题 CSS。Token 由 tokens.js 生成。 */
 export function loadThemeCss() {
   const dir = stylesDir()
-  return STYLE_FILES.map((name) => readFileSync(join(dir, name), 'utf8')).join('\n')
+  const files = STYLE_FILES.map((name) => readFileSync(join(dir, name), 'utf8'))
+  return [tokensCss(), ...files].join('\n')
 }
