@@ -281,7 +281,10 @@ window.__ModuleLoader__.load({
       .dm-card-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:4px;border-top:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.05))}
       .dm-card-meta-text{font-size:11px;color:var(--dsw-alias-label-tertiary,#656d76);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .dm-card-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
-      .dm-feedback{padding:8px 12px;border-radius:8px;font-size:12px;line-height:18px;display:flex;align-items:center;gap:6px}.dm-feedback.ok{background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));color:var(--dsw-alias-label-primary,#1f2328);border:1px solid var(--dsw-alias-border-l1,#e1e4e8)}.dm-feedback.error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
+      .dm-feedback{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:2147483647;padding:9px 18px;border-radius:20px;font-size:13px;line-height:20px;display:flex;align-items:center;gap:8px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.15));pointer-events:none;animation:dm-toast-in .15s cubic-bezier(.16,1,.3,1)}
+      @keyframes dm-toast-in{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+      .dm-feedback.ok{background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));color:var(--dsw-alias-label-primary,#1f2328);border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de))}
+      .dm-feedback.error{background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));color:var(--dsw-alias-state-error-primary,#d84848);border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 35%,transparent)}
       .dm-empty{padding:28px 16px;text-align:center;color:var(--dsw-alias-label-tertiary,#656d76);font-size:13px}
       .dm-install-box{border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa))}
       .dm-install-head{padding:8px 12px;font-size:12px;font-weight:600;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -392,6 +395,7 @@ window.__ModuleLoader__.load({
         const [config, setConfig] = react.useState(null);
         const [draft, setDraft] = react.useState(null);
         const [taskState, setTaskState] = react.useState(null);
+        const [copiedMap, setCopiedMap] = react.useState({}); // { [pluginName]: boolean }
         const [restartingState, setRestartingState] = react.useState(null);
         const [confirmState, setConfirmState] = react.useState(null);
         const confirmResolverRef = react.useRef(null);
@@ -756,7 +760,19 @@ window.__ModuleLoader__.load({
         const copyCommand = (plugin, kind) => {
           const source = installSourceOf(plugin, kind);
           const cmd = `dsh plugin add --profile ${profile} ${source}`;
-          const done = () => { notify(`已复制指令到剪贴板：${cmd}`); };
+          const done = () => {
+            notify(`已复制指令到剪贴板：${cmd}`);
+            if (plugin && plugin.name) {
+              setCopiedMap((prev) => ({ ...prev, [plugin.name]: true }));
+              window.setTimeout(() => {
+                setCopiedMap((prev) => {
+                  const next = { ...prev };
+                  delete next[plugin.name];
+                  return next;
+                });
+              }, 2500);
+            }
+          };
           
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(cmd).then(done).catch(() => {
@@ -879,12 +895,18 @@ window.__ModuleLoader__.load({
                     rel: "noreferrer",
                     title: "查看源码"
                   }, "源码") : null,
-                  react.createElement("button", {
-                    className: "dm-action-btn",
-                    type: "button",
-                    disabled: busy,
-                    onClick: () => copyCommand(plugin, kind)
-                  }, "复制指令"),
+                  (() => {
+                    const isCopied = Boolean(copiedMap[plugin.name]);
+                    return react.createElement("button", {
+                      className: `dm-action-btn ${isCopied ? "success" : ""}`,
+                      type: "button",
+                      disabled: busy,
+                      onClick: () => copyCommand(plugin, kind)
+                    }, isCopied ? react.createElement(react.Fragment, null,
+                        react.createElement(IconCheck, { size: 13 }),
+                        react.createElement("span", null, "已复制")
+                      ) : "复制指令");
+                  })(),
                   isInstalled ? react.createElement("button", {
                     className: "dm-action-btn danger",
                     type: "button",
