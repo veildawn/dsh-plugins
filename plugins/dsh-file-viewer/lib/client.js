@@ -2384,10 +2384,9 @@ window.__ModuleLoader__.load({
       // Intercept any openWorkspacePath RPC calls (connection is declared in inject)
       wrapConnectionRpc(ctx, openStore, sessionStore);
 
-      // Wrap sidebarRight if already registered or whenever injected
-      if (ctx.sidebarRight) {
-        wrapSidebarRight(ctx.sidebarRight, openStore, sessionStore);
-      }
+      // Wrap sidebarRight if already registered or whenever injected. Direct
+      // property access is not safe here: sidebarRight is not part of this
+      // plugin's inject, so cordis would reject the read outright.
       if (typeof ctx.get === "function") {
         try {
           const sr = ctx.get("sidebarRight", false);
