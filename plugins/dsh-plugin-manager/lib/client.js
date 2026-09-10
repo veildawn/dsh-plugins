@@ -1076,7 +1076,7 @@ window.__ModuleLoader__.load({
                   className: "dm-action-btn primary",
                   style: { padding: "3px 8px", fontSize: "11px" },
                   type: "button",
-                  onClick: triggerBatchUpdate
+                  onClick: () => void startBatchUpdate('repo')
                 }, "一键更新全部")
               ) : null
             )

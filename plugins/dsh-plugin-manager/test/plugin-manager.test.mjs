@@ -633,6 +633,56 @@ describe('dsh-market lockfile RPC (getLockfileHealth / repairLockfile)', () => {
 })
 
 describe('dsh-plugin-manager client bundle verification', () => {
+  it("renders PluginManagerSection under all tab and update states without crashing", async () => {
+    let definition;
+    const prevWindow = globalThis.window;
+    globalThis.window = { __ModuleLoader__: { load(value) { definition = value; } } };
+    try {
+      await import("../lib/client.js");
+      const fakeReact = {
+        useEffect: () => {},
+        useRef: (init) => ({ current: init }),
+        useMemo: (fn) => fn(),
+        useCallback: (fn) => fn,
+        createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+        Fragment: "Fragment",
+      };
+      const plugin = definition.factory((id) => {
+        if (id === "react") return fakeReact;
+        if (id === "react-dom") return { createPortal: (node) => node };
+        if (id === "@deepseek-ai/dsh-client-ui-primitives") return new Proxy({}, { get: () => () => ({ type: "icon" }) });
+        return {};
+      });
+      const slots = [];
+      const ctx = {
+        slots: { inject(slot, fn) { fn(); }, register(entry, comp) { slots.push({ entry, comp }); } },
+        connection: { rpc: { call: async () => ({}) } },
+        remote: { $on: () => () => {} },
+      };
+      plugin.apply(ctx);
+      const Comp = slots[0].comp;
+      function testRender(overrides) {
+        let idx = 0;
+        fakeReact.useState = (init) => {
+          const curIdx = idx++;
+          if (overrides[curIdx] !== undefined) return [overrides[curIdx], () => {}];
+          return [typeof init === "function" ? init() : init, () => {}];
+        };
+        return Comp({});
+      }
+      for (const tab of ["repo", "community", "config"]) {
+        for (const hasUpdate of [false, true]) {
+          testRender({
+            0: tab,
+            5: hasUpdate ? [{ id: "test", name: "dsh-test", installedVersion: "0.1.0", hasUpdate: true, latestVersion: "0.2.0" }] : [],
+          });
+        }
+      }
+    } finally {
+      globalThis.window = prevWindow;
+    }
+  });
+
   it('client bundle is valid and registers ModuleLoader', () => {
     const clientCode = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
     assert.equal(clientCode.includes('window.__ModuleLoader__.load'), true)
