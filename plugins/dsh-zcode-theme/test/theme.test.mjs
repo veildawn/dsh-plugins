@@ -100,6 +100,7 @@ test('CSS 覆盖规范列出的核心组件', () => {
     ['Modal', '[role="dialog"]'],
     ['Modal Backdrop', '.dm-modal-scrim'],
     ['Modal Backdrop', '.dam-backdrop'],
+    ['File Viewer Scrim', '.fv-scrim'],
     ['Bottom Sheet', '[class*="sheet"]'],
     ['Toast', '[class*="toast"]'],
     ['Reduced Motion', 'prefers-reduced-motion'],

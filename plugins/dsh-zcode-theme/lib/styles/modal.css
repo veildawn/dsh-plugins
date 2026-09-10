@@ -1,5 +1,5 @@
 /* Desktop Modal / 浮层。Bottom Sheet 位置由 dsh-mobile-adapter 负责。 */
-[data-dsh-theme="zcode"] [role="dialog"][aria-modal="true"],
+[data-dsh-theme="zcode"] [role="dialog"][aria-modal="true"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
 [data-dsh-theme="zcode"] .ZuhsRW_dialog,
 [data-dsh-theme="zcode"] .dm-modal-card,
 [data-dsh-theme="zcode"] .dam-modal-card,
@@ -11,7 +11,18 @@
   box-shadow: var(--dsw-shadow-lv3);
 }
 
-/* 模态弹出框与抽屉遮罩层：统一使用低透明度磨砂半透明背景，消除生硬实色黑块 */
+/* 文件查看器侧边抽屉容器：桌面端必须保持完全透明，无遮罩与白块，露出主会话 */
+[data-dsh-theme="zcode"] .fv-scrim {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+[data-dsh-theme="zcode"] .fv-shell {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+/* 模态弹出框与抽屉遮罩层：统一使用低透明度磨砂半透明背景，消除生硬实色黑块与全白遮挡 */
 [data-dsh-theme="zcode"] .dm-modal-scrim,
 [data-dsh-theme="zcode"] .dam-backdrop,
 [data-dsh-theme="zcode"] .dam-modal-scrim,

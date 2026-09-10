@@ -11,7 +11,7 @@
   background: var(--dsw-specific-sidebar-fill);
 }
 
-[data-dsh-theme="zcode"] [role="dialog"],
+[data-dsh-theme="zcode"] [role="dialog"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
 [data-dsh-theme="zcode"] [role="menu"],
 [data-dsh-theme="zcode"] [data-slot="details"] {
   background: var(--dsw-alias-bg-layer-2);
