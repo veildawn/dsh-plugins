@@ -486,6 +486,18 @@ window.__ModuleLoader__.load({
         @keyframes fv-menu-slide-up{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
         .fv-context-item{height:46px!important;font-size:15px!important;padding:0 14px!important;border-radius:12px!important}
         .fv-context-item-icon{width:22px!important;height:22px!important;font-size:16px!important}
+        /* SafePathsModal 移动端自适应优化：输入框与添加按钮纵向铺满，防溢出 */
+        .fv-modal-scrim{padding:10px!important}
+        .fv-modal{width:min(96vw,560px)!important;max-height:min(90dvh,90vh,680px)!important;border-radius:16px!important}
+        .fv-modal-head{padding:12px 14px!important}
+        .fv-modal-body{padding:12px 14px!important;gap:14px!important}
+        .fv-modal-foot{padding:10px 14px!important}
+        .fv-input-row{flex-direction:column!important;gap:8px!important}
+        .fv-input-row .fv-input{width:100%!important;max-width:100%!important;height:38px!important;font-size:14px!important;border-radius:8px!important}
+        .fv-input-row .fv-button{width:100%!important;height:38px!important;min-height:38px!important;border-radius:8px!important;border-color:transparent!important;background:var(--dsw-alias-brand-primary,#4d6bfe)!important;color:#fff!important;font-weight:500!important}
+        .fv-safe-item{padding:8px 8px!important}
+        .fv-safe-item-path{font-size:11.5px!important;line-height:1.4!important}
+        .fv-btn-del{height:32px!important;min-width:44px!important;font-size:13px!important;padding:4px 8px!important}
       }
     `;
 
