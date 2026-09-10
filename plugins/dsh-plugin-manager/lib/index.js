@@ -1064,14 +1064,67 @@ export function handleRestartHost(options, payload = {}, deps = {}) {
       }
     }
 
-    if (launchctlError) {
-      return unavailable(`无法调用 launchctl（${launchctlError}）。请将 DSH 配置为用户 LaunchAgent（~/Library/LaunchAgents/${serviceName}.plist）后使用 launchctl bootstrap/kickstart，或在终端手动重启。`)
-    }
+    // 3. 通用非托管自拉起兜底 (Process Self-Respawn)
+    // 即使未配置 launchd 用户代理，也支持直接通过 detached 进程平滑自重启
+    try {
+      const nodeBin = process.execPath || 'node'
+      const scriptArgs = process.argv.slice(1)
+      const currentPid = process.pid
+      const cwd = process.cwd()
 
-    return unavailable(`当前 macOS 环境未配置 launchd 服务（已探测 ${domainCandidates.join('、')}）。请将 DSH 配置为用户 LaunchAgent（~/Library/LaunchAgents/${serviceName}.plist），执行 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/${serviceName}.plist 后即可使用平滑重启。`)
+      const cmd = `(sleep 0.8 && kill -9 ${currentPid} && sleep 0.4 && "${nodeBin}" ${scriptArgs.map((a) => `"${a}"`).join(' ')} >/dev/null 2>&1) &`
+
+      const child = spawnFn('/bin/sh', ['-c', cmd], {
+        detached: true,
+        stdio: 'ignore',
+        cwd,
+        env: process.env,
+      })
+      if (child.unref) child.unref()
+
+      return {
+        ok: true,
+        value: {
+          scheduled: true,
+          method: 'macos-respawn',
+          serviceName,
+          message: '已调度异步平滑自重启（旧进程退出后自动拉起新进程），正在重启 DeepSeek Harness 服务...',
+        },
+      }
+    } catch (err) {
+      return unavailable(`无法调度进程自重启（${err instanceof Error ? err.message : String(err)}），请在终端手动重启服务。`)
+    }
   }
 
-  return unavailable('当前环境不支持平滑重启（无法识别 systemd / Windows / macOS 服务管理）。请手动重启 DeepSeek Harness 服务。')
+  // Linux 等未配置 systemd 时的自拉起兜底
+  try {
+    const nodeBin = process.execPath || 'node'
+    const scriptArgs = process.argv.slice(1)
+    const currentPid = process.pid
+    const cwd = process.cwd()
+
+    const cmd = `(sleep 0.8 && kill -9 ${currentPid} && sleep 0.4 && "${nodeBin}" ${scriptArgs.map((a) => `"${a}"`).join(' ')} >/dev/null 2>&1) &`
+
+    const child = spawnFn('/bin/sh', ['-c', cmd], {
+      detached: true,
+      stdio: 'ignore',
+      cwd,
+      env: process.env,
+    })
+    if (child.unref) child.unref()
+
+    return {
+      ok: true,
+      value: {
+        scheduled: true,
+        method: 'process-respawn',
+        serviceName,
+        message: '已调度异步平滑自重启，正在重启 DeepSeek Harness 服务...',
+      },
+    }
+  } catch (err) {
+    return unavailable('当前环境不支持平滑重启。请手动重启 DeepSeek Harness 服务。')
+  }
 }
 
 export function apply(ctx, config) {

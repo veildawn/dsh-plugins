@@ -1072,20 +1072,26 @@ describe('dsh-market install tasks (fake spawn)', () => {
     })
   })
 
-  it('refuses macOS restart when launchd is not configured', () => {
+  it('falls back to process self-respawn on macOS when launchd is not configured', () => {
     withPlatform('darwin', () => {
       const originalRepo = process.env.DSH_PLUGINS_REPO
       delete process.env.DSH_PLUGINS_REPO
+      const calls = []
       try {
         const res = handleRestartHost({}, {}, {
-          spawnFn: () => { throw new Error('should not spawn') },
+          spawnFn: (cmd, args, opts) => {
+            calls.push({ cmd, args, opts })
+            return { unref: () => {} }
+          },
           spawnSyncFn: () => ({ status: 113, error: null }),
         })
-        assert.equal(res.ok, false)
-        assert.equal(res.error.code, 'restart-unavailable')
-        assert.match(res.error.message, /未配置 launchd/)
-        assert.match(res.error.message, /LaunchAgent/)
-        assert.equal(res.error.details.serviceName, 'com.deepseek.dsh-web')
+        assert.equal(res.ok, true)
+        assert.equal(res.value.scheduled, true)
+        assert.equal(res.value.method, 'macos-respawn')
+        assert.match(res.value.message, /自重启/)
+        assert.equal(calls.length, 1)
+        assert.equal(calls[0].cmd, '/bin/sh')
+        assert.equal(calls[0].opts.detached, true)
       } finally {
         if (originalRepo === undefined) delete process.env.DSH_PLUGINS_REPO
         else process.env.DSH_PLUGINS_REPO = originalRepo
@@ -1093,18 +1099,21 @@ describe('dsh-market install tasks (fake spawn)', () => {
     })
   })
 
-  it('refuses macOS restart when launchctl is unavailable', () => {
+  it('falls back to process self-respawn when launchctl fails with an error', () => {
     withPlatform('darwin', () => {
       const originalRepo = process.env.DSH_PLUGINS_REPO
       delete process.env.DSH_PLUGINS_REPO
+      const calls = []
       try {
         const res = handleRestartHost({}, {}, {
-          spawnFn: () => { throw new Error('should not spawn') },
+          spawnFn: (cmd, args, opts) => {
+            calls.push({ cmd, args, opts })
+            return { unref: () => {} }
+          },
           spawnSyncFn: () => ({ status: null, error: new Error('ENOENT') }),
         })
-        assert.equal(res.ok, false)
-        assert.equal(res.error.code, 'restart-unavailable')
-        assert.match(res.error.message, /launchctl/)
+        assert.equal(res.ok, true)
+        assert.equal(res.value.method, 'macos-respawn')
       } finally {
         if (originalRepo === undefined) delete process.env.DSH_PLUGINS_REPO
         else process.env.DSH_PLUGINS_REPO = originalRepo
