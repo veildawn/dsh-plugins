@@ -1,10 +1,39 @@
 /* Desktop Modal / 浮层。Bottom Sheet 位置由 dsh-mobile-adapter 负责。 */
 [data-dsh-theme="zcode"] [role="dialog"][aria-modal="true"],
-[data-dsh-theme="zcode"] .ZuhsRW_dialog {
+[data-dsh-theme="zcode"] .ZuhsRW_dialog,
+[data-dsh-theme="zcode"] .dm-modal-card,
+[data-dsh-theme="zcode"] .dam-modal-card,
+[data-dsh-theme="zcode"] .dam-card,
+[data-dsh-theme="zcode"] .fv-modal {
   background: var(--dsw-alias-bg-layer-2);
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 20px;
   box-shadow: var(--dsw-shadow-lv3);
+}
+
+/* 模态弹出框与抽屉遮罩层：统一使用低透明度磨砂半透明背景，消除生硬实色黑块 */
+[data-dsh-theme="zcode"] .dm-modal-scrim,
+[data-dsh-theme="zcode"] .dam-backdrop,
+[data-dsh-theme="zcode"] .dam-modal-scrim,
+[data-dsh-theme="zcode"] .fv-modal-scrim,
+[data-dsh-theme="zcode"] .fv-context-backdrop,
+[data-dsh-theme="zcode"] .term-tools-backdrop,
+[data-dsh-theme="zcode"] .dsh-ph-backdrop,
+[data-dsh-theme="zcode"] .dsh-remote-gate-mask,
+[data-dsh-theme="zcode"] .VOzbGW_mask,
+[data-dsh-theme="zcode"] .fNh4Da_mask,
+[data-dsh-theme="zcode"] .BInVoG_mask,
+[data-dsh-theme="zcode"] body > div[role="presentation"]:has(>[role="dialog"]) {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* 嵌套在 presentation 内部用于点击关闭的遮罩占位层保持透明 */
+[data-dsh-theme="zcode"] body > div[role="presentation"] > [aria-hidden="true"] {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 [data-dsh-theme="zcode"] [role="menu"],
