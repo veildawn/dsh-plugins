@@ -30,8 +30,7 @@
 }
 
 /* 行内代码标签 (Inline Code)：完全对齐 ZCode，浅灰白字体与深灰底，消除中英文基线落差 */
-[data-dsh-theme="zcode"] :not(pre) > code,
-[data-dsh-theme="zcode"] ._markdown_177e0_5 :not(pre) > code {
+[data-dsh-theme="zcode"] :not(pre) > code {
   background-color: var(--dsw-alias-markdown-inline-code);
   color: var(--zcode-inline-code);
   border: 1px solid var(--dsw-alias-border-l1);

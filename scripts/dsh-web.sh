@@ -31,7 +31,25 @@ else
 fi
 
 get_dsh_pids() {
-  # 只匹配 web profile：`dsh web` 或 `dsh --profile web` / bin.js web
+  # 1. 优先通过端口监听确认当前正占用的 PID
+  if command -v lsof >/dev/null 2>&1; then
+    local port_pids
+    port_pids=$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)
+    if [ -n "$port_pids" ]; then
+      printf '%s\n' "$port_pids"
+      return 0
+    fi
+  fi
+
+  # 2. ps 命令参数匹配
+  local ps_pids
+  ps_pids=$(ps -eo pid,args 2>/dev/null | grep -E '[d]sh.*web' | awk '{print $1}' || true)
+  if [ -n "$ps_pids" ]; then
+    printf '%s\n' "$ps_pids"
+    return 0
+  fi
+
+  # 3. pgrep 兜底
   pgrep -f '(^|/)dsh([[:space:]].*)?[[:space:]]web([[:space:]]|$)|@deepseek-ai/dsh.*[[:space:]]web([[:space:]]|$)|dsh/lib/bin\.js.*[[:space:]]web([[:space:]]|$)' 2>/dev/null || true
 }
 

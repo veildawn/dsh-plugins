@@ -101,10 +101,13 @@ test('CSS 覆盖规范列出的核心组件', () => {
     ['Bottom Sheet', '[class*="sheet"]'],
     ['Toast', '[class*="toast"]'],
     ['Reduced Motion', 'prefers-reduced-motion'],
+    ['Session Accent', 'inset 3px 0 0 var(--dsw-specific-sidebar-nav-item-active-accent)'],
   ]
   for (const [label, needle] of markers) {
     assert.equal(css.includes(needle), true, `缺少 ${label} 覆盖：${needle}`)
   }
+  assert.equal(css.includes('path[d*='), false, '权限态不得依赖 SVG path')
+  assert.equal(css.includes('[data-dsh-theme="zcode"] [data-error]'), false, '不得用全局 [data-error]')
 })
 
 test('主题 CSS 全部限定在 ZCode Scope 内，且几乎不用 !important', () => {

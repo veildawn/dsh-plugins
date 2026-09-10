@@ -58,6 +58,7 @@
 [data-dsh-theme="zcode"] .YDXeBa_searchResultRow.YDXeBa_selected {
   background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-primary);
+  box-shadow: inset 3px 0 0 var(--dsw-specific-sidebar-nav-item-active-accent);
 }
 
 /* 工作区 / 项目行选中状态：完全对齐 ZCode 天蓝风格，绝不用红色 */

@@ -32,8 +32,3 @@
 [data-dsh-theme="zcode"] .YDXeBa_iconButton:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
-
-[data-dsh-theme="zcode"] button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
