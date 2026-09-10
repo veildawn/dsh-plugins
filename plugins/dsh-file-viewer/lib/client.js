@@ -2495,11 +2495,16 @@ window.__ModuleLoader__.load({
           const sid = (payload && payload.sessionId) || sessionStore.get();
           openStore.set({ ...(payload || {}), sessionId: sid, _t: Date.now() });
         };
+        const handleOpen = (e) => triggerOpen(e.detail);
         window.__dsh_open_file_viewer = triggerOpen;
-        window.addEventListener("dsh:open-file-viewer", (e) => triggerOpen(e.detail));
+        window.addEventListener("dsh:open-file-viewer", handleOpen);
+        return () => {
+          window.removeEventListener("dsh:open-file-viewer", handleOpen);
+          if (window.__dsh_open_file_viewer === triggerOpen) {
+            delete window.__dsh_open_file_viewer;
+          }
+        };
       }
-
-      return { openStore };
     }
 
     exports.apply = apply;

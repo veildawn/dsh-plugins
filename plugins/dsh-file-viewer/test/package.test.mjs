@@ -1256,3 +1256,59 @@ test('client bundle contains SafePathsModal and toolbar safepaths button for web
   assert.match(source, /\.fv-safe-item\{/)
 })
 
+test('client apply returns a valid Cordis effect (disposer function or undefined), never an ordinary object', () => {
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = {
+    __ModuleLoader__: { load(value) { definition = value } },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+
+  const client = definition.factory((id) => (id === 'react'
+    ? { createElement: () => null, useRef: () => ({ current: null }), useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useEffect: () => {} }
+    : { ReadBlock: null, MarkdownText: null, JsonTree: null }))
+
+  const mockCtx = {
+    slots: { inject: () => {}, register: () => () => {} },
+    connection: { api: {}, rpc: { call: async () => ({ ok: true, value: {} }) } },
+    workspaces: { openPath: async () => {} },
+    get: () => undefined,
+    inject: () => {},
+  }
+
+  // 1. 在没有 window 的环境下，apply 应返回 undefined 或函数，绝不能返回普通 object
+  const effectNode = client.apply(mockCtx)
+  assert(
+    effectNode === undefined || typeof effectNode === 'function',
+    `effect in node environment must be undefined or function, got ${typeof effectNode}`
+  )
+
+  // 2. 在有 window 的浏览器环境下，apply 应返回清理函数
+  const fakeWin = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }
+  const prevWin = globalThis.window
+  globalThis.window = fakeWin
+  try {
+    const effectBrowser = client.apply(mockCtx)
+    assert(
+      effectBrowser === undefined || typeof effectBrowser === 'function',
+      `effect in browser environment must be undefined or cleanup function, got ${typeof effectBrowser}`
+    )
+    if (typeof effectBrowser === 'function') {
+      // 执行清理函数不应报错
+      assert.doesNotThrow(() => effectBrowser())
+    }
+  } finally {
+    globalThis.window = prevWin
+  }
+})
+
+
