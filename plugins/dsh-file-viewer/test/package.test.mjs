@@ -949,6 +949,62 @@ test('wrapSidebarRight intercepts file addresses and routes them to openStore', 
   assert.equal(originalCalled, true)
 })
 
+test('apply resolves sidebarRight through cordis accessors only', () => {
+  // The bundle keeps the `window` it was evaluated with, and `apply` attaches
+  // its event listener through it, so this loader stub needs the DOM surface.
+  const previousWindow = globalThis.window
+  let definition
+  globalThis.window = {
+    __ModuleLoader__: { load(value) { definition = value } },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }
+  try {
+    new Function('window', read('lib/client.js'))(globalThis.window)
+  } finally {
+    globalThis.window = previousWindow
+  }
+  const client = definition.factory((id) => (id === 'react'
+    ? { createElement: () => null, useRef: () => ({ current: null }), useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useEffect: () => {} }
+    : { ReadBlock: null, MarkdownText: null, JsonTree: null }))
+
+  const makeContext = ({ sidebarRight, deliverByInject }) => {
+    const base = {
+      slots: { inject: (slot, callback) => { callback(); return () => {} }, register: () => () => {} },
+      connection: { api: {}, rpc: { call: async () => ({ ok: true, value: {} }) } },
+      workspaces: { openPath: async () => {} },
+      get: () => (deliverByInject ? undefined : sidebarRight),
+      inject: (names, callback) => {
+        if (deliverByInject && names.includes('sidebarRight')) callback({ sidebarRight })
+      },
+    }
+    // A cordis context resolves services through the fiber's `inject`: reading
+    // one this plugin never declared throws instead of returning undefined, so
+    // a bare `ctx.sidebarRight` read would abort the whole loader entry.
+    return new Proxy(base, {
+      get(target, property, receiver) {
+        if (typeof property === 'symbol' || property in target) {
+          const value = Reflect.get(target, property, receiver)
+          return typeof value === 'function' ? value.bind(target) : value
+        }
+        throw new Error(`cannot get property "${String(property)}" without inject`)
+      },
+    })
+  }
+
+  for (const deliverByInject of [false, true]) {
+    const sidebarRight = { forwarded: [], openResource(address) { this.forwarded.push(address); return 'original' } }
+    assert.doesNotThrow(() => client.apply(makeContext({ sidebarRight, deliverByInject })))
+
+    // File addresses are intercepted whether the service was already provided
+    // or only arrived after this plugin loaded.
+    sidebarRight.openResource('dsh-resource://file/session/sess-1/src/a.js')
+    assert.deepEqual(sidebarRight.forwarded, [], `deliverByInject=${deliverByInject}`)
+    sidebarRight.openResource('dsh-resource://other/thing')
+    assert.equal(sidebarRight.forwarded.length, 1, `deliverByInject=${deliverByInject}`)
+  }
+})
+
 test('tree resizer supports dragging to adjust tree width and persists to storage', () => {
   const previousWindow = globalThis.window
   let definition
