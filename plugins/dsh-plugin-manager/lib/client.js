@@ -207,14 +207,22 @@ window.__ModuleLoader__.load({
       .dm-container button{margin:0}
       .dm-title{font-size:18px;font-weight:600;margin:0;display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary,#1f2328)}
       .dm-subtitle{font-size:12.5px;color:var(--dsw-alias-label-tertiary,#656d76);margin:0;line-height:18px}
-      .dm-repo-banner{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 14px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8))}
-      .dm-repo-info{font-size:12px;color:var(--dsw-alias-label-secondary,#57606a);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-      .dm-repo-info strong{color:var(--dsw-alias-label-primary,#1f2328);font-weight:600}
-      .dm-repo-badge{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));color:var(--dsw-alias-label-secondary,#57606a)}
+      .dm-console-card{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:10px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));box-shadow:0 1px 2px rgba(0,0,0,.03)}
+      .dm-console-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+      .dm-meta-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .dm-profile-tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-profile-dot{width:6px;height:6px;border-radius:50%;background:#10b981}
+      .dm-dsh-host-tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 8px;border-radius:6px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));color:var(--dsw-alias-label-secondary,#57606a)}
+      .dm-dsh-host-tag strong{color:var(--dsw-alias-label-primary,#1f2328)}
       .dm-dsh-badge{font-size:11px;padding:2px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:4px;font-weight:500;text-decoration:none;transition:all .15s ease}
-      .dm-dsh-badge.up-to-date{background:rgba(34,197,94,.1);color:#16a34a;border:1px solid rgba(34,197,94,.25)}
-      .dm-dsh-badge.has-update{background:rgba(234,179,8,.15);color:#b45309;border:1px solid rgba(234,179,8,.35);font-weight:600}
-      .dm-dsh-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:8px;background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.3);color:var(--dsw-alias-label-primary,#1f2328);font-size:13px;flex-wrap:wrap}
+      .dm-dsh-badge.up-to-date{background:rgba(34,197,94,.12);color:#15803d;border:1px solid rgba(34,197,94,.3)}
+      .dm-dsh-badge.has-update{background:rgba(234,179,8,.18);color:#b45309;border:1px solid rgba(234,179,8,.4);font-weight:600;cursor:pointer}
+      .dm-dsh-badge.has-update:hover{background:rgba(234,179,8,.25)}
+      .dm-icon-mini-btn{padding:3px;border-radius:4px;border:0;background:transparent;cursor:pointer;color:var(--dsw-alias-label-tertiary,#656d76);display:inline-flex;align-items:center;justify-content:center;transition:all .15s ease}
+      .dm-icon-mini-btn:hover{color:var(--dsw-alias-label-primary,#1f2328);background:rgba(0,0,0,.05)}
+      .dm-stat-tag{font-size:11.5px;padding:3px 9px;border-radius:6px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));color:var(--dsw-alias-label-secondary,#57606a)}
+      .dm-stat-tag strong{color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-dsh-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:8px;background:rgba(234,179,8,.12);border:1px solid rgba(234,179,8,.35);color:var(--dsw-alias-label-primary,#1f2328);font-size:13px;flex-wrap:wrap}
       .dm-dsh-banner-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
       .dm-dsh-banner-actions{display:flex;align-items:center;gap:8px}
       .dm-tabs{display:flex;gap:4px;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));padding-bottom:0}
@@ -996,34 +1004,83 @@ window.__ModuleLoader__.load({
               }, "复制更新命令")
             )
           ) : null,
-          react.createElement("div", { className: "dm-repo-banner" },
-            react.createElement("div", { className: "dm-repo-info" },
-              "仓库: ", react.createElement("strong", null, repoOrigin),
-              " · 当前 profile: ", react.createElement("strong", null, profile),
-              dshUpdate && dshUpdate.currentVersion ? react.createElement(react.Fragment, null,
-                " · DSH: ",
+          react.createElement("div", { className: "dm-console-card" },
+            react.createElement("div", { className: "dm-console-row" },
+              react.createElement("div", { className: "dm-meta-group" },
+                react.createElement("span", { className: "dm-profile-tag", title: `当前激活的 DSH Profile 目录: ~/.dsh/profiles/${profile}` },
+                  react.createElement("span", { className: "dm-profile-dot" }),
+                  `Profile: ${profile}`
+                ),
+                react.createElement("div", { className: "dm-dsh-host-tag" },
+                  react.createElement("span", null, "DSH:"),
+                  react.createElement("strong", null, dshUpdate && dshUpdate.currentVersion ? `v${dshUpdate.currentVersion}` : "0.1.5-rc.1"),
+                  dshUpdate ? (
+                    dshUpdate.hasUpdate ? react.createElement("button", {
+                      className: "dm-dsh-badge has-update",
+                      type: "button",
+                      title: "点击复制升级命令 npm install -g @deepseek-ai/dsh",
+                      onClick: () => {
+                        try {
+                          navigator.clipboard.writeText("npm install -g @deepseek-ai/dsh");
+                          notify("已复制更新命令到剪贴板：npm install -g @deepseek-ai/dsh");
+                        } catch {
+                          notify("npm install -g @deepseek-ai/dsh");
+                        }
+                      }
+                    }, `⚡ 可更新 v${dshUpdate.latestVersion}`) : react.createElement("span", {
+                      className: "dm-dsh-badge up-to-date",
+                      title: "当前运行的 DSH 核心已是最新版本"
+                    }, "✓ 最新")
+                  ) : null,
+                  react.createElement("button", {
+                    className: "dm-icon-mini-btn",
+                    type: "button",
+                    disabled: Boolean(checkingDsh),
+                    title: "检查 DSH 核心版本更新",
+                    onClick: () => loadDshUpdate(false),
+                  }, react.createElement(IconRefresh, { size: 12, className: checkingDsh ? "spin" : "" }))
+                )
+              ),
+              react.createElement("div", { style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" } },
+                react.createElement("span", { className: "dm-stat-tag" },
+                  "自有 ", react.createElement("strong", null, repoPlugins.length), " 款 · 社区 ",
+                  react.createElement("strong", null, communityPlugins.length > 0 ? `${communityPlugins.length}` : (loadingCommunity ? "同步中…" : "3400+")), " 款"
+                ),
+                react.createElement("button", {
+                  className: "dm-action-btn warning",
+                  type: "button",
+                  disabled: Boolean(restartingState),
+                  title: "调度异步平滑重启 DSH 守护进程并在就绪后自动刷新页面",
+                  onClick: startAsyncRestart,
+                },
+                  react.createElement(IconRefresh, { size: 13, className: restartingState ? "spin" : "" }),
+                  react.createElement("span", null, restartingState ? "重启中…" : "立即重启服务")
+                )
+              )
+            ),
+            react.createElement("div", { className: "dm-console-row", style: { fontSize: "11.5px", color: "var(--dsw-alias-label-tertiary,#656d76)", paddingTop: "4px", borderTop: "1px dashed var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8))" } },
+              react.createElement("div", { style: { display: "flex", alignItems: "center", gap: "6px" } },
+                "源仓库: ",
                 react.createElement("a", {
-                  className: `dm-dsh-badge ${dshUpdate.hasUpdate ? "has-update" : "up-to-date"}`,
-                  href: dshUpdate.releaseUrl || "https://github.com/deepseek-ai/deepseek-harness/releases",
+                  href: `https://github.com/${repoOrigin}`,
                   target: "_blank",
                   rel: "noreferrer",
-                  title: dshUpdate.hasUpdate ? `有新版本 v${dshUpdate.latestVersion} 可用` : "已是最新版本"
-                },
-                  dshUpdate.hasUpdate ? `v${dshUpdate.currentVersion} → v${dshUpdate.latestVersion} (可更新)` : `v${dshUpdate.currentVersion} (最新)`
-                )
-              ) : null
-            ),
-            react.createElement("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
-              react.createElement("button", {
-                className: "dm-action-btn warning",
-                type: "button",
-                disabled: Boolean(restartingState),
-                onClick: startAsyncRestart,
-              },
-                react.createElement(IconRefresh, { size: 13 }),
-                react.createElement("span", null, restartingState ? "重启中…" : "立即重启服务")
+                  style: { color: "inherit", fontWeight: 500, textDecoration: "underline" }
+                }, repoOrigin)
               ),
-              react.createElement("span", { className: "dm-repo-badge" }, `自有 ${repoPlugins.length} 款 · 社区 ${communityPlugins.length} 款`))),
+              updatesCount > 0 ? react.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+                react.createElement("span", { style: { color: "var(--dsw-alias-status-warning,#d97706)", fontWeight: 500 } },
+                  `发现 ${updatesCount} 款插件有可用更新`
+                ),
+                react.createElement("button", {
+                  className: "dm-action-btn primary",
+                  style: { padding: "3px 8px", fontSize: "11px" },
+                  type: "button",
+                  onClick: triggerBatchUpdate
+                }, "一键更新全部")
+              ) : null
+            )
+          ),
           taskState ? react.createElement("div", { className: "dm-install-box" },
             react.createElement("div", { className: "dm-install-head" },
               react.createElement("span", null, taskHeaderTitle),
@@ -1040,7 +1097,7 @@ window.__ModuleLoader__.load({
             : null,
           react.createElement("div", { className: "dm-tabs" },
             react.createElement("button", { className: `dm-tab-btn ${tab === "repo" ? "active" : ""}`, type: "button", onClick: () => setTab("repo") }, "自有插件"),
-            react.createElement("button", { className: `dm-tab-btn ${tab === "community" ? "active" : ""}`, type: "button", onClick: () => setTab("community") }, "社区插件"),
+            react.createElement("button", { className: `dm-tab-btn ${tab === "community" ? "active" : ""}`, type: "button", onClick: () => { setTab("community"); if (communityPlugins.length === 0) loadCommunity(2, false); } }, "社区插件"),
             react.createElement("button", { className: `dm-tab-btn ${tab === "config" ? "active" : ""}`, type: "button", onClick: () => setTab("config") }, "配置")),
           tab !== "config" ? react.createElement(react.Fragment, null,
             react.createElement("div", { className: "dm-filter-bar" },

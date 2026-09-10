@@ -8,9 +8,10 @@
  * - Local profile plugin inspection (installed versions) and update-state merge
  */
 
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 export const DEFAULT_REPO_ORIGIN = 'veildawn/dsh-plugins'
 export const DEFAULT_COMMUNITY_CATALOG_URL = 'https://awesome-dsh-plugin.com/plugins.json'
@@ -821,39 +822,48 @@ export function normalizeTarballUrl(url) {
  * Falls back to executing CLI if spawnFn is provided.
  */
 export function readHostDshVersion({ spawnFn = null, processArgs = process.argv } = {}) {
-  for (const arg of processArgs || []) {
-    if (typeof arg === "string" && (arg.includes("@deepseek-ai") || arg.includes("dsh"))) {
-      let dir = arg;
-      for (let i = 0; i < 5; i++) {
-        try {
-          const pkgPath = join(dir, "package.json");
-          if (existsSync(pkgPath)) {
-            const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-            if (pkg && pkg.name === DSH_PACKAGE_NAME && pkg.version) {
-              return pkg.version;
-            }
+  const candidates = [...(processArgs || [])];
+  try {
+    const whichCmd = process.platform === "win32" ? "where" : "which";
+    const runner = spawnFn || spawnSync;
+    const whichRes = runner(whichCmd, ["dsh"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    if (whichRes && whichRes.status === 0 && whichRes.stdout) {
+      candidates.push(...whichRes.stdout.trim().split(/\r?\n/));
+    }
+  } catch {}
+
+  for (const raw of candidates) {
+    if (!raw || typeof raw !== "string") continue;
+    try {
+      const real = realpathSync(raw);
+      let dir = statSync(real).isDirectory() ? real : dirname(real);
+      for (let i = 0; i < 6; i++) {
+        const pkgPath = join(dir, "package.json");
+        if (existsSync(pkgPath)) {
+          const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+          if (pkg && pkg.name === DSH_PACKAGE_NAME && pkg.version) {
+            return pkg.version;
           }
-        } catch {}
-        const parent = join(dir, "..");
+        }
+        const parent = dirname(dir);
         if (parent === dir) break;
         dir = parent;
       }
-    }
-  }
-
-  if (spawnFn) {
-    try {
-      const res = spawnFn("dsh", ["--version"], {
-        encoding: "utf8",
-        shell: process.platform === "win32",
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-      if (res && res.status === 0) {
-        const match = String(res.stdout || "").trim().match(/(\d+\.\d+\.\d+(?:-[\w.]+)?)/);
-        if (match) return match[1];
-      }
     } catch {}
   }
+
+  try {
+    const runner = spawnFn || spawnSync;
+    const res = runner("dsh", ["--version"], {
+      encoding: "utf8",
+      shell: process.platform === "win32",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    if (res && res.status === 0) {
+      const match = String(res.stdout || "").trim().match(/(\d+\.\d+\.\d+(?:-[\w.]+)?)/);
+      if (match) return match[1];
+    }
+  } catch {}
 
   return null;
 }

@@ -257,17 +257,45 @@ export function resetMarketCaches() {
 /**
  * Fetch community catalog (normalized raw payload, cached).
  */
+const COMMUNITY_CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes cache for 3MB catalog
+const COMMUNITY_DISK_CACHE_PATH = '/tmp/dsh-community-catalog.json'
+
 export async function fetchCommunityCatalog(url) {
   const now = Date.now()
-  if (cachedCommunity && now - lastCommunityFetchTime < CACHE_TTL_MS) return cachedCommunity
+  if (cachedCommunity && now - lastCommunityFetchTime < COMMUNITY_CACHE_TTL_MS) return cachedCommunity
+
+  // Try network fetch with 30s timeout
   try {
-    const data = await fetchJson(url)
-    cachedCommunity = data
-    lastCommunityFetchTime = now
-    return data
-  } catch {
-    return cachedCommunity || { plugins: [], categories: {} }
+    const data = await fetchJson(url, 30_000)
+    if (data && typeof data === "object" && (Array.isArray(data.plugins) || data.categories)) {
+      cachedCommunity = data
+      lastCommunityFetchTime = now
+      try {
+        const { writeFileSync } = await import("node:fs")
+        writeFileSync(COMMUNITY_DISK_CACHE_PATH, JSON.stringify(data), "utf8")
+      } catch {}
+      return data
+    }
+  } catch (err) {
+    // Network failed or timed out: fall through to cache
   }
+
+  if (cachedCommunity) return cachedCommunity
+
+  // Fallback to disk cache if available
+  try {
+    const { existsSync, readFileSync } = await import("node:fs")
+    if (existsSync(COMMUNITY_DISK_CACHE_PATH)) {
+      const diskData = JSON.parse(readFileSync(COMMUNITY_DISK_CACHE_PATH, "utf8"))
+      if (diskData && typeof diskData === "object" && (Array.isArray(diskData.plugins) || diskData.categories)) {
+        cachedCommunity = diskData
+        lastCommunityFetchTime = now
+        return diskData
+      }
+    }
+  } catch {}
+
+  return { plugins: [], categories: {}, error: "网络超时且无可用缓存，请检查网络后重试" }
 }
 
 function applyMirror(plugins, mirrorUrl) {
@@ -322,9 +350,12 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
 
     if (method === 'getCommunityPlugins') {
       let raw = null
+      let fetchError = null
       try {
         raw = await fetchCommunityCatalog(resolved.communityCatalogUrl)
-      } catch {
+        if (raw && raw.error) fetchError = raw.error
+      } catch (err) {
+        fetchError = String(err && err.message || err)
         raw = { updated: '', categories: {}, plugins: [] }
       }
       const plugins = normalizeCommunityPlugins(raw, 'zh')
@@ -337,6 +368,7 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
           catalogUrl: resolved.communityCatalogUrl,
           count: plugins.length,
           updated: raw?.updated || '',
+          error: fetchError,
         },
       }
     }
