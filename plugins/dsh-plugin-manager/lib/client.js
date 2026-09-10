@@ -1068,9 +1068,9 @@ window.__ModuleLoader__.load({
                   style: { color: "inherit", fontWeight: 500, textDecoration: "underline" }
                 }, repoOrigin)
               ),
-              updatesCount > 0 ? react.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+              repoUpdateCount > 0 ? react.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
                 react.createElement("span", { style: { color: "var(--dsw-alias-status-warning,#d97706)", fontWeight: 500 } },
-                  `发现 ${updatesCount} 款插件有可用更新`
+                  `发现 ${repoUpdateCount} 款插件有可用更新`
                 ),
                 react.createElement("button", {
                   className: "dm-action-btn primary",
