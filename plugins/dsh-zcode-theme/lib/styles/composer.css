@@ -136,7 +136,7 @@
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="danger-full-access"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="Full file access"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"] {
-  color: #FF8A30;
+  color: var(--zcode-danger-access);
 }
 
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger:has(path[d*="M9.10094"]):hover:not(:disabled),
@@ -147,8 +147,8 @@
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="danger-full-access"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="Full file access"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"]:hover:not(:disabled) {
-  background: rgba(255, 138, 48, 0.12);
-  color: #FFA052;
+  background: var(--zcode-danger-access-subtle);
+  color: var(--zcode-danger-access-hover);
 }
 
 /* 模型与思考强度选择器 (_7KE1Ra_trigger) */

@@ -74,6 +74,11 @@ window.__ModuleLoader__.load({
       '--zcode-error': { light: '#C45C5C', dark: '#C45C5C' },
       '--zcode-brand-focus': { light: 'rgba(232,93,58,0.22)', dark: 'rgba(232,93,58,0.25)' },
       '--zcode-border-input': { light: 'rgba(0,0,0,0.10)', dark: 'rgba(255,255,255,0.10)' },
+      '--zcode-project': { light: '#38BDF8', dark: '#38BDF8' },
+      '--zcode-project-subtle': { light: 'rgba(56, 189, 248, 0.12)', dark: 'rgba(56, 189, 248, 0.12)' },
+      '--zcode-danger-access': { light: '#FF8A30', dark: '#FF8A30' },
+      '--zcode-danger-access-hover': { light: '#FFA052', dark: '#FFA052' },
+      '--zcode-danger-access-subtle': { light: 'rgba(255, 138, 48, 0.12)', dark: 'rgba(255, 138, 48, 0.12)' },
     }
 
     function hostTokenOverrides() {

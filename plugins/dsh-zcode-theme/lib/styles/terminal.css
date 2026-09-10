@@ -12,13 +12,12 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-[data-dsh-theme="zcode"] [data-state="success"],
-[data-dsh-theme="zcode"] [class*="_success"] {
+[data-dsh-theme="zcode"] .CY-8Ka_terminal [data-state="success"],
+[data-dsh-theme="zcode"] .CY-8Ka_ioCard [data-state="success"] {
   color: var(--zcode-success);
 }
 
-[data-dsh-theme="zcode"] [data-state="error"],
-[data-dsh-theme="zcode"] [data-error],
-[data-dsh-theme="zcode"] [class*="_error"] {
+[data-dsh-theme="zcode"] .CY-8Ka_terminal [data-state="error"],
+[data-dsh-theme="zcode"] .CY-8Ka_ioCard [data-state="error"] {
   color: var(--zcode-error);
 }

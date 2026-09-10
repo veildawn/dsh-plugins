@@ -12,11 +12,6 @@
   box-shadow: 0 0 0 3px var(--zcode-brand-focus);
 }
 
-[data-dsh-theme="zcode"] .YDXeBa_sessionRow.YDXeBa_selected,
-[data-dsh-theme="zcode"] .YDXeBa_searchResultRow.YDXeBa_selected {
-  background: var(--dsw-alias-bg-module-platform);
-}
-
 [data-dsh-theme="zcode"] :disabled,
 [data-dsh-theme="zcode"] [aria-disabled="true"] {
   opacity: 0.45;

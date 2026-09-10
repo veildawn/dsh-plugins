@@ -37,9 +37,8 @@ export function themeStyleTag() {
  */
 export function withThemeAttribute(tag) {
   const attr = `${THEME_ATTR}="${THEME_SCOPE}"`
-  return new RegExp(`${THEME_ATTR}\\s*=`).test(tag)
-    ? tag.replace(new RegExp(`${THEME_ATTR}\\s*=\\s*(['"]).*?\\1`), attr)
-    : tag.replace(/<html/i, `<html ${attr}`)
+  const stripped = tag.replace(new RegExp(`\\s*${THEME_ATTR}\\s*=\\s*(['"]).*?\\1`, 'gi'), '')
+  return stripped.replace(/<html/i, `<html ${attr}`)
 }
 
 /**
@@ -51,10 +50,10 @@ export function patchIndex(html) {
   let output = HTML_TAG_RE.test(html)
     ? html.replace(HTML_TAG_RE, withThemeAttribute)
     : html
-  output = STYLE_RE.test(output)
-    ? output.replace(STYLE_RE, style)
-    : output.replace(/<\/head\s*>/i, `${style}</head>`)
-  return output
+  if (STYLE_RE.test(output)) return output.replace(STYLE_RE, style)
+  if (/<\/head\s*>/i.test(output)) return output.replace(/<\/head\s*>/i, `${style}</head>`)
+  if (/<head\b[^>]*>/i.test(output)) return output.replace(/<head\b[^>]*>/i, `$&${style}`)
+  return `${style}${output}`
 }
 
 export function apply(ctx) {

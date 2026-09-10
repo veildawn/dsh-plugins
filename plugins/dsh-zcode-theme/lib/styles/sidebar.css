@@ -64,15 +64,15 @@
 [data-dsh-theme="zcode"] .YDXeBa_projectRow.YDXeBa_selected,
 [data-dsh-theme="zcode"] .YDXeBa_projectRow:has([aria-selected="true"]),
 [data-dsh-theme="zcode"] .YDXeBa_projectRow[data-active="true"] {
-  background: rgba(56, 189, 248, 0.12);
-  color: #38BDF8;
+  background: var(--zcode-project-subtle);
+  color: var(--zcode-project);
   border: none;
 }
 
 [data-dsh-theme="zcode"] .YDXeBa_folderActive,
 [data-dsh-theme="zcode"] .YDXeBa_projectRow.YDXeBa_selected .YDXeBa_folder,
 [data-dsh-theme="zcode"] .YDXeBa_projectRow.YDXeBa_selected .YDXeBa_title {
-  color: #38BDF8;
+  color: var(--zcode-project);
 }
 
 /* 侧边栏底部连接状态指示器 (ConnectionIndicator)：消除刺眼白底，融入暗色质感 */

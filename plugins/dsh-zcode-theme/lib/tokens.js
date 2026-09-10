@@ -60,6 +60,11 @@ const darkColor = {
   errorSubtle: 'rgba(163, 163, 163, 0.2)',
   warn: '#F59E0B',
   warnSubtle: 'rgba(245, 158, 11, 0.2)',
+  project: '#38BDF8',
+  projectSubtle: 'rgba(56, 189, 248, 0.12)',
+  dangerAccess: '#FF8A30',
+  dangerAccessHover: '#FFA052',
+  dangerAccessSubtle: 'rgba(255, 138, 48, 0.12)',
 }
 
 const lightColor = {
@@ -97,6 +102,11 @@ const lightColor = {
   errorSubtle: 'rgba(115, 115, 115, 0.18)',
   warn: '#D97706',
   warnSubtle: 'rgba(217, 119, 6, 0.16)',
+  project: '#38BDF8',
+  projectSubtle: 'rgba(56, 189, 248, 0.12)',
+  dangerAccess: '#FF8A30',
+  dangerAccessHover: '#FFA052',
+  dangerAccessSubtle: 'rgba(255, 138, 48, 0.12)',
 }
 
 /** 暗色规范色板（历史导出名）。 */
@@ -211,6 +221,11 @@ function hostMap(C) {
     '--zcode-error': C.error,
     '--zcode-brand-focus': C.brandFocus,
     '--zcode-border-input': C.borderInput,
+    '--zcode-project': C.project,
+    '--zcode-project-subtle': C.projectSubtle,
+    '--zcode-danger-access': C.dangerAccess,
+    '--zcode-danger-access-hover': C.dangerAccessHover,
+    '--zcode-danger-access-subtle': C.dangerAccessSubtle,
   }
 }
 
@@ -229,11 +244,7 @@ export const HOST_TOKEN_MAP = Object.fromEntries(
  * 宿主 ThemeRuntime.overrideTokens 需要 { light, dark } 成对赋值。
  */
 export function hostTokenOverrides(map = HOST_TOKEN_MAP) {
-  const overrides = {}
-  for (const [name, value] of Object.entries(map)) {
-    overrides[name] = value
-  }
-  return overrides
+  return map
 }
 
 export function lightDark(light, dark) {
