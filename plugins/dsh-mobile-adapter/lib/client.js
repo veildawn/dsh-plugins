@@ -58,8 +58,13 @@ window.__ModuleLoader__.load({
         .YDXeBa_projectRow .YDXeBa_rowActions .YDXeBa_iconButton,
         .YDXeBa_sessionRow .YDXeBa_rowActions .YDXeBa_iconButton{width:28px!important;height:28px!important;min-width:28px!important;min-height:28px!important;border-radius:50%!important;padding:0!important}
         .YDXeBa_sessionRow .YDXeBa_time{display:none!important}
-        [data-slot="root"]>div>div:has(>[data-slot="conversation"]){box-sizing:border-box;display:flex;width:100vw;height:100%;min-height:0;padding:calc(52px + var(--dsh-sat)) var(--dsh-sar) var(--dsh-keyboard-inset,0px) var(--dsh-sal);overflow:hidden}
+        .pI_x6G_centerCol,
+        [data-slot="root"]>div>div:has(>[data-slot="conversation"]),
+        [data-slot="root"]>div>div:has([data-slot*="main"]),
+        [data-slot="root"]>div>div:has([data-slot*="conversation"]){grid-column:2!important;box-sizing:border-box;display:flex;width:100vw;height:100%;min-height:0;padding:calc(52px + var(--dsh-sat)) var(--dsh-sar) var(--dsh-keyboard-inset,0px) var(--dsh-sal);overflow:hidden}
         [data-slot="conversation"]{flex:1 1 0;height:100%;min-width:0;min-height:0}
+        .wSkVaW_root,[class*="_root"]:has(>[class*="_body"]){--dsh-chat-content-width:100%!important;--dsh-composer-card-max-width:100%!important}
+        .wSkVaW_widthHandle,[class*="_widthHandle"]{display:none!important}
         [data-slot="conversation.session.header"]>header{display:none!important}
         .wSkVaW_heroWorkspaceRow{box-sizing:border-box;width:100%;padding:0 20px!important;gap:4px!important;flex-wrap:wrap}
         .pXSMma_workspace{box-sizing:border-box;min-width:0!important;max-width:100%!important;min-height:36px!important;flex:1 1 140px}
