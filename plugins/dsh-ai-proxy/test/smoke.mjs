@@ -423,7 +423,7 @@ test('Host auth RPC revokes and clears tokens without changing settings', async 
 
 test('auth RPC reads and writes the gateway address host-side', async () => {
   const gw = await mockGateway()
-  const { ctx, connection, settings } = makeCtx()
+  const { ctx, creds, connection, settings } = makeCtx()
   try {
     await ctx.plugin(plugin, { clientId: 'dsh' })
     const handler = connection.registration().handler
@@ -446,6 +446,13 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
     assert.equal(writtenEffort.ok, true)
     assert.equal(writtenEffort.value.defaultReasoningEffort, 'lowest')
     assert.equal(settings.doc['ai-proxy'].defaultReasoningEffort, 'lowest')
+
+    creds.store.set('AIPROXY_ACCESS_TOKEN', 'sk-test')
+    const refreshed = await handler('refreshModels', {})
+    assert.equal(refreshed.ok, true)
+    assert.equal(refreshed.value.count, 3)
+    assert.equal(refreshed.value.models.length, 3)
+    assert.equal(refreshed.value.models[0].id, 'claude-sonnet-4-5')
     assert.equal((await handler('setBaseURL', { baseURL: 'ftp://nope' })).ok, false)
     assert.equal((await handler('setBaseURL', { baseURL: '  ' })).ok, false)
     assert.equal((await handler('setBaseURL', {})).ok, false)

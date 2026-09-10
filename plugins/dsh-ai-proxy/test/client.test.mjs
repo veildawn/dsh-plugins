@@ -75,6 +75,7 @@ class ConnectionService extends Service {
       if (method === 'config') return { ok: true, value: { baseURL: 'http://gateway.test', clientId: 'dsh', apiFormat: 'chat/completions', defaultReasoningEffort: 'highest', endpoint: 'http://gateway.test/v1/chat/completions' } }
       if (method === 'setGateway') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh', apiFormat: payload.apiFormat || 'chat/completions', defaultReasoningEffort: payload.defaultReasoningEffort ?? 'highest', endpoint: 'http://gateway.test/v1/chat/completions' } }
       if (method === 'setBaseURL') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh' } }
+      if (method === 'refreshModels') return { ok: true, value: { count: 5, models: [] } }
       return {
         ok: true,
         value: method === 'login'
@@ -215,4 +216,36 @@ test('toggling highest reasoning effort sets defaultReasoningEffort to lowest', 
     method: 'setGateway',
     payload: { baseURL: 'http://gateway.test', apiFormat: 'chat/completions', defaultReasoningEffort: 'lowest' },
   })
+})
+
+test("clicking refresh models button triggers refreshModels RPC call", async () => {
+  resetHooks()
+  const ctx = new Context()
+  const slots = new SlotsService(ctx)
+  const connection = new ConnectionService(ctx)
+  new RemoteService(ctx)
+  await ctx.plugin(plugin).await()
+  const section = slots.registrations[0]
+  const props = section.entry.inject()
+  render(section.component, props)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  // Simulate signed-in
+  hooks[authSlot()] = { state: "signed-in", message: "已登录" }
+  let view = render(section.component, props)
+
+  const refreshBtn = findElement(view, (node) => node?.type === "button" && node.props.children.includes("重新获取模型列表"))
+  assert(refreshBtn, "refresh models button should exist when signed-in")
+  await refreshBtn.props.onClick()
+
+  assert.deepEqual(connection.calls.at(-1), {
+    channel: "/ai-proxy-auth",
+    method: "refreshModels",
+    payload: {},
+  })
+
+  // Verify auth message updated with count
+  const authState = hooks[authSlot()]
+  assert.equal(authState.state, "signed-in")
+  assert.match(authState.message, /已刷新模型列表 \(共 5 个模型\)/)
 })

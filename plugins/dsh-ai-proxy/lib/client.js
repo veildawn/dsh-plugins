@@ -109,6 +109,7 @@ window.__ModuleLoader__.load({
         const [savedHighestEffort, setSavedHighestEffort] = react.useState(true);
         const [loaded, setLoaded] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
+        const [refreshingModels, setRefreshingModels] = react.useState(false);
         const [auth, setAuth] = react.useState({ state: "checking", message: "正在检查登录状态…" });
         const normalizedGateway = normalizeGateway(gateway);
         const invalidGateway = gatewayError(gateway);
@@ -211,6 +212,19 @@ window.__ModuleLoader__.load({
           catch (error) { setAuth({ state: "error", message: prefix + (error instanceof Error ? error.message : String(error)) }); }
           finally { setBusy(false); }
         };
+        
+        const handleRefreshModels = async () => {
+          setRefreshingModels(true);
+          try {
+            const res = await props.authRequest("refreshModels");
+            const count = typeof res?.count === "number" ? res.count : (Array.isArray(res?.models) ? res.models.length : 0);
+            setAuth({ state: "signed-in", message: `已刷新模型列表 (共 ${count} 个模型)` });
+          } catch (error) {
+            setAuth({ state: "error", message: "刷新模型列表失败: " + (error instanceof Error ? error.message : String(error)) });
+          } finally {
+            setRefreshingModels(false);
+          }
+        };
         const runAuth = async (method, before) => {
           let popup;
           if (method === "login") {
@@ -311,6 +325,10 @@ window.__ModuleLoader__.load({
               className: "ai-proxy-button", type: "button", disabled: pending,
               onClick: () => withBusy(commitGateway, "保存配置失败: "),
             }, "保存") : null,
+            auth.state === "signed-in" ? react.createElement("button", {
+              className: "ai-proxy-button", type: "button", disabled: pending || refreshingModels,
+              onClick: handleRefreshModels,
+            }, refreshingModels ? "正在获取模型…" : "重新获取模型列表") : null,
             auth.state === "signed-in" ? react.createElement("button", {
               className: "ai-proxy-button", type: "button", disabled: pending,
               onClick: () => runAuth("logout"),

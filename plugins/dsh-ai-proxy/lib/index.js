@@ -1247,6 +1247,39 @@ class AiProxyApi {
       return fallback
     }
   }
+  /**
+   * Force refresh model catalog from /v1/models with current credentials.
+   */
+  async refreshModels() {
+    this.invalidateModels()
+    const opts = this.options()
+    let credential = await this.resolveCredential()
+    const modelsUrl = resolveModelsEndpoint(opts.baseURL)
+    let res = await fetch(modelsUrl, {
+      headers: { authorization: "Bearer " + credential.token },
+    })
+    if (res.status === 401 && credential.source === "oauth") {
+      try {
+        credential = await this.resolveCredential({ force: true })
+        res = await fetch(modelsUrl, {
+          headers: { authorization: "Bearer " + credential.token },
+        })
+      } catch {}
+    }
+    if (!res.ok) throw await errorFromResponse(res)
+    const body = await res.json()
+    const models = (body.data ?? []).filter((m) => typeof m?.id === "string").map(AiProxyApi.normalizeModel)
+    this.modelsCache = { at: Date.now(), models }
+    if (typeof this.onModelsRefreshed === "function") {
+      try {
+        this.onModelsRefreshed()
+      } catch (error) {
+        this.ctx.logger.warn("dsh-ai-proxy: notify models refreshed failed: " + error.message)
+      }
+    }
+    return { count: models.length, models }
+  }
+
 
   async findModel(model) {
     const catalog = await this.catalog()
@@ -1525,11 +1558,13 @@ export async function handleAuthRpc(api, method, payload) {
       case 'status':
       case 'login':
       case 'logout':
-      case 'config': {
+      case 'config':
+      case 'refreshModels': {
         if (keys.length !== 0) return badAuthRequest('AI Proxy ' + method + ' requests must carry an empty object')
         if (method === 'status') return { ok: true, value: await api.authStatus() }
         if (method === 'login') return { ok: true, value: await api.login() }
         if (method === 'logout') return { ok: true, value: await api.logout() }
+        if (method === 'refreshModels') return { ok: true, value: await api.refreshModels() }
         return { ok: true, value: api.gateway() }
       }
       case 'callback': {
@@ -1595,6 +1630,15 @@ export function apply(ctx, config) {
   const adapter = new AiProxyAdapter(api, () => ctx.get('attachments'))
 
   const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
+  api.onModelsRefreshed = () => {
+    try {
+      if (typeof registration?.replace === 'function') {
+        registration.replace([PROVIDER])
+      }
+    } catch (error) {
+      ctx.logger.warn(name + ': registration replace failed: ' + error.message)
+    }
+  }
   let registeredPolicy = options().retryPolicy
   const isPolicyEqual = (a, b) => {
     if (a === b) return true
