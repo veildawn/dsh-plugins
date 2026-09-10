@@ -23,7 +23,80 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
     const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
-    const { ReadBlock, MarkdownText, JsonTree, DiffBlock, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16, IconFullscreenOutline16, writeClipboard } = primitives;
+    const { ReadBlock, MarkdownText, JsonTree, DiffBlock, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16, IconFullscreenOutline16, IconRefreshOutline16, writeClipboard } = primitives;
+
+    // 统一风格的矢量线性图标 (16x16, 统一 currentColor 与线条粗细)
+    function SvgIconWrap({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        react.createElement("path", { d: "M2.5 4h11" }),
+        react.createElement("path", { d: "M2.5 8h7.5a2.5 2.5 0 0 1 2.5 2.5v0a2.5 2.5 0 0 1-2.5 2.5H5" }),
+        react.createElement("path", { d: "M7 10.5L4.5 13 7 15.5" })
+      );
+    }
+
+    function SvgIconRefresh({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        react.createElement("path", { d: "M13.5 8A5.5 5.5 0 1 1 12 4.1L13.8 2.5" }),
+        react.createElement("path", { d: "M10 2.5h3.8V6.3" })
+      );
+    }
+
+    function SvgIconDotfiles({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        react.createElement("circle", { cx: "4", cy: "8", r: "1.5", fill: "currentColor", stroke: "none" }),
+        react.createElement("path", { d: "M10.5 5.5v5" }),
+        react.createElement("path", { d: "M8.3 6.8l4.4 2.4" }),
+        react.createElement("path", { d: "M8.3 9.2l4.4-2.4" })
+      );
+    }
+
+    function SvgIconShield({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        react.createElement("path", { d: "M8 1.8L2.5 4.2v4c0 3.3 2.3 5.8 5.5 6.8 3.2-1 5.5-3.5 5.5-6.8v-4L8 1.8z" }),
+        react.createElement("path", { d: "M6 7.8l1.5 1.5L10.5 6" })
+      );
+    }
+
+    function SvgIconFullscreen({ size = 15, exit = false }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        exit
+          ? react.createElement(react.Fragment, null,
+              react.createElement("path", { d: "M5.5 2v3.5H2" }),
+              react.createElement("path", { d: "M10.5 2v3.5H14" }),
+              react.createElement("path", { d: "M10.5 14v-3.5H14" }),
+              react.createElement("path", { d: "M5.5 14v-3.5H2" }))
+          : react.createElement(react.Fragment, null,
+              react.createElement("path", { d: "M2.5 5.5V2.5H5.5" }),
+              react.createElement("path", { d: "M10.5 2.5h3v3" }),
+              react.createElement("path", { d: "M13.5 10.5v3h-3" }),
+              react.createElement("path", { d: "M5.5 13.5h-3v-3" }))
+      );
+    }
+
+    function SvgIconClose({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round"
+      },
+        react.createElement("path", { d: "M3.5 3.5l9 9" }),
+        react.createElement("path", { d: "M12.5 3.5l-9 9" })
+      );
+    }
 
     const Component = react.Component || class Component { constructor(props) { this.props = props; this.state = {}; } setState(s) { Object.assign(this.state, typeof s === "function" ? s(this.state) : s); } };
     class ErrorBoundary extends Component {
@@ -207,7 +280,8 @@ window.__ModuleLoader__.load({
       .fv-crumb{max-width:220px;overflow:hidden;padding:2px 4px;border:none;border-radius:6px;background:none;color:inherit;font:inherit;white-space:nowrap;text-overflow:ellipsis;cursor:pointer}
       .fv-crumb:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-crumb-sep{flex:none;opacity:.5}
-      .fv-icon-button{display:inline-grid;flex:none;place-items:center;width:30px;height:30px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer}
+      .fv-icon-button{display:inline-grid;flex:none;place-items:center;width:30px;height:30px;padding:0;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .12s,background .12s;line-height:1}
+      .fv-icon-button svg{display:block;flex:none}
       .fv-icon-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-icon-button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-wrap-glyph{font-size:15px;line-height:1}
@@ -2009,25 +2083,26 @@ window.__ModuleLoader__.load({
                   "aria-label": wrap ? "取消自动换行" : "自动换行",
                   title: wrap ? "取消自动换行" : "自动换行",
                   onClick: () => setWrap((current) => !current),
-                }, react.createElement("span", { className: "fv-wrap-glyph", "aria-hidden": "true" }, "↩"))
+                }, react.createElement(SvgIconWrap, { size: 15 }))
                 : null,
               react.createElement("button", {
                 type: "button", className: "fv-icon-button", "aria-label": "刷新", title: "刷新", onClick: refresh,
-              }, react.createElement("span", { "aria-hidden": "true" }, "\u21BB")),
+              }, react.createElement(SvgIconRefresh, { size: 15 })),
               react.createElement("button", {
                 type: "button",
                 className: "fv-icon-button",
                 "aria-pressed": hidden ? "true" : "false",
+                "aria-label": hidden ? "隐藏点文件" : "显示点文件",
                 title: hidden ? "隐藏点文件" : "显示点文件",
                 onClick: () => setHidden((current) => !current),
-              }, react.createElement("span", { "aria-hidden": "true" }, "\u00B7*")),
+              }, react.createElement(SvgIconDotfiles, { size: 15 })),
               react.createElement("button", {
                 type: "button",
                 className: "fv-icon-button fv-btn-safepaths",
                 "aria-label": "安全访问路径设置",
                 title: "安全访问路径设置",
                 onClick: () => setSafeModalOpen(true),
-              }, react.createElement("span", { "aria-hidden": "true", style: { fontSize: "14px" } }, "\u{1F6E1}")),
+              }, react.createElement(SvgIconShield, { size: 15 })),
               react.createElement("button", {
                 type: "button",
                 className: "fv-icon-button fv-btn-fullscreen",
@@ -2035,14 +2110,10 @@ window.__ModuleLoader__.load({
                 "aria-label": fullscreen ? "退出全屏" : "全屏",
                 title: fullscreen ? "退出全屏" : "全屏",
                 onClick: () => setFullscreen((current) => !current),
-              }, fullscreen
-                ? (typeof IconFullscreenExitOutline16 === "function" ? react.createElement(IconFullscreenExitOutline16, { size: 16 }) : react.createElement("span", { "aria-hidden": "true" }, "\u2922"))
-                : (IconFullscreenOutline16 ? react.createElement(IconFullscreenOutline16, { size: 16 }) : react.createElement("span", { "aria-hidden": "true" }, "\u26F6"))),
+              }, react.createElement(SvgIconFullscreen, { size: 15, exit: Boolean(fullscreen) })),
               react.createElement("button", {
                 type: "button", className: "fv-icon-button", "aria-label": "关闭", onClick: () => openStore.set(null),
-              }, IconCloseOutline16
-                ? react.createElement(IconCloseOutline16, { size: 16 })
-                : react.createElement("span", { "aria-hidden": "true" }, "\u2715"))),
+              }, react.createElement(SvgIconClose, { size: 15 }))),
             react.createElement("div", { className: "fv-body", "data-pane": pane, "data-resizing": isResizing ? "true" : "false", "data-mobile": isMobile ? "true" : "false" },
               react.createElement(Tree, {
                 rows: treeRows,
