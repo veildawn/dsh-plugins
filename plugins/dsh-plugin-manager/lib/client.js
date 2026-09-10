@@ -211,6 +211,12 @@ window.__ModuleLoader__.load({
       .dm-repo-info{font-size:12px;color:var(--dsw-alias-label-secondary,#57606a);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
       .dm-repo-info strong{color:var(--dsw-alias-label-primary,#1f2328);font-weight:600}
       .dm-repo-badge{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));color:var(--dsw-alias-label-secondary,#57606a)}
+      .dm-dsh-badge{font-size:11px;padding:2px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:4px;font-weight:500;text-decoration:none;transition:all .15s ease}
+      .dm-dsh-badge.up-to-date{background:rgba(34,197,94,.1);color:#16a34a;border:1px solid rgba(34,197,94,.25)}
+      .dm-dsh-badge.has-update{background:rgba(234,179,8,.15);color:#b45309;border:1px solid rgba(234,179,8,.35);font-weight:600}
+      .dm-dsh-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:8px;background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.3);color:var(--dsw-alias-label-primary,#1f2328);font-size:13px;flex-wrap:wrap}
+      .dm-dsh-banner-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .dm-dsh-banner-actions{display:flex;align-items:center;gap:8px}
       .dm-tabs{display:flex;gap:4px;border-bottom:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8));padding-bottom:0}
       .dm-tab-btn{padding:7px 12px;border:0;background:transparent;color:var(--dsw-alias-label-secondary,#57606a);font-size:13px;cursor:pointer;font-weight:500;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s ease}
       .dm-tab-btn:hover{color:var(--dsw-alias-label-primary,#1f2328)}
@@ -369,6 +375,8 @@ window.__ModuleLoader__.load({
         const [categories, setCategories] = react.useState([]);
         const [repoOrigin, setRepoOrigin] = react.useState("veildawn/dsh-plugins");
         const [profile, setProfile] = react.useState("web");
+        const [dshUpdate, setDshUpdate] = react.useState(null);
+        const [checkingDsh, setCheckingDsh] = react.useState(false);
         const [loading, setLoading] = react.useState(false);
         const [loadingCommunity, setLoadingCommunity] = react.useState(false);
         const [feedback, setFeedback] = react.useState("");
@@ -472,6 +480,20 @@ window.__ModuleLoader__.load({
           }
         }, []);
 
+        const loadDshUpdate = react.useCallback(async (silent = false) => {
+          if (!silent) setCheckingDsh(true);
+          try {
+            const val = await callRpc("checkDshUpdate", {});
+            setDshUpdate(val);
+            return val;
+          } catch (err) {
+            if (!silent) notify("检查 DSH 版本失败：" + (err instanceof Error ? err.message : String(err)), "error");
+            return null;
+          } finally {
+            if (!silent) setCheckingDsh(false);
+          }
+        }, []);
+
         const loadConfig = react.useCallback(async () => {
           try {
             const value = await callRpc("getConfig", {});
@@ -526,6 +548,7 @@ window.__ModuleLoader__.load({
         react.useEffect(() => {
           void loadRepo();
           void loadConfig();
+          void loadDshUpdate(true);
           void autoCleanLockfile();
           void loadCommunity(3, true); // Background preload with 3 automatic retries
           // Greet the user after a smooth restart reload.
@@ -535,7 +558,7 @@ window.__ModuleLoader__.load({
               notify("服务已平滑重启完成，欢迎回来", "ok");
             }
           } catch {}
-        }, [loadRepo, loadConfig, autoCleanLockfile, loadCommunity]);
+        }, [loadRepo, loadConfig, autoCleanLockfile, loadCommunity, loadDshUpdate]);
 
         const pollTask = react.useCallback((taskId) => {
           window.setTimeout(async () => {
@@ -942,10 +965,54 @@ window.__ModuleLoader__.load({
               onClick: () => setRestartingState(null),
             }, "知道了") : null)
             : null,
+          dshUpdate && dshUpdate.hasUpdate ? react.createElement("div", { className: "dm-dsh-banner" },
+            react.createElement("div", { className: "dm-dsh-banner-left" },
+              react.createElement(IconRocket, { size: 16 }),
+              react.createElement("span", null,
+                "发现 DSH 宿主新版本: ",
+                react.createElement("strong", null, `v${dshUpdate.latestVersion}`),
+                dshUpdate.currentVersion ? `（当前: v${dshUpdate.currentVersion}）` : ""
+              )
+            ),
+            react.createElement("div", { className: "dm-dsh-banner-actions" },
+              dshUpdate.releaseUrl ? react.createElement("a", {
+                className: "dm-action-btn",
+                href: dshUpdate.releaseUrl,
+                target: "_blank",
+                rel: "noreferrer",
+                style: { textDecoration: "none" }
+              }, "查看更新日志") : null,
+              react.createElement("button", {
+                className: "dm-action-btn primary",
+                type: "button",
+                onClick: () => {
+                  try {
+                    navigator.clipboard.writeText("npm install -g @deepseek-ai/dsh");
+                    notify("已复制更新命令到剪贴板：npm install -g @deepseek-ai/dsh");
+                  } catch {
+                    notify("npm install -g @deepseek-ai/dsh");
+                  }
+                }
+              }, "复制更新命令")
+            )
+          ) : null,
           react.createElement("div", { className: "dm-repo-banner" },
             react.createElement("div", { className: "dm-repo-info" },
               "仓库: ", react.createElement("strong", null, repoOrigin),
-              " · 当前 profile: ", react.createElement("strong", null, profile)),
+              " · 当前 profile: ", react.createElement("strong", null, profile),
+              dshUpdate && dshUpdate.currentVersion ? react.createElement(react.Fragment, null,
+                " · DSH: ",
+                react.createElement("a", {
+                  className: `dm-dsh-badge ${dshUpdate.hasUpdate ? "has-update" : "up-to-date"}`,
+                  href: dshUpdate.releaseUrl || "https://github.com/deepseek-ai/deepseek-harness/releases",
+                  target: "_blank",
+                  rel: "noreferrer",
+                  title: dshUpdate.hasUpdate ? `有新版本 v${dshUpdate.latestVersion} 可用` : "已是最新版本"
+                },
+                  dshUpdate.hasUpdate ? `v${dshUpdate.currentVersion} → v${dshUpdate.latestVersion} (可更新)` : `v${dshUpdate.currentVersion} (最新)`
+                )
+              ) : null
+            ),
             react.createElement("div", { style: { display: "flex", gap: "8px", alignItems: "center" } },
               react.createElement("button", {
                 className: "dm-action-btn warning",
@@ -1008,7 +1075,7 @@ window.__ModuleLoader__.load({
                     className: "dm-action-btn",
                     type: "button",
                     disabled: loading,
-                    onClick: () => void loadRepo(true)
+                    onClick: () => { void loadRepo(true); void loadDshUpdate(false); }
                   },
                     react.createElement(IconRefresh, { size: 13 }),
                     react.createElement("span", null, loading ? "正在同步…" : "检查更新")

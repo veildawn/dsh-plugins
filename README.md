@@ -8,16 +8,16 @@
 
 | 插件名称 | 目录 | 说明 | 最新独立版本 |
 | :--- | :--- | :--- | :--- |
-| **`dsh-plugin-manager`** | [`plugins/dsh-plugin-manager`](plugins/dsh-plugin-manager) | 插件管理中心与自有插件更新/卸载管理器（专属拼图图标、移动端全量响应式触控适配、自有插件一键批量更新(N)、社区21分类、静默直接复制指令、异步平滑重启与自动恢复） | [`v0.3.9`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-plugin-manager@v0.3.9) |
-| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.9`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.9) |
-| **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.5) |
-| **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接与 LLM Provider 插件（支持 Chat/completions、Anthropic messages、Responses 多格式智能匹配、最高推理强度开关、OAuth 2.0 PKCE 认证、Token 刷新与阶梯推理） | [`v0.2.12`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.2.12) |
-| **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、工作区工具箱整合文件查看器/本地终端/提示词历史、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出） | [`v0.1.30`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.30) |
-| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.8`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.8) |
-| **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.9`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.9) |
-| **`dsh-archive-manager`** | [`plugins/dsh-archive-manager`](plugins/dsh-archive-manager) | 会话归档管理器（侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间） | [`v0.2.1`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-archive-manager@v0.2.1) |
-| **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端提示词按钮归入工作区工具箱、自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.3`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.3) |
-| **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | ZCode Design System 视觉系统（深炭灰画布、暖橙红品牌色、首屏直出零闪烁、全量剔除宿主默认蓝、PC/平板/移动端共享视觉Token与气泡/输入框/终端材质全面重塑） | [`v0.1.22`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.1.22) |
+| **`dsh-plugin-manager`** | [`plugins/dsh-plugin-manager`](plugins/dsh-plugin-manager) | 插件管理中心与自有插件更新/卸载管理器（专属拼图图标、移动端全量响应式触控适配、自有插件一键批量更新(N)、社区21分类、静默直接复制指令、异步平滑重启与自动恢复） | [`v0.3.13`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-plugin-manager@v0.3.13) |
+| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.13`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.13) |
+| **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标） | [`v0.1.8`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.8) |
+| **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接与 LLM Provider 插件（支持 Chat/completions、Anthropic messages、Responses 多格式智能匹配、最高推理强度开关、OAuth 2.0 PKCE 认证、Token 刷新与阶梯推理） | [`v0.2.13`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.2.13) |
+| **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、工作区工具箱整合文件查看器/本地终端/提示词历史、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出） | [`v0.1.31`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.31) |
+| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.36`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.36) |
+| **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.10`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.10) |
+| **`dsh-archive-manager`** | [`plugins/dsh-archive-manager`](plugins/dsh-archive-manager) | 会话归档管理器（侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间） | [`v0.2.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-archive-manager@v0.2.5) |
+| **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端提示词按钮归入工作区工具箱、自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.4) |
+| **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | ZCode Design System 视觉系统（深炭灰画布、暖橙红品牌色、首屏直出零闪烁、全量剔除宿主默认蓝、PC/平板/移动端共享视觉Token与气泡/输入框/终端材质全面重塑） | [`v0.1.23`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.1.23) |
 
 ---
 

@@ -1,3 +1,9 @@
+# Ensure @deepseek-ai/dsh-client-connection has webServer injected so rpc.handle can register HTTP routes
+- id: connection
+  inject:
+    - webRuntime
+    - webServer
+
 # dsh bundle patch: inserts this plugin into a profile's layer stack.
 # `id` matches the host-side service name exported by lib/index.js (`plugin-manager`).
 - insert:

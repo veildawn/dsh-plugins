@@ -116,7 +116,7 @@ start_dsh() {
   local log_file="$LOG_DIR/web.log"
   cyan "[*] 正在后台启动 dsh web (日志: $log_file)..."
 
-  nohup dsh web >> "$log_file" 2>&1 &
+  nohup dsh --profile web --no-open >> "$log_file" 2>&1 &
   local new_pid=$!
   sleep 2
 

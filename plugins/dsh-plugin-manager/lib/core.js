@@ -14,6 +14,9 @@ import { join } from 'node:path'
 
 export const DEFAULT_REPO_ORIGIN = 'veildawn/dsh-plugins'
 export const DEFAULT_COMMUNITY_CATALOG_URL = 'https://awesome-dsh-plugin.com/plugins.json'
+export const DSH_PACKAGE_NAME = '@deepseek-ai/dsh'
+export const DSH_REPO_SLUG = 'deepseek-ai/deepseek-harness'
+export const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org'
 
 /**
  * Compare two semver strings (e.g. "0.4.8" vs "0.4.7", "v1.2.0" vs "1.1.9")
@@ -23,17 +26,46 @@ export const DEFAULT_COMMUNITY_CATALOG_URL = 'https://awesome-dsh-plugin.com/plu
  *   0 if a === b
  */
 export function compareVersions(a, b) {
+  if (a === b) return 0
   const parse = (v) => {
-    if (!v || typeof v !== 'string') return [0, 0, 0]
-    const clean = v.replace(/^[^\d]*/, '').split('-')[0]
-    return clean.split('.').map((n) => parseInt(n, 10) || 0)
+    if (!v || typeof v !== 'string') return { major: 0, minor: 0, patch: 0, prerelease: [] }
+    const clean = v.replace(/^[^\d]*/, '').trim()
+    const [core, ...preParts] = clean.split('-')
+    const [major = 0, minor = 0, patch = 0] = (core || '').split('.').map((n) => parseInt(n, 10) || 0)
+    const pre = preParts.length ? preParts.join('-').split('.') : []
+    return { major, minor, patch, prerelease: pre }
   }
-  const [a1 = 0, a2 = 0, a3 = 0] = parse(a)
-  const [b1 = 0, b2 = 0, b3 = 0] = parse(b)
 
-  if (a1 !== b1) return a1 > b1 ? 1 : -1
-  if (a2 !== b2) return a2 > b2 ? 1 : -1
-  if (a3 !== b3) return a3 > b3 ? 1 : -1
+  const pA = parse(a)
+  const pB = parse(b)
+
+  if (pA.major !== pB.major) return pA.major > pB.major ? 1 : -1
+  if (pA.minor !== pB.minor) return pA.minor > pB.minor ? 1 : -1
+  if (pA.patch !== pB.patch) return pA.patch > pB.patch ? 1 : -1
+
+  // Normal release > pre-release when major.minor.patch match
+  if (pA.prerelease.length === 0 && pB.prerelease.length > 0) return 1
+  if (pA.prerelease.length > 0 && pB.prerelease.length === 0) return -1
+  if (pA.prerelease.length === 0 && pB.prerelease.length === 0) return 0
+
+  const maxLen = Math.max(pA.prerelease.length, pB.prerelease.length)
+  for (let i = 0; i < maxLen; i++) {
+    const idA = pA.prerelease[i]
+    const idB = pB.prerelease[i]
+    if (idA === undefined) return -1
+    if (idB === undefined) return 1
+    if (idA === idB) continue
+
+    const numA = parseInt(idA, 10)
+    const numB = parseInt(idB, 10)
+    const isNumA = !Number.isNaN(numA) && String(numA) === idA
+    const isNumB = !Number.isNaN(numB) && String(numB) === idB
+
+    if (isNumA && isNumB) return numA > numB ? 1 : -1
+    if (isNumA && !isNumB) return -1
+    if (!isNumA && isNumB) return 1
+    return idA > idB ? 1 : -1
+  }
   return 0
 }
 
@@ -782,3 +814,72 @@ export function normalizeTarballUrl(url) {
   return String(url).replace(/%40/g, '@').replace(/#.*$/, '')
 }
 
+
+/**
+ * Detect the running host DSH version.
+ * First inspects process.argv / running script path to locate @deepseek-ai/dsh package.json.
+ * Falls back to executing CLI if spawnFn is provided.
+ */
+export function readHostDshVersion({ spawnFn = null, processArgs = process.argv } = {}) {
+  for (const arg of processArgs || []) {
+    if (typeof arg === "string" && (arg.includes("@deepseek-ai") || arg.includes("dsh"))) {
+      let dir = arg;
+      for (let i = 0; i < 5; i++) {
+        try {
+          const pkgPath = join(dir, "package.json");
+          if (existsSync(pkgPath)) {
+            const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+            if (pkg && pkg.name === DSH_PACKAGE_NAME && pkg.version) {
+              return pkg.version;
+            }
+          }
+        } catch {}
+        const parent = join(dir, "..");
+        if (parent === dir) break;
+        dir = parent;
+      }
+    }
+  }
+
+  if (spawnFn) {
+    try {
+      const res = spawnFn("dsh", ["--version"], {
+        encoding: "utf8",
+        shell: process.platform === "win32",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      if (res && res.status === 0) {
+        const match = String(res.stdout || "").trim().match(/(\d+\.\d+\.\d+(?:-[\w.]+)?)/);
+        if (match) return match[1];
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+/**
+ * Extract version from DSH release tag (e.g. "dsh-v0.1.5-rc.1" or "v0.1.5-rc.1" -> "0.1.5-rc.1").
+ */
+export function parseDshReleaseTag(tag) {
+  if (!tag || typeof tag !== "string") return null;
+  const match = tag.trim().match(/(?:^dsh-?v?|^v)?(\d+\.\d+\.\d+(?:-[\w.]+)?)$/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Compare local host DSH version against remote latest version.
+ */
+export function checkDshUpdate({ currentVersion, latestVersion, releaseUrl, releaseNotes, publishedAt, distTags = {} } = {}) {
+  const hasUpdate = Boolean(currentVersion && latestVersion && compareVersions(latestVersion, currentVersion) > 0);
+  return {
+    name: DSH_PACKAGE_NAME,
+    currentVersion: currentVersion || null,
+    latestVersion: latestVersion || null,
+    hasUpdate,
+    releaseUrl: releaseUrl || "https://github.com/deepseek-ai/deepseek-harness/releases",
+    releaseNotes: releaseNotes || "",
+    publishedAt: publishedAt || null,
+    distTags: distTags || {},
+  };
+}

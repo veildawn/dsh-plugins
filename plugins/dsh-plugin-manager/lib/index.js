@@ -43,10 +43,16 @@ import {
   lockfileHealthForPlugin,
   profileLockfilePath,
   readProfileLockfile,
+  DSH_PACKAGE_NAME,
+  DSH_REPO_SLUG,
+  DEFAULT_NPM_REGISTRY,
+  readHostDshVersion,
+  parseDshReleaseTag,
+  checkDshUpdate,
 } from './core.js'
 
 export const name = 'plugin-manager'
-export const inject = ['settings']
+export const inject = ['settings', 'connection']
 export const NS = 'plugin-manager'
 export const MARKET_RPC_CHANNEL = '/dsh-plugin-manager-rpc'
 
@@ -141,12 +147,111 @@ export async function fetchGitHubReleases(repoOrigin) {
 let cachedCommunity = null
 let lastCommunityFetchTime = 0
 
+let cachedDshReleases = null
+let lastDshReleasesFetchTime = 0
+
+let cachedDshNpm = null
+let lastDshNpmFetchTime = 0
+
+/**
+ * Fetch GitHub releases for deepseek-ai/deepseek-harness.
+ */
+export async function fetchDshGitHubReleases(repoSlug = DSH_REPO_SLUG) {
+  const now = Date.now()
+  if (cachedDshReleases && now - lastDshReleasesFetchTime < CACHE_TTL_MS) return cachedDshReleases
+  const apiUrl = `https://api.github.com/repos/${repoSlug}/releases?per_page=30`
+  try {
+    const data = await fetchJson(apiUrl)
+    if (!Array.isArray(data)) return cachedDshReleases || []
+    cachedDshReleases = data
+    lastDshReleasesFetchTime = now
+    return data
+  } catch {
+    return cachedDshReleases || []
+  }
+}
+
+/**
+ * Fetch NPM package metadata for @deepseek-ai/dsh (npm / npmmirror).
+ */
+export async function fetchDshNpmMeta(pkgName = DSH_PACKAGE_NAME, registry = DEFAULT_NPM_REGISTRY) {
+  const now = Date.now()
+  if (cachedDshNpm && now - lastDshNpmFetchTime < CACHE_TTL_MS) return cachedDshNpm
+  const cleanRegistry = registry.replace(/\/+$/, "")
+  const url = `${cleanRegistry}/${encodeURIComponent(pkgName)}`
+  try {
+    const data = await fetchJson(url)
+    if (!data || typeof data !== "object") return cachedDshNpm || null
+    cachedDshNpm = data
+    lastDshNpmFetchTime = now
+    return data
+  } catch {
+    return cachedDshNpm || null
+  }
+}
+
+/**
+ * Query latest DSH version and determine update availability.
+ */
+export async function queryDshUpdate({ spawnFn = null, repoSlug = DSH_REPO_SLUG, registry = DEFAULT_NPM_REGISTRY } = {}) {
+  const currentVersion = readHostDshVersion({ spawnFn })
+
+  let latestVersion = null
+  let releaseUrl = `https://github.com/${repoSlug}/releases`
+  let releaseNotes = ""
+  let publishedAt = null
+  let distTags = {}
+
+  // 1. Try npm metadata
+  try {
+    const npmMeta = await fetchDshNpmMeta(DSH_PACKAGE_NAME, registry)
+    if (npmMeta && npmMeta["dist-tags"]) {
+      distTags = npmMeta["dist-tags"]
+      latestVersion = distTags.latest || distTags.next || null
+      if (latestVersion && npmMeta.time && npmMeta.time[latestVersion]) {
+        publishedAt = npmMeta.time[latestVersion]
+      }
+    }
+  } catch {}
+
+  // 2. Fall back to or enrich from GitHub Releases
+  try {
+    const ghReleases = await fetchDshGitHubReleases(repoSlug)
+    if (Array.isArray(ghReleases) && ghReleases.length > 0) {
+      const valid = ghReleases.filter((r) => r && !r.draft)
+      const top = valid[0]
+      if (top) {
+        const parsedVer = parseDshReleaseTag(top.tag_name)
+        if (parsedVer && (!latestVersion || compareVersions(parsedVer, latestVersion) > 0)) {
+          latestVersion = parsedVer
+        }
+        if (top.html_url) releaseUrl = top.html_url
+        if (typeof top.body === "string") releaseNotes = top.body
+        if (!publishedAt && top.published_at) publishedAt = top.published_at
+      }
+    }
+  } catch {}
+
+  return checkDshUpdate({
+    currentVersion,
+    latestVersion,
+    releaseUrl,
+    releaseNotes,
+    publishedAt,
+    distTags,
+  })
+}
+
 /** Reset in-memory caches (mainly for tests). */
 export function resetMarketCaches() {
   cachedReleases = null
   lastReleasesFetchTime = 0
   cachedCommunity = null
   lastCommunityFetchTime = 0
+  cachedDshReleases = null
+  lastDshReleasesFetchTime = 0
+  cachedDshNpm = null
+  lastDshNpmFetchTime = 0
 }
 
 /**
@@ -300,6 +405,11 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
           profile: findProfileName(),
         },
       }
+    }
+
+    if (method === 'checkDshUpdate') {
+      const info = await queryDshUpdate({ spawnFn: deps.spawnFn })
+      return { ok: true, value: info }
     }
 
     if (method === 'checkUpdates') {
@@ -938,11 +1048,9 @@ export function apply(ctx, config) {
   current = () => scope.get()
   const options = () => resolveOptions(current())
 
-  ctx.inject(['connection'], (connectionCtx) => {
-    connectionCtx.connection.rpc.handle(
-      MARKET_RPC_CHANNEL,
-      (method, payload) => handleMarketRpc(connectionCtx, options, method, payload),
-      { authority: 'trusted-host' },
-    )
-  })
+  ctx.connection.rpc.handle(
+    MARKET_RPC_CHANNEL,
+    (method, payload) => handleMarketRpc(ctx, options, method, payload),
+    { authority: 'trusted-host' },
+  )
 }

@@ -1,3 +1,9 @@
+# Ensure @deepseek-ai/dsh-client-connection has webServer injected so rpc.handle can register HTTP routes
+- id: connection
+  inject:
+    - webRuntime
+    - webServer
+
 # Cordis bundle patch: mounts the archive manager's host half.
 #
 # The profile root (cordis.yml) is an EMPTY entry list; every bundle's patch

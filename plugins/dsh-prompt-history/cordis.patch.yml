@@ -1,3 +1,9 @@
+# Ensure @deepseek-ai/dsh-client-connection has webServer injected so rpc.handle can register HTTP routes
+- id: connection
+  inject:
+    - webRuntime
+    - webServer
+
 - insert:
     - id: prompt-history
       name: dsh-prompt-history

@@ -27,6 +27,9 @@ import {
   readProfileLockfile,
   listLockfilePluginEntries,
   normalizeTarballUrl,
+  readHostDshVersion,
+  parseDshReleaseTag,
+  checkDshUpdate,
 } from '../lib/core.js'
 import {
   handleMarketRpc,
@@ -41,6 +44,9 @@ import {
   resetMarketCaches,
   _setHttpFetch,
   _resetHttpFetch,
+  queryDshUpdate,
+  fetchDshGitHubReleases,
+  fetchDshNpmMeta,
 } from '../lib/index.js'
 
 describe('dsh-market core & version comparison', () => {
@@ -416,11 +422,34 @@ describe('dsh-market RPC handler (network stubbed)', () => {
 
   before(() => {
     _setHttpFetch(async (url) => {
+      if (String(url).includes('deepseek-harness/releases')) {
+        return {
+          ok: true,
+          json: async () => [
+            {
+              tag_name: 'dsh-v0.1.5-rc.1',
+              published_at: '2026-09-10T03:09:00Z',
+              body: 'Major DSH updates',
+              html_url: 'https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.5-rc.1',
+            },
+          ],
+        }
+      }
       if (String(url).includes('api.github.com')) {
         return { ok: true, json: async () => FAKE_RELEASES }
       }
       if (String(url).includes('plugins.json')) {
         return { ok: true, json: async () => ({ plugins: FAKE_COMMUNITY }) }
+      }
+      if (String(url).includes('@deepseek-ai%2Fdsh') || String(url).includes('@deepseek-ai/dsh')) {
+        return {
+          ok: true,
+          json: async () => ({
+            name: '@deepseek-ai/dsh',
+            'dist-tags': { latest: '0.1.5-rc.1', alpha: '0.1.5-alpha.2' },
+            time: { '0.1.5-rc.1': '2026-09-10T03:12:53.293Z' },
+          }),
+        }
       }
       return { ok: false, status: 404, json: async () => ({}) }
     })
@@ -454,6 +483,21 @@ describe('dsh-market RPC handler (network stubbed)', () => {
     const res = await handleMarketRpc({}, {}, 'getCommunityPlugins', {})
     assert.equal(res.ok, true)
     assert.equal(res.value.count, 2)
+  })
+
+  it('handles checkDshUpdate RPC and returns update info', async () => {
+    const fakeSpawn = () => ({
+      status: 0,
+      stdout: '0.1.2-rc.1\n',
+      stderr: '',
+    })
+    const res = await handleMarketRpc({}, {}, 'checkDshUpdate', {}, { spawnFn: fakeSpawn })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.name, '@deepseek-ai/dsh')
+    assert.equal(res.value.currentVersion, '0.1.2-rc.1')
+    assert.equal(res.value.latestVersion, '0.1.5-rc.1')
+    assert.equal(res.value.hasUpdate, true)
+    assert.ok(res.value.releaseUrl)
   })
 
   it('handles checkUpdates RPC', async () => {
@@ -1096,5 +1140,53 @@ describe('dsh-market install tasks (fake spawn)', () => {
         else process.env.DSH_PLUGINS_REPO = originalRepo
       }
     })
+  })
+})
+
+describe('dsh-market DSH host update detection', () => {
+  it('parses DSH release tags correctly', () => {
+    assert.equal(parseDshReleaseTag('dsh-v0.1.5-rc.1'), '0.1.5-rc.1')
+    assert.equal(parseDshReleaseTag('v0.1.5-rc.1'), '0.1.5-rc.1')
+    assert.equal(parseDshReleaseTag('0.1.5-rc.1'), '0.1.5-rc.1')
+    assert.equal(parseDshReleaseTag('dsh-0.2.0'), '0.2.0')
+    assert.equal(parseDshReleaseTag('not-a-tag'), null)
+    assert.equal(parseDshReleaseTag(null), null)
+  })
+
+  it('reads host DSH version via spawnFn or args', () => {
+    const fakeSpawn = () => ({
+      status: 0,
+      stdout: '0.1.5-rc.1\n',
+      stderr: '',
+    })
+    assert.equal(readHostDshVersion({ spawnFn: fakeSpawn, processArgs: [] }), '0.1.5-rc.1')
+
+    const failSpawn = () => ({ status: 1, stdout: '', stderr: 'error' })
+    assert.equal(readHostDshVersion({ spawnFn: failSpawn, processArgs: [] }), null)
+  })
+
+  it('checks DSH update state correctly', () => {
+    const upToDate = checkDshUpdate({ currentVersion: '0.1.5-rc.1', latestVersion: '0.1.5-rc.1' })
+    assert.equal(upToDate.hasUpdate, false)
+    assert.equal(upToDate.currentVersion, '0.1.5-rc.1')
+    assert.equal(upToDate.latestVersion, '0.1.5-rc.1')
+
+    const hasUpdate = checkDshUpdate({ currentVersion: '0.1.2-rc.1', latestVersion: '0.1.5-rc.1' })
+    assert.equal(hasUpdate.hasUpdate, true)
+
+    const prereleaseUpdate = checkDshUpdate({ currentVersion: '0.1.5-rc.1', latestVersion: '0.1.5-rc.2' })
+    assert.equal(prereleaseUpdate.hasUpdate, true)
+
+    const missing = checkDshUpdate({ currentVersion: null, latestVersion: '0.1.5-rc.1' })
+    assert.equal(missing.hasUpdate, false)
+  })
+
+  it('queries DSH update with stubbed fetch and spawn', async () => {
+    const fakeSpawn = () => ({ status: 0, stdout: '0.1.2-rc.1\n' })
+    const res = await queryDshUpdate({ spawnFn: fakeSpawn })
+    assert.equal(res.name, '@deepseek-ai/dsh')
+    assert.equal(res.currentVersion, '0.1.2-rc.1')
+    assert.equal(res.latestVersion, '0.1.5-rc.1')
+    assert.equal(res.hasUpdate, true)
   })
 })

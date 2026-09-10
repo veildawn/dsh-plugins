@@ -1,12 +1,13 @@
 {
   "name": "dsh-zcode-theme",
-  "version": "0.1.22",
-  "description": "ZCode Design System for DeepSeek Harness Web: charcoal surfaces, warm vermilion brand, shared Desktop/Tablet/Mobile visual tokens",
+  "version": "0.1.23",
+  "description": "ZCode theme system for DeepSeek Harness: zero-flash dark canvas, token-driven palettes, and cohesive desktop/mobile visual polish",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./tokens": "./lib/tokens.js",
+    "./css": "./lib/css.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
@@ -22,23 +23,28 @@
   "scripts": {
     "test": "node --test test/*.test.mjs"
   },
+  "license": "MIT",
   "keywords": [
     "deepseek-harness",
     "dsh",
-    "cordis",
     "theme",
     "zcode",
-    "design-system"
+    "design-system",
+    "ui"
   ],
-  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-theme"
-      ],
+      "inject": [],
       "platform": "web"
     }
   }

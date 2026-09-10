@@ -1,3 +1,9 @@
+# Ensure @deepseek-ai/dsh-client-connection has webServer injected so rpc.handle can register HTTP routes
+- id: connection
+  inject:
+    - webRuntime
+    - webServer
+
 # Mount role routing with no forced model assignments. Configure mappings in
 # Settings -> 模型角色; an empty table preserves native DSH behavior.
 - insert:
