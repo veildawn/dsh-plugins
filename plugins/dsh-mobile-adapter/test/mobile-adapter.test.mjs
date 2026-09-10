@@ -357,7 +357,7 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /.rS3zOq_chip{[^}]*width:max-content!important;[^}]*min-width:max-content!important;[^}]*padding:0 10px!important;[^}]*white-space:nowrap!important;overflow:visible!important;flex:none!important/)
   assert.match(css, /._7KE1Ra_root{[^}]*width:32px!important/)
   assert.match(css, /._7KE1Ra_trigger[^{]*{[^}]*width:32px!important;[^}]*border-radius:50%!important/)
-  assert.match(css, /._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron{display:none!important}/)
+  assert.match(css, /._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon{display:none!important}/)
   assert.match(css, /.dsh-mobile-composer-info{[^}]*text-align:center/)
   assert.match(css, /.JObwrW_root{[^}]*width:32px!important;[^}]*height:32px!important/)
   assert.match(css, /\[data-composer-card\] textarea\{[^}]*min-height:44px;max-height:160px;font-size:16px!important/)
