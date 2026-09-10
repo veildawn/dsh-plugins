@@ -398,6 +398,7 @@ export function runDshPluginCommand(args, { onLog, timeoutMs = 600_000, spawnFn 
       child = spawnFn('dsh', args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env },
+        shell: process.platform === 'win32',
       })
     } catch (err) {
       resolve({ ok: false, code: null, stdout: '', stderr: String(err && err.message ? err.message : err) })

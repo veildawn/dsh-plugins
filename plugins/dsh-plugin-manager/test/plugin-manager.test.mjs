@@ -858,7 +858,8 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(task.status, 'success')
   })
 
-  it('runDshPluginCommand captures exit code and streamed output', async () => {
+  it('runDshPluginCommand passes shell: true on Windows and captures exit code', async () => {
+    let capturedOpts = null
     const failing = new EventEmitter()
     failing.stdout = new EventEmitter()
     failing.stderr = new EventEmitter()
@@ -868,11 +869,15 @@ describe('dsh-market install tasks (fake spawn)', () => {
       failing.emit('close', 1)
     })
     const result = await runDshPluginCommand(['plugin', 'add', 'x'], {
-      spawnFn: () => failing,
+      spawnFn: (cmd, args, opts) => {
+        capturedOpts = opts
+        return failing
+      },
     })
     assert.equal(result.ok, false)
     assert.equal(result.code, 1)
     assert.equal(result.stderr.includes('boom'), true)
+    assert.equal(capturedOpts.shell, process.platform === 'win32')
   })
 
   it('removes an installed plugin by spawning `dsh plugin remove`', async () => {
