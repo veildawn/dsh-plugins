@@ -719,19 +719,46 @@ export async function getFileDiff(ctx, options, payload, signal) {
   const { root, target, relative } = await resolveInRoot(ctx, options, payload, signal)
   if (relative === '') return { hasDiff: false, diffs: [] }
 
-  const cwd = root.path
+  const absPath = ctx.fs.processPath?.(target) ?? target.displayPath
+  const fileDir = path.dirname(absPath)
   const normRel = relative.replace(/\\/g, '/')
 
-  // Parse a patch into hunks but always stamp the root-relative display path.
-  // `git diff`/`git log -p` report paths relative to the repository root, which
-  // may be a parent of the selected workspace root; DiffBlock should show the
-  // same root-relative path as the tree column for consistency.
+  // 1. Locate the nearest git repository containing this file by checking fileDir
+  let repoRoot = ''
+  try {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: fileDir,
+      encoding: 'utf8',
+      signal,
+    })
+    repoRoot = stdout.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  } catch (_) {
+    // If not found from fileDir, try root.path
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+        cwd: root.path,
+        encoding: 'utf8',
+        signal,
+      })
+      repoRoot = stdout.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+    } catch (_) {
+      return { hasDiff: false, diffs: [] }
+    }
+  }
+
+  // Path of the file relative to the git repo root
+  let repoRel = path.relative(repoRoot, absPath).replace(/\\/g, '/')
+  if (repoRel.startsWith('..')) {
+    repoRel = normRel
+  }
+
+  // Parse a patch into hunks but always stamp the root-relative display path (normRel).
   const parseForDisplay = (patch) => parsePatchToDiffs(patch, normRel).map((hunk) => ({ ...hunk, path: normRel }))
 
-  // 1. Try working tree diff (covers both staged and unstaged edits)
+  // 2. Try working tree diff (covers both staged and unstaged edits)
   try {
-    const { stdout: diffStdout } = await execFileAsync('git', ['diff', 'HEAD', '--', normRel], {
-      cwd,
+    const { stdout: diffStdout } = await execFileAsync('git', ['diff', 'HEAD', '--', repoRel], {
+      cwd: repoRoot,
       encoding: 'utf8',
       maxBuffer: 8 * 1024 * 1024,
       signal,
@@ -744,24 +771,24 @@ export async function getFileDiff(ctx, options, payload, signal) {
     }
   } catch (_) {}
 
-  // 2. Check untracked files
+  // 3. Check untracked files
   try {
-    const { stdout: statusStdout } = await execFileAsync('git', ['status', '--porcelain', '--', normRel], {
-      cwd,
+    const { stdout: statusStdout } = await execFileAsync('git', ['status', '--porcelain', '--', repoRel], {
+      cwd: repoRoot,
       encoding: 'utf8',
       signal,
     })
-    if (statusStdout && statusStdout.trim().startsWith('??')) {
+    if (statusStdout && (statusStdout.trim().startsWith('??') || statusStdout.trim().startsWith('A '))) {
       const text = await ctx.fs.readText(target, signal)
       const diffs = [{ path: normRel, oldText: null, newText: text }]
       return { hasDiff: true, source: 'untracked', diffs, summary: summarizeDiffs(diffs) }
     }
   } catch (_) {}
 
-  // 3. Fallback to latest commit diff for the file
+  // 4. Fallback to latest commit diff for the file
   try {
-    const { stdout: logStdout } = await execFileAsync('git', ['log', '-p', '-1', '--', normRel], {
-      cwd,
+    const { stdout: logStdout } = await execFileAsync('git', ['log', '-p', '-1', '--', repoRel], {
+      cwd: repoRoot,
       encoding: 'utf8',
       maxBuffer: 8 * 1024 * 1024,
       signal,
@@ -782,9 +809,7 @@ export async function getFileDiff(ctx, options, payload, signal) {
  *
  * `git status --porcelain` reports paths relative to the repository root, but
  * the tree's `entry.path` is relative to the selected root, which may be a
- * subdirectory of that repository. Rebase every reported path onto the selected
- * root so the badges match the tree entries exactly; paths outside the selected
- * root are dropped.
+ * subdirectory or parent directory of git repositories.
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
  * @param {() => object} options - config reader.
  * @param {{root?: string}} payload - client request.
@@ -793,48 +818,68 @@ export async function getFileDiff(ctx, options, payload, signal) {
  */
 export async function getWorkspaceGitStatus(ctx, options, payload, signal) {
   const { root } = await resolveInRoot(ctx, options, { root: payload?.root, path: '' }, signal)
+  const rootPath = root.path
 
-  // Determine the repository root so we can rebase paths onto the selected root.
-  let repoRoot = ''
+  const allModified = new Set()
+  const allUntracked = new Set()
+
+  let isSingleRepo = false
   try {
-    const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: root.path,
+    const { stdout: toplevelOut } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: rootPath,
       encoding: 'utf8',
       maxBuffer: 1024 * 1024,
       signal,
     })
-    repoRoot = stdout.trim().replace(/\\/g, '/').replace(/\/+$/, '')
-  } catch (_) {
-    // Not a git checkout (or git unavailable): no diffs to report.
-    return { modified: [], untracked: [] }
-  }
-
-  const rootKey = root.path.replace(/\\/g, '/').replace(/\/+$/, '')
-  const repoKey = repoRoot
-  // Prefix (repo-relative) that must be stripped so a path becomes root-relative.
-  let prefix = ''
-  if (rootKey !== repoKey) {
-    if (!rootKey.startsWith(repoKey + '/')) {
-      // Selected root is outside this repository; skip to avoid mismatched badges.
-      return { modified: [], untracked: [] }
+    const repoRoot = toplevelOut.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+    const rootKey = rootPath.replace(/\\/g, '/').replace(/\/+$/, '')
+    let prefix = ''
+    if (rootKey !== repoRoot) {
+      if (rootKey.startsWith(repoRoot + '/')) {
+        prefix = rootKey.slice(repoRoot.length + 1)
+      } else {
+        return { modified: [], untracked: [] }
+      }
     }
-    prefix = rootKey.slice(repoKey.length + 1)
-  }
 
-  try {
     const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
-      cwd: root.path,
+      cwd: rootPath,
       encoding: 'utf8',
       maxBuffer: 4 * 1024 * 1024,
       signal,
     })
     const raw = parseGitStatus(stdout)
-    return {
-      modified: rebaseGitPaths(raw.modified, prefix),
-      untracked: rebaseGitPaths(raw.untracked, prefix),
-    }
-  } catch (_) {
-    return { modified: [], untracked: [] }
+    for (const p of rebaseGitPaths(raw.modified, prefix)) allModified.add(p)
+    for (const p of rebaseGitPaths(raw.untracked, prefix)) allUntracked.add(p)
+    isSingleRepo = true
+  } catch (_) {}
+
+  // If rootPath itself is not a git repo, discover git repos in subdirectories
+  if (!isSingleRepo) {
+    try {
+      const entries = await fsPromises.readdir(rootPath, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+        const subDir = path.join(rootPath, entry.name)
+        try {
+          await fsPromises.stat(path.join(subDir, '.git'))
+          const { stdout: subStatus } = await execFileAsync('git', ['status', '--porcelain'], {
+            cwd: subDir,
+            encoding: 'utf8',
+            maxBuffer: 4 * 1024 * 1024,
+            signal,
+          })
+          const raw = parseGitStatus(subStatus)
+          for (const item of raw.modified) allModified.add(entry.name + '/' + item)
+          for (const item of raw.untracked) allUntracked.add(entry.name + '/' + item)
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  return {
+    modified: [...allModified],
+    untracked: [...allUntracked],
   }
 }
 
