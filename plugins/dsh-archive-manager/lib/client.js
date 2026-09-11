@@ -81,17 +81,21 @@ window.__ModuleLoader__.load({
       : DefaultIconArchive;
 
     const css = `
-      /* 侧边栏入口按钮 */
-      .dam-btn{display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;width:100%;height:36px;padding:0 8px;margin:2px 0;border:none;border-radius:10px;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;cursor:pointer;text-align:left;user-select:none;position:relative}
+      /* 侧边栏入口按钮：完全贴合 sidebar.settings (VOzbGW_triggerRow + VOzbGW_trigger) 的几何对齐规格 */
+      .dam-row{flex:none;align-items:center;gap:8px;width:calc(100% + 4px);margin:4px -2px;display:flex;box-sizing:border-box}
+      .dam-row.dam-row-rail{width:36px;margin:8px 0 10px;justify-content:center}
+
+      .dam-btn{box-sizing:border-box;cursor:pointer;width:auto;min-width:0;height:42px;color:var(--dsw-alias-label-primary);background:0 0;border:none;border-radius:12px;flex:1;align-items:center;justify-content:space-between;gap:8px;margin:0;padding:0 10px 0 8px;font-family:inherit;font-size:14px;line-height:22px;display:flex;overflow:hidden;text-align:left;user-select:none;position:relative}
       .dam-btn:hover,.dam-btn:active{background:var(--dsw-alias-interactive-bg-hover)}
       .dam-btn-main{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto}
-      .dam-btn-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:none;color:var(--dsw-alias-label-primary)}
+      .dam-btn-icon{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;flex:none;color:var(--dsw-alias-label-primary)}
       .dam-btn-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .dam-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-foreground,#fff);font-size:11px;font-weight:600;box-sizing:border-box;flex:none}
 
-      /* 折叠 rail 状态下的紧凑圆形按钮 */
-      .dam-btn-rail{width:36px;min-width:36px;max-width:36px;height:36px;padding:0;margin:4px 0;border-radius:50%;justify-content:center;align-self:center}
+      /* 折叠 rail 状态下的紧凑圆形按钮：同 VOzbGW_trigger.VOzbGW_rail */
+      .dam-btn-rail{border-radius:50%;flex:none;justify-content:center;gap:0;width:36px;height:36px;margin:0;padding:0}
       .dam-btn-rail .dam-btn-main{display:contents}
+      .dam-btn-rail .dam-btn-icon{width:18px;height:18px}
       .dam-btn-rail .dam-btn-label{display:none}
       .dam-btn-rail .dam-badge{position:absolute;top:-2px;right:-4px;min-width:16px;height:16px;padding:0 4px;font-size:10px;border-radius:8px;border:1.5px solid var(--dsw-specific-sidebar-fill,#fff)}
 
@@ -587,8 +591,12 @@ window.__ModuleLoader__.load({
         ? react.createElement(Tooltip, { label: "归档箱", delayMs: 500 }, button)
         : button;
 
+      const row = react.createElement("div", {
+        className: `dam-row ${wide ? "dam-row-wide" : "dam-row-rail"}`,
+      }, wrappedButton);
+
       return react.createElement(react.Fragment, null,
-        wrappedButton,
+        row,
         react.createElement(ArchiveManagerModal, {
           open: modalOpen,
           onClose: () => setModalOpen(false),
