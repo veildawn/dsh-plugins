@@ -503,6 +503,81 @@ export function parsePatchToDiffs(patch, filePath) {
 }
 
 /**
+ * Parse unified diff patch or whole new text into line-numbered diff rows.
+ * Each row carries:
+ * - `type`: 'add' | 'del' | 'normal' | 'hunk'
+ * - `oldLine`: number | null (line number in original file)
+ * - `newLine`: number | null (line number in modified file)
+ * - `text`: string (line content)
+ *
+ * @param {string} patch - git unified diff patch text.
+ * @param {string} [fallbackText] - full text of new file when patch is empty (e.g. untracked file).
+ * @returns {Array<{type: 'add'|'del'|'normal'|'hunk', oldLine: number|null, newLine: number|null, text: string}>}
+ */
+export function parsePatchToRows(patch, fallbackText = '') {
+  if (!patch || typeof patch !== 'string' || patch.trim() === '') {
+    if (typeof fallbackText === 'string' && fallbackText !== '') {
+      const lines = fallbackText.split('\n')
+      return lines.map((text, idx) => ({
+        type: 'add',
+        oldLine: null,
+        newLine: idx + 1,
+        text,
+      }))
+    }
+    return []
+  }
+
+  const rows = []
+  const lines = patch.split('\n')
+  let oldLine = 1
+  let newLine = 1
+
+  for (const line of lines) {
+    if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('--- ') || line.startsWith('+++ ')) {
+      continue
+    }
+    if (line.startsWith('@@')) {
+      const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)/)
+      if (match) {
+        oldLine = parseInt(match[1], 10)
+        newLine = parseInt(match[2], 10)
+        rows.push({
+          type: 'hunk',
+          oldLine: null,
+          newLine: null,
+          text: line,
+        })
+      }
+      continue
+    }
+    if (line.startsWith('+')) {
+      rows.push({
+        type: 'add',
+        oldLine: null,
+        newLine: newLine++,
+        text: line.slice(1),
+      })
+    } else if (line.startsWith('-')) {
+      rows.push({
+        type: 'del',
+        oldLine: oldLine++,
+        newLine: null,
+        text: line.slice(1),
+      })
+    } else if (line.startsWith(' ') || line === '') {
+      rows.push({
+        type: 'normal',
+        oldLine: oldLine++,
+        newLine: newLine++,
+        text: line.startsWith(' ') ? line.slice(1) : line,
+      })
+    }
+  }
+  return rows
+}
+
+/**
  * Summarize total added and removed line counts across diff hunks.
  * @param {Array<{oldText: string | null, newText: string}>} diffs - diff entries.
  * @returns {{added: number, removed: number}} line statistics.

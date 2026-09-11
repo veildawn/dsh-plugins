@@ -38,6 +38,7 @@ import {
   normalizeSafePaths,
   parseGitStatus,
   parsePatchToDiffs,
+  parsePatchToRows,
   rebaseGitPaths,
   resolveWindow,
   sanitizeDocHtml,
@@ -66,6 +67,7 @@ export {
   normalizeSafePaths,
   parseGitStatus,
   parsePatchToDiffs,
+  parsePatchToRows,
   rebaseGitPaths,
   resolveWindow,
   sortEntries,
@@ -765,8 +767,9 @@ export async function getFileDiff(ctx, options, payload, signal) {
     })
     if (diffStdout && diffStdout.trim() !== '') {
       const diffs = parseForDisplay(diffStdout)
-      if (diffs.length > 0) {
-        return { hasDiff: true, source: 'working-tree', diffs, summary: summarizeDiffs(diffs) }
+      const rows = parsePatchToRows(diffStdout)
+      if (diffs.length > 0 || rows.length > 0) {
+        return { hasDiff: true, source: 'working-tree', diffs, rows, patch: diffStdout, summary: summarizeDiffs(diffs) }
       }
     }
   } catch (_) {}
@@ -781,7 +784,8 @@ export async function getFileDiff(ctx, options, payload, signal) {
     if (statusStdout && (statusStdout.trim().startsWith('??') || statusStdout.trim().startsWith('A '))) {
       const text = await ctx.fs.readText(target, signal)
       const diffs = [{ path: normRel, oldText: null, newText: text }]
-      return { hasDiff: true, source: 'untracked', diffs, summary: summarizeDiffs(diffs) }
+      const rows = parsePatchToRows('', text)
+      return { hasDiff: true, source: 'untracked', diffs, rows, summary: summarizeDiffs(diffs) }
     }
   } catch (_) {}
 
@@ -795,8 +799,9 @@ export async function getFileDiff(ctx, options, payload, signal) {
     })
     if (logStdout && logStdout.trim() !== '') {
       const diffs = parseForDisplay(logStdout)
-      if (diffs.length > 0) {
-        return { hasDiff: true, source: 'latest-commit', diffs, summary: summarizeDiffs(diffs) }
+      const rows = parsePatchToRows(logStdout)
+      if (diffs.length > 0 || rows.length > 0) {
+        return { hasDiff: true, source: 'latest-commit', diffs, rows, patch: logStdout, summary: summarizeDiffs(diffs) }
       }
     }
   } catch (_) {}

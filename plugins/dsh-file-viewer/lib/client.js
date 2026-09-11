@@ -347,6 +347,23 @@ window.__ModuleLoader__.load({
       .fv-diff-add{color:var(--dsw-alias-state-success-primary,#10b981)}
       .fv-diff-del{color:var(--dsw-alias-state-error-primary,#ef4444)}
       .fv-tab[aria-selected="true"] .fv-diff-add,.fv-tab[aria-selected="true"] .fv-diff-del{color:#fff}
+      .fv-diff-view{display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base,#fff);overflow:hidden;font-family:var(--dsw-font-code,monospace);margin:4px 0}
+      .fv-diff-toolbar{display:flex;align-items:center;padding:8px 12px;background:var(--dsw-alias-bg-layer-1,rgba(0,0,0,.02));border-bottom:1px solid var(--dsw-alias-border-l1);font-family:var(--dsw-font-family);font-size:12px}
+      .fv-diff-source-tag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 12%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .fv-diff-table{display:flex;flex-direction:column;overflow-x:auto;min-width:0;font-size:12px;line-height:20px;font-family:var(--dsw-font-code,monospace)}
+      .fv-diff-line{display:flex;min-width:max-content;align-items:stretch;transition:background-color .08s}
+      .fv-diff-num{flex:none;width:44px;padding:0 6px;text-align:right;user-select:none;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);opacity:.65;font-size:11px}
+      .fv-diff-num-new{border-right:1px solid var(--dsw-alias-border-l1)}
+      .fv-diff-sign{flex:none;width:20px;text-align:center;user-select:none;font-weight:600}
+      .fv-diff-text{flex:1 1 auto;white-space:pre;padding-right:16px;min-width:0}
+      .fv-diff-table[data-wrap="on"] .fv-diff-text{white-space:pre-wrap;word-break:break-all}
+      .fv-diff-hunk{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 8%,transparent);color:var(--dsw-alias-label-secondary);font-style:italic}
+      .fv-diff-hunk-gutter{color:var(--dsw-alias-brand-primary,#4d6bfe);opacity:.6}
+      .fv-diff-add-line{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#10b981) 14%,transparent)}
+      .fv-diff-add-line .fv-diff-sign{color:var(--dsw-alias-state-success-primary,#10b981)}
+      .fv-diff-del-line{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 14%,transparent)}
+      .fv-diff-del-line .fv-diff-sign{color:var(--dsw-alias-state-error-primary,#ef4444)}
+      .fv-diff-ctx-line:hover{background:var(--dsw-alias-interactive-bg-hover)}
       .fv-badge{display:inline-block;padding:0 4px;font-size:10px;font-weight:600;line-height:14px;border-radius:4px;margin-left:4px;flex:none}
       .fv-badge-mod{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d97706) 18%,transparent);color:var(--dsw-alias-state-warning-primary,#d97706)}
       .fv-badge-add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#10b981) 18%,transparent);color:var(--dsw-alias-state-success-primary,#10b981)}
@@ -1288,6 +1305,92 @@ window.__ModuleLoader__.load({
             : null);
       }
 
+      /** Line-numbered diff viewer with dual line number gutters. */
+      function DiffView({ diffData, wrap }) {
+        const rows = react.useMemo(() => {
+          if (Array.isArray(diffData?.rows) && diffData.rows.length > 0) {
+            return diffData.rows;
+          }
+          if (Array.isArray(diffData?.diffs)) {
+            const fallback = [];
+            let nLine = 1;
+            for (const hunk of diffData.diffs) {
+              if (hunk.oldText) {
+                for (const l of hunk.oldText.split("\n")) {
+                  fallback.push({ type: "del", oldLine: null, newLine: null, text: l });
+                }
+              }
+              if (hunk.newText) {
+                for (const l of hunk.newText.split("\n")) {
+                  fallback.push({ type: "add", oldLine: null, newLine: nLine++, text: l });
+                }
+              }
+            }
+            return fallback;
+          }
+          return [];
+        }, [diffData]);
+
+        const [copied, setCopied] = react.useState(false);
+
+        const onCopy = () => {
+          const rawText = rows.map((r) => {
+            const prefix = r.type === "add" ? "+" : (r.type === "del" ? "-" : (r.type === "hunk" ? "" : " "));
+            return prefix + r.text;
+          }).join("\n");
+          if (typeof writeClipboard === "function") {
+            writeClipboard(rawText).then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            });
+          }
+        };
+
+        if (rows.length === 0) {
+          if (Array.isArray(diffData?.diffs) && diffData.diffs.length > 0) {
+            return react.createElement(DiffBlock, {
+              diffs: diffData.diffs,
+              labels: DIFF_BLOCK_LABELS,
+              maxLines: Infinity,
+            });
+          }
+          return react.createElement("div", { className: "fv-note" }, "暂无改动差异。");
+        }
+
+        return react.createElement("div", { className: "fv-diff-view" },
+          react.createElement("div", { className: "fv-diff-toolbar" },
+            react.createElement("span", { className: "fv-diff-source-tag" },
+              diffData?.source === "untracked" ? "未跟踪新文件" : (diffData?.source === "working-tree" ? "工作区未提交改动" : "最新提交改动")),
+            react.createElement("div", { style: { flex: "1 1 auto" } }),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-button",
+              style: { height: "26px", fontSize: "12px", padding: "0 10px" },
+              onClick: onCopy,
+            }, copied ? "已复制" : "复制 Diff")),
+          react.createElement("div", {
+            className: "fv-diff-table",
+            "data-wrap": wrap ? "on" : "off",
+          },
+            rows.map((row, idx) => {
+              if (row.type === "hunk") {
+                return react.createElement("div", { key: idx, className: "fv-diff-line fv-diff-hunk" },
+                  react.createElement("span", { className: "fv-diff-num fv-diff-hunk-gutter" }, "⋯"),
+                  react.createElement("span", { className: "fv-diff-num fv-diff-hunk-gutter fv-diff-num-new" }, "⋯"),
+                  react.createElement("span", { className: "fv-diff-sign" }),
+                  react.createElement("span", { className: "fv-diff-text" }, row.text));
+              }
+              const isAdd = row.type === "add";
+              const isDel = row.type === "del";
+              const lineCls = "fv-diff-line " + (isAdd ? "fv-diff-add-line" : (isDel ? "fv-diff-del-line" : "fv-diff-ctx-line"));
+              return react.createElement("div", { key: idx, className: lineCls },
+                react.createElement("span", { className: "fv-diff-num fv-diff-num-old" }, row.oldLine !== null ? String(row.oldLine) : ""),
+                react.createElement("span", { className: "fv-diff-num fv-diff-num-new" }, row.newLine !== null ? String(row.newLine) : ""),
+                react.createElement("span", { className: "fv-diff-sign" }, isAdd ? "+" : (isDel ? "-" : " ")),
+                react.createElement("span", { className: "fv-diff-text" }, row.text || " "));
+            })));
+      }
+
       /** Text, Markdown and JSON: one windowed read, three renderings. */
       function TextView({ meta, root, wrap }) {
         // Callers mount this with a per-file key, so paging state starts fresh
@@ -1330,14 +1433,14 @@ window.__ModuleLoader__.load({
         const showTabs = canPreview || hasDiff;
 
         let body;
-        if (diffMode && hasDiff && Array.isArray(diffData.diffs)) {
+        if (diffMode && hasDiff) {
           body = react.createElement(ErrorBoundary, {
             resetKey: data.path + ":diff",
             fallback: () => react.createElement("div", { className: "fv-note fv-error" }, "渲染改动对比失败。"),
-          }, react.createElement(DiffBlock, {
-            diffs: diffData.diffs,
-            labels: DIFF_BLOCK_LABELS,
-            maxLines: Infinity,
+          }, react.createElement(DiffView, {
+            diffData,
+            filePath: data.path,
+            wrap,
           }));
         } else if (canPreview && !raw && data.kind === "markdown") {
           body = react.createElement(ErrorBoundary, {

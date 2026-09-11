@@ -23,6 +23,7 @@ import {
   normalizeSafePaths,
   parseGitStatus,
   parsePatchToDiffs,
+  parsePatchToRows,
   rebaseGitPaths,
   resolveWindow,
   sortEntries,
@@ -543,6 +544,39 @@ test('sanitizeDocHtml removes script and iframe tags while keeping tables and im
   assert.equal(clean.includes('<table><tr><td>表格内容</td></tr></table>'), true)
   assert.equal(clean.includes('<img src="data:image/png;base64,123" />'), true)
 })
+
+test('parsePatchToRows parses patch and untracked text into line-numbered rows', () => {
+  // 1. Untracked file test
+  const untrackedRows = parsePatchToRows('', 'line one\nline two\nline three')
+  assert.equal(untrackedRows.length, 3)
+  assert.equal(untrackedRows[0].type, 'add')
+  assert.equal(untrackedRows[0].oldLine, null)
+  assert.equal(untrackedRows[0].newLine, 1)
+  assert.equal(untrackedRows[2].newLine, 3)
+
+  // 2. Patch with hunks test
+  const patch = [
+    '@@ -10,3 +10,4 @@ header text',
+    ' context line',
+    '-old line',
+    '+new line 1',
+    '+new line 2',
+  ].join('\n')
+  const rows = parsePatchToRows(patch)
+  assert.equal(rows.length, 5)
+  assert.equal(rows[0].type, 'hunk')
+  assert.equal(rows[1].type, 'normal')
+  assert.equal(rows[1].oldLine, 10)
+  assert.equal(rows[1].newLine, 10)
+  assert.equal(rows[2].type, 'del')
+  assert.equal(rows[2].oldLine, 11)
+  assert.equal(rows[2].newLine, null)
+  assert.equal(rows[3].type, 'add')
+  assert.equal(rows[3].oldLine, null)
+  assert.equal(rows[3].newLine, 11)
+  assert.equal(rows[4].newLine, 12)
+})
+
 
 
 
