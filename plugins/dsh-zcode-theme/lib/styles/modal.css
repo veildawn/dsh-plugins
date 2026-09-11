@@ -11,6 +11,7 @@
   box-shadow: var(--dsw-shadow-lv3);
 }
 
+<<<<<<< HEAD
 /* 文件查看器侧边抽屉容器：桌面端必须保持完全透明，无遮罩与白块，露出主会话 */
 [data-dsh-theme="zcode"] .fv-scrim {
   background: transparent;
@@ -47,10 +48,15 @@
   backdrop-filter: none;
 }
 
-[data-dsh-theme="zcode"] [role="menu"],
-[data-dsh-theme="zcode"] [class*="_menu"] {
+[data-dsh-theme="zcode"] [role="menu"] {
   background: var(--dsw-specific-menu);
   border: 1px solid var(--dsw-alias-border-l2);
+}
+
+/* 排除 menu 锚点容器误设边框背景 */
+[data-dsh-theme="zcode"] [class*="_menuAnchor"] {
+  background: transparent;
+  border: none;
 }
 
 [data-dsh-theme="zcode"] [class*="toast"],

@@ -1,6 +1,6 @@
 {
   "name": "dsh-zcode-theme",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "description": "ZCode theme system for DeepSeek Harness: zero-flash dark canvas, token-driven palettes, and cohesive desktop/mobile visual polish",
   "type": "module",
   "main": "lib/index.js",
