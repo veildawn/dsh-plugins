@@ -49,13 +49,51 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function DefaultIconArchive({ size = 16, className }) {
+      return react.createElement("svg", {
+        width: size,
+        height: size,
+        viewBox: "0 0 20 20",
+        fill: "none",
+        xmlns: "http://www.w3.org/2000/svg",
+        className,
+      },
+        react.createElement("path", {
+          fillRule: "evenodd",
+          clipRule: "evenodd",
+          d: "M15.8659 2.05975C17.2603 2.05995 18.3913 3.19096 18.3914 4.58527V5.4874C18.3914 6.02747 18.2192 6.52672 17.9303 6.93735C17.9336 6.96524 17.9388 6.99318 17.9388 7.02195V12.8884C17.9388 13.6345 17.9395 14.2379 17.8996 14.7254C17.8642 15.1593 17.7936 15.5499 17.6373 15.9141L17.5654 16.0685C17.278 16.6328 16.8405 17.1046 16.3038 17.434L16.0679 17.5661C15.66 17.7739 15.2196 17.8598 14.7237 17.9003C14.2362 17.9401 13.6327 17.9405 12.8867 17.9405H7.11122C6.36511 17.9405 5.76171 17.9401 5.27418 17.9003C4.84051 17.8649 4.44949 17.7952 4.08545 17.6391L3.93104 17.5661C3.36673 17.2785 2.89392 16.8414 2.56465 16.3044L2.43245 16.0685C2.22473 15.6608 2.13878 15.2211 2.09825 14.7254C2.05841 14.2379 2.05912 13.6345 2.05912 12.8884V7.02195C2.05912 6.99284 2.06422 6.96449 2.06758 6.93629C1.77931 6.52592 1.60858 6.02687 1.60858 5.4874V4.58527C1.60876 3.19084 2.73962 2.05975 4.1341 2.05975H15.8659ZM16.4984 7.92936C16.296 7.98169 16.0847 8.01288 15.8659 8.01291H4.1341C3.91478 8.01291 3.70246 7.98194 3.49955 7.92936V12.8884C3.49955 13.6582 3.50053 14.1927 3.53445 14.608C3.56769 15.0146 3.62923 15.244 3.71635 15.415L3.7925 15.5514C3.98339 15.8627 4.25749 16.1165 4.58464 16.2833L4.72529 16.3435C4.88095 16.3993 5.08638 16.4402 5.39158 16.4651C5.80685 16.4991 6.34138 16.5001 7.11122 16.5001H12.8867C13.6564 16.5001 14.1911 16.499 14.6063 16.4651C15.0128 16.432 15.2423 16.3703 15.4133 16.2833L15.5508 16.2061C15.8618 16.0152 16.116 15.7419 16.2827 15.415L16.3429 15.2732C16.3985 15.1177 16.4396 14.9128 16.4645 14.608C16.4985 14.1927 16.4984 13.6583 16.4984 12.8884V7.92936ZM4.1341 3.50019C3.53511 3.50019 3.0492 3.98631 3.04902 4.58527V5.4874C3.04902 6.08649 3.535 6.57248 4.1341 6.57248H15.8659C16.4648 6.57228 16.951 6.08638 16.951 5.4874V4.58527C16.9509 3.98644 16.4647 3.50038 15.8659 3.50019H4.1341Z",
+          fill: "currentColor"
+        }),
+        react.createElement("path", {
+          d: "M12.7962 12.5661V11.0832H7.20548V12.5661L12.7962 12.5661Z",
+          fill: "currentColor"
+        })
+      );
+    }
+
+    let primitives = null;
+    try {
+      primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+    } catch (_) {}
+
+    const IconArchive = (primitives && primitives.IconArchiveOutline20)
+      ? primitives.IconArchiveOutline20
+      : DefaultIconArchive;
+
     const css = `
       /* 侧边栏入口按钮 */
-      .dam-btn{display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;width:100%;min-height:36px;padding:4px 10px;margin:2px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer;text-align:left;user-select:none}
+      .dam-btn{display:flex;align-items:center;justify-content:space-between;box-sizing:border-box;width:100%;height:36px;padding:0 8px;margin:2px 0;border:none;border-radius:10px;background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;cursor:pointer;text-align:left;user-select:none;position:relative}
       .dam-btn:hover,.dam-btn:active{background:var(--dsw-alias-interactive-bg-hover)}
-      .dam-btn-main{display:flex;align-items:center;gap:8px;min-width:0}
+      .dam-btn-main{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto}
+      .dam-btn-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:none;color:var(--dsw-alias-label-primary)}
       .dam-btn-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .dam-badge{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-foreground,#fff);font-size:11px;font-weight:600;box-sizing:border-box}
+      .dam-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-label-primary-foreground,#fff);font-size:11px;font-weight:600;box-sizing:border-box;flex:none}
+
+      /* 折叠 rail 状态下的紧凑圆形按钮 */
+      .dam-btn-rail{width:36px;min-width:36px;max-width:36px;height:36px;padding:0;margin:4px 0;border-radius:50%;justify-content:center;align-self:center}
+      .dam-btn-rail .dam-btn-main{display:contents}
+      .dam-btn-rail .dam-btn-label{display:none}
+      .dam-btn-rail .dam-badge{position:absolute;top:-2px;right:-4px;min-width:16px;height:16px;padding:0 4px;font-size:10px;border-radius:8px;border:1.5px solid var(--dsw-specific-sidebar-fill,#fff)}
 
       /* 弹窗遮罩：采用全屏 fixed 并禁止横向滚动 */
       .dam-backdrop{position:fixed;top:0;left:0;right:0;bottom:0;width:100vw;height:100dvh;height:100vh;z-index:2147483640;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:0;box-sizing:border-box;background:rgba(0,0,0,.52);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);animation:dam-fade .14s ease-out;overflow:hidden}
@@ -360,7 +398,9 @@ window.__ModuleLoader__.load({
           // Header
           react.createElement("div", { className: "dam-head" },
             react.createElement("div", { className: "dam-title" },
-              react.createElement("span", { "aria-hidden": "true" }, "📦"),
+              react.createElement("span", { className: "dam-btn-icon", "aria-hidden": "true" },
+                react.createElement(IconArchive, { size: 18 })
+              ),
               react.createElement("span", null, "归档管理"),
               react.createElement("span", { className: "dam-badge" }, list.length)
             ),
@@ -516,6 +556,7 @@ window.__ModuleLoader__.load({
       const [modalOpen, setModalOpen] = react.useState(false);
       const archivedIds = props.useWorkspaces((state) => state.archivedSessionIds) || [];
       const count = archivedIds.length;
+      const wide = props.wide !== false;
 
       react.useEffect(() => {
         const handleOpen = () => setModalOpen(true);
@@ -525,19 +566,29 @@ window.__ModuleLoader__.load({
         }
       }, []);
 
-      return react.createElement(react.Fragment, null,
-        react.createElement("button", {
-          type: "button",
-          className: "dam-btn",
-          onClick: () => setModalOpen(true),
-          title: "查看与管理已归档会话",
-        },
-          react.createElement("span", { className: "dam-btn-main" },
-            react.createElement("span", { "aria-hidden": "true" }, "📦"),
-            react.createElement("span", { className: "dam-btn-label" }, "归档箱")
+      const button = react.createElement("button", {
+        type: "button",
+        className: `dam-btn ${wide ? "dam-btn-wide" : "dam-btn-rail"}`,
+        onClick: () => setModalOpen(true),
+        "aria-label": "归档箱",
+        title: wide ? "查看与管理已归档会话" : undefined,
+      },
+        react.createElement("span", { className: "dam-btn-main" },
+          react.createElement("span", { className: "dam-btn-icon", "aria-hidden": "true" },
+            react.createElement(IconArchive, { size: wide ? 16 : 18 })
           ),
-          count > 0 ? react.createElement("span", { className: "dam-badge" }, count) : null
+          wide ? react.createElement("span", { className: "dam-btn-label" }, "归档箱") : null
         ),
+        count > 0 ? react.createElement("span", { className: "dam-badge" }, count) : null
+      );
+
+      const Tooltip = primitives && primitives.Tooltip ? primitives.Tooltip : null;
+      const wrappedButton = (!wide && Tooltip)
+        ? react.createElement(Tooltip, { label: "归档箱", delayMs: 500 }, button)
+        : button;
+
+      return react.createElement(react.Fragment, null,
+        wrappedButton,
         react.createElement(ArchiveManagerModal, {
           open: modalOpen,
           onClose: () => setModalOpen(false),

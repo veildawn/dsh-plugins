@@ -485,6 +485,12 @@ test('client: bundle loads through __ModuleLoader__ with the single-arg factory 
   const module = { exports: {} };
   const exportsObj = entry.factory((name) => {
     if (name === 'react') return fakeReact;
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') {
+      return {
+        IconArchiveOutline20: ({ size, className }) => fakeReact.createElement('svg', { size, className }),
+        Tooltip: ({ children }) => children,
+      };
+    }
     throw new Error(`unexpected require: ${name}`);
   }, undefined, undefined);
   assert.equal(typeof exportsObj.apply, 'function');
