@@ -1,10 +1,14 @@
 /* Code Block 是一级组件：更深的 Code Surface，不用品牌色。 */
 [data-dsh-theme="zcode"] .md-code-block,
 [data-dsh-theme="zcode"] pre,
-[data-dsh-theme="zcode"] [class*="_code"] {
+[data-dsh-theme="zcode"] [class*="_code"],
+[data-dsh-theme="zcode"] [data-read] {
   background: var(--dsw-alias-markdown-code-block);
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 12px;
+  /* 确保 Shiki 代码高亮作用域内，默认文字及注释颜色正确继承主题色彩，避免暗色下黑字黑底 */
+  --shiki-foreground: var(--dsw-alias-label-primary);
+  --shiki-token-comment: var(--dsw-alias-label-tertiary);
 }
 
 [data-dsh-theme="zcode"] .md-code-block [class*="_banner"],

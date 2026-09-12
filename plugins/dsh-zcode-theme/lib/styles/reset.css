@@ -1,6 +1,9 @@
 /* 主题作用域：避免污染未启用 ZCode 的页面。color-scheme 跟随宿主 light/dark。 */
 [data-dsh-theme="zcode"] {
   color-scheme: light dark;
+  /* 注入 Shiki 代码高亮默认前景色与注释色，确保跟随主题文字主色 */
+  --shiki-foreground: var(--dsw-alias-label-primary);
+  --shiki-token-comment: var(--dsw-alias-label-tertiary);
 }
 
 [data-dsh-theme="zcode"],
