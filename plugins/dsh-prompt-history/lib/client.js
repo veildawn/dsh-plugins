@@ -425,8 +425,6 @@ window.__ModuleLoader__.load({
           .dsh-ph-toolbar-btn {
             display: none !important;
           }
-        }
-        @media (max-width: 768px), (pointer: coarse) {
           .dsh-ph-backdrop {
             display: block;
             position: fixed;
@@ -487,6 +485,29 @@ window.__ModuleLoader__.load({
             height: 36px;
             min-width: 36px;
             min-height: 36px;
+          }
+        }
+        /* 平板与触屏大屏设备适配 (如 iPad、触屏笔记本)：保持精致浮动弹窗或对话框卡片尺寸，避免拉伸成 100vw 巨幅底抽屉 */
+        @media (min-width: 769px) and (pointer: coarse) {
+          .dsh-ph-popover {
+            width: min(440px, 85vw);
+            max-height: 380px;
+          }
+          .dsh-ph-btn:not(.dsh-ph-action-btn) {
+            min-width: 28px;
+            min-height: 28px;
+            touch-action: manipulation;
+          }
+          .dsh-ph-item {
+            min-height: 38px;
+            padding: 8px 10px;
+            touch-action: manipulation;
+          }
+          .dsh-ph-item-actions .dsh-ph-btn {
+            width: 32px;
+            height: 32px;
+            min-width: 32px;
+            min-height: 32px;
           }
         }
         .dsh-ph-popover-header {
