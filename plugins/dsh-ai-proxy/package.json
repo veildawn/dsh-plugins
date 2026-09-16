@@ -1,6 +1,6 @@
 {
   "name": "dsh-ai-proxy",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "DeepSeek Harness provider for the AI Proxy Service gateway: OAuth 2.0 (authorization code + PKCE) login, per-plan model discovery with reasoning effort ladders, materialized as an official llm-pi-ai route (wire protocols owned by the host adapter)",
   "type": "module",
   "main": "lib/index.js",
@@ -34,6 +34,13 @@
     "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dsh": {
     "bundle": {

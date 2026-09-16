@@ -76,7 +76,9 @@ jobs:
         run: pnpm install --no-frozen-lockfile
 
       - name: Run Plugin Tests
-        run: pnpm --filter ${{ steps.parse.outputs.plugin_name }} test
+        run: |
+          cd ${{ steps.parse.outputs.plugin_dir }}
+          npm test
 
       - name: Pack Plugin Tarball
         id: pack
