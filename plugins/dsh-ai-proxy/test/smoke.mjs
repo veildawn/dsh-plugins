@@ -286,6 +286,33 @@ test('refreshModels re-materializes the catalog under the llm-pi-ai section', as
     assert.equal(await waitFor(() => materialized(settings) !== undefined), true, 'initial materialization')
     const before = settings.persisted.filter((p) => p.ns === PI_AI_NS).length
 
+    // Verify resolveModelInfo & resolveCallConfig auto-select highest effort for each model
+    const mockModelInfo = {
+      provider: 'ai-proxy',
+      id: 'claude-sonnet-4-5',
+      name: 'Claude Sonnet',
+      reasoning: {
+        efforts: [
+          { id: 'low', name: 'Low' },
+          { id: 'medium', name: 'Medium' },
+          { id: 'high', name: 'High' },
+        ],
+      },
+    }
+    const origResolveModelInfo = ctx.llm.resolveModelInfo
+    ctx.llm.registerAdapter(['ai-proxy'], {
+      providerInfo: (p) => ({ id: p, name: 'AI Proxy' }),
+      providerRetryPolicy: () => undefined,
+      resolveModel: async () => mockModelInfo,
+      prepareCall: async () => ({ model: mockModelInfo, stream: async function* () {} }),
+    })
+
+    const resolvedInfo = await ctx.llm.resolveModelInfo('ai-proxy', 'claude-sonnet-4-5')
+    assert.equal(resolvedInfo.reasoning.defaultEffort, 'high', 'resolveModelInfo enriches defaultEffort with highest rung')
+
+    const resolvedCall = await ctx.llm.resolveCallConfig({ provider: 'ai-proxy', model: 'claude-sonnet-4-5' })
+    assert.equal(resolvedCall.reasoningEffort, 'high', 'resolveCallConfig defaults reasoningEffort to highest available rung')
+
     const refreshed = await connection.registration().handler('refreshModels', {})
     assert.equal(refreshed.ok, true)
     assert.equal(await waitFor(() =>

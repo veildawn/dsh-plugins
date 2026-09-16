@@ -27,7 +27,7 @@ import z from '@deepseek-ai/schemastery'
 import * as DshLlm from '@deepseek-ai/dsh-llm'
 
 const {
-  LlmError, ProviderRequestId, RetryPolicySchema, assertUsableApiKey,
+  LlmError, ProviderRequestId, ReasoningEffortId, RetryPolicySchema, assertUsableApiKey,
   QUOTA_EXCEEDED_CODE, CONTEXT_WINDOW_EXCEEDED_CODE,
   isQuotaExceededError, isContextWindowExceededError,
 } = DshLlm
@@ -45,7 +45,7 @@ export {
 // ── constants ──────────────────────────────────────────────────────────────
 
 export const name = 'llm-ai-proxy'
-export const inject = ['credentials', 'settings']
+export const inject = ['credentials', 'settings', 'llm']
 
 /** The provider route name; also the llm-pi-ai providers-dict key we own. */
 export const PROVIDER = 'ai-proxy'
@@ -932,6 +932,59 @@ export function apply(ctx, config) {
     ]).catch((error) => {
       ctx.logger.warn(name + ': failed to remove legacy OAuth settings fields:', error)
     })
+  }
+
+  // Hook ctx.llm.resolveModelInfo and ctx.llm.resolveCallConfig so that switching models
+  // accurately picks that concrete model's own highest (or lowest) available reasoning effort
+  // in both the browser UI catalog (ModelSelect) and the execution call resolution.
+  if (ctx.llm) {
+    if (typeof ctx.llm.resolveModelInfo === 'function') {
+      const origResolveModelInfo = ctx.llm.resolveModelInfo.bind(ctx.llm)
+      ctx.llm.resolveModelInfo = async function (provider, model, signal) {
+        const info = await origResolveModelInfo(provider, model, signal)
+        if (provider === PROVIDER && info?.reasoning?.efforts?.length) {
+          const opts = options()
+          const pref = opts.defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT
+          if (pref !== 'off' && pref !== 'none') {
+            const rungs = info.reasoning.efforts.map((e) => e.id)
+            const target = resolveDefaultEffort(rungs, pref)
+            if (target !== undefined) {
+              return {
+                ...info,
+                reasoning: {
+                  ...info.reasoning,
+                  defaultEffort: ReasoningEffortId(target),
+                },
+              }
+            }
+          }
+        }
+        return info
+      }
+    }
+
+    if (typeof ctx.llm.resolveCallConfig === 'function') {
+      const origResolveCallConfig = ctx.llm.resolveCallConfig.bind(ctx.llm)
+      ctx.llm.resolveCallConfig = async function (config, signal) {
+        if (config?.provider === PROVIDER && config.reasoningEffort === undefined) {
+          const opts = options()
+          const pref = opts.defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT
+          if (pref !== 'off' && pref !== 'none') {
+            try {
+              const info = await ctx.llm.resolveModelInfo(config.provider, config.model, signal)
+              if (info?.reasoning?.efforts?.length) {
+                const rungs = info.reasoning.efforts.map((e) => e.id)
+                const target = resolveDefaultEffort(rungs, pref)
+                if (target !== undefined) {
+                  config = { ...config, reasoningEffort: ReasoningEffortId(target) }
+                }
+              }
+            } catch {}
+          }
+        }
+        return origResolveCallConfig(config, signal)
+      }
+    }
   }
 
   ctx.on('dispose', () => {
