@@ -4,11 +4,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import z from '@deepseek-ai/schemastery'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import * as plugin from '../lib/index.js'
-const { internals, resolveOptions, AUTH_RPC_CHANNEL } = plugin
+const { internals, resolveOptions, AUTH_RPC_CHANNEL, PI_AI_NS } = plugin
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -85,26 +86,29 @@ class FakeConnection extends Service {
   }
 }
 
-class FakeAttachments extends Service {
-  constructor(ctx) {
-    super(ctx, 'attachments')
-    this.reads = []
-  }
-  async readImage(ref) {
-    this.reads.push(ref)
-    return { ref: { mediaType: ref.mediaType ?? 'image/png' }, data: Buffer.from('fake-image-bytes') }
-  }
-}
-
 function makeCtx(settingsDoc) {
   const ctx = new Context()
   new LlmRuntime(ctx)
   const settings = new MemSettings(ctx, settingsDoc)
   const creds = new FakeCreds(ctx)
   const connection = new FakeConnection(ctx)
-  const attachments = new FakeAttachments(ctx)
-  return { ctx, creds, connection, settings, attachments }
+  return { ctx, creds, connection, settings }
 }
+
+/** Stand in for the host's official llm-pi-ai settings section. */
+async function enablePiAi(ctx) {
+  // Registered through an injected mini-plugin so the settings document is
+  // already loaded (Service.init published) before the section resolves.
+  await ctx.plugin({
+    name: 'test-enable-pi-ai',
+    inject: ['settings'],
+    apply(c) {
+      c.settings.register(PI_AI_NS, z.object({ providers: z.dict(z.any()).default({}) }), { base: {} })
+    },
+  })
+}
+
+const materialized = (settings) => settings.doc[PI_AI_NS]?.providers?.[plugin.PROVIDER]
 
 // ── mock gateway ───────────────────────────────────────────────────────────
 
@@ -125,6 +129,12 @@ function mockGateway() {
     }
     if (url.pathname === '/v1/models') {
       requests.push({ path: url.pathname, auth })
+      if (auth === 'Bearer acc-old') {
+        res.statusCode = 401
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ error: { message: 'token expired' } }))
+        return
+      }
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify({ object: 'list', data: [
         { id: 'claude-sonnet-4-5', context_window: 200000, effort_levels: ['low', 'medium', 'high'], modality: 'text', input_modalities: ['text', 'image'] },
@@ -152,53 +162,6 @@ function mockGateway() {
       })
       return
     }
-    if (url.pathname === '/v1/chat/completions') {
-      void readBody().then((body) => {
-        const parsed = JSON.parse(body)
-        requests.push({ path: url.pathname, auth, body: parsed })
-        if (auth === 'Bearer acc-old') {
-          res.statusCode = 401
-          res.setHeader('content-type', 'application/json')
-          res.end(JSON.stringify({ error: { message: 'token expired' } }))
-          return
-        }
-        res.writeHead(200, { 'content-type': 'text/event-stream' })
-        res.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: 'thinking…' } }] }) + '\n\n')
-        res.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { content: 'hello from gateway' } }] }) + '\n\n')
-        res.write('data: ' + JSON.stringify({ choices: [{ index: 0, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 3 } } }) + '\n\n')
-        res.end('data: [DONE]\n\n')
-      })
-      return
-    }
-    if (url.pathname === '/v1/messages') {
-      void readBody().then((body) => {
-        const parsed = JSON.parse(body)
-        requests.push({ path: url.pathname, auth, body: parsed })
-        res.writeHead(200, { 'content-type': 'text/event-stream' })
-        res.write('event: message_start\ndata: ' + JSON.stringify({ type: 'message_start', message: { usage: { input_tokens: 12 } } }) + '\n\n')
-        res.write('event: content_block_start\ndata: ' + JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) + '\n\n')
-        res.write('event: content_block_delta\ndata: ' + JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello from anthropic' } }) + '\n\n')
-        res.write('event: content_block_stop\ndata: ' + JSON.stringify({ type: 'content_block_stop', index: 0 }) + '\n\n')
-        res.write('event: message_delta\ndata: ' + JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 6 } }) + '\n\n')
-        res.write('event: message_stop\ndata: ' + JSON.stringify({ type: 'message_stop' }) + '\n\n')
-        res.end()
-      })
-      return
-    }
-    if (url.pathname === '/v1/responses') {
-      void readBody().then((body) => {
-        const parsed = JSON.parse(body)
-        requests.push({ path: url.pathname, auth, body: parsed })
-        res.writeHead(200, { 'content-type': 'text/event-stream' })
-        res.write('event: response.output_item.added\ndata: ' + JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: { type: 'message' } }) + '\n\n')
-        res.write('event: response.text.delta\ndata: ' + JSON.stringify({ type: 'response.text.delta', output_index: 0, delta: 'hello from responses' }) + '\n\n')
-        res.write('event: response.output_item.done\ndata: ' + JSON.stringify({ type: 'response.output_item.done', output_index: 0 }) + '\n\n')
-        res.write('event: response.completed\ndata: ' + JSON.stringify({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 15, output_tokens: 8 } } }) + '\n\n')
-        res.write('data: [DONE]\n\n')
-        res.end()
-      })
-      return
-    }
     if (url.pathname === '/oauth/revoke') {
       requests.push({ path: url.pathname })
       res.end('')
@@ -217,138 +180,160 @@ function mockGateway() {
   })
 }
 
-async function collect(stream) {
-  const out = []
-  for await (const chunk of stream) out.push(chunk)
-  return out
-}
-
 // ── tests ──────────────────────────────────────────────────────────────────
 
-test('registration, catalog and reasoning ladders (static key)', async () => {
+test('materializes the gateway as one llm-pi-ai route, leaving hand-written ones alone', async () => {
   const gw = await mockGateway()
   const { ctx, creds, settings } = makeCtx()
   try {
+    await enablePiAi(ctx)
+    settings.pushExternal({
+      [PI_AI_NS]: { providers: { 'manual-route': { api: 'openai-completions', baseURL: 'https://manual.example/v1' } } },
+    })
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
     await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
-    await sleep(50)
+    assert.equal(await waitFor(() => materialized(settings) !== undefined), true, 'route materialized')
 
-    assert(ctx.llm.listProviders().some((p) => p.id === 'ai-proxy'), 'provider registered')
-    assert(!ctx.llm.listConfigurableProviders().some((e) => e.settingsNs === 'ai-proxy'), 'unsupported Models editor stays hidden')
-    const discovered = await ctx.llm.discoverModels('ai-proxy', { baseURL: gw.url, apiKey: 'one-shot-key' })
-    assert.equal(discovered.length, 3)
-    assert.equal(discovered[0].id, 'claude-sonnet-4-5')
-    assert.equal(discovered[0].contextWindow, 200000)
+    assert(!ctx.llm.listProviders().some((p) => p.id === 'ai-proxy'), 'no self-registered adapter: the host route serves requests')
 
-    const models = await ctx.llm.listModels('ai-proxy')
-    assert.equal(models.length, 3)
-    const chat = models.find((m) => m.id === 'claude-sonnet-4-5')
-    assert.deepEqual(chat.inputModalities, ['text', 'image'], 'declared vision model accepts images')
-    const textOnly = models.find((m) => m.id === 'text-only-model')
-    assert.deepEqual(textOnly.inputModalities, ['text'], 'declared text-only model refuses images')
-    const image = models.find((m) => m.id === 'gpt-image-2')
-    assert.equal(image.inputModalities, undefined, 'non-chat model carries no perceived-media claim')
+    const profile = materialized(settings)
+    assert.equal(profile.api, 'openai-completions')
+    assert.equal(profile.baseURL, gw.url + '/v1')
+    assert.equal(profile.apiKeyEnv, 'AIPROXY_API_KEY')
+    assert.deepEqual(profile.headers, { 'x-ai-proxy-client': 'dsh' })
+    assert.equal(profile.reasoning, 'high', 'highest ladder rung of the first ladder-bearing model')
+    assert.equal(profile.models.length, 3)
+    assert.deepEqual(profile.models[0], {
+      id: 'claude-sonnet-4-5',
+      contextWindow: 200000,
+      input: ['text', 'image'],
+      reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' },
+    })
+    assert.deepEqual(profile.models[1].reasoningEfforts, false, 'model without a ladder is non-reasoning')
+    assert.deepEqual(profile.models[2].input, ['text'], 'undisclosed media defaults to text')
 
-    const info = await ctx.llm.resolveModelInfo('ai-proxy', 'claude-sonnet-4-5')
-    assert.equal(info.context.contextWindow, 200000)
-    assert.deepEqual(info.inputModalities, ['text', 'image'])
-    assert.deepEqual(info.reasoning.efforts.map((e) => e.id), ['low', 'medium', 'high'])
-    assert.deepEqual(info.reasoning.efforts.map((e) => e.name), ['Low', 'Medium', 'High'])
-    assert.equal(info.reasoning.defaultEffort, 'high')
-
-    const plain = await ctx.llm.resolveModelInfo('ai-proxy', 'gpt-image-2')
-    assert.equal(plain.reasoning, undefined)
-
+    assert.deepEqual(settings.doc[PI_AI_NS].providers['manual-route'], {
+      api: 'openai-completions', baseURL: 'https://manual.example/v1',
+    }, 'hand-written routes in the same section are untouched')
     assert(gw.requests.some((r) => r.path === '/v1/models' && r.auth === 'Bearer sk-test'), 'models fetched with static key')
-    assert.equal(settings.persisted.length, 0, 'normal startup does not rewrite settings')
   } finally {
     gw.close()
   }
 })
 
-test('stream: OpenAI wire, reasoning_effort passthrough, usage and finish', async () => {
+test('host without llm-pi-ai degrades to a warning without writing foreign sections', async () => {
   const gw = await mockGateway()
-  const { ctx, creds } = makeCtx()
+  const { ctx, creds, connection, settings } = makeCtx()
   try {
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
     await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
-    await sleep(50)
-
-    const out = await collect(ctx.llm.stream({
-      provider: 'ai-proxy',
-      model: 'claude-sonnet-4-5',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-      reasoningEffort: 'high',
-    }))
-    assert.deepEqual(out.at(-1), { type: 'finish', reason: { kind: 'stop' } })
-    const text = out.filter((c) => c.type === 'block-end' && c.block.type === 'text').map((c) => c.block.text).join('')
-    assert.equal(text, 'hello from gateway')
-    const reasoning = out.filter((c) => c.type === 'block-end' && c.block.type === 'reasoning').map((c) => c.block.text).join('')
-    assert.equal(reasoning, 'thinking…')
-    const usage = out.find((c) => c.type === 'usage')
-    assert.deepEqual(usage.usage, { inputTokens: 10, outputTokens: 5, reasoningTokens: 3 })
-
-    const call = gw.requests.find((r) => r.path === '/v1/chat/completions')
-    assert.equal(call.auth, 'Bearer sk-test')
-    assert.equal(call.body.model, 'claude-sonnet-4-5')
-    assert.equal(call.body.stream, true)
-    assert.equal(call.body.reasoning_effort, 'high')
-    assert.equal('stream_options' in call.body, false)
+    await sleep(200)
+    assert.equal(settings.doc[PI_AI_NS], undefined, 'nothing written to an unmounted section')
+    assert.equal(settings.persisted.some((p) => p.ns === PI_AI_NS), false)
+    assert(connection.registration() !== undefined, 'RPC channel still registered')
   } finally {
     gw.close()
   }
 })
 
-test('stream: user images serialize to image_url data URLs', async () => {
+test('auth RPC reads and writes the gateway address host-side', async () => {
   const gw = await mockGateway()
-  const { ctx, creds, attachments } = makeCtx()
+  const { ctx, creds, connection, settings } = makeCtx()
   try {
-    creds.store.set('AIPROXY_API_KEY', 'sk-test')
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
-    await sleep(50)
+    enablePiAi(ctx)
+    await ctx.plugin(plugin, { clientId: 'dsh' })
+    const handler = connection.registration().handler
+    assert.deepEqual(await handler('config', {}), {
+      ok: true,
+      value: {
+        baseURL: 'http://localhost:18080',
+        clientId: 'dsh',
+        apiFormat: 'chat/completions',
+        defaultReasoningEffort: 'highest',
+      },
+    })
+    const written = await handler('setBaseURL', { baseURL: gw.url + '/' })
+    assert.equal(written.ok, true)
+    assert.equal(written.value.baseURL, gw.url)
+    assert.equal(settings.doc['ai-proxy'].baseURL, gw.url)
 
-    const image = { type: 'image', attachment: { attachmentId: 'img-1', mediaType: 'image/png' } }
-    const out = await collect(ctx.llm.stream({
-      provider: 'ai-proxy',
-      model: 'claude-sonnet-4-5',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'what is this?' }, image] }],
-    }))
-    assert.equal(out.at(-1).type, 'finish')
+    const writtenEffort = await handler('setGateway', { defaultReasoningEffort: 'lowest' })
+    assert.equal(writtenEffort.ok, true)
+    assert.equal(writtenEffort.value.defaultReasoningEffort, 'lowest')
+    assert.equal(settings.doc['ai-proxy'].defaultReasoningEffort, 'lowest')
 
-    const call = gw.requests.find((r) => r.path === '/v1/chat/completions')
-    assert.deepEqual(call.body.messages[0].content, [
-      { type: 'text', text: 'what is this?' },
-      { type: 'image_url', image_url: { url: 'data:image/png;base64,' + Buffer.from('fake-image-bytes').toString('base64') } },
-    ])
-    assert.deepEqual(attachments.reads, [{ attachmentId: 'img-1', mediaType: 'image/png' }], 'bytes read from the durable attachment service')
+    creds.store.set('AIPROXY_ACCESS_TOKEN', 'sk-test')
+    const refreshed = await handler('refreshModels', {})
+    assert.equal(refreshed.ok, true)
+    assert.equal(refreshed.value.count, 3)
+    assert.equal(refreshed.value.models[0].id, 'claude-sonnet-4-5')
+    assert.equal((await handler('setBaseURL', { baseURL: 'ftp://nope' })).ok, false)
+    assert.equal((await handler('setBaseURL', { baseURL: '  ' })).ok, false)
+    assert.equal((await handler('setBaseURL', {})).ok, false, 'setBaseURL requires exactly one baseURL field')
+    assert.equal((await handler('config', { extra: 1 })).ok, false)
   } finally {
     gw.close()
   }
 })
 
-test('stream: a declared text-only model refuses image input', async () => {
+test('refreshModels re-materializes the catalog under the llm-pi-ai section', async () => {
   const gw = await mockGateway()
-  const { ctx, creds } = makeCtx()
+  const { ctx, creds, connection, settings } = makeCtx()
   try {
+    enablePiAi(ctx)
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
     await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
-    await sleep(50)
+    assert.equal(await waitFor(() => materialized(settings) !== undefined), true, 'initial materialization')
+    const before = settings.persisted.filter((p) => p.ns === PI_AI_NS).length
 
-    const image = { type: 'image', attachment: { attachmentId: 'img-1', mediaType: 'image/png' } }
-    const out = await collect(ctx.llm.stream({
-      provider: 'ai-proxy',
-      model: 'text-only-model',
-      messages: [{ role: 'user', content: [image] }],
-    }))
-    // Adapter failures surface as a terminal failure chunk through the
-    // harness boundary, not as a throw.
-    const finish = out.at(-1)
-    assert.equal(finish.type, 'finish')
-    assert.equal(finish.reason.kind, 'error')
-    assert.equal(finish.reason.failure.code, 'UNSUPPORTED_CONTENT')
-    assert.equal(gw.requests.some((r) => r.path === '/v1/chat/completions'), false, 'nothing sent upstream for a refused capability')
+    const refreshed = await connection.registration().handler('refreshModels', {})
+    assert.equal(refreshed.ok, true)
+    assert.equal(await waitFor(() =>
+      settings.persisted.filter((p) => p.ns === PI_AI_NS).length > before), true, 'section rewritten after refresh')
+    assert.equal(materialized(settings).models.length, 3)
   } finally {
     gw.close()
+  }
+})
+
+test('changing the API format through settings re-materializes protocol and base', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds, connection, settings } = makeCtx()
+  try {
+    enablePiAi(ctx)
+    creds.store.set('AIPROXY_API_KEY', 'sk-test')
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
+    assert.equal(await waitFor(() => materialized(settings)?.api === 'openai-completions'), true)
+
+    const written = await connection.registration().handler('setGateway', { baseURL: gw.url + '/v1', apiFormat: 'anthropic-messages' })
+    assert.equal(written.ok, true)
+    assert.equal(await waitFor(() => materialized(settings)?.api === 'anthropic-messages'), true, 'protocol switch propagates')
+    const profile = materialized(settings)
+    assert.equal(profile.baseURL, gw.url, 'Anthropic SDK appends /v1/messages itself, the root stays bare')
+    assert.equal(profile.models.length, 3)
+  } finally {
+    gw.close()
+  }
+})
+
+test('a gateway outage at boot never overwrites the last good materialized route', async () => {
+  const { ctx, creds, settings } = makeCtx()
+  try {
+    await enablePiAi(ctx)
+    settings.pushExternal({
+      [PI_AI_NS]: { providers: { [plugin.PROVIDER]: {
+        api: 'openai-completions', baseURL: 'https://old.example/v1',
+        models: [{ id: 'previous-model' }],
+      } } },
+    })
+    creds.store.set('AIPROXY_API_KEY', 'sk-test')
+    // Port 1 refuses every connection: discovery cannot succeed at all.
+    await ctx.plugin(plugin, { baseURL: 'http://127.0.0.1:1', clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
+    await sleep(300)
+    assert.equal(materialized(settings)?.models?.[0]?.id, 'previous-model', 'previous catalog stays intact')
+    assert.equal(settings.persisted.some((p) => p.ns === PI_AI_NS), false, 'no write happened during the outage')
+  } finally {
+    await ctx.stop?.()
   }
 })
 
@@ -391,10 +376,14 @@ test('OAuth login: PKCE loopback flow stores rotating tokens', async () => {
   }
 })
 
-test('Host auth RPC revokes and clears tokens without changing settings', async () => {
+test('Host auth RPC revokes tokens and removes the materialized route', async () => {
   const gw = await mockGateway()
-  const { ctx, creds, connection } = makeCtx()
+  const { ctx, creds, connection, settings } = makeCtx()
   try {
+    await enablePiAi(ctx)
+    settings.pushExternal({
+      [PI_AI_NS]: { providers: { 'manual-route': { api: 'openai-completions', baseURL: 'https://manual.example/v1' } } },
+    })
     creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-code')
     creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-code')
     creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
@@ -404,7 +393,8 @@ test('Host auth RPC revokes and clears tokens without changing settings', async 
     assert.equal(connection.registration().channel, AUTH_RPC_CHANNEL)
     assert.deepEqual(connection.registration().options, { authority: 'trusted-host' })
     assert.deepEqual([...connection.registrations.keys()], [AUTH_RPC_CHANNEL])
-    assert(ctx.llm.listProviders().some((p) => p.id === 'ai-proxy'), 'provider registered')
+    assert.equal(await waitFor(() => materialized(settings) !== undefined), true, 'route present while signed in')
+
     const before = await connection.registration().handler('status', {})
     assert.equal(before.value.state, 'signed-in')
     const result = await connection.registration().handler('logout', {})
@@ -412,7 +402,10 @@ test('Host auth RPC revokes and clears tokens without changing settings', async 
     assert.equal(gw.requests.some((r) => r.path === '/oauth/revoke'), true, 'revoke request sent')
     assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), undefined)
     assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), undefined)
-    assert(ctx.llm.listProviders().some((p) => p.id === 'ai-proxy'), 'logout keeps the adapter registered')
+    assert.equal(await waitFor(() => materialized(settings) === undefined), true, 'route removed after logout')
+    assert.deepEqual(settings.doc[PI_AI_NS].providers['manual-route'], {
+      api: 'openai-completions', baseURL: 'https://manual.example/v1',
+    }, 'other routes survive the removal')
     const section = ctx.settings.get('ai-proxy')
     assert.equal('oauth' in section, false)
     assert.equal('oauthStatus' in section, false)
@@ -421,42 +414,45 @@ test('Host auth RPC revokes and clears tokens without changing settings', async 
   }
 })
 
-test('auth RPC reads and writes the gateway address host-side', async () => {
+test('401 on model discovery rotates the token once and retries', async () => {
   const gw = await mockGateway()
-  const { ctx, creds, connection, settings } = makeCtx()
+  const { ctx, creds, connection } = makeCtx()
   try {
-    await ctx.plugin(plugin, { clientId: 'dsh' })
-    const handler = connection.registration().handler
-    assert.deepEqual(await handler('config', {}), {
-      ok: true,
-      value: {
-        baseURL: 'http://localhost:18080',
-        clientId: 'dsh',
-        apiFormat: 'chat/completions',
-        defaultReasoningEffort: 'highest',
-        endpoint: 'http://localhost:18080/v1/chat/completions',
-      },
-    })
-    const written = await handler('setBaseURL', { baseURL: gw.url + '/' })
-    assert.equal(written.ok, true)
-    assert.equal(written.value.baseURL, gw.url)
-    assert.equal(settings.doc['ai-proxy'].baseURL, gw.url)
+    enablePiAi(ctx)
+    creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-old')
+    creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-1')
+    creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh' })
+    await sleep(50)
 
-    const writtenEffort = await handler('setGateway', { defaultReasoningEffort: 'lowest' })
-    assert.equal(writtenEffort.ok, true)
-    assert.equal(writtenEffort.value.defaultReasoningEffort, 'lowest')
-    assert.equal(settings.doc['ai-proxy'].defaultReasoningEffort, 'lowest')
-
-    creds.store.set('AIPROXY_ACCESS_TOKEN', 'sk-test')
-    const refreshed = await handler('refreshModels', {})
+    const refreshed = await connection.registration().handler('refreshModels', {})
     assert.equal(refreshed.ok, true)
     assert.equal(refreshed.value.count, 3)
-    assert.equal(refreshed.value.models.length, 3)
-    assert.equal(refreshed.value.models[0].id, 'claude-sonnet-4-5')
-    assert.equal((await handler('setBaseURL', { baseURL: 'ftp://nope' })).ok, false)
-    assert.equal((await handler('setBaseURL', { baseURL: '  ' })).ok, false)
-    assert.equal((await handler('setBaseURL', {})).ok, false)
-    assert.equal((await handler('config', { extra: 1 })).ok, false)
+    // Startup probes precede the RPC: the rotation pair is the last two fetches.
+    const modelCalls = gw.requests.filter((r) => r.path === '/v1/models')
+    assert.deepEqual(modelCalls.slice(-2).map((r) => r.auth), ['Bearer acc-old', 'Bearer acc-new'])
+    assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), 'acc-new')
+    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-new')
+  } finally {
+    gw.close()
+  }
+})
+
+test('proactive refresh timer rotates the token before expiry and re-materializes', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds, settings } = makeCtx()
+  try {
+    enablePiAi(ctx)
+    creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-old')
+    creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-1')
+    creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 300))
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh' })
+
+    assert.equal(await waitFor(() => creds.store.get('AIPROXY_ACCESS_TOKEN') === 'acc-new'), true,
+      'timer fired at the stored expiry and rotated the token')
+    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-new')
+    assert.equal(await waitFor(() => materialized(settings)?.models?.length === 3), true,
+      'catalog discovered with the fresh token lands in the materialized route')
   } finally {
     gw.close()
   }
@@ -478,76 +474,4 @@ test('startup migration removes legacy OAuth action and status fields only', asy
     baseURL: 'http://gateway.test',
     modelCacheTtlMs: 120000,
   })
-})
-
-test('401 on stream rotates the token once and retries', async () => {
-  const gw = await mockGateway()
-  const { ctx, creds } = makeCtx()
-  try {
-    creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-old')
-    creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-1')
-    creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh' })
-    await sleep(50)
-
-    const out = await collect(ctx.llm.stream({
-      provider: 'ai-proxy',
-      model: 'claude-sonnet-4-5',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-    }))
-    assert.equal(out.at(-1).type, 'finish')
-    const calls = gw.requests.filter((r) => r.path === '/v1/chat/completions')
-    assert.equal(calls.length, 2)
-    assert.equal(calls[0].auth, 'Bearer acc-old')
-    assert.equal(calls[1].auth, 'Bearer acc-new')
-    assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), 'acc-new')
-    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-new')
-  } finally {
-    gw.close()
-  }
-})
-test('stream: Anthropic messages format route and streaming', async () => {
-  const gw = await mockGateway()
-  const { ctx, creds } = makeCtx()
-  try {
-    creds.store.set('AIPROXY_API_KEY', 'sk-test')
-    await ctx.plugin(plugin, { baseURL: gw.url, apiFormat: 'anthropic-messages', clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
-    const out = await collect(ctx.llm.stream({
-      provider: 'ai-proxy',
-      model: 'claude-sonnet-4-5',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi anthropic' }] }],
-    }))
-    const text = out.filter((c) => c.type === 'text-delta').map((c) => c.text).join('')
-    assert.equal(text, 'hello from anthropic')
-    assert.equal(out.at(-1).type, 'finish')
-    assert.equal(out.at(-1).reason.kind, 'stop')
-    const call = gw.requests.find((r) => r.path === '/v1/messages')
-    assert(call, 'request went to /v1/messages')
-    assert.equal(call.body.messages[0].content, 'hi anthropic')
-  } finally {
-    gw.close()
-  }
-})
-
-test('stream: OpenAI Responses format route and streaming', async () => {
-  const gw = await mockGateway()
-  const { ctx, creds } = makeCtx()
-  try {
-    creds.store.set('AIPROXY_API_KEY', 'sk-test')
-    await ctx.plugin(plugin, { baseURL: gw.url, apiFormat: 'responses', clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
-    const out = await collect(ctx.llm.stream({
-      provider: 'ai-proxy',
-      model: 'claude-sonnet-4-5',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi responses' }] }],
-    }))
-    const text = out.filter((c) => c.type === 'text-delta').map((c) => c.text).join('')
-    assert.equal(text, 'hello from responses')
-    assert.equal(out.at(-1).type, 'finish')
-    assert.equal(out.at(-1).reason.kind, 'stop')
-    const call = gw.requests.find((r) => r.path === '/v1/responses')
-    assert(call, 'request went to /v1/responses')
-    assert.equal(call.body.input[0].role, 'user')
-  } finally {
-    gw.close()
-  }
 })

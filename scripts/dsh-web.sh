@@ -41,9 +41,9 @@ get_dsh_pids() {
     fi
   fi
 
-  # 2. ps 命令参数匹配
+  # 2. ps 命令参数匹配（排除本脚本自身的调用进程，避免把 dsh-web.sh 命令行误判为服务）
   local ps_pids
-  ps_pids=$(ps -eo pid,args 2>/dev/null | grep -E '[d]sh.*web' | awk '{print $1}' || true)
+  ps_pids=$(ps -eo pid,args 2>/dev/null | grep -E '[d]sh.*web' | grep -v 'dsh-web' | awk '{print $1}' || true)
   if [ -n "$ps_pids" ]; then
     printf '%s\n' "$ps_pids"
     return 0

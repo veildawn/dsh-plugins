@@ -17,6 +17,12 @@ else
 fi
 echo "== settings section =="
 grep -A4 '^ai-proxy:' "$HOME/.dsh/settings.yaml" 2>/dev/null || echo "(settings.yaml 里还没有 ai-proxy 分节)"
+echo "== materialized llm-pi-ai route =="
+if grep -A8 '^llm-pi-ai:' "$HOME/.dsh/settings.yaml" 2>/dev/null | grep -q 'ai-proxy:'; then
+  echo "(llm-pi-ai.providers.ai-proxy 已写入)"
+else
+  echo "(settings.yaml 里还没有 llm-pi-ai.providers.ai-proxy — 未登录、未发现模型或宿主缺 llm-pi-ai)"
+fi
 echo "== OAuth Host interface =="
 curl -s -m 5 -X POST "$URL/ai-proxy-auth/status" \
   -H 'content-type: application/json' \
