@@ -7,6 +7,22 @@
   border-bottom: 1px solid var(--dsw-alias-border-l1);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
+  position: relative;
+  z-index: 20;
+  overflow: visible;
+}
+
+[data-dsh-theme="zcode"] .wSkVaW_headerUtilities {
+  position: relative;
+  z-index: 25;
+  overflow: visible;
+}
+
+/* 会话头部工具栏弹出的下拉菜单 (如 open-in-app 本地打开方式、session-log-export 下载日志菜单)：
+   必须确保 z-index 处于顶级，且边距与阴影不被裁剪遮挡 */
+[data-dsh-theme="zcode"] .wSkVaW_headerUtilities [role="menu"] {
+  z-index: 1000;
+  box-shadow: var(--dsw-shadow-lv3, 0 8px 24px rgba(0,0,0,0.18));
 }
 
 [data-dsh-theme="zcode"] .wSkVaW_tab[aria-selected="true"],

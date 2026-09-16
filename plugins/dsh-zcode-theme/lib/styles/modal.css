@@ -11,7 +11,6 @@
   box-shadow: var(--dsw-shadow-lv3);
 }
 
-<<<<<<< HEAD
 /* 文件查看器侧边抽屉容器：桌面端必须保持完全透明，无遮罩与白块，露出主会话 */
 [data-dsh-theme="zcode"] .fv-scrim {
   background: transparent;
@@ -51,6 +50,12 @@
 [data-dsh-theme="zcode"] [role="menu"] {
   background: var(--dsw-specific-menu);
   border: 1px solid var(--dsw-alias-border-l2);
+}
+
+/* 会话头部工具栏菜单与下拉浮层 (如 open-in-app 本地打开、session-log-export 下载日志更多操作等)：
+   确保下拉浮层 z-index 处于正常层级，且定位不被父级或移动端规则截断 */
+[data-dsh-theme="zcode"] .wSkVaW_header [role="menu"] {
+  z-index: 1050;
 }
 
 /* 排除 menu 锚点容器误设边框背景 */
