@@ -9664,6 +9664,29 @@ ${h2.join(`
     color: #f0f6fc;
   }
 
+  /* Desktop Header Action Button */
+  .term-header-btn {
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: var(--dsw-alias-label-secondary);
+    cursor: pointer;
+    transition: color 0.12s, background 0.12s;
+    line-height: 1;
+    box-sizing: border-box;
+  }
+  .term-header-btn:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
+  }
+
   /* Composer toolbar button & tools popover (Hidden on PC desktop, displayed ONLY on mobile) */
   .term-composer-wrap {
     display: none !important;
@@ -9671,6 +9694,8 @@ ${h2.join(`
     align-items: center;
     justify-content: center;
   }
+  .term-composer-btn {
+    display: inline-grid;
     place-items: center;
     width: 32px;
     height: 32px;
@@ -10238,12 +10263,12 @@ ${h2.join(`
         "button",
         {
           type: "button",
-          className: "fv-icon-button",
+          className: "term-header-btn",
           title: "\u6253\u5F00\u672C\u5730\u7EC8\u7AEF",
           "aria-label": "\u6253\u5F00\u672C\u5730\u7EC8\u7AEF",
           onClick: () => openStore.set(openStore.get() === null ? { sessionId } : null)
         },
-        /* @__PURE__ */ import_react.default.createElement("span", { style: { fontFamily: "monospace", fontWeight: 700, fontSize: 13 } }, ">_")
+        /* @__PURE__ */ import_react.default.createElement("span", { style: { fontFamily: "monospace", fontWeight: 700, fontSize: 13, lineHeight: 1 } }, ">_")
       );
     }
     function TerminalComposerAction(props) {
