@@ -78,7 +78,12 @@ jobs:
       - name: Run Plugin Tests
         run: |
           cd ${{ steps.parse.outputs.plugin_dir }}
-          npm test
+          if ! npm test > /tmp/test.log 2>&1; then
+            cat /tmp/test.log
+            ERR_MSG=$(cat /tmp/test.log | tr '\r' ' ' | tr '\n' '%%0A' | head -c 4000)
+            echo "::error title=TestFailure::$ERR_MSG"
+            exit 1
+          fi
 
       - name: Pack Plugin Tarball
         id: pack
