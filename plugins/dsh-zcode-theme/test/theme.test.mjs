@@ -122,6 +122,15 @@ test('主题 CSS 全部限定在 ZCode Scope 内，且几乎不用 !important', 
   assert.ok(rules > scoped / 4)
 })
 
+test('主题 CSS 绝不覆盖移动端顶栏 .dsh-mobile-bar 的定位与层级', () => {
+  const css = loadThemeCss()
+  const mobileBarRuleMatch = css.match(/\.dsh-mobile-bar\s*\{([^}]+)\}/)
+  assert.ok(mobileBarRuleMatch, '必须包含 .dsh-mobile-bar 样式规则')
+  const body = mobileBarRuleMatch[1]
+  assert.equal(/position\s*:/i.test(body), false, '.dsh-mobile-bar 绝不能覆盖 position 定位')
+  assert.equal(/z-index\s*:/i.test(body), false, '.dsh-mobile-bar 绝不能覆盖 z-index 层级')
+})
+
 test('规范目录结构齐全', async () => {
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   assert.equal(manifest.name, 'dsh-zcode-theme')
