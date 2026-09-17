@@ -339,7 +339,8 @@ window.__ModuleLoader__.load({
       .fv-image-wrap{display:grid;place-items:center;min-height:100%;padding:8px}
       .fv-image{max-width:100%;max-height:calc(100% - 16px);object-fit:contain;background:repeating-conic-gradient(var(--dsw-alias-border-l1) 0% 25%,transparent 0% 50%) 50%/16px 16px}
       .fv-frame{width:100%;height:100%;min-height:420px;border:none;background:var(--dsw-alias-bg-layer-1,#fff)}
-      .fv-sheet-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+      .fv-sheet-tabs{display:flex;flex-wrap:wrap;flex:none;align-items:center;gap:6px;padding:8px 12px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff));border-bottom:1px solid var(--dsw-alias-border-l1);z-index:2}
+      .fv-content .fv-sheet-tabs{position:sticky;top:0;margin:-12px -12px 10px;padding:12px 12px 8px}
       .fv-tab{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
       .fv-tab[aria-selected="true"]{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff}
       .fv-tab-diff{display:inline-flex;align-items:center;gap:4px}
@@ -1575,42 +1576,43 @@ window.__ModuleLoader__.load({
         // Only the source view scrolls sideways; a rendered preview already
         // reflows, so the attribute is pointless there and would just confuse.
         const wrapping = wrap && (!canPreview || raw);
+        const tabs = showTabs
+          ? react.createElement("div", { className: "fv-sheet-tabs", role: "tablist" },
+            canPreview
+              ? react.createElement("button", {
+                type: "button", className: "fv-tab", "aria-selected": (!raw && !diffMode) ? "true" : "false",
+                onClick: () => { setRaw(false); setDiffMode(false); },
+              }, data.kind === "markdown" ? "预览" : "结构")
+              : react.createElement("button", {
+                type: "button", className: "fv-tab", "aria-selected": (!raw && !diffMode) ? "true" : "false",
+                onClick: () => { setRaw(false); setDiffMode(false); },
+              }, "内容"),
+            canPreview
+              ? react.createElement("button", {
+                type: "button", className: "fv-tab", "aria-selected": (raw && !diffMode) ? "true" : "false",
+                onClick: () => { setRaw(true); setDiffMode(false); },
+              }, "源码")
+              : null,
+            hasDiff
+              ? react.createElement("button", {
+                type: "button", className: "fv-tab fv-tab-diff", "aria-selected": diffMode ? "true" : "false",
+                onClick: () => setDiffMode(true),
+              },
+                "改动",
+                diffSummary && (diffSummary.added > 0 || diffSummary.removed > 0)
+                  ? react.createElement("span", { className: "fv-diff-stat" },
+                      diffSummary.added > 0 ? react.createElement("span", { className: "fv-diff-add" }, `+${diffSummary.added}`) : null,
+                      (diffSummary.added > 0 && diffSummary.removed > 0) ? " " : "",
+                      diffSummary.removed > 0 ? react.createElement("span", { className: "fv-diff-del" }, `-${diffSummary.removed}`) : null)
+                  : null)
+              : null)
+          : null;
         return react.createElement(react.Fragment, null,
+          tabs,
           react.createElement("div", { className: "fv-content", "data-wrap": wrapping ? "on" : "off" },
             previewUnavailable
               ? react.createElement("div", { className: "fv-note" },
                 data.kind === "markdown" ? "文档过大，仅显示源码。" : "文件过大，仅显示源码。")
-              : null,
-            showTabs
-              ? react.createElement("div", { className: "fv-sheet-tabs" },
-                canPreview
-                  ? react.createElement("button", {
-                    type: "button", className: "fv-tab", "aria-selected": (!raw && !diffMode) ? "true" : "false",
-                    onClick: () => { setRaw(false); setDiffMode(false); },
-                  }, data.kind === "markdown" ? "预览" : "结构")
-                  : react.createElement("button", {
-                    type: "button", className: "fv-tab", "aria-selected": (!raw && !diffMode) ? "true" : "false",
-                    onClick: () => { setRaw(false); setDiffMode(false); },
-                  }, "内容"),
-                canPreview
-                  ? react.createElement("button", {
-                    type: "button", className: "fv-tab", "aria-selected": (raw && !diffMode) ? "true" : "false",
-                    onClick: () => { setRaw(true); setDiffMode(false); },
-                  }, "源码")
-                  : null,
-                hasDiff
-                  ? react.createElement("button", {
-                    type: "button", className: "fv-tab fv-tab-diff", "aria-selected": diffMode ? "true" : "false",
-                    onClick: () => setDiffMode(true),
-                  },
-                    "改动",
-                    diffSummary && (diffSummary.added > 0 || diffSummary.removed > 0)
-                      ? react.createElement("span", { className: "fv-diff-stat" },
-                          diffSummary.added > 0 ? react.createElement("span", { className: "fv-diff-add" }, `+${diffSummary.added}`) : null,
-                          (diffSummary.added > 0 && diffSummary.removed > 0) ? " " : "",
-                          diffSummary.removed > 0 ? react.createElement("span", { className: "fv-diff-del" }, `-${diffSummary.removed}`) : null)
-                      : null)
-                  : null)
               : null,
             body),
           pager);

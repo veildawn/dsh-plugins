@@ -1291,6 +1291,13 @@ test('client bundle contains SafePathsModal and toolbar safepaths button for web
   assert.match(source, /\.fv-safe-item\{/)
 })
 
+test('preview source and diff tabs stay pinned outside the scrolling content pane', () => {
+  const source = read('lib/client.js')
+  assert.match(source, /const tabs = showTabs/)
+  assert.match(source, /tabs,\s*\n\s*react\.createElement\("div", \{ className: "fv-content"/)
+  assert.match(source, /\.fv-content \.fv-sheet-tabs\{[^}]*position:sticky/)
+})
+
 test('client apply returns a valid Cordis effect (disposer function or undefined), never an ordinary object', () => {
   const previousWindow = globalThis.window
   let definition
