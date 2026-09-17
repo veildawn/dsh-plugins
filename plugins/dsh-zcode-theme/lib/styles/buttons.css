@@ -32,3 +32,12 @@
 [data-dsh-theme="zcode"] .YDXeBa_iconButton:hover {
   background: var(--dsw-alias-interactive-bg-hover);
 }
+
+/* 兼容使用 background: var(--dsw-alias-label-primary) + color: var(--dsw-alias-bg-layer-3) 等高反差配色的实心强调按钮，
+   例如插件中心弹窗的「复制」按钮等，防止文字颜色被通用 typography 的 button 覆盖为白色导致不可见。 */
+[data-dsh-theme="zcode"] button[class*="CopyBtn"],
+[data-dsh-theme="zcode"] button[class*="copyBtn"],
+[data-dsh-theme="zcode"] button[class*="_done"],
+[data-dsh-theme="zcode"] button[style*="background: var(--dsw-alias-label-primary)"] {
+  color: var(--dsw-alias-bg-layer-3);
+}
