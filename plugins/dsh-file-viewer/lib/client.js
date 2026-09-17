@@ -755,10 +755,69 @@ window.__ModuleLoader__.load({
       };
     }
 
+    const COMMON_FILE_EXTENSIONS = new Set([
+      "go", "ts", "js", "tsx", "jsx", "mjs", "cjs", "py", "java", "c", "cpp", "h", "hpp", "rs", "php", "rb", "swift", "kt", "scala",
+      "md", "markdown", "txt", "json", "jsonc", "yaml", "yml", "toml", "xml", "html", "css", "scss", "less", "vue", "svelte",
+      "sql", "sh", "bash", "zsh", "ps1", "bat", "cmd", "env", "conf", "config", "ini",
+      "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "pdf", "doc", "docx", "xls", "xlsx", "csv"
+    ]);
+
     function looksLikeFilePath(value) {
-      if (!value) return false;
-      if (value.includes("/") || value.includes("\\")) return true;
-      return /\.[A-Za-z0-9_-]{1,16}$/.test(value);
+      if (!value || typeof value !== "string") return false;
+      let str = value.trim();
+      str = str.replace(/^@+/, "").trim();
+      if ((str.startsWith("`") && str.endsWith("`")) || (str.startsWith("\"") && str.endsWith("\"")) || (str.startsWith("'") && str.endsWith("'"))) {
+        str = str.slice(1, -1).trim();
+      }
+      str = str.replace(/[.,;:!?，。；：！？]+$/g, "").trim();
+
+      // Multi-line, empty, or too long
+      if (!str || str.includes("\n") || str.length > 260) return false;
+
+      // Exclude URLs and protocol schemes
+      if (/^[a-zA-Z][a-zA-Z0-9+-.]*:\/\//.test(str)) return false;
+
+      // Exclude common non-path slash patterns
+      if (/^(?:application|text|image|audio|video|multipart|font)\/[a-zA-Z0-9._+-]+$/i.test(str)) return false;
+      if (/^(?:and\/or|true\/false|yes\/no|on\/off|in\/out|left\/right|read\/write|up\/down|import\/export)$/i.test(str)) return false;
+      if (/^\d{4}[\/-]\d{1,2}[\/-]\d{1,2}/.test(str)) return false; // Date e.g. 2026/09/11
+
+      // Exclude math or shell flags (e.g. "a / b", "-f /path")
+      if (/\s[\/\\]\s/.test(str)) return false;
+      if (str.startsWith("-") || str.startsWith("+") || str.includes(" = ") || str.includes(" == ")) return false;
+
+      // Exclude illegal path characters. Colon is allowed only as a Windows
+      // drive prefix (D:/Notes, C:\Users\...), not in URLs or MIME leftovers.
+      if (/[*?<>"|;]/.test(str)) return false;
+      if (str.includes(":") && !/^[A-Za-z]:[\\/]/.test(str)) return false;
+
+      const hasSlash = str.includes("/") || str.includes("\\");
+
+      // Check file extension
+      const extMatch = str.match(/\.([A-Za-z0-9_-]{1,16})$/);
+      if (!extMatch) {
+        // If no extension, must look like an absolute path or relative dir path
+        if (str.startsWith("/") || str.startsWith("./") || str.startsWith("../") || /^[a-zA-Z]:[\\/]/.test(str)) {
+          return true;
+        }
+        return false;
+      }
+
+      const ext = extMatch[1].toLowerCase();
+      // If extension is purely numeric (e.g. 1.0, 3.14, 0.1.33) -> NOT a file path
+      if (/^\d+$/.test(ext)) return false;
+
+      // If it has a slash (e.g. internal/logic/script/env_vars.go)
+      if (hasSlash) {
+        return true;
+      }
+
+      // If no slash (e.g. just a filename "env_vars.go" or "report.md")
+      if (COMMON_FILE_EXTENSIONS.has(ext)) return true;
+      // If it contains Chinese characters and has valid extension
+      if (/[\u4e00-\u9fa5]/.test(str) && ext.length >= 1 && ext.length <= 8) return true;
+
+      return false;
     }
 
     function normalizeClickedPath(raw) {
@@ -794,39 +853,51 @@ window.__ModuleLoader__.load({
     function isFileOpenControl(element) {
       if (!element) return false;
       if (element.hasAttribute("data-file-path") || element.hasAttribute("data-path")) return true;
-      if (element.closest("code")) return true;
       if (element.closest("[data-produced-files-row]")) return true;
       const cls = typeof element.className === "string" ? element.className : "";
       if (cls.includes("fileMention") || cls.includes("file-mention")) return true;
       if (cls.includes("fileLink") || cls.includes("file-link")) return true;
+      if (element.getAttribute("data-role") === "file-mention") return true;
       return false;
+    }
+
+    function isFileMentionCode(element) {
+      if (!element) return false;
+      const codeEl = element.tagName === "CODE" ? element : (element.closest ? element.closest("code") : null);
+      if (!codeEl) return false;
+      // Code blocks (<pre><code>) are never file mentions
+      if (codeEl.closest && codeEl.closest("pre")) return false;
+      const text = (codeEl.textContent || "").trim();
+      // Only intentional file references starting with @ (e.g. @src/index.ts or @`path`)
+      return text.startsWith("@") && looksLikeFilePath(text);
     }
 
     function setupGlobalFileClickInterceptor(openStore, sessionStore) {
       if (typeof document === "undefined") return;
       document.addEventListener("click", (event) => {
+        // 1. If text is currently selected (user is dragging/highlighting to copy), never intercept
+        const sel = typeof window !== "undefined" && window.getSelection ? window.getSelection()?.toString()?.trim() : "";
+        if (sel) return;
+
         const target = event.target;
         if (!target || typeof target.closest !== "function") return;
-        // In chat, file links can be buttons, links, or inline code tags
-        const el = target.closest("button, [role='button'], a, code");
-        if (!el) return;
-        if (el.closest(".fv-shell") || el.closest(".fv-float-entry") || el.closest(".fv-context-menu") || el.closest(".fv-scrim")) return;
-        if (!isFileOpenControl(el)) {
-          // If it's a code block, only open if text strictly looks like a file path
-          if (el.tagName === "CODE" || el.closest("code")) {
-            const path = extractClickedPath(el);
-            if (path) {
-              event.preventDefault();
-              event.stopPropagation();
-              event.stopImmediatePropagation();
-              openViewerForPath(openStore, sessionStore, path);
-              return;
-            }
-          }
-          return;
-        }
+
+        // 2. Ignore clicks inside file-viewer drawer, modals, context menus, floating entries
+        if (target.closest(".fv-shell") || target.closest(".fv-float-entry") || target.closest(".fv-context-menu") || target.closest(".fv-scrim") || target.closest(".fv-modal-scrim")) return;
+
+        // 3. Ignore if inside code blocks (<pre>) or input fields
+        if (target.closest("pre, textarea, input, select")) return;
+
+        // 4. Must be an intentional file control or explicit @file mention
+        const isControl = isFileOpenControl(target) || isFileOpenControl(target.closest("button, [role='button'], a"));
+        const isMention = isFileMentionCode(target);
+
+        if (!isControl && !isMention) return;
+
+        const el = target.closest("button, [role='button'], a, code") || target;
         const path = extractClickedPath(el);
-        if (!path) return;
+        if (!path || !looksLikeFilePath(path)) return;
+
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -2619,7 +2690,7 @@ window.__ModuleLoader__.load({
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
-      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, renderRootOptions,
+      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
     };
     return module.exports;
   }

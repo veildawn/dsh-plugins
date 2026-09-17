@@ -841,6 +841,16 @@ test('clicked path extraction keeps Chinese filenames and prefers title over bas
   assert.equal(internals.normalizeClickedPath('打开 20万落地国产纯电SUV选车报告.md'), '20万落地国产纯电SUV选车报告.md')
   assert.equal(internals.normalizeClickedPath('@`src/App.vue`'), 'src/App.vue')
   assert.equal(internals.normalizeClickedPath('普通按钮'), '')
+  assert.equal(internals.normalizeClickedPath('application/json'), '')
+  assert.equal(internals.normalizeClickedPath('true/false'), '')
+  assert.equal(internals.normalizeClickedPath('2026/09/11'), '')
+  assert.equal(internals.normalizeClickedPath('item.id'), '')
+  assert.equal(internals.normalizeClickedPath('v1.0.0'), '')
+  assert.equal(internals.normalizeClickedPath('a / b'), '')
+  assert.equal(internals.normalizeClickedPath('https://github.com/foo/bar'), '')
+  assert.equal(internals.normalizeClickedPath('D:/Notes/a.go'), 'D:/Notes/a.go')
+  assert.equal(internals.normalizeClickedPath('C:/Users/foo/bar.md'), 'C:/Users/foo/bar.md')
+  assert.equal(internals.normalizeClickedPath('D:\\Notes\\a.go'), 'D:\\Notes\\a.go')
 
   const button = {
     getAttribute: (name) => ({
@@ -907,6 +917,31 @@ test('model selector and ordinary buttons are not treated as file-open controls'
     textContent: 'lib/client.js',
   })
   assert.equal(internals.isFileOpenControl(toolRowFileLink), true)
+
+  // Plain code tags are NOT file open controls
+  const plainCode = fakeEl({
+    tagName: 'CODE',
+    textContent: 'application/json',
+    closest: () => null,
+  })
+  assert.equal(internals.isFileOpenControl(plainCode), false)
+  assert.equal(internals.isFileMentionCode(plainCode), false)
+
+  // Code inside <pre> is NEVER a file mention
+  const preCode = fakeEl({
+    tagName: 'CODE',
+    textContent: '@/root/CodeSpace/admin-go/backend/main.go',
+    closest: (sel) => sel === 'pre' ? {} : null,
+  })
+  assert.equal(internals.isFileMentionCode(preCode), false)
+
+  // Explicit @file mention inline code IS recognized
+  const mentionCode = fakeEl({
+    tagName: 'CODE',
+    textContent: '@backend/internal/logic/script/env_vars.go',
+    closest: (sel) => sel === 'code' ? mentionCode : null,
+  })
+  assert.equal(internals.isFileMentionCode(mentionCode), true)
 })
 
 test('wrapSidebarRight intercepts file addresses and routes them to openStore', () => {
