@@ -183,6 +183,88 @@ test('configuration is local-only and authenticated calls use a fixed allowlist'
   assert.equal((await remote('call', { token: 'remote-test', method: 'settings.describe', payload: {} })).ok, false)
 })
 
+test('index passthrough and 401 bypass are gated on enabled and limited to remote-control RPC', async () => {
+  assert.equal(internals.isRemoteControlRpcPath('/dsh-remote-control'), true)
+  assert.equal(internals.isRemoteControlRpcPath('/dsh-remote-control/status'), true)
+  assert.equal(internals.isRemoteControlRpcPath('/ai-proxy-remote-control'), true)
+  assert.equal(internals.isRemoteControlRpcPath('/dsh-remote-control-config'), false)
+  assert.equal(internals.isRemoteControlRpcPath('/api'), false)
+  assert.equal(internals.isRemoteControlRpcPath('/dsh-remote-control-extra'), false)
+
+  assert.equal(internals.shouldServeUnauthenticatedIndex({ method: 'GET', url: '/' }, true, false), true)
+  assert.equal(internals.shouldServeUnauthenticatedIndex({ method: 'HEAD', url: '/index.html' }, true, false), true)
+  assert.equal(internals.shouldServeUnauthenticatedIndex({ method: 'GET', url: '/' }, false, false), false)
+  assert.equal(internals.shouldServeUnauthenticatedIndex({ method: 'GET', url: '/' }, true, true), false)
+  assert.equal(internals.shouldServeUnauthenticatedIndex({ method: 'GET', url: '/?token=abc' }, true, false), false)
+  assert.equal(internals.shouldServeUnauthenticatedIndex({ method: 'POST', url: '/' }, true, false), false)
+
+  assert.equal(internals.shouldBypassBrowserAuthRejection({ url: '/dsh-remote-control' }, true), true)
+  assert.equal(internals.shouldBypassBrowserAuthRejection({ url: '/ai-proxy-remote-control' }, true), true)
+  assert.equal(internals.shouldBypassBrowserAuthRejection({ url: '/dsh-remote-control' }, false), false)
+  assert.equal(internals.shouldBypassBrowserAuthRejection({ url: '/api' }, true), false)
+  assert.equal(internals.shouldBypassBrowserAuthRejection({ url: '/dsh-remote-control-config' }, true), false)
+
+  const { ctx, connection } = makeHost()
+  let isAuthenticatedValue = false
+  connection.browserAuth = {
+    isAuthenticated: () => isAuthenticatedValue,
+    launchToken: 'test-launch-token-1234',
+  }
+  let origAuthorizeIndexCalled = 0
+  connection.authorizeIndex = (req, res) => {
+    origAuthorizeIndexCalled++
+    const url = new URL(req.url ?? '/', 'http://dsh.invalid')
+    if (url.searchParams.has('token')) {
+      res.writeHead(url.searchParams.get('token') ? 303 : 401, { location: '/' })
+      res.end()
+      return false
+    }
+    if (isAuthenticatedValue) return true
+    res.writeHead(401)
+    res.end()
+    return false
+  }
+  connection.requestRejection = (req) => {
+    const url = new URL(req.url ?? '/', 'http://dsh.invalid')
+    if (url.searchParams.get('trust') === 'no') return 403
+    return 401
+  }
+
+  await ctx.plugin(plugin).await()
+  const configure = connection.registrations.get(CONFIG_RPC_CHANNEL).handler
+  const mockRes = () => ({ writeHead() {}, end() {} })
+
+  assert.equal(connection.authorizeIndex({ method: 'GET', url: '/' }, mockRes()), false)
+  assert.equal(origAuthorizeIndexCalled, 1, 'disabled install keeps native 401 on GET /')
+  assert.equal(connection.requestRejection({ url: '/dsh-remote-control' }), 401)
+  assert.equal(connection.requestRejection({ url: '/api' }), 401)
+
+  assert.deepEqual(await configure('setEnabled', { enabled: true }), {
+    ok: true, value: { enabled: true, secretConfigured: false },
+  })
+  origAuthorizeIndexCalled = 0
+
+  assert.equal(connection.authorizeIndex({ method: 'GET', url: '/' }, mockRes()), true)
+  assert.equal(connection.authorizeIndex({ method: 'HEAD', url: '/index.html' }, mockRes()), true)
+  assert.equal(origAuthorizeIndexCalled, 0, 'enabled unauthenticated index does not 303')
+
+  assert.equal(connection.authorizeIndex({ method: 'GET', url: '/?token=test-launch-token-1234' }, mockRes()), false)
+  assert.equal(origAuthorizeIndexCalled, 1, 'explicit launch token still uses native exchange')
+  assert.equal(connection.authorizeIndex({ method: 'GET', url: '/?token=' }, mockRes()), false)
+  assert.equal(origAuthorizeIndexCalled, 2)
+
+  isAuthenticatedValue = true
+  assert.equal(connection.authorizeIndex({ method: 'GET', url: '/' }, mockRes()), true)
+  assert.equal(origAuthorizeIndexCalled, 3, 'authenticated index stays on the native path')
+  isAuthenticatedValue = false
+
+  assert.equal(connection.requestRejection({ url: '/dsh-remote-control' }), undefined)
+  assert.equal(connection.requestRejection({ url: '/ai-proxy-remote-control' }), undefined)
+  assert.equal(connection.requestRejection({ url: '/api' }), 401, '/api still requires the browser cookie')
+  assert.equal(connection.requestRejection({ url: '/dsh-remote-control-config' }), 401)
+  assert.equal(connection.requestRejection({ url: '/dsh-remote-control?trust=no' }), 403)
+})
+
 // Browser bundle harness ---------------------------------------------------
 
 let definition

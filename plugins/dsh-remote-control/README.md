@@ -7,11 +7,14 @@ DSH 特权 API。
 ## 功能
 
 - 远程浏览器先显示全屏 **Unlock Screen**，认证前不挂载工作区根界面。
+- 仅在 `enabled: true` 时改写 Host 鉴权：未认证且未带 `?token=` 的根路径直接返回 index.html，让锁屏能加载，避免旧版静默注入 launch token 造成的 `ERR_TOO_MANY_REDIRECTS`。
+- 浏览器 Cookie 门禁只对 `/dsh-remote-control` 及其兼容别名放行 401；官方 `/api/*` 与配置通道仍要求会话 Cookie。403（跨站 / 未信任 Host）始终拒绝。
+- 关闭远程访问（默认）时不劫持 `authorizeIndex` / `requestRejection`。
 - 主 RPC 通道为 `/dsh-remote-control`，保留 `/ai-proxy-remote-control` 兼容别名。
 - 密钥使用恒定时间比较；未启用、未配置或密钥错误时拒绝特权调用。
 - 浏览器密钥暂存在 `localStorage` 的 `dsh-remote-control.secret`；可随时锁定并清除。
 - 自动迁移旧版 `dsh-ai-proxy.remote-control-secret` 浏览器键。
-- 官方 `/api/*` 的 loopback-only 规则保持不变；远程调用只经过本插件的固定白名单。
+- 官方 `/api/*` 仍走 Connection 的浏览器会话校验；远程特权调用只经过本插件的固定白名单。
 - `localhost`、`127.0.0.1` 和 IPv6 回环地址不显示锁屏。
 
 ## 安装
@@ -19,7 +22,7 @@ DSH 特权 API。
 插件自带 `cordis.patch.yml`，安装后会插入 `remote-control` Cordis 行，默认关闭远程访问：
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-control-0.1.5.tgz
+dsh plugin --profile web add ./dsh-remote-control-0.1.10.tgz
 dsh service restart
 ```
 
@@ -36,7 +39,7 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 
 ```sh
 cd ~/.dsh/profiles/web
-pnpm add /path/to/dsh-remote-control-0.1.5.tgz
+pnpm add /path/to/dsh-remote-control-0.1.10.tgz
 ```
 
 对应的手动 Cordis 配置为：
@@ -179,6 +182,8 @@ curl -s -X POST http://127.0.0.1:<port>/dsh-remote-control-config \
 
 - 本插件是共享密钥门禁，不替代 HTTPS、反向代理访问控制、网络防火墙或 DSH 的
   `--trusted-host` 校验。
+- 启用后未认证根路径可以加载 SPA / Unlock Screen，这不是会话认证；官方 `/api/*`
+  在没有浏览器 Cookie 时仍返回 401。
 - 必须通过 HTTPS 暴露远程页面，否则浏览器密钥和会话可能被窃听。
 - 密钥存放在当前浏览器的 `localStorage`，同源脚本可以读取；不要在不可信浏览器或共享账号
   中保存，使用完点击“锁定远程会话 / 清除本地凭证”。
@@ -202,4 +207,4 @@ npm pack --dry-run
 ```
 
 测试覆盖密钥比较与来源优先级、配置通道权限、主通道和兼容别名、固定白名单、Unlock
-Screen、LocalStorage 迁移及浏览器 API 重定向。
+Screen、LocalStorage 迁移、浏览器 API 重定向，以及 `enabled` 开关下的 index 直通与 401 通道白名单。

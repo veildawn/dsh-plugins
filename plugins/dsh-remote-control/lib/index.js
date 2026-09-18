@@ -146,6 +146,49 @@ export async function handleRemoteControlRpc(ctx, options, method, payload, sign
   }
 }
 
+function requestPathname(request) {
+  try {
+    return new URL(request?.url ?? '/', 'http://dsh.invalid').pathname
+  } catch {
+    return '/'
+  }
+}
+
+/** Remote-control RPC prefixes that authenticate via payload token, not the browser cookie. */
+export function isRemoteControlRpcPath(pathname) {
+  if (typeof pathname !== 'string' || pathname.length === 0) return false
+  for (const channel of [REMOTE_CONTROL_RPC_CHANNEL, ...REMOTE_CONTROL_RPC_ALIASES]) {
+    if (pathname === channel || pathname.startsWith(channel + '/')) return true
+  }
+  return false
+}
+
+/**
+ * Whether a 401 from Connection's browser-session gate may be skipped.
+ * Only the remote-control channels qualify, and only while remote access is enabled.
+ */
+export function shouldBypassBrowserAuthRejection(request, enabled) {
+  return enabled === true && isRemoteControlRpcPath(requestPathname(request))
+}
+
+/**
+ * Serve index.html without a 303 token exchange so the Unlock Screen can load.
+ * Native `/?token=` handling is left untouched; disabled installs keep the stock 401.
+ */
+export function shouldServeUnauthenticatedIndex(request, enabled, isAuthenticated) {
+  if (enabled !== true || isAuthenticated === true) return false
+  const method = request?.method
+  if (method !== 'GET' && method !== 'HEAD') return false
+  let url
+  try {
+    url = new URL(request?.url ?? '/', 'http://dsh.invalid')
+  } catch {
+    return false
+  }
+  if (url.searchParams.has('token')) return false
+  return url.pathname === '/' || url.pathname === '/index.html'
+}
+
 export function apply(ctx, config) {
   let current = () => config ?? {}
   const options = () => resolveOptions(current())
@@ -162,31 +205,17 @@ export function apply(ctx, config) {
     if (connection && connection.browserAuth && typeof connection.authorizeIndex === 'function') {
       const origAuthorizeIndex = connection.authorizeIndex.bind(connection)
       connection.authorizeIndex = function (request, response) {
-        // 如果原本就已经通过 Cookie 认证或请求带有合法 token，走原生流程
-        if (connection.browserAuth.isAuthenticated(request)) {
-          return origAuthorizeIndex(request, response)
-        }
-        // 如果是根路径 GET 请求且尚未认证，自动注入 launchToken 换取合法 Cookie
-        const rawUrl = request.url ?? '/'
-        const url = new URL(rawUrl, 'http://dsh.invalid')
-        if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-          if (!url.searchParams.has('token') && connection.browserAuth.launchToken) {
-            url.searchParams.set('token', connection.browserAuth.launchToken)
-            request.url = url.pathname + url.search
-          }
-        }
+        const enabled = options().enabled
+        const authenticated = connection.browserAuth.isAuthenticated(request)
+        if (shouldServeUnauthenticatedIndex(request, enabled, authenticated)) return true
         return origAuthorizeIndex(request, response)
       }
 
-      // 同时放宽 requestRejection，确保如果某些客户端首次发起请求未带 Cookie 时能保持平滑
       if (typeof connection.requestRejection === 'function') {
         const origRequestRejection = connection.requestRejection.bind(connection)
         connection.requestRejection = function (request) {
           const res = origRequestRejection(request)
-          // 403 (跨站/不受信任域名) 依然严格拦截，只在 401 (缺少浏览器 Cookie) 时由 remote-control 机制托管放行
-          if (res === 401) {
-            return undefined
-          }
+          if (res === 401 && shouldBypassBrowserAuthRejection(request, options().enabled)) return undefined
           return res
         }
       }
@@ -207,4 +236,12 @@ export function apply(ctx, config) {
   })
 }
 
-export const internals = { matchesRemoteControlSecret, remoteControlSecret, handleConfigRpc, handleRemoteControlRpc }
+export const internals = {
+  matchesRemoteControlSecret,
+  remoteControlSecret,
+  handleConfigRpc,
+  handleRemoteControlRpc,
+  isRemoteControlRpcPath,
+  shouldBypassBrowserAuthRejection,
+  shouldServeUnauthenticatedIndex,
+}
