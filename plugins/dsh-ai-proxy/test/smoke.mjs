@@ -202,6 +202,8 @@ test('materializes the gateway as one llm-pi-ai route, leaving hand-written ones
     assert.equal(profile.apiKeyEnv, 'AIPROXY_API_KEY')
     assert.deepEqual(profile.headers, { 'x-ai-proxy-client': 'dsh' })
     assert.equal(profile.reasoning, 'high', 'highest ladder rung of the first ladder-bearing model')
+    assert.deepEqual(profile.compat, { supportsDeveloperRole: false },
+      'materialized OpenAI-compatible route refuses the developer role')
     assert.equal(profile.models.length, 3)
     assert.deepEqual(profile.models[0], {
       id: 'claude-sonnet-4-5',

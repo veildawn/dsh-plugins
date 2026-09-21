@@ -151,6 +151,20 @@ export function piAiProtocolFor(apiFormat) {
 }
 
 /**
+ * Route-level compat for the official adapter.
+ *
+ * Custom OpenAI-compatible gateways are not the official OpenAI API. pi-ai
+ * rewrites a reasoning model's system prompt to `role: "developer"` unless
+ * `compat.supportsDeveloperRole` is false; DeepSeek / GLM / similar endpoints
+ * reject that variant (`unknown variant \`developer\``). Anthropic Messages
+ * does not take the switch, so that protocol omits the block.
+ */
+export function routeCompatFor(api) {
+  if (api === PI_AI_PROTOCOL_ANTHROPIC) return undefined
+  return { supportsDeveloperRole: false }
+}
+
+/**
  * Spell the route baseURL for the official adapter. The OpenAI SDK appends
  * `/chat/completions` (or `/responses`) to the configured base itself, so
  * OpenAI-style routes carry the `/v1` suffix; the Anthropic SDK appends
@@ -284,10 +298,11 @@ export const ROUTE_HEADERS = { 'x-ai-proxy-client': 'dsh' }
 export function buildProviderProfile(options, models) {
   const catalog = (Array.isArray(models) ? models : [])
     .filter((entry) => typeof entry?.id === 'string' && entry.id.length > 0)
+  const api = piAiProtocolFor(options.apiFormat)
   const profile = {
     displayName: 'AI Proxy',
     apiKeyEnv: options.apiKeyEnv,
-    api: piAiProtocolFor(options.apiFormat),
+    api,
     baseURL: piAiBaseURL(options.baseURL, options.apiFormat),
     headers: { ...ROUTE_HEADERS },
     defaultContextWindow: options.defaultContextWindow,
@@ -305,6 +320,8 @@ export function buildProviderProfile(options, models) {
       reasoningEfforts: ladderToReasoningEfforts(entry.effortLevels),
     })),
   }
+  const compat = routeCompatFor(api)
+  if (compat !== undefined) profile.compat = compat
   const defaultKey = routeDefaultEffortKey(catalog, options.defaultReasoningEffort)
   if (defaultKey !== undefined) profile.reasoning = defaultKey
   return profile
@@ -1009,7 +1026,7 @@ export function apply(ctx, config) {
 // Re-exported pure helpers for unit tests.
 export const internals = {
   AiProxyApi, RouteMaterializer, OAuthSession,
-  buildProviderProfile, piAiProtocolFor, piAiBaseURL,
+  buildProviderProfile, piAiProtocolFor, piAiBaseURL, routeCompatFor,
   ladderToReasoningEfforts, routeDefaultEffortKey,
   effortName, resolveDefaultEffort, inputModalitiesOf,
   httpErrorCode, errorFromResponse, handleAuthRpc,

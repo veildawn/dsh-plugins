@@ -49,6 +49,11 @@ dsh-ai-proxy：
 `defaultReasoningEffort` 的 `highest`/`lowest`/精确档语义不变，解析结果换算为选择器键
 后作为路由级 `reasoning` 默认档写入。
 
+Chat Completions / Responses 路由会带上 `compat.supportsDeveloperRole: false`。自定义
+网关的 `provider`/`baseURL` 对 pi-ai 来说不像官方 DeepSeek，推理模型默认会把 system
+prompt 改写成 `role: "developer"`，而 DeepSeek / GLM 等上游只接受
+`system`/`user`/`assistant`/`tool`。Anthropic Messages 不使用该开关，材料化时省略。
+
 ## 安装
 
 ```sh
@@ -130,7 +135,7 @@ OAuth 认证接口 `/ai-proxy-auth` 使用连接默认访问策略，可由局�
 
 ## 手动验证清单（部署后）
 
-1. 登录后 `~/.dsh/settings.yaml` 出现 `llm-pi-ai.providers.ai-proxy`（api/baseURL/模型目录）。
+1. 登录后 `~/.dsh/settings.yaml` 出现 `llm-pi-ai.providers.ai-proxy`（api/baseURL/模型目录；chat/completions 与 responses 带 `compat.supportsDeveloperRole: false`）。
 2. 模型选择器出现 `ai-proxy` 路由的模型，effort 档位与网关 ladder 一致。
 3. 三种 apiFormat 各发一轮对话：chat/completions 与 responses 的 `baseURL` 带 `/v1`，
    anthropic-messages 的 `baseURL` 为根地址（SDK 自拼 `/v1/messages`）。

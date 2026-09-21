@@ -11,6 +11,7 @@ const {
   httpErrorCode, normalizeApiFormat, resolveModelsEndpoint,
   piAiProtocolFor, piAiBaseURL,
   ladderToReasoningEfforts, routeDefaultEffortKey, buildProviderProfile,
+  routeCompatFor,
 } = internals
 
 test('pkcePair: verifier/challenge/state shapes and S256 binding', () => {
@@ -182,6 +183,12 @@ test('routeDefaultEffortKey: the route default spans every model ladder', () => 
   assert.equal(routeDefaultEffortKey(undefined, 'highest'), undefined)
 })
 
+test('routeCompatFor: OpenAI-family routes refuse the developer role, Anthropic omits the switch', () => {
+  assert.deepEqual(routeCompatFor('openai-completions'), { supportsDeveloperRole: false })
+  assert.deepEqual(routeCompatFor('openai-responses'), { supportsDeveloperRole: false })
+  assert.equal(routeCompatFor('anthropic-messages'), undefined)
+})
+
 test('buildProviderProfile: full shape, defaults, effort ladder and headers', () => {
   const options = resolveOptions({
     baseURL: 'http://localhost:18080',
@@ -210,6 +217,7 @@ test('buildProviderProfile: full shape, defaults, effort ladder and headers', ()
   assert.deepEqual(profile.retryPolicy, { mode: 'normal', maxRetries: 3 })
   assert.equal(profile.reasoning, 'max',
     "'highest' resolves against every ladder: tiered tops at high, strong-model's ultra borrows max")
+  assert.equal('compat' in profile, false, 'Anthropic Messages does not take supportsDeveloperRole')
 
   assert.equal(profile.models.length, 3)
   assert.deepEqual(profile.models[0], {
@@ -237,4 +245,15 @@ test('buildProviderProfile: chat/completions default spells the /v1 base', () =>
   assert.equal(profile.apiKeyEnv, 'AIPROXY_ACCESS_TOKEN', 'apiKeyEnv bridges to the OAuth ref by default')
   assert.equal('reasoning' in profile, false)
   assert.equal('retryPolicy' in profile, false, 'unconfigured policy is omitted for the host default')
+  assert.deepEqual(profile.compat, { supportsDeveloperRole: false },
+    'custom OpenAI-compatible gateways must not rewrite system prompts to role=developer')
+})
+
+test('buildProviderProfile: responses protocol also refuses the developer role', () => {
+  const profile = buildProviderProfile(resolveOptions({
+    baseURL: 'http://gw.example/',
+    apiFormat: 'responses',
+  }), [{ id: 'reasoner', effortLevels: ['low', 'high'] }])
+  assert.equal(profile.api, 'openai-responses')
+  assert.deepEqual(profile.compat, { supportsDeveloperRole: false })
 })
