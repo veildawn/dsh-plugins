@@ -174,6 +174,9 @@ test('relative paths that try to escape their root are refused', () => {
   assert.equal(isSafeRelativePath('C:/Windows/System32'), false)
   assert.equal(isSafeRelativePath('lib/\0.js'), false)
   assert.equal(isSafeRelativePath(42), false)
+  assert.equal(isSafeRelativePath('~/secrets'), false)
+  assert.equal(isSafeRelativePath('~'), false)
+  assert.equal(isSafeRelativePath('~\\docs'), false)
 
   // '..' must be a whole segment to be an escape; a filename may contain dots.
   assert.equal(isSafeRelativePath('lib/..hidden'), true)
@@ -483,6 +486,10 @@ test('normalizeSafePaths converts various formats into structured path-label rec
   assert.deepEqual(normalizeSafePaths(null), [])
   assert.deepEqual(normalizeSafePaths(undefined), [])
   assert.deepEqual(normalizeSafePaths(''), [])
+  assert.deepEqual(normalizeSafePaths(['~', '~/downloads'], '/home/testuser'), [
+    { path: '/home/testuser', label: '' },
+    { path: '/home/testuser/downloads', label: '' },
+  ])
 })
 
 test('joinPath and baseNameOf handle root slash cleanly', () => {

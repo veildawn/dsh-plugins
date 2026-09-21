@@ -29,6 +29,10 @@ function createFs(tree, { links = {} } = {}) {
     }
     return resolved
   }
+  const canonicalTree = {}
+  for (const [k, v] of Object.entries(tree)) {
+    canonicalTree[canonical(k)] = v
+  }
   return {
     calls: [],
     async resolve(path) {
@@ -42,20 +46,20 @@ function createFs(tree, { links = {} } = {}) {
       return child.targetKey === parent.targetKey || child.targetKey.startsWith(parent.targetKey + '/')
     },
     async stat(target) {
-      return tree[target.targetKey]
+      return canonicalTree[target.targetKey]
     },
     async listDir(target) {
-      const node = tree[target.targetKey]
+      const node = canonicalTree[target.targetKey]
       if (node === undefined) throw new ViewerError('not-found', 'missing')
       return node.entries ?? []
     },
     async readText(target) {
       this.calls.push(['readText', target.targetKey])
-      return tree[target.targetKey]?.text ?? ''
+      return canonicalTree[target.targetKey]?.text ?? ''
     },
     async readBytes(target, _signal, maxBytes) {
       this.calls.push(['readBytes', target.targetKey, maxBytes])
-      return tree[target.targetKey]?.bytes ?? new Uint8Array()
+      return canonicalTree[target.targetKey]?.bytes ?? new Uint8Array()
     },
   }
 }
@@ -700,6 +704,39 @@ test('resolveSessionRoot resolves target file located in safe access path', asyn
   assert.equal(res.value.selectFile, 'logs/app.log')
 })
 
+test('resolveSessionRoot resolves target file with tilde path ~/ when home directory is in safe access paths', async () => {
+  const os = (await import('node:os')).default
+  const home = os.homedir()
+
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    [home]: { type: 'directory', entries: [] },
+    [`${home}/docs`]: { type: 'directory', entries: [] },
+    [`${home}/docs/test.png`]: { type: 'file', size: 200 },
+  })
+  const ctx = createCtx(fs, { workspaces: ['D:/repo'] })
+  const opts = options({ safePaths: [home] })
+
+  // 1. Target with ~/docs/test.png
+  const res = await handleRpc(ctx, opts, 'roots', { filePath: '~/docs/test.png' })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.root, home)
+  assert.equal(res.value.reveal, 'docs')
+  assert.equal(res.value.selectFile, 'docs/test.png')
+
+  // 2. Target directly in home ~/test.png
+  const fs2 = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    [home]: { type: 'directory', entries: [] },
+    [`${home}/test.png`]: { type: 'file', size: 200 },
+  })
+  const ctx2 = createCtx(fs2, { workspaces: ['D:/repo'] })
+  const res2 = await handleRpc(ctx2, opts, 'roots', { filePath: '~/test.png' })
+  assert.equal(res2.ok, true)
+  assert.equal(res2.value.root, home)
+  assert.equal(res2.value.selectFile, 'test.png')
+})
+
 test('getSafePaths and updateSafePaths RPC methods support dynamic web configuration', async () => {
   const fs = createFs({
     'D:/repo': { type: 'directory', entries: [] },
@@ -777,7 +814,7 @@ test('symlink in workspace pointing to an authorized safe path is allowed, but u
 
 test('readDoc supports .doc files via word-extractor', async () => {
   const fsSync = (await import('fs')).default
-  const sampleDocx = fsSync.readFileSync('node_modules/mammoth/test/test-data/single-paragraph.docx')
+  const sampleDocx = fsSync.readFileSync(new URL('../node_modules/mammoth/test/test-data/single-paragraph.docx', import.meta.url))
 
   const fs = createFs({
     'D:/repo': { type: 'directory', entries: [] },

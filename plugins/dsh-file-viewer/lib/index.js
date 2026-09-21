@@ -172,10 +172,11 @@ export function collectRoots(ctx, options) {
   for (const session of ctx.sessions?.list?.() ?? []) add(session?.header?.cwd, undefined, 'session')
 
   const opts = typeof options === 'function' ? (options() ?? {}) : (options ?? {})
+  const home = os.homedir()
   const safeEntries = [
-    ...normalizeSafePaths(opts.safePaths),
-    ...normalizeSafePaths(opts.safeAccessPaths),
-    ...normalizeSafePaths(opts.extraRoots),
+    ...normalizeSafePaths(opts.safePaths, home),
+    ...normalizeSafePaths(opts.safeAccessPaths, home),
+    ...normalizeSafePaths(opts.extraRoots, home),
   ]
   for (const entry of safeEntries) {
     add(entry.path, entry.label, 'safe-path')
@@ -201,8 +202,12 @@ export async function resolveInRoot(ctx, options, payload, signal) {
   if (roots.length === 0) throw new ViewerError('no-roots', 'no workspace roots are available to browse')
 
   const requested = payload?.root
-  const isSlash = requested === '/' || requested === '\\'
-  const reqKey = isSlash ? '/' : String(requested ?? '').replace(/[\\/]+$/, '')
+  const home = os.homedir()
+  const normReq = typeof requested === 'string' && (requested === '~' || requested.startsWith('~/') || requested.startsWith('~\\'))
+    ? path.join(home, requested === '~' ? '' : requested.slice(2))
+    : requested
+  const isSlash = normReq === '/' || normReq === '\\'
+  const reqKey = isSlash ? '/' : String(normReq ?? '').replace(/[\\/]+$/, '')
   const root = requested === undefined || requested === null || requested === ''
     ? roots[0]
     : roots.find((candidate) => candidate.id === reqKey)
@@ -617,16 +622,29 @@ export async function resolveSessionRoot(ctx, options, payload) {
   const session = typeof sessionId === 'string' && sessionId !== '' ? ctx.sessions?.get?.(sessionId) : undefined
   const cwd = session?.header?.cwd ?? session?.header?.meta?.cwd
 
+  const home = os.homedir()
+  const expandHome = (p) => {
+    if (typeof p !== 'string' || !p) return ''
+    if (p === '~') return home
+    if (p.startsWith('~/') || p.startsWith('~\\')) {
+      return path.join(home, p.slice(2))
+    }
+    return p
+  }
+
   // If a target path is given, resolve it either absolutely or relative to cwd/roots
   let candidatePath = ''
   if (targetPath !== '') {
-    if (isSafeRelativePath(targetPath) && !/^[A-Za-z]:|^[\\/]/.test(targetPath) && typeof cwd === 'string' && cwd !== '') {
+    const isHome = targetPath === '~' || targetPath.startsWith('~/') || targetPath.startsWith('~\\')
+    if (isHome) {
+      candidatePath = expandHome(targetPath)
+    } else if (isSafeRelativePath(targetPath) && !/^[A-Za-z]:|^[\\/]/.test(targetPath) && typeof cwd === 'string' && cwd !== '') {
       candidatePath = joinPath(cwd, targetPath)
     } else {
       candidatePath = targetPath
     }
   } else if (typeof cwd === 'string' && cwd !== '') {
-    candidatePath = cwd
+    candidatePath = expandHome(cwd)
   }
 
   if (candidatePath === '') return { roots }
@@ -896,10 +914,11 @@ export async function getWorkspaceGitStatus(ctx, options, payload, signal) {
  */
 export async function getSafePathsConfig(ctx, options) {
   const opts = typeof options === 'function' ? options() : options
+  const home = os.homedir()
   const safePaths = [
-    ...normalizeSafePaths(opts?.safePaths),
-    ...normalizeSafePaths(opts?.safeAccessPaths),
-    ...normalizeSafePaths(opts?.extraRoots),
+    ...normalizeSafePaths(opts?.safePaths, home),
+    ...normalizeSafePaths(opts?.safeAccessPaths, home),
+    ...normalizeSafePaths(opts?.extraRoots, home),
   ]
   const builtInWorkspaces = (ctx.workspaceRegistry?.list?.() ?? []).map((w) => ({
     path: w?.path ?? '',

@@ -338,6 +338,16 @@ window.__ModuleLoader__.load({
       .fv-pager-spacer{flex:1 1 auto}
       .fv-image-wrap{display:grid;place-items:center;min-height:100%;padding:8px}
       .fv-image{max-width:100%;max-height:calc(100% - 16px);object-fit:contain;background:repeating-conic-gradient(var(--dsw-alias-border-l1) 0% 25%,transparent 0% 50%) 50%/16px 16px}
+      .fv-image-viewer{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;height:100%;overflow:hidden;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff))}
+      .fv-image-toolbar{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.03));border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;font-size:12px;user-select:none;color:var(--dsw-alias-label-secondary)}
+      .fv-image-btn{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font-size:12px;cursor:pointer;line-height:1;transition:background-color .1s;text-decoration:none}
+      .fv-image-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-image-scale-text{font-variant-numeric:tabular-nums;font-size:11px;min-width:38px;text-align:center;color:var(--dsw-alias-label-primary);font-weight:600}
+      .fv-image-sep{width:1px;height:16px;background:var(--dsw-alias-border-l1);margin:0 2px}
+      .fv-image-dims,.fv-image-size{font-size:11px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums;margin-right:6px}
+      .fv-image-canvas{position:relative;flex:1 1 auto;min-width:0;min-height:0;overflow:hidden;display:grid;place-items:center;cursor:grab;user-select:none;touch-action:none;background:repeating-conic-gradient(var(--dsw-alias-border-l1) 0% 25%,transparent 0% 50%) 50%/16px 16px}
+      .fv-image-canvas.fv-image-dragging{cursor:grabbing}
+      .fv-image-element{max-width:calc(100% - 32px);max-height:calc(100% - 32px);object-fit:contain;transition:transform .05s ease-out;pointer-events:none;box-shadow:var(--dsw-shadow-lv2,0 4px 12px rgba(0,0,0,.08))}
       .fv-frame{width:100%;height:100%;min-height:420px;border:none;background:var(--dsw-alias-bg-layer-1,#fff)}
       .fv-sheet-tabs{display:flex;flex-wrap:wrap;flex:none;align-items:center;gap:6px;padding:8px 12px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff));border-bottom:1px solid var(--dsw-alias-border-l1);z-index:2}
       .fv-content .fv-sheet-tabs{position:sticky;top:0;margin:-12px -12px 10px;padding:12px 12px 8px}
@@ -797,8 +807,8 @@ window.__ModuleLoader__.load({
       // Check file extension
       const extMatch = str.match(/\.([A-Za-z0-9_-]{1,16})$/);
       if (!extMatch) {
-        // If no extension, must look like an absolute path or relative dir path
-        if (str.startsWith("/") || str.startsWith("./") || str.startsWith("../") || /^[a-zA-Z]:[\\/]/.test(str)) {
+        // If no extension, must look like an absolute path, home path, or relative dir path
+        if (str === "~" || str.startsWith("~/") || str.startsWith("~\\") || str.startsWith("/") || str.startsWith("./") || str.startsWith("../") || /^[a-zA-Z]:[\\/]/.test(str)) {
           return true;
         }
         return false;
@@ -869,8 +879,9 @@ window.__ModuleLoader__.load({
       // Code blocks (<pre><code>) are never file mentions
       if (codeEl.closest && codeEl.closest("pre")) return false;
       const text = (codeEl.textContent || "").trim();
-      // Only intentional file references starting with @ (e.g. @src/index.ts or @`path`)
-      return text.startsWith("@") && looksLikeFilePath(text);
+      // Intentional file references starting with @ (e.g. @src/index.ts) or home-anchored path (~/foo/bar.txt)
+      const isExplicitPath = text.startsWith("@") || text === "~" || text.startsWith("~/") || text.startsWith("~\\");
+      return isExplicitPath && looksLikeFilePath(text);
     }
 
     function setupGlobalFileClickInterceptor(openStore, sessionStore) {
@@ -1195,7 +1206,7 @@ window.__ModuleLoader__.load({
             react.createElement("span", {
               className: row.expanded ? "fv-glyph fv-glyph-open" : "fv-glyph",
               "aria-hidden": "true",
-            }, isDirectory ? "▸" : "·"),
+            }, isDirectory ? "▸" : (entry?.kind === "image" ? "🖼" : "·")),
             react.createElement("span", { className: "fv-row-name" }, (entry && (entry.name || baseNameOf(entry.path) || entry.path)) || ""),
             isModified
               ? react.createElement("span", { className: "fv-badge fv-badge-mod", title: "工作区已修改" }, "M")
@@ -1249,7 +1260,204 @@ window.__ModuleLoader__.load({
         }, ...children);
       }
 
-      /** Images and PDFs: fetch bytes once, hand a blob URL to the browser. */
+      /** Dedicated Image Previewer: zoom, pan, rotate, dimensions, toolbar, and reset. */
+      function ImageView({ meta, root }) {
+        const [state, setState] = react.useState({ status: "loading", url: "", error: null });
+        const [scale, setScale] = react.useState(1);
+        const [rotate, setRotate] = react.useState(0);
+        const [flipH, setFlipH] = react.useState(false);
+        const [offset, setOffset] = react.useState({ x: 0, y: 0 });
+        const [isDragging, setIsDragging] = react.useState(false);
+        const [naturalSize, setNaturalSize] = react.useState(null);
+        const dragStartRef = react.useRef({ x: 0, y: 0, startOffsetX: 0, startOffsetY: 0 });
+
+        react.useEffect(() => {
+          let url = "";
+          let live = true;
+          setState({ status: "loading", url: "", error: null });
+          setScale(1);
+          setRotate(0);
+          setFlipH(false);
+          setOffset({ x: 0, y: 0 });
+          setNaturalSize(null);
+
+          request("bytes", { root, path: meta.path }).then((value) => {
+            if (!live) return;
+            url = URL.createObjectURL(blobOf(value.base64, mediaTypeOf(meta.path)));
+            setState({ status: "ready", url, error: null });
+          }).catch((error) => {
+            if (live) setState({ status: "error", url: "", error });
+          });
+
+          return () => {
+            live = false;
+            if (url !== "") URL.revokeObjectURL(url);
+          };
+        }, [root, meta.path]);
+
+        const containerRef = react.useRef(null);
+        react.useEffect(() => {
+          const el = containerRef.current;
+          if (!el) return;
+          const handleWheel = (e) => {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 0.15 : -0.15;
+            setScale((s) => Math.min(10, Math.max(0.1, Math.round((s + delta) * 100) / 100)));
+          };
+          el.addEventListener("wheel", handleWheel, { passive: false });
+          return () => {
+            el.removeEventListener("wheel", handleWheel);
+          };
+        }, []);
+
+        const onPointerDown = (e) => {
+          if (e.button !== 0) return;
+          setIsDragging(true);
+          dragStartRef.current = {
+            x: e.clientX,
+            y: e.clientY,
+            startOffsetX: offset.x,
+            startOffsetY: offset.y,
+          };
+          try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+        };
+
+        const onPointerMove = (e) => {
+          if (!isDragging) return;
+          const dx = e.clientX - dragStartRef.current.x;
+          const dy = e.clientY - dragStartRef.current.y;
+          setOffset({
+            x: dragStartRef.current.startOffsetX + dx,
+            y: dragStartRef.current.startOffsetY + dy,
+          });
+        };
+
+        const onPointerUp = (e) => {
+          if (isDragging) {
+            setIsDragging(false);
+            try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) {}
+          }
+        };
+
+        const onDoubleClick = () => {
+          if (scale === 1 && offset.x === 0 && offset.y === 0) {
+            setScale(1.5);
+          } else {
+            setScale(1);
+            setOffset({ x: 0, y: 0 });
+          }
+        };
+
+        const onImageLoad = (e) => {
+          const img = e.currentTarget;
+          if (img) {
+            setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
+          }
+        };
+
+        const zoomIn = () => setScale((s) => Math.min(10, Math.round((s + 0.25) * 100) / 100));
+        const zoomOut = () => setScale((s) => Math.max(0.1, Math.round((s - 0.25) * 100) / 100));
+        const resetView = () => {
+          setScale(1);
+          setRotate(0);
+          setFlipH(false);
+          setOffset({ x: 0, y: 0 });
+        };
+        const rotateLeft = () => setRotate((r) => (r - 90) % 360);
+        const rotateRight = () => setRotate((r) => (r + 90) % 360);
+        const toggleFlipH = () => setFlipH((f) => !f);
+
+        if (state.status === "loading") {
+          return react.createElement("div", { className: "fv-note" }, "正在加载图片…");
+        }
+        if (state.status === "error") {
+          return react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error));
+        }
+
+        const transform = `translate(${offset.x}px, ${offset.y}px) scale(${scale}) rotate(${rotate}deg) scaleX(${flipH ? -1 : 1})`;
+
+        return react.createElement("div", { className: "fv-image-viewer" },
+          react.createElement("div", { className: "fv-image-toolbar" },
+            react.createElement("button", {
+              type: "button",
+              className: "fv-image-btn",
+              title: "放大 (+)",
+              onClick: zoomIn,
+            }, "+"),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-image-btn",
+              title: "缩小 (-)",
+              onClick: zoomOut,
+            }, "−"),
+            react.createElement("span", { className: "fv-image-scale-text" }, `${Math.round(scale * 100)}%`),
+            react.createElement("div", { className: "fv-image-sep" }),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-image-btn",
+              title: "适应窗口 (重置)",
+              onClick: resetView,
+            }, "适应"),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-image-btn",
+              title: "原始尺寸 (1:1)",
+              onClick: () => { setScale(1); setOffset({ x: 0, y: 0 }); },
+            }, "1:1"),
+            react.createElement("div", { className: "fv-image-sep" }),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-image-btn",
+              title: "向左旋转 90°",
+              onClick: rotateLeft,
+            }, "↺"),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-image-btn",
+              title: "向右旋转 90°",
+              onClick: rotateRight,
+            }, "↻"),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-image-btn",
+              title: "水平翻转",
+              onClick: toggleFlipH,
+            }, "⇄"),
+            react.createElement("div", { style: { flex: "1 1 auto" } }),
+            naturalSize
+              ? react.createElement("span", { className: "fv-image-dims" }, `${naturalSize.width} × ${naturalSize.height} px`)
+              : null,
+            meta.size
+              ? react.createElement("span", { className: "fv-image-size" }, formatBytes(meta.size))
+              : null,
+            react.createElement("a", {
+              href: state.url,
+              download: meta.name || "image",
+              target: "_blank",
+              rel: "noopener noreferrer",
+              className: "fv-image-btn",
+              title: "新标签页查看 / 下载原图",
+            }, "⤓")),
+          react.createElement("div", {
+            ref: containerRef,
+            className: "fv-image-canvas" + (isDragging ? " fv-image-dragging" : ""),
+            onPointerDown,
+            onPointerMove,
+            onPointerUp,
+            onPointerCancel: onPointerUp,
+            onDoubleClick,
+          },
+            react.createElement("img", {
+              className: "fv-image-element",
+              src: state.url,
+              alt: meta.name,
+              draggable: false,
+              onLoad: onImageLoad,
+              style: { transform },
+            })));
+      }
+
+      /** PDFs and generic binaries: fetch bytes once, hand a blob URL to the browser iframe. */
       function BinaryView({ meta, root }) {
         const [state, setState] = react.useState({ status: "loading", url: "", error: null });
         react.useEffect(() => {
@@ -1272,10 +1480,6 @@ window.__ModuleLoader__.load({
         if (state.status === "loading") return react.createElement("div", { className: "fv-note" }, "正在加载…");
         if (state.status === "error") {
           return react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error));
-        }
-        if (meta.kind === "image") {
-          return react.createElement("div", { className: "fv-image-wrap" },
-            react.createElement("img", { className: "fv-image", src: state.url, alt: meta.name }));
         }
         return react.createElement(react.Fragment, null,
           react.createElement("iframe", { className: "fv-frame", src: state.url, title: meta.name }),
@@ -1657,7 +1861,8 @@ window.__ModuleLoader__.load({
         // The key remounts each viewer per file so no per-file state (paging,
         // active sheet, blob URL) survives a switch.
         const key = root + "\u0000" + meta.path;
-        if (meta.kind === "image" || meta.kind === "pdf") return react.createElement(BinaryView, { key, meta, root });
+        if (meta.kind === "image") return react.createElement(ImageView, { key, meta, root });
+        if (meta.kind === "pdf") return react.createElement(BinaryView, { key, meta, root });
         if (meta.kind === "sheet") {
           return react.createElement("div", { className: "fv-content" }, react.createElement(SheetView, { key, meta, root }));
         }

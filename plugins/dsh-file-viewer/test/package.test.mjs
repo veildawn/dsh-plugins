@@ -260,7 +260,7 @@ test('viewers remount per file and never render a partial preview', () => {
   // Regression: paging state used to persist across a file switch, so the first
   // request for a new file carried the previous file's offset.
   assert.match(source, /const key = root \+ .+ \+ meta\.path/, 'each file needs a distinct remount key')
-  for (const view of ['BinaryView', 'SheetView', 'DocView', 'TextView']) {
+  for (const view of ['ImageView', 'BinaryView', 'SheetView', 'DocView', 'TextView']) {
     assert(source.includes(`createElement(${view}, { key,`), `${view} must be keyed per file`)
   }
 
@@ -851,6 +851,10 @@ test('clicked path extraction keeps Chinese filenames and prefers title over bas
   assert.equal(internals.normalizeClickedPath('D:/Notes/a.go'), 'D:/Notes/a.go')
   assert.equal(internals.normalizeClickedPath('C:/Users/foo/bar.md'), 'C:/Users/foo/bar.md')
   assert.equal(internals.normalizeClickedPath('D:\\Notes\\a.go'), 'D:\\Notes\\a.go')
+  assert.equal(internals.normalizeClickedPath('~/docs/test.png'), '~/docs/test.png')
+  assert.equal(internals.normalizeClickedPath('~/.dsh/config.json'), '~/.dsh/config.json')
+  assert.equal(internals.normalizeClickedPath('@~/docs/test.png'), '~/docs/test.png')
+  assert.equal(internals.normalizeClickedPath('@`~/.dsh/profiles/web/package.json`'), '~/.dsh/profiles/web/package.json')
 
   const button = {
     getAttribute: (name) => ({
@@ -1352,5 +1356,23 @@ test('client apply returns a valid Cordis effect (disposer function or undefined
     globalThis.window = prevWin
   }
 })
+
+test('client bundle contains ImageView with zoom pan rotate toolbar and dimensions', () => {
+  const source = read('lib/client.js')
+  assert.match(source, /function ImageView\(/)
+  assert.match(source, /className:\s*"fv-image-viewer"/)
+  assert.match(source, /className:\s*"fv-image-toolbar"/)
+  assert.match(source, /className:\s*"fv-image-canvas/)
+  assert.match(source, /addEventListener\("wheel"/)
+  assert.match(source, /放大/)
+  assert.match(source, /缩小/)
+  assert.match(source, /适应/)
+  assert.match(source, /1:1/)
+  assert.match(source, /向左旋转/)
+  assert.match(source, /向右旋转/)
+  assert.match(source, /水平翻转/)
+  assert.match(source, /fv-image-dims/)
+})
+
 
 

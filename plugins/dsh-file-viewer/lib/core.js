@@ -316,6 +316,7 @@ export function isSafeRelativePath(relative) {
   if (relative.includes('\0')) return false
   if (relative.startsWith('/') || relative.startsWith('\\')) return false
   if (/^[A-Za-z]:/.test(relative)) return false
+  if (relative === '~' || relative.startsWith('~/') || relative.startsWith('~\\')) return false
   return !relative.split(/[\\/]+/).includes('..')
 }
 
@@ -668,14 +669,23 @@ export function rebaseGitPaths(paths, prefix) {
  * @param {unknown} input - configured safe paths.
  * @returns {{path: string, label: string}[]} normalized safe path list.
  */
-export function normalizeSafePaths(input) {
+export function normalizeSafePaths(input, homeDir = '') {
   if (input === null || input === undefined) return []
   const items = []
+  const expand = (p) => {
+    if (!homeDir || typeof p !== 'string') return p
+    if (p === '~') return homeDir
+    if (p.startsWith('~/') || p.startsWith('~\\')) {
+      return homeDir.replace(/[\\/]+$/, '') + '/' + p.slice(2)
+    }
+    return p
+  }
+
   if (typeof input === 'string') {
     const parts = input.split(/[\r\n,;]+/)
     for (const part of parts) {
       const trimmed = part.trim()
-      if (trimmed !== '') items.push({ path: trimmed, label: '' })
+      if (trimmed !== '') items.push({ path: expand(trimmed), label: '' })
     }
     return items
   }
@@ -683,11 +693,11 @@ export function normalizeSafePaths(input) {
   for (const item of input) {
     if (typeof item === 'string') {
       const trimmed = item.trim()
-      if (trimmed !== '') items.push({ path: trimmed, label: '' })
+      if (trimmed !== '') items.push({ path: expand(trimmed), label: '' })
     } else if (item && typeof item === 'object') {
       const p = typeof item.path === 'string' ? item.path.trim() : ''
       const l = typeof item.label === 'string' ? item.label.trim() : (typeof item.name === 'string' ? item.name.trim() : '')
-      if (p !== '') items.push({ path: p, label: l })
+      if (p !== '') items.push({ path: expand(p), label: l })
     }
   }
   return items
