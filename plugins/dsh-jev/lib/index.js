@@ -571,7 +571,7 @@ const POLICY = {
   exemptions:
     "Exempt only when the answer is fixed by an explicit instruction, a mechanical check, readable file or command output, or the caller's own decision.",
   moments:
-    'Decision moments: two self-consistent options; meaning, intent, or relevance; classifying or routing; rubric scoring; a calibrated yes/no; a long or ambiguous state; an irreversible next step.',
+    'Decision moments: comparing alternatives or win-rate; trade-offs; two self-consistent options; meaning, intent, or relevance; classifying or routing; rubric scoring; calibrated yes/no; ambiguous state; irreversible next step.',
   budget: 'Budget: one call carries one state plus every question about it; keep criteria concrete.',
   grammar:
     'Question grammar: choice needs { type: "choice", instructions: "...", criteria: { "option_key": "meaning" } };',
