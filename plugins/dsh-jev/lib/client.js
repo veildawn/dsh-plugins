@@ -6,10 +6,12 @@
  * 并在前端提供即时测通验证。
  */
 
-window.__ModuleLoader__.load(
-  "dsh-jev",
-  ["react", "@deepseek-ai/dsh-client-ui-slots", "@deepseek-ai/dsh-client-connection"],
-  (require, exports, module) => {
+window.__ModuleLoader__.load({
+  id: "dsh-jev",
+  factory: (require) => {
+    var module = { exports: {} };
+    var exports = module.exports;
+    Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
 
     const SETTINGS_SLOT = "settings.section";
@@ -148,20 +150,41 @@ window.__ModuleLoader__.load(
       );
     }
 
+    function IconSparkles16({ size = 16 }) {
+      return react.createElement("svg", {
+        width: size,
+        height: size,
+        viewBox: "0 0 16 16",
+        fill: "none",
+        stroke: "currentColor",
+        strokeWidth: "1.3",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+      },
+        react.createElement("path", { d: "m8 1 1.7 4.3L14 7l-4.3 1.7L8 13l-1.7-4.3L2 7l4.3-1.7z" }),
+        react.createElement("path", { d: "M13 12l.6 1.4L15 14l-1.4.6L13 16l-.6-1.4L11 14l1.4-.6z" })
+      );
+    }
+
     function apply(ctx) {
+      const label = () => react.createElement("span", {
+        "data-settings-nav-label": "dsh-jev",
+        style: { display: "inline-flex", alignItems: "center", gap: 8 },
+      },
+        react.createElement(IconSparkles16, { size: 16 }),
+        react.createElement("span", null, "Jev 决策模型")
+      );
+
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
         id: "dsh-jev",
-        order: 35,
-        label: {
-          title: "Jev 决策模型",
-          nav: "jev-settings",
-        },
+        order: 36,
+        label,
       }, JevSettings));
     }
 
     exports.apply = apply;
     exports.inject = ["slots"];
     return module.exports;
-  }
-);
+  },
+});
