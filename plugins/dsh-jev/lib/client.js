@@ -150,6 +150,9 @@ window.__ModuleLoader__.load({
       );
     }
 
+    const NAV_STYLE_ID = "dsh-jev-nav-styles";
+    const navCss = 'button:has([data-settings-nav-label="dsh-jev"]) > svg:first-child{display:none}';
+
     function IconSparkles16({ size = 16 }) {
       return react.createElement("svg", {
         width: size,
@@ -167,6 +170,13 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
+      if (typeof document !== "undefined" && !document.getElementById(NAV_STYLE_ID)) {
+        const style = document.createElement("style");
+        style.id = NAV_STYLE_ID;
+        style.textContent = navCss;
+        document.head.appendChild(style);
+      }
+
       const label = () => react.createElement("span", {
         "data-settings-nav-label": "dsh-jev",
         style: { display: "inline-flex", alignItems: "center", gap: 8 },
