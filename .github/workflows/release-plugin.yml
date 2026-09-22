@@ -50,6 +50,9 @@ jobs:
             exit 1
           fi
 
+          DESC=$(node -p "try { require('./$PLUGIN_DIR/package.json').description || '' } catch(e) { '' }")
+          echo "plugin_desc=$DESC" >> $GITHUB_OUTPUT
+
           echo "plugin_name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "plugin_dir=$PLUGIN_DIR" >> $GITHUB_OUTPUT
@@ -106,6 +109,8 @@ jobs:
           tag_name: ${{ github.ref_name }}
           files: ${{ steps.pack.outputs.tgz_path }}
           body: |
+            ${{ steps.parse.outputs.plugin_desc }}
+
             ### 📦 ${{ steps.parse.outputs.plugin_name }} Release (v${{ steps.parse.outputs.version }})
 
             #### 💻 一键安装命令 (Installation)

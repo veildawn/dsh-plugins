@@ -9,9 +9,9 @@
  * @module dsh-jev
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 
 /** Cordis 插件名称。 */
 export const name = 'tool-jev';
@@ -633,6 +633,99 @@ function registerPolicySection(ctx, resolved) {
 }
 
 /**
+ * 挂载 Web 端设置路由接口（用于支持前端界面输入 API Key）
+ */
+function setupWebRoutes(ctx, resolved) {
+  if (typeof ctx?.inject !== 'function') return;
+  ctx.inject(['webServer'], (webServerCtx) => {
+    const ws = webServerCtx?.webServer;
+    if (!ws || typeof ws.get !== 'function') return;
+
+    const userKeyPath = join(homedir(), '.config', 'typesafe', 'key');
+
+    ws.get('/api/dsh-jev/config', async (_req, res) => {
+      const currentKey = await resolveApiKey(resolved);
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        configured: Boolean(currentKey),
+        apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
+        model: resolved.model,
+      }));
+    });
+
+    ws.post('/api/dsh-jev/config', async (req, res) => {
+      let bodyStr = '';
+      req.on('data', (chunk) => { bodyStr += chunk; });
+      req.on('end', async () => {
+        try {
+          const body = JSON.parse(bodyStr || '{}');
+          if (typeof body.apiKey === 'string' && body.apiKey.trim()) {
+            await mkdir(dirname(userKeyPath), { recursive: true });
+            await writeFile(userKeyPath, body.apiKey.trim(), 'utf8');
+            resolved.apiKey = body.apiKey.trim();
+          }
+          if (typeof body.model === 'string' && body.model.trim()) {
+            resolved.model = body.model.trim();
+          }
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+      });
+    });
+
+    ws.post('/api/dsh-jev/test', async (req, res) => {
+      let bodyStr = '';
+      req.on('data', (chunk) => { bodyStr += chunk; });
+      req.on('end', async () => {
+        try {
+          const body = JSON.parse(bodyStr || '{}');
+          const testKey = body.apiKey || (await resolveApiKey(resolved));
+          if (!testKey) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: false, error: '未配置 API Key' }));
+            return;
+          }
+          const start = Date.now();
+          const testRes = await fetch(`${resolved.baseURL}/v1/systemone`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${testKey}`,
+            },
+            body: JSON.stringify({
+              state: 'Ping check from DSH',
+              model: body.model || resolved.model || 'jev-latest',
+              questions: {
+                ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
+              },
+            }),
+          });
+          const testData = await testRes.json();
+          const durationMs = Date.now() - start;
+          if (testRes.ok) {
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true, durationMs, result: testData }));
+          } else {
+            res.statusCode = testRes.status;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: false, error: testData?.error?.message || `HTTP ${testRes.status}` }));
+          }
+        } catch (err) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+      });
+    });
+  });
+}
+
+/**
  * Cordis 插件入口函数：注册 jev_decide 工具及可选决策策略切面。
  * @param ctx - Cordis 上下文对象。
  * @param config - 部署配置项。
@@ -662,4 +755,5 @@ export function apply(ctx, config) {
     execute: (args, exec) => requestSystemOne(args, exec, resolved),
   });
   if (resolved.policySection.enabled) registerPolicySection(ctx, resolved);
+  setupWebRoutes(ctx, resolved);
 }

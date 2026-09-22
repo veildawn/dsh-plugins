@@ -344,6 +344,7 @@ window.__ModuleLoader__.load({
       { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true },
       { id: "dsh-archive-manager", name: "dsh-archive-manager", title: "会话归档管理器", description: "会话归档管理：侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间。", author: "veildawn", category: "tools", version: "0.2.1", latestVersion: "0.2.1", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.2.1/dsh-archive-manager-0.2.1.tgz", isRepoPlugin: true },
       { id: "dsh-prompt-history", name: "dsh-prompt-history", title: "提示词历史与修改重发", description: "提示词历史导航、气泡悬浮修改重发、自适应底部抽屉与跨端持久化漫游。", author: "veildawn", category: "tools", version: "0.4.3", latestVersion: "0.4.3", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-prompt-history@v0.4.3/dsh-prompt-history-0.4.3.tgz", isRepoPlugin: true },
+      { id: "dsh-jev", name: "dsh-jev", title: "TypeSafe Jev 决策模型", description: "TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key。", author: "veildawn", category: "ai", version: "0.1.0", latestVersion: "0.1.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.0/dsh-jev-0.1.0.tgz", isRepoPlugin: true },
     ];
 
     function installSourceOf(plugin, kind) {

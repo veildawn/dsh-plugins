@@ -244,6 +244,19 @@ export const LOCAL_MONOREPO_PLUGINS = [
     path: 'plugins/dsh-zcode-theme',
     isRepoPlugin: true,
   },
+  {
+    id: 'dsh-jev',
+    name: 'dsh-jev',
+    title: 'TypeSafe Jev 决策模型',
+    description: 'TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key。',
+    author: 'veildawn',
+    category: 'ai',
+    tags: ['jev', 'typesafe', 'system-one', 'decision', 'ai'],
+    icon: 'sparkles',
+    repo: 'veildawn/dsh-plugins',
+    path: 'plugins/dsh-jev',
+    isRepoPlugin: true,
+  },
 ]
 
 /**

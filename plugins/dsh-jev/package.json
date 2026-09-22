@@ -1,16 +1,24 @@
 {
   "name": "dsh-jev",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "TypeSafe Jev (System One decision model) as a DeepSeek Harness tool plugin",
+  "description": "TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
-    ".": "./lib/index.js"
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-connection"
+      ],
+      "platform": "web"
     }
   },
   "files": [
