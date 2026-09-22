@@ -36,7 +36,8 @@ window.__ModuleLoader__.load({
       .jev-status.err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
     `;
 
-    function JevSettings() {
+    function JevSettings(props) {
+      const { rpcCall } = props || {};
       const [apiKey, setApiKey] = react.useState("");
       const [model, setModel] = react.useState("jev-latest");
       const [status, setStatus] = react.useState(null);
@@ -45,9 +46,9 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => {
         let active = true;
+        if (!rpcCall) return;
         setLoading(true);
-        window.fetch("/api/dsh-jev/config")
-          .then((res) => res.json())
+        rpcCall("getConfig", {})
           .then((data) => {
             if (!active) return;
             if (data.apiKey) setApiKey(data.apiKey);
@@ -56,26 +57,24 @@ window.__ModuleLoader__.load({
               setStatus({ ok: true, msg: "已从系统环境或配置文件成功加载密钥" });
             }
           })
-          .catch(() => {})
+          .catch((err) => {
+            if (active) setStatus({ ok: false, msg: "读取配置失败: " + err.message });
+          })
           .finally(() => {
             if (active) setLoading(false);
           });
         return () => { active = false; };
-      }, []);
+      }, [rpcCall]);
 
       const save = async () => {
+        if (!rpcCall) return;
         setLoading(true);
         try {
-          const res = await window.fetch("/api/dsh-jev/config", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ apiKey: apiKey.trim(), model }),
-          });
-          const data = await res.json();
-          if (res.ok) {
-            setStatus({ ok: true, msg: "设置已保存成功" });
+          const res = await rpcCall("saveConfig", { apiKey: apiKey.trim(), model });
+          if (res && res.ok) {
+            setStatus({ ok: true, msg: "设置已保存成功！已写入本地配置" });
           } else {
-            setStatus({ ok: false, msg: data.error || "保存失败" });
+            setStatus({ ok: false, msg: res?.error || "保存失败" });
           }
         } catch (err) {
           setStatus({ ok: false, msg: "保存发生异常：" + err.message });
@@ -85,18 +84,14 @@ window.__ModuleLoader__.load({
       };
 
       const testCall = async () => {
+        if (!rpcCall) return;
         setTesting(true);
         try {
-          const res = await window.fetch("/api/dsh-jev/test", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ apiKey: apiKey.trim(), model }),
-          });
-          const data = await res.json();
-          if (res.ok && data.ok) {
-            setStatus({ ok: true, msg: `✓ 连接成功！Jev 模型响应正常 (${data.durationMs}ms)` });
+          const res = await rpcCall("testConnection", { apiKey: apiKey.trim(), model });
+          if (res && res.ok) {
+            setStatus({ ok: true, msg: `✓ 连接成功！Jev 模型响应正常 (${res.durationMs}ms)` });
           } else {
-            setStatus({ ok: false, msg: `连接失败：${data.error || "未能连通 TypeSafe API"}` });
+            setStatus({ ok: false, msg: `连接失败：${res?.error || "未能连通 TypeSafe API"}` });
           }
         } catch (err) {
           setStatus({ ok: false, msg: "测试请求失败：" + err.message });
@@ -177,6 +172,17 @@ window.__ModuleLoader__.load({
         document.head.appendChild(style);
       }
 
+      const rpcCall = async (method, payload) => {
+        const conn = ctx && ctx.connection;
+        const rpc = conn && conn.rpc;
+        if (!rpc || typeof rpc.call !== "function") {
+          throw new Error("连接服务尚未就绪");
+        }
+        const result = await rpc.call(RPC_CHANNEL, method, payload || {});
+        if (result && result.ok === true) return result.value;
+        throw new Error(result?.error?.message || "请求失败");
+      };
+
       const label = () => react.createElement("span", {
         "data-settings-nav-label": "dsh-jev",
         style: { display: "inline-flex", alignItems: "center", gap: 8 },
@@ -190,11 +196,12 @@ window.__ModuleLoader__.load({
         id: "dsh-jev",
         order: 36,
         label,
+        inject: () => ({ rpcCall }),
       }, JevSettings));
     }
 
     exports.apply = apply;
-    exports.inject = ["slots"];
+    exports.inject = ["slots", "connection"];
     return module.exports;
   },
 });

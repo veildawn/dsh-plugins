@@ -17,7 +17,81 @@ import { join, dirname } from 'node:path';
 export const name = 'tool-jev';
 
 /** 插件激活前所需注入的底层服务列表。 */
-export const inject = ['tools'];
+export const inject = ['tools', 'connection'];
+
+/**
+ * 设置 RPC 通道常量。
+ */
+export const SETTINGS_RPC_CHANNEL = '/dsh-jev-settings';
+
+/**
+ * 处理前端设置 RPC 调用
+ */
+async function handleSettingsRpc(ctx, resolved, method, payload) {
+  const userKeyPath = join(homedir(), '.config', 'typesafe', 'key');
+
+  if (method === 'getConfig') {
+    const currentKey = await resolveApiKey(resolved);
+    return {
+      ok: true,
+      value: {
+        configured: Boolean(currentKey),
+        apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
+        model: resolved.model,
+      },
+    };
+  }
+
+  if (method === 'saveConfig') {
+    try {
+      if (typeof payload?.apiKey === 'string' && payload.apiKey.trim()) {
+        await mkdir(dirname(userKeyPath), { recursive: true });
+        await writeFile(userKeyPath, payload.apiKey.trim(), 'utf8');
+        resolved.apiKey = payload.apiKey.trim();
+      }
+      if (typeof payload?.model === 'string' && payload.model.trim()) {
+        resolved.model = payload.model.trim();
+      }
+      return { ok: true, value: { ok: true } };
+    } catch (err) {
+      return { ok: false, error: { message: err.message } };
+    }
+  }
+
+  if (method === 'testConnection') {
+    try {
+      const testKey = payload?.apiKey || (await resolveApiKey(resolved));
+      if (!testKey) {
+        return { ok: false, error: { message: '未配置 API Key' } };
+      }
+      const start = Date.now();
+      const testRes = await fetch(`${resolved.baseURL}/v1/systemone`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${testKey}`,
+        },
+        body: JSON.stringify({
+          state: 'Ping check from DSH',
+          model: payload?.model || resolved.model || 'jev-latest',
+          questions: {
+            ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
+          },
+        }),
+      });
+      const testData = await testRes.json();
+      const durationMs = Date.now() - start;
+      if (testRes.ok) {
+        return { ok: true, value: { ok: true, durationMs, result: testData } };
+      }
+      return { ok: false, error: { message: testData?.error?.message || `HTTP ${testRes.status}` } };
+    } catch (err) {
+      return { ok: false, error: { message: err.message } };
+    }
+  }
+
+  return { ok: false, error: { message: '未知方法: ' + method } };
+}
 
 /**
  * 官方支持的核心问题原语：choice | score | noul。
@@ -755,5 +829,12 @@ export function apply(ctx, config) {
     execute: (args, exec) => requestSystemOne(args, exec, resolved),
   });
   if (resolved.policySection.enabled) registerPolicySection(ctx, resolved);
-  setupWebRoutes(ctx, resolved);
+  
+  if (ctx.connection?.rpc?.handle) {
+    ctx.connection.rpc.handle(
+      SETTINGS_RPC_CHANNEL,
+      (method, payload) => handleSettingsRpc(ctx, resolved, method, payload),
+      { authority: 'trusted-host' },
+    );
+  }
 }
