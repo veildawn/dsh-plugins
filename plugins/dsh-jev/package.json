@@ -1,0 +1,38 @@
+{
+  "name": "dsh-jev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeSafe Jev (System One decision model) as a DeepSeek Harness tool plugin",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=20.3"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "jev",
+    "typesafe",
+    "system-one"
+  ],
+  "scripts": {
+    "test": "node test/smoke.mjs",
+    "test:policy": "node test/policy-section.mjs",
+    "test:loader": "node test/loader-overlay.mjs",
+    "test:fixture": "node test/fixture-check.mjs"
+  }
+}

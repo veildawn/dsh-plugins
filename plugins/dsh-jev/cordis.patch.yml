@@ -1,0 +1,29 @@
+# Example overlay for the native TypeSafe transport.
+#
+# Apply it without touching any profile, from the cloned repository root:
+#   dsh web --patch "$(pwd)/dsh.patch.yml"
+#
+# The key is never written here: it resolves from $TYPESAFE_API_KEY, then
+# $JEV_API_KEY, then ~/.config/typesafe/key (override with keyFile).
+#
+# `name` stays relative on purpose: the loader resolves a relative name against
+# the directory of THIS patch file, so './lib/index.js' means <repo>/lib/index.js
+# when applied as a checkout overlay, and <pkg>/lib/index.js when the same file
+# ships inside the installed package as its dsh.bundle.patch layer.
+#
+# policySection is deliberately NOT written here. Its fields are optional and
+# default to the trigger policy (enabled: true, order = the systemPrompt order
+# of 'MCP_SERVERS' + 10), so omitting it keeps this example's config key set
+# unchanged while the resident 'jev-decision-policy' prompt section still
+# registers. Add it only to opt out or re-place that section, e.g.
+#   policySection: { enabled: false }
+# or
+#   policySection: { order: -5000 }
+- insert:
+    - id: tool-jev
+      name: './lib/index.js'
+      config:
+        transport: typesafe
+        model: jev-latest
+        apiKeyEnv: TYPESAFE_API_KEY
+        timeoutMs: 60000
