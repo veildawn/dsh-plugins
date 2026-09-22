@@ -86,9 +86,10 @@ window.__ModuleLoader__.load({
       const testCall = async () => {
         if (!rpcCall) return;
         setTesting(true);
+        setStatus(null);
         try {
           const res = await rpcCall("testConnection", { apiKey: apiKey.trim(), model });
-          if (res && res.ok) {
+          if (res && res.durationMs !== undefined) {
             setStatus({ ok: true, msg: `✓ 连接成功！Jev 模型响应正常 (${res.durationMs}ms)` });
           } else {
             setStatus({ ok: false, msg: `连接失败：${res?.error || "未能连通 TypeSafe API"}` });

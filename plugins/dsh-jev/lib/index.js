@@ -16,13 +16,21 @@ import { join, dirname } from 'node:path';
 /** Cordis 插件名称。 */
 export const name = 'tool-jev';
 
-/** 插件激活前所需注入的底层服务列表。 */
-export const inject = ['tools', 'connection'];
+/** 插件激活前所需注入的底层服务列表。保持 tools 硬依赖以符合 SPEC。 */
+export const inject = ['tools'];
 
 /**
  * 设置 RPC 通道常量。
  */
 export const SETTINGS_RPC_CHANNEL = '/dsh-jev-settings';
+
+function rpcFailure(code, message, details = {}) {
+  return { ok: false, error: { code, message, details } };
+}
+
+function rpcOk(value) {
+  return { ok: true, value };
+}
 
 /**
  * 处理前端设置 RPC 调用
@@ -32,14 +40,11 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
 
   if (method === 'getConfig') {
     const currentKey = await resolveApiKey(resolved);
-    return {
-      ok: true,
-      value: {
-        configured: Boolean(currentKey),
-        apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
-        model: resolved.model,
-      },
-    };
+    return rpcOk({
+      configured: Boolean(currentKey),
+      apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
+      model: resolved.model,
+    });
   }
 
   if (method === 'saveConfig') {
@@ -52,17 +57,21 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       if (typeof payload?.model === 'string' && payload.model.trim()) {
         resolved.model = payload.model.trim();
       }
-      return { ok: true, value: { ok: true } };
+      return rpcOk(true);
     } catch (err) {
-      return { ok: false, error: { message: err.message } };
+      return rpcFailure('save-failed', err.message);
     }
   }
 
   if (method === 'testConnection') {
     try {
-      const testKey = payload?.apiKey || (await resolveApiKey(resolved));
+      let testKey = payload?.apiKey;
+      // 如果前端传了包含掩码的 apiKey (如 "apikey...8f8e")，或者为空，则从本地配置或环境解析完整 key
+      if (!testKey || testKey.includes('...')) {
+        testKey = await resolveApiKey(resolved);
+      }
       if (!testKey) {
-        return { ok: false, error: { message: '未配置 API Key' } };
+        return rpcFailure('unconfigured', '未配置 API Key');
       }
       const start = Date.now();
       const testRes = await fetch(`${resolved.baseURL}/v1/systemone`, {
@@ -82,15 +91,19 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       const testData = await testRes.json();
       const durationMs = Date.now() - start;
       if (testRes.ok) {
-        return { ok: true, value: { ok: true, durationMs, result: testData } };
+        return rpcOk({ durationMs, result: testData });
       }
-      return { ok: false, error: { message: testData?.error?.message || `HTTP ${testRes.status}` } };
+      return rpcFailure(
+        `http-${testRes.status}`,
+        testData?.error?.message || testData?.detail?.message || `HTTP ${testRes.status}`,
+        { status: testRes.status, body: testData }
+      );
     } catch (err) {
-      return { ok: false, error: { message: err.message } };
+      return rpcFailure('request-failed', err.message);
     }
   }
 
-  return { ok: false, error: { message: '未知方法: ' + method } };
+  return rpcFailure('unknown-method', '未知方法: ' + method);
 }
 
 /**
