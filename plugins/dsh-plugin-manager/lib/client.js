@@ -198,6 +198,15 @@ window.__ModuleLoader__.load({
           react.createElement("polyline", { points: "12 6 12 12 16 14" })
         );
       }
+      if (name.includes("theme") || name.includes("zcode")) {
+        return react.createElement("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "1.8", strokeLinecap: "round", strokeLinejoin: "round" },
+          react.createElement("circle", { cx: "13.5", cy: "6.5", r: ".5", fill: "currentColor" }),
+          react.createElement("circle", { cx: "17.5", cy: "10.5", r: ".5", fill: "currentColor" }),
+          react.createElement("circle", { cx: "8.5", cy: "7.5", r: ".5", fill: "currentColor" }),
+          react.createElement("circle", { cx: "6.5", cy: "12.5", r: ".5", fill: "currentColor" }),
+          react.createElement("path", { d: "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.5 17.5 2 12 2z" })
+        );
+      }
       return react.createElement(IconPluginManager16, { size: size });
     }
 
@@ -344,6 +353,7 @@ window.__ModuleLoader__.load({
       { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true },
       { id: "dsh-archive-manager", name: "dsh-archive-manager", title: "会话归档管理器", description: "会话归档管理：侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间。", author: "veildawn", category: "tools", version: "0.2.1", latestVersion: "0.2.1", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.2.1/dsh-archive-manager-0.2.1.tgz", isRepoPlugin: true },
       { id: "dsh-prompt-history", name: "dsh-prompt-history", title: "提示词历史与修改重发", description: "提示词历史导航、气泡悬浮修改重发、自适应底部抽屉与跨端持久化漫游。", author: "veildawn", category: "tools", version: "0.4.3", latestVersion: "0.4.3", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-prompt-history@v0.4.3/dsh-prompt-history-0.4.3.tgz", isRepoPlugin: true },
+      { id: "dsh-zcode-theme", name: "dsh-zcode-theme", title: "ZCode 全平台视觉主题", description: "ZCode Design System：深炭灰画布、暖橙红品牌色，Desktop / Tablet / Mobile 共享同一套视觉 Token。", author: "veildawn", category: "ui", version: "0.1.30", latestVersion: "0.1.30", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.1.30/dsh-zcode-theme-0.1.30.tgz", isRepoPlugin: true },
       { id: "dsh-jev", name: "dsh-jev", title: "TypeSafe Jev 决策模型", description: "TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key。", author: "veildawn", category: "ai", version: "0.1.5", latestVersion: "0.1.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.5/dsh-jev-0.1.5.tgz", isRepoPlugin: true },
     ];
 
