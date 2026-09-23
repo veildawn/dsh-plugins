@@ -71,7 +71,7 @@ window.__ModuleLoader__.load({
         setLoading(true);
         try {
           const res = await rpcCall("saveConfig", { apiKey: apiKey.trim(), model });
-          if (res && res.ok) {
+          if (res === true || (res && res.ok)) {
             setStatus({ ok: true, msg: "设置已保存成功！已写入本地配置" });
           } else {
             setStatus({ ok: false, msg: res?.error || "保存失败" });
