@@ -46,8 +46,13 @@ dsh-ai-proxy：
   （例如 `max: ultra`——选择器显示 max，请求发 `ultra`）；
 - 无 ladder 的模型标记 `reasoningEfforts: false`（非推理模型）。
 
-`defaultReasoningEffort` 的 `highest`/`lowest`/精确档语义不变，解析结果换算为选择器键
-后作为路由级 `reasoning` 默认档写入。
+`defaultReasoningEffort`（`highest`/`lowest`/精确档位）只按**当前模型自己的 ladder** 解析，
+不写入路由级 `profile.reasoning`。那个字段是整条路由共用的一个静态档位：全目录的
+`highest` 会变成 `max`，而只支持 `low`/`medium`/`high` 的模型在未显式指定档位的
+直调（`/compact`、会话标题）里会因此被拒绝。解析挂在三处：模型选择器
+（`resolveModelInfo`）、显式解析配置（`resolveCallConfig`）、以及 `llm/stream`
+（直调在进入官方适配器前补上该模型自己的档位）。启动时也会清掉材料化路由上遗留的
+`reasoning`，即使这次网关发现失败、目录本身保留不动。
 
 Chat Completions / Responses 路由会带上 `compat.supportsDeveloperRole: false`。自定义
 网关的 `provider`/`baseURL` 对 pi-ai 来说不像官方 DeepSeek，推理模型默认会把 system
@@ -110,7 +115,7 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 | `apiFormat` | `chat/completions` | API 格式（决定材料化路由的协议与端点拼写）：`chat/completions`、`anthropic-messages`、`responses` |
 | `clientId` | `dsh` | OAuth public client id |
 | `apiKeyEnv` | `AIPROXY_ACCESS_TOKEN` | 静态密钥凭据引用（材料化路由的 apiKeyEnv 同名） |
-| `defaultReasoningEffort` | `'highest'` | 默认思考档位。`highest` 选该模型最高已知档；`lowest` 使用网关 ladder 第一档；精确档位名优先精确匹配，缺失时落到最近的较低档 |
+| `defaultReasoningEffort` | `'highest'` | 当前模型的默认思考档位，不写入路由级 `reasoning`。`highest` 选该模型自己 ladder 的最高档；`lowest` 用第一档；精确档位名优先精确匹配，缺失时落到最近的较低档 |
 | `maxTokens` | `65536` | 材料化为路由 `defaultMaxTokens`；模型目录未提供输出上限时生效 |
 | `defaultContextWindow` | `200000` | 材料化为路由 `defaultContextWindow` |
 | `modelCacheTtlMs` | `300000` | 模型目录缓存时间 |
@@ -135,7 +140,7 @@ OAuth 认证接口 `/ai-proxy-auth` 使用连接默认访问策略，可由局�
 
 ## 手动验证清单（部署后）
 
-1. 登录后 `~/.dsh/settings.yaml` 出现 `llm-pi-ai.providers.ai-proxy`（api/baseURL/模型目录；chat/completions 与 responses 带 `compat.supportsDeveloperRole: false`）。
+1. 登录后 `~/.dsh/settings.yaml` 出现 `llm-pi-ai.providers.ai-proxy`（api/baseURL/模型目录；chat/completions 与 responses 带 `compat.supportsDeveloperRole: false`；**没有**路由级 `reasoning`）。
 2. 模型选择器出现 `ai-proxy` 路由的模型，effort 档位与网关 ladder 一致。
 3. 三种 apiFormat 各发一轮对话：chat/completions 与 responses 的 `baseURL` 带 `/v1`，
    anthropic-messages 的 `baseURL` 为根地址（SDK 自拼 `/v1/messages`）。

@@ -249,12 +249,47 @@ export function ladderToReasoningEfforts(effortLevels) {
 }
 
 /**
+ * Attach the route preference to a direct stream that named no effort.
+ * Returns the original options when the provider is not ours, an effort is
+ * already selected, or this model has no selectable rung for the preference.
+ */
+export function streamOptionsWithPreferredEffort(streamOptions, efforts, configured) {
+  if (streamOptions?.provider !== PROVIDER || streamOptions.reasoningEffort !== undefined) return streamOptions
+  const target = preferredEffort(efforts, configured)
+  if (target === undefined) return streamOptions
+  return { ...streamOptions, reasoningEffort: ReasoningEffortId(target) }
+}
+
+/**
+ * Pick one model's own default effort from its selector rungs.
+ *
+ * `highest` / `lowest` / an exact rung are resolved against THIS model's
+ * ladder only. A preference of `off` / `none`, or a model with no selectable
+ * effort, yields nothing so the caller omits the field instead of inventing
+ * a route-wide level another model cannot serve.
+ */
+export function preferredEffort(efforts, configured) {
+  const rungs = (Array.isArray(efforts) ? efforts : [])
+    .map((effort) => typeof effort === 'string' ? effort : effort?.id)
+    .filter((id) => typeof id === 'string' && id.length > 0 && id !== 'off')
+  if (rungs.length === 0) return undefined
+  const pref = typeof configured === 'string' ? configured.trim().toLowerCase() : ''
+  if (pref === 'off' || pref === 'none') return undefined
+  return resolveDefaultEffort(rungs, pref === '' ? DEFAULT_REASONING_EFFORT : pref)
+}
+
+/**
  * Resolve the route-level default reasoning level from every model's ladder
  * at once: 'highest' picks the strongest selector key any model offers and
  * 'lowest' the weakest non-off key, so models that cannot serve the key keep
  * their own ladder in the picker while capable ones aim high. An exact
  * configured key wins when offered; otherwise the nearest lower offered key
  * applies, falling up when nothing lower exists.
+ *
+ * Kept for callers that still want a catalog-wide key. The materialized
+ * route must NOT persist that key as `profile.reasoning`: llm-pi-ai treats
+ * it as one static level for every model, and a level the strongest model
+ * offers (`max`) is refused by a model whose own ladder stops at `high`.
  */
 export function routeDefaultEffortKey(models, configured) {
   const offered = new Set()
@@ -322,8 +357,6 @@ export function buildProviderProfile(options, models) {
   }
   const compat = routeCompatFor(api)
   if (compat !== undefined) profile.compat = compat
-  const defaultKey = routeDefaultEffortKey(catalog, options.defaultReasoningEffort)
-  if (defaultKey !== undefined) profile.reasoning = defaultKey
   return profile
 }
 
@@ -701,6 +734,29 @@ class RouteMaterializer {
     ])
   }
 
+  /**
+   * Drop a route-level `reasoning` left by older materializations.
+   *
+   * That field is one static level for every model on the route. Discovery
+   * failures must not keep the catalog, but they also must not keep a level
+   * (`max`) that a model on the same route cannot serve — direct streams
+   * fall back to it before any per-model preference can apply.
+   */
+  async dropRouteReasoning() {
+    if (this.available === false) return false
+    let route
+    try {
+      route = this.ctx.settings.get(PI_AI_NS)?.providers?.[PROVIDER]
+    } catch {
+      return false
+    }
+    if (!route || typeof route !== 'object' || !Object.hasOwn(route, 'reasoning')) return false
+    await this.ctx.settings.mutate(PI_AI_NS, [
+      { op: 'unset', path: ['providers', PROVIDER, 'reasoning'] },
+    ])
+    return true
+  }
+
   /** Remove the materialized route, e.g. after the last credential is gone. */
   async remove() {
     if (this.available === false) return
@@ -951,57 +1007,58 @@ export function apply(ctx, config) {
     })
   }
 
-  // Hook ctx.llm.resolveModelInfo and ctx.llm.resolveCallConfig so that switching models
-  // accurately picks that concrete model's own highest (or lowest) available reasoning effort
-  // in both the browser UI catalog (ModelSelect) and the execution call resolution.
+  // Fill this route's preference against the concrete model's own ladder.
+  // resolveModelInfo covers the picker; resolveCallConfig covers callers that
+  // ask for a resolved config. Neither runs for a direct ctx.llm.stream()
+  // (compaction, session titles): llm/stream does, and it must attach the
+  // effort before the official adapter falls back to a route-level reasoning
+  // value this model may not support.
+  const preference = () => options().defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT
+  const preferredFor = (info) => preferredEffort(info?.reasoning?.efforts, preference())
   if (ctx.llm) {
-    if (typeof ctx.llm.resolveModelInfo === 'function') {
-      const origResolveModelInfo = ctx.llm.resolveModelInfo.bind(ctx.llm)
+    const origResolveModelInfo = typeof ctx.llm.resolveModelInfo === 'function'
+      ? ctx.llm.resolveModelInfo.bind(ctx.llm)
+      : undefined
+    if (origResolveModelInfo !== undefined) {
       ctx.llm.resolveModelInfo = async function (provider, model, signal) {
         const info = await origResolveModelInfo(provider, model, signal)
-        if (provider === PROVIDER && info?.reasoning?.efforts?.length) {
-          const opts = options()
-          const pref = opts.defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT
-          if (pref !== 'off' && pref !== 'none') {
-            const rungs = info.reasoning.efforts.map((e) => e.id)
-            const target = resolveDefaultEffort(rungs, pref)
-            if (target !== undefined) {
-              return {
-                ...info,
-                reasoning: {
-                  ...info.reasoning,
-                  defaultEffort: ReasoningEffortId(target),
-                },
-              }
-            }
-          }
+        if (provider !== PROVIDER || info?.reasoning?.defaultEffort !== undefined) return info
+        const target = preferredFor(info)
+        if (target === undefined) return info
+        return {
+          ...info,
+          reasoning: {
+            ...info.reasoning,
+            defaultEffort: ReasoningEffortId(target),
+          },
         }
-        return info
       }
     }
 
-    if (typeof ctx.llm.resolveCallConfig === 'function') {
+    if (origResolveModelInfo !== undefined && typeof ctx.llm.resolveCallConfig === 'function') {
       const origResolveCallConfig = ctx.llm.resolveCallConfig.bind(ctx.llm)
       ctx.llm.resolveCallConfig = async function (config, signal) {
         if (config?.provider === PROVIDER && config.reasoningEffort === undefined) {
-          const opts = options()
-          const pref = opts.defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT
-          if (pref !== 'off' && pref !== 'none') {
-            try {
-              const info = await ctx.llm.resolveModelInfo(config.provider, config.model, signal)
-              if (info?.reasoning?.efforts?.length) {
-                const rungs = info.reasoning.efforts.map((e) => e.id)
-                const target = resolveDefaultEffort(rungs, pref)
-                if (target !== undefined) {
-                  config = { ...config, reasoningEffort: ReasoningEffortId(target) }
-                }
-              }
-            } catch {}
-          }
+          try {
+            const info = await origResolveModelInfo(config.provider, config.model, signal)
+            const target = preferredFor(info)
+            if (target !== undefined) config = { ...config, reasoningEffort: ReasoningEffortId(target) }
+          } catch {}
         }
         return origResolveCallConfig(config, signal)
       }
     }
+
+    ctx.on('llm/stream', async (streamOptions, next) => {
+      if (origResolveModelInfo === undefined) return next()
+      if (streamOptions?.provider !== PROVIDER || streamOptions.reasoningEffort !== undefined) return next()
+      let resolved = streamOptions
+      try {
+        const info = await origResolveModelInfo(streamOptions.provider, streamOptions.model, streamOptions.signal)
+        resolved = streamOptionsWithPreferredEffort(streamOptions, info?.reasoning?.efforts, preference())
+      } catch {}
+      return next(resolved)
+    })
   }
 
   ctx.on('dispose', () => {
@@ -1019,6 +1076,9 @@ export function apply(ctx, config) {
     } catch (error) {
       ctx.logger.error(name + ': bootstrap failed: ' + (error instanceof Error ? error.message : String(error)))
     }
+    // A stale route-level reasoning survives a discovery failure (the catalog
+    // must), so drop it before the sync that may no-op on that failure.
+    await materializer.dropRouteReasoning().catch(syncError)
     await maybeSync().catch(syncError)
   })()
 }
@@ -1027,7 +1087,7 @@ export function apply(ctx, config) {
 export const internals = {
   AiProxyApi, RouteMaterializer, OAuthSession,
   buildProviderProfile, piAiProtocolFor, piAiBaseURL, routeCompatFor,
-  ladderToReasoningEfforts, routeDefaultEffortKey,
+  ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey,
   effortName, resolveDefaultEffort, inputModalitiesOf,
   httpErrorCode, errorFromResponse, handleAuthRpc,
   pkcePair, base64url,

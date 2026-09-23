@@ -201,7 +201,7 @@ test('materializes the gateway as one llm-pi-ai route, leaving hand-written ones
     assert.equal(profile.baseURL, gw.url + '/v1')
     assert.equal(profile.apiKeyEnv, 'AIPROXY_API_KEY')
     assert.deepEqual(profile.headers, { 'x-ai-proxy-client': 'dsh' })
-    assert.equal(profile.reasoning, 'high', 'highest ladder rung of the first ladder-bearing model')
+    assert.equal('reasoning' in profile, false, 'no static profile.reasoning override')
     assert.deepEqual(profile.compat, { supportsDeveloperRole: false },
       'materialized OpenAI-compatible route refuses the developer role')
     assert.equal(profile.models.length, 3)
@@ -352,6 +352,7 @@ test('a gateway outage at boot never overwrites the last good materialized route
     settings.pushExternal({
       [PI_AI_NS]: { providers: { [plugin.PROVIDER]: {
         api: 'openai-completions', baseURL: 'https://old.example/v1',
+        reasoning: 'max',
         models: [{ id: 'previous-model' }],
       } } },
     })
@@ -360,7 +361,9 @@ test('a gateway outage at boot never overwrites the last good materialized route
     await ctx.plugin(plugin, { baseURL: 'http://127.0.0.1:1', clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
     await sleep(300)
     assert.equal(materialized(settings)?.models?.[0]?.id, 'previous-model', 'previous catalog stays intact')
-    assert.equal(settings.persisted.some((p) => p.ns === PI_AI_NS), false, 'no write happened during the outage')
+    assert.equal(await waitFor(() => materialized(settings)?.reasoning === undefined), true,
+      'a stale route-level reasoning is dropped even when discovery cannot rewrite the route')
+    assert.equal(materialized(settings)?.baseURL, 'https://old.example/v1', 'the rest of the last good route stays')
   } finally {
     await ctx.stop?.()
   }

@@ -10,7 +10,7 @@ const {
   resolveDefaultEffort, inputModalitiesOf,
   httpErrorCode, normalizeApiFormat, resolveModelsEndpoint,
   piAiProtocolFor, piAiBaseURL,
-  ladderToReasoningEfforts, routeDefaultEffortKey, buildProviderProfile,
+  ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey, buildProviderProfile,
   routeCompatFor,
 } = internals
 
@@ -163,6 +163,31 @@ test('ladderToReasoningEfforts: identity ladders, off handling, non-standard run
   assert.deepEqual(ladderToReasoningEfforts(['fast', 'deep']), { max: 'fast', xhigh: 'deep' })
 })
 
+test('streamOptionsWithPreferredEffort: direct streams get this model\'s rung only', () => {
+  const efforts = [{ id: 'low' }, { id: 'high' }]
+  const plain = { provider: 'ai-proxy', model: 'gemini-3.8-flash', messages: [], purpose: 'compaction' }
+  const filled = streamOptionsWithPreferredEffort(plain, efforts, 'highest')
+  assert.equal(filled.reasoningEffort, 'high')
+  assert.equal(plain.reasoningEffort, undefined, 'the caller\'s options object is not mutated')
+  assert.equal(filled.purpose, 'compaction')
+  const explicit = { provider: 'ai-proxy', model: 'gemini-3.8-flash', reasoningEffort: 'low' }
+  assert.equal(streamOptionsWithPreferredEffort(explicit, efforts, 'highest'), explicit, 'an explicit effort is kept')
+  const other = { provider: 'other', model: 'x' }
+  assert.equal(streamOptionsWithPreferredEffort(other, efforts, 'highest'), other, 'another provider is untouched')
+  assert.equal(streamOptionsWithPreferredEffort(plain, [], 'off'), plain, 'a disabled preference sends no effort')
+})
+
+test('preferredEffort: one model\'s own ladder, never a catalog-wide rung', () => {
+  const efforts = [{ id: 'low' }, { id: 'medium' }, { id: 'high' }]
+  assert.equal(preferredEffort(efforts, 'highest'), 'high', 'highest stays inside this model')
+  assert.equal(preferredEffort(efforts, 'lowest'), 'low')
+  assert.equal(preferredEffort(efforts, 'max'), 'high', 'a missing stronger rung falls to the nearest lower one')
+  assert.equal(preferredEffort(efforts, 'off'), undefined, 'a disabled preference sends no effort')
+  assert.equal(preferredEffort([{ id: 'off' }], 'highest'), undefined, 'off alone is not a thinking level')
+  assert.equal(preferredEffort([], 'highest'), undefined)
+  assert.equal(preferredEffort(undefined, 'highest'), undefined)
+})
+
 test('routeDefaultEffortKey: the route default spans every model ladder', () => {
   const models = [
     { id: 'a', effortLevels: ['medium'] },                        // claude-opus-style: only medium
@@ -215,8 +240,8 @@ test('buildProviderProfile: full shape, defaults, effort ladder and headers', ()
   assert.equal(profile.defaultMaxTokens, 8192)
   assert.equal(profile.streamIdleTimeoutMs, 120000)
   assert.deepEqual(profile.retryPolicy, { mode: 'normal', maxRetries: 3 })
-  assert.equal(profile.reasoning, 'max',
-    "'highest' resolves against every ladder: tiered tops at high, strong-model's ultra borrows max")
+  assert.equal('reasoning' in profile, false,
+    'profile.reasoning is omitted so dynamic hooks pick each model ladder independently')
   assert.equal('compat' in profile, false, 'Anthropic Messages does not take supportsDeveloperRole')
 
   assert.equal(profile.models.length, 3)
