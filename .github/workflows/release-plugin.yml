@@ -83,7 +83,7 @@ jobs:
           cd ${{ steps.parse.outputs.plugin_dir }}
           if ! npm test > /tmp/test.log 2>&1; then
             cat /tmp/test.log
-            ERR_MSG=$(cat /tmp/test.log | tr '\r' ' ' | tr '\n' '%%0A' | head -c 4000)
+            ERR_MSG=$(tail -c 4000 /tmp/test.log | tr '\r' ' ' | tr '\n' '%%0A')
             echo "::error title=TestFailure::$ERR_MSG"
             exit 1
           fi

@@ -359,10 +359,9 @@ test('a gateway outage at boot never overwrites the last good materialized route
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
     // Port 1 refuses every connection: discovery cannot succeed at all.
     await ctx.plugin(plugin, { baseURL: 'http://127.0.0.1:1', clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
-    await sleep(300)
-    assert.equal(materialized(settings)?.models?.[0]?.id, 'previous-model', 'previous catalog stays intact')
     assert.equal(await waitFor(() => materialized(settings)?.reasoning === undefined), true,
       'a stale route-level reasoning is dropped even when discovery cannot rewrite the route')
+    assert.equal(materialized(settings)?.models?.[0]?.id, 'previous-model', 'previous catalog stays intact')
     assert.equal(materialized(settings)?.baseURL, 'https://old.example/v1', 'the rest of the last good route stays')
   } finally {
     await ctx.stop?.()

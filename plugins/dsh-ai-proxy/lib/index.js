@@ -576,6 +576,7 @@ class AiProxyApi {
       const modelsUrl = resolveModelsEndpoint(opts.baseURL)
       const res = await fetch(modelsUrl, {
         headers: { authorization: 'Bearer ' + credential.token },
+        signal: AbortSignal.timeout(10000),
       })
       if (!res.ok) throw await errorFromResponse(res)
       const body = await res.json()
@@ -599,12 +600,14 @@ class AiProxyApi {
     const modelsUrl = resolveModelsEndpoint(opts.baseURL)
     let res = await fetch(modelsUrl, {
       headers: { authorization: "Bearer " + credential.token },
+      signal: AbortSignal.timeout(10000),
     })
     if (res.status === 401 && credential.source === "oauth") {
       try {
         credential = await this.resolveCredential({ force: true })
         res = await fetch(modelsUrl, {
           headers: { authorization: "Bearer " + credential.token },
+          signal: AbortSignal.timeout(10000),
         })
       } catch {}
     }
@@ -1071,14 +1074,14 @@ export function apply(ctx, config) {
       ctx.logger.warn(name + ': 宿主未提供 llm-pi-ai 设置节(需要 DSH 宿主 0.1.5-rc 及以上),已跳过路由材料化')
       return
     }
+    // A stale route-level reasoning survives a discovery failure (the catalog
+    // must), so drop it immediately on startup without waiting for discovery.
+    await materializer.dropRouteReasoning().catch(syncError)
     try {
       await api.bootstrap()
     } catch (error) {
       ctx.logger.error(name + ': bootstrap failed: ' + (error instanceof Error ? error.message : String(error)))
     }
-    // A stale route-level reasoning survives a discovery failure (the catalog
-    // must), so drop it before the sync that may no-op on that failure.
-    await materializer.dropRouteReasoning().catch(syncError)
     await maybeSync().catch(syncError)
   })()
 }
