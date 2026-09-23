@@ -1052,15 +1052,19 @@ export function apply(ctx, config) {
       }
     }
 
-    ctx.on('llm/stream', async (streamOptions, next) => {
+    ctx.on('llm/stream', (streamOptions, next) => {
       if (origResolveModelInfo === undefined) return next()
       if (streamOptions?.provider !== PROVIDER || streamOptions.reasoningEffort !== undefined) return next()
-      let resolved = streamOptions
-      try {
-        const info = await origResolveModelInfo(streamOptions.provider, streamOptions.model, streamOptions.signal)
-        resolved = streamOptionsWithPreferredEffort(streamOptions, info?.reasoning?.efforts, preference())
-      } catch {}
-      return next(resolved)
+      return (async function* () {
+        try {
+          const info = await origResolveModelInfo(streamOptions.provider, streamOptions.model, streamOptions.signal)
+          const resolved = streamOptionsWithPreferredEffort(streamOptions, info?.reasoning?.efforts, preference())
+          if (resolved.reasoningEffort !== undefined) {
+            streamOptions.reasoningEffort = resolved.reasoningEffort
+          }
+        } catch {}
+        yield* next()
+      })()
     })
   }
 

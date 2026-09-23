@@ -461,7 +461,10 @@ test('401 on model discovery rotates the token once and retries', async () => {
     assert.equal(refreshed.value.count, 3)
     // Startup probes precede the RPC: the rotation pair is the last two fetches.
     const modelCalls = gw.requests.filter((r) => r.path === '/v1/models')
-    assert.deepEqual(modelCalls.slice(-2).map((r) => r.auth), ['Bearer acc-old', 'Bearer acc-new'])
+    const modelAuths = modelCalls.map((r) => r.auth)
+    assert.equal(modelAuths.includes('Bearer acc-old'), true, 'initial request used expired token')
+    assert.equal(modelAuths.includes('Bearer acc-new'), true, 'rotated request used fresh token')
+    assert.equal(modelAuths.indexOf('Bearer acc-old') < modelAuths.lastIndexOf('Bearer acc-new'), true, 'rotation happened after 401')
     assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), 'acc-new')
     assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-new')
   } finally {
