@@ -18,6 +18,7 @@ import {
   roleForAgent,
   routeAgentRequest,
   routeForRole,
+  sanitizeSandboxToolArgs,
   taskTextOf,
 } from '../lib/core.js'
 
@@ -237,5 +238,60 @@ test('isModelRolesActive activates only for model-roles preset, internal runtime
 
   // No agentPresets service at all: also inactive, matching the 智选模式-only contract.
   assert.equal(isModelRolesActive(agent(), table), false)
+})
+
+test('sanitizeSandboxToolArgs removes non-strictly-wider escalation and heals blank justification', () => {
+  // Case 1: current mode is danger-full-access, GPT defensively passed danger-full-access
+  const gptArgsInDanger = {
+    file_path: 'foo.txt',
+    content: 'bar',
+    sandbox_permissions: 'danger-full-access',
+    justification: 'write config',
+  }
+  assert.deepEqual(
+    sanitizeSandboxToolArgs('write', gptArgsInDanger, 'danger-full-access'),
+    { file_path: 'foo.txt', content: 'bar' },
+    'must strip escalation arguments when already in danger-full-access to avoid strictly-wider crashes',
+  )
+
+  // Case 2: current mode is workspace-write, GPT passed workspace-write (same mode)
+  const gptArgsInWorkspace = {
+    command: 'git status',
+    sandbox_permissions: 'workspace-write',
+    justification: 'check git',
+  }
+  assert.deepEqual(
+    sanitizeSandboxToolArgs('bash', gptArgsInWorkspace, 'workspace-write'),
+    { command: 'git status' },
+    'must strip escalation arguments when requestedMode equals effectiveMode',
+  )
+
+  // Case 3: legitimate escalation from workspace-write to danger-full-access with justification
+  const validEscalation = {
+    command: 'apt-get update',
+    sandbox_permissions: 'danger-full-access',
+    justification: 'install dependency',
+  }
+  assert.deepEqual(
+    sanitizeSandboxToolArgs('bash', validEscalation, 'workspace-write'),
+    validEscalation,
+    'must keep legitimate escalation arguments intact',
+  )
+
+  // Case 4: legitimate escalation but justification is empty
+  const blankJustification = {
+    command: 'apt-get update',
+    description: 'Update packages',
+    sandbox_permissions: 'danger-full-access',
+    justification: '   ',
+  }
+  const healed = sanitizeSandboxToolArgs('bash', blankJustification, 'workspace-write')
+  assert.equal(healed.sandbox_permissions, 'danger-full-access')
+  assert.match(healed.justification, /Update packages/)
+  assert.match(healed.justification, /Smart Mode requests danger-full-access access/)
+
+  // Case 5: non-object or missing sandbox_permissions passes through unchanged
+  assert.deepEqual(sanitizeSandboxToolArgs('write', { file_path: 'a.txt' }, 'danger-full-access'), { file_path: 'a.txt' })
+  assert.equal(sanitizeSandboxToolArgs('write', null), null)
 })
 

@@ -287,6 +287,61 @@ export function isModelRolesActive(agent, table) {
 }
 
 /**
+ * Permitted wider targets for each sandbox mode in DSH.
+ * 'danger-full-access' is the ceiling and cannot be escalated.
+ */
+export const SANDBOX_WIDER_MODES = Object.freeze({
+  'read-only': Object.freeze(['workspace-write', 'danger-full-access']),
+  'workspace-write': Object.freeze(['danger-full-access']),
+})
+
+/**
+ * Sanitize tool arguments for sandbox-aware tools (write, edit, bash, pwsh).
+ *
+ * When an LLM (notably GPT models) defensively supplies sandbox_permissions
+ * in an environment that is already fully privileged ('danger-full-access')
+ * or when the requested mode is not strictly wider than the call's effective mode,
+ * DSH throws "sandbox escalation to ... is not strictly wider than this call's current ... mode".
+ *
+ * This pure function strips unneeded/invalid escalation arguments so the operation
+ * runs as a normal execution without crashing on strictly-wider assertions.
+ * If escalation is valid and required but justification is empty, it derives a clear non-empty reason.
+ */
+export function sanitizeSandboxToolArgs(toolName, args, effectiveMode = 'workspace-write') {
+  if (!args || typeof args !== 'object') return args
+  const requestedMode = typeof args.sandbox_permissions === 'string'
+    ? args.sandbox_permissions.trim()
+    : undefined
+
+  if (!requestedMode) return args
+
+  const allowedWider = SANDBOX_WIDER_MODES[effectiveMode] ?? []
+
+  // If the requested mode is not strictly wider than the current effective mode
+  // (e.g. effectiveMode is already 'danger-full-access', or requestedMode == effectiveMode),
+  // strip sandbox_permissions and justification to prevent "not strictly wider" errors.
+  if (!allowedWider.includes(requestedMode)) {
+    const { sandbox_permissions: _, justification: __, ...sanitized } = args
+    return sanitized
+  }
+
+  // If escalation is legitimate but justification is empty, fill a clear sentence
+  // so the host approval service can show the prompt without throwing validation errors.
+  const justification = typeof args.justification === 'string' ? args.justification.trim() : ''
+  if (justification === '') {
+    const desc = typeof args.description === 'string' && args.description.trim()
+      ? args.description.trim().replace(/[.!。！]+$/gu, '')
+      : `the requested ${toolName} operation`
+    return {
+      ...args,
+      justification: `Smart Mode requests ${requestedMode} access for: ${desc}.`,
+    }
+  }
+
+  return args
+}
+
+/**
  * Select the requested role for one conversation request.
  *
  * Called only while the 智选模式 router is active. Internal runtime roles

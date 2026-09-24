@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-roles",
-  "version": "0.4.14",
+  "version": "0.4.15",
   "description": "Automatic OMP-style model-role routing deeply integrated with DeepSeek Harness tasks, vision, plan mode, subagents, background work, and advisor review",
   "type": "module",
   "main": "lib/index.js",
@@ -42,7 +42,8 @@
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-subagent": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-subagent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-subagent-spawn-in-process": "0.1.0-rc.6",

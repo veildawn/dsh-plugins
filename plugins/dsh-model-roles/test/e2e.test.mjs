@@ -486,3 +486,59 @@ test('standard presets bypass vision delegation and automatic task classificatio
     !r.system?.includes('Classify the user task into one model role'))
   assert.equal(routedRequests.at(-1).model, 'unrouted-model')
 })
+
+test('smart mode heals sandbox arguments on tool execution to prevent strictly-wider errors', async () => {
+  const { ctx } = createRuntime([])
+  let receivedArgs
+  ctx.tools.register({
+    name: 'write',
+    description: 'Write file',
+    parameters: {
+      properties: {
+        file_path: { type: 'string' },
+        content: { type: 'string' },
+        sandbox_permissions: { type: 'string' },
+        justification: { type: 'string' },
+      },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    execute(args) {
+      receivedArgs = args
+      if (args.sandbox_permissions === 'danger-full-access') {
+        throw new Error('sandbox escalation to "danger-full-access" is not strictly wider than this call\'s current "danger-full-access" mode')
+      }
+      return 'ok'
+    },
+  })
+
+  ctx.provide('sandboxPolicy', {
+    resolve: () => ({ mode: 'danger-full-access' }),
+  })
+
+  const session = ctx.sessions.create('smart-mode-session', {
+    meta: { agentPreset: 'model-roles' },
+  })
+  const agent = { id: session.id, session, options: {}, ctx }
+
+  const toolResult = await ctx.tools.execute({
+    callId: 'call-1',
+    name: 'write',
+    arguments: {
+      file_path: 'test.txt',
+      content: 'hello',
+      sandbox_permissions: 'danger-full-access',
+      justification: 'write file',
+    },
+    agent,
+    signal: AbortSignal.timeout(5_000),
+  })
+
+  assert.equal(toolResult.isError, false, 'tool must execute successfully without throwing strictly-wider error')
+  assert.equal(receivedArgs.file_path, 'test.txt')
+  assert.equal(receivedArgs.content, 'hello')
+  assert.equal(receivedArgs.sandbox_permissions, undefined, 'sandbox_permissions must be stripped')
+  assert.equal(receivedArgs.justification, undefined, 'justification must be stripped')
+})

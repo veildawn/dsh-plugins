@@ -44,6 +44,7 @@ import {
   roleForAgent,
   routeAgentRequest,
   routeForRole,
+  sanitizeSandboxToolArgs,
   taskTextOf,
   withoutImageBlocks,
 } from './core.js'
@@ -74,6 +75,7 @@ export {
   roleForAgent,
   routeAgentRequest,
   routeForRole,
+  sanitizeSandboxToolArgs,
   taskTextOf,
   withoutImageBlocks,
 }
@@ -344,6 +346,27 @@ export function apply(ctx, config = {}) {
   const reviewedTurns = new WeakMap()
   const classifiedTurns = new WeakMap()
   const visionFallbackTurns = new WeakMap()
+
+  ctx.on('tools/execute', async (exec, next) => {
+    if (!isModelRolesActive(exec?.agent, table)) return next()
+    const args = exec?.arguments
+    if (args && typeof args === 'object' && args.sandbox_permissions) {
+      const sandboxPolicy = ctx.get('sandboxPolicy')
+      const standing = sandboxPolicy?.resolve?.({ session: exec?.agent?.session })
+      const effectiveMode = standing?.mode ?? 'workspace-write'
+      const sanitized = sanitizeSandboxToolArgs(exec.name, args, effectiveMode)
+      if (sanitized !== args) {
+        const originalArgs = exec.arguments
+        exec.arguments = Object.freeze(sanitized)
+        try {
+          return await next()
+        } finally {
+          exec.arguments = originalArgs
+        }
+      }
+    }
+    return next()
+  })
 
   scope.watch((next) => {
     try {
