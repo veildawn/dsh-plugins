@@ -18,6 +18,9 @@ export const REMOTE_CONTROL_SECRET_REF = 'DSH_REMOTE_CONTROL_SECRET'
 export const REMOTE_CONTROL_RPC_CHANNEL = '/dsh-remote-control'
 export const REMOTE_CONTROL_RPC_ALIASES = ['/ai-proxy-remote-control']
 export const CONFIG_RPC_CHANNEL = '/dsh-remote-control-config'
+export const REMOTE_CONTROL_SESSION_PATH = '/dsh-remote-control/session'
+/** Cap for the handshake JSON body: one shared secret plus envelope slack. */
+export const SESSION_BODY_MAX_BYTES = 8192
 
 export const Config = z.object({
   enabled: z.boolean().default(false),
@@ -146,6 +149,184 @@ export async function handleRemoteControlRpc(ctx, options, method, payload, sign
   }
 }
 
+function sessionFailure(status, code, message, headers) {
+  const result = { status, body: JSON.stringify({ ok: false, error: { code, message, details: {} } }) }
+  if (headers !== undefined) result.headers = headers
+  return result
+}
+
+/** Success body of a session handshake: whether this call minted a new session. */
+function sessionOpened(minted) {
+  return JSON.stringify({ ok: true, minted })
+}
+
+/** The single `token` field a session handshake carries; undefined for any other shape. */
+function sessionToken(body) {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return undefined
+  if (Reflect.ownKeys(body).length !== 1 || !Object.hasOwn(body, 'token')) return undefined
+  return typeof body.token === 'string' ? body.token : undefined
+}
+
+/** Read one bounded JSON handshake body; undefined when absent, oversized, or not JSON. */
+async function readSessionBody(request) {
+  const chunks = []
+  let size = 0
+  try {
+    for await (const chunk of request) {
+      size += chunk.length
+      if (size > SESSION_BODY_MAX_BYTES) return undefined
+      chunks.push(chunk)
+    }
+  } catch {
+    return undefined
+  }
+  if (size === 0) return undefined
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    return undefined
+  }
+}
+
+/** The `dsh-auth-*` browser-session cookie this request carried, when it sent one. */
+function sentSessionCookieName(request) {
+  const raw = request?.headers?.cookie
+  if (typeof raw !== 'string') return undefined
+  for (const segment of raw.split(';')) {
+    const at = segment.indexOf('=')
+    if (at === -1) continue
+    const cookie = segment.slice(0, at).trim()
+    if (cookie.startsWith('dsh-auth-')) return cookie
+  }
+  return undefined
+}
+
+/**
+ * Capture the browser-session cookie Connection would set for the caller's
+ * authority by running the native process-token exchange against a synthetic
+ * request. Connection owns cookie naming, signing, attributes and authority
+ * binding, so the plugin relays the header it produces instead of
+ * re-implementing the session format.
+ * @param connection - Host Connection service holding `browserAuth`.
+ * @param request - caller request carrying the target `host` header.
+ * @returns the `Set-Cookie` value, `''` when the caller already holds a
+ * session, or undefined when this build exposes no process launch token.
+ */
+export function captureSessionCookie(connection, request) {
+  const launchToken = connection?.browserAuth?.launchToken
+  if (typeof launchToken !== 'string' || launchToken.length === 0) return undefined
+  const authorize = connection?.authorizeIndex
+  if (typeof authorize !== 'function') return undefined
+  const exchange = new URL('/', 'http://dsh.invalid')
+  exchange.searchParams.set('token', launchToken)
+  let captured
+  const capture = {
+    writeHead(status, headers) { captured = { status, headers: headers ?? {} } },
+    end() {},
+  }
+  const handled = authorize.call(connection, {
+    method: 'GET',
+    url: exchange.pathname + exchange.search,
+    headers: request?.headers ?? {},
+  }, capture)
+  if (handled === true) return ''
+  if (captured?.status !== 303) return undefined
+  const cookie = captured.headers['set-cookie']
+  return typeof cookie === 'string' && cookie.length > 0 ? cookie : ''
+}
+
+/**
+ * Resolve one session handshake: mint the official browser session for a caller
+ * that proved the shared secret, or drop the session it minted earlier.
+ *
+ * Remote pages authenticate through the plugin gate, but every `/api` request
+ * (including the `remote.mux` stream that drives `connection.state`) stays
+ * fenced by Connection's process-token cookie. Without this exchange a remote
+ * browser unlocks the gate and then sits in `connecting` forever.
+ * @param ctx - context carrying `connection` (and `credentials`).
+ * @param options - resolved plugin options.
+ * @param request - Node request facts (`method`, `headers`).
+ * @param body - parsed JSON handshake body.
+ * @returns status, optional headers and optional JSON body for the route.
+ */
+export async function handleSessionRequest(ctx, options, request, body) {
+  const connection = ctx.connection
+  const method = request?.method
+  if (method !== 'POST' && method !== 'DELETE') {
+    return sessionFailure(405, 'method-not-allowed', 'Remote Control session requests must be POST or DELETE', {
+      allow: 'POST, DELETE',
+    })
+  }
+  // 403 (cross-site or untrusted authority) stays Connection's call: a host we
+  // do not serve must not learn whether the presented secret matches.
+  if (typeof connection?.requestRejection === 'function' && connection.requestRejection(request) === 403) {
+    return sessionFailure(403, 'forbidden', 'Remote Control session requests require a trusted host')
+  }
+  if (options().enabled !== true) return sessionFailure(403, 'forbidden', '远程控制未在宿主机启用')
+  const expected = await remoteControlSecret(ctx, options)
+  if (!matchesRemoteControlSecret(expected, sessionToken(body))) {
+    return sessionFailure(401, 'unauthorized', '远程控制认证失败')
+  }
+  if (method === 'DELETE') {
+    const name = sentSessionCookieName(request)
+    if (name === undefined) return { status: 204 }
+    return {
+      status: 204,
+      headers: {
+        'set-cookie': `${name}=; Path=/; Max-Age=0; Expires=${new Date(0).toUTCString()}; HttpOnly; SameSite=Strict`,
+      },
+    }
+  }
+  if (typeof connection?.browserAuth?.isAuthenticated === 'function' && connection.browserAuth.isAuthenticated(request)) {
+    return { status: 200, body: sessionOpened(false) }
+  }
+  const cookie = captureSessionCookie(connection, request)
+  if (cookie === undefined) {
+    return sessionFailure(503, 'unavailable', 'Host 无法签发浏览器会话，请改用 dsh web 打印的带 token 链接访问')
+  }
+  if (cookie === '') return { status: 200, body: sessionOpened(false) }
+  return { status: 200, headers: { 'set-cookie': cookie }, body: sessionOpened(true) }
+}
+
+/** Own one session handshake HTTP exchange on the browser carrier. */
+export async function serveSessionRoute(ctx, options, request, response) {
+  const body = await readSessionBody(request)
+  const result = await handleSessionRequest(ctx, options, request, body)
+  const headers = { 'cache-control': 'no-store', ...result.headers }
+  if (result.body === undefined) {
+    response.writeHead(result.status, headers)
+    response.end()
+    return
+  }
+  response.writeHead(result.status, { ...headers, 'content-type': 'application/json; charset=utf-8' })
+  response.end(result.body)
+}
+
+function requestHeader(request, name) {
+  const headers = request?.headers
+  if (headers === undefined || headers === null) return undefined
+  if (typeof headers.get === 'function') {
+    const value = headers.get(name)
+    return typeof value === 'string' ? value : undefined
+  }
+  const value = headers[name.toLowerCase()] ?? headers[name]
+  return typeof value === 'string' ? value : undefined
+}
+
+/** Whether one Host header names the local loopback authority. */
+export function isLoopbackHostHeader(host) {
+  if (typeof host !== 'string' || host.length === 0) return false
+  let hostname
+  try {
+    hostname = new URL('http://' + host).hostname
+  } catch {
+    return false
+  }
+  if (hostname === 'localhost' || hostname === '[::1]' || hostname === '::1') return true
+  const parts = hostname.split('.')
+  return parts.length === 4 && parts[0] === '127' && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+}
+
 function requestPathname(request) {
   try {
     return new URL(request?.url ?? '/', 'http://dsh.invalid').pathname
@@ -174,6 +355,10 @@ export function shouldBypassBrowserAuthRejection(request, enabled) {
 /**
  * Serve index.html without a 303 token exchange so the Unlock Screen can load.
  * Native `/?token=` handling is left untouched; disabled installs keep the stock 401.
+ *
+ * Only non-loopback hosts qualify: a loopback browser gets no lock screen, so
+ * serving it the SPA would leave a workspace that can never reach `/api`. The
+ * stock 401 points that caller at the `?token=` URL `dsh web` prints instead.
  */
 export function shouldServeUnauthenticatedIndex(request, enabled, isAuthenticated) {
   if (enabled !== true || isAuthenticated === true) return false
@@ -186,7 +371,8 @@ export function shouldServeUnauthenticatedIndex(request, enabled, isAuthenticate
     return false
   }
   if (url.searchParams.has('token')) return false
-  return url.pathname === '/' || url.pathname === '/index.html'
+  if (url.pathname !== '/' && url.pathname !== '/index.html') return false
+  return !isLoopbackHostHeader(requestHeader(request, 'host'))
 }
 
 export function apply(ctx, config) {
@@ -198,6 +384,14 @@ export function apply(ctx, config) {
   ctx.inject(['webServer'], (webServerCtx) => {
     const polyfillScript = `<script>(function(){if(typeof globalThis!=="undefined"){const c=globalThis.crypto||(globalThis.crypto={});if(typeof c.randomUUID!=="function"){c.randomUUID=function(){if(typeof c.getRandomValues==="function"){return([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(d){return(d^c.getRandomValues(new Uint8Array(1))[0]&15>>d/4).toString(16);});}return"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(p){const r=Math.random()*16|0;return(p==="x"?r:r&3|8).toString(16);});};}}})();</script>`
     webServerCtx.webServer.tapIndex(html => html.replace('<head>', '<head>' + polyfillScript))
+  })
+
+  ctx.inject(['connection', 'webServer'], (sessionCtx) => {
+    sessionCtx.effect(() => sessionCtx.webServer.register({
+      kind: 'exact',
+      path: REMOTE_CONTROL_SESSION_PATH,
+      handler: (request, response) => serveSessionRoute(sessionCtx, options, request, response),
+    }), 'remote-control: browser session handshake')
   })
 
   ctx.inject(['connection'], (connectionCtx) => {
@@ -241,7 +435,11 @@ export const internals = {
   remoteControlSecret,
   handleConfigRpc,
   handleRemoteControlRpc,
+  captureSessionCookie,
+  handleSessionRequest,
+  serveSessionRoute,
   isRemoteControlRpcPath,
+  isLoopbackHostHeader,
   shouldBypassBrowserAuthRejection,
   shouldServeUnauthenticatedIndex,
 }

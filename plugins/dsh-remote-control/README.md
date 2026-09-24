@@ -7,14 +7,15 @@ DSH 特权 API。
 ## 功能
 
 - 远程浏览器先显示全屏 **Unlock Screen**，认证前不挂载工作区根界面。
-- 仅在 `enabled: true` 时改写 Host 鉴权：未认证且未带 `?token=` 的根路径直接返回 index.html，让锁屏能加载，避免旧版静默注入 launch token 造成的 `ERR_TOO_MANY_REDIRECTS`。
-- 浏览器 Cookie 门禁只对 `/dsh-remote-control` 及其兼容别名放行 401；官方 `/api/*` 与配置通道仍要求会话 Cookie。403（跨站 / 未信任 Host）始终拒绝。
-- 关闭远程访问（默认）时不劫持 `authorizeIndex` / `requestRejection`。
+- 仅在 `enabled: true` 时改写 Host 鉴权：未认证且未带 `?token=` 的**非回环**根路径直接返回 index.html，让锁屏能加载，避免旧版静默注入 launch token 造成的 `ERR_TOO_MANY_REDIRECTS`。回环浏览器没有锁屏，继续收到官方 401（提示改用 `dsh web` 打印的 `?token=` 链接），不会拿到永远连不上的空壳界面。
+- **解锁后由 Host 补齐官方浏览器会话**（`POST /dsh-remote-control/session`）：密钥校验通过后，插件用进程 launch token 完成一次原生 token 交换，把 Connection 自己签发的会话 Cookie 回填给浏览器。官方 `/api/*`（包括驱动 `connection.state` 的 `remote.mux` 事件流）随后即可正常工作，远程页面不再停留在「自动重连中」。
+- 浏览器 Cookie 门禁只对 `/dsh-remote-control` 及其兼容别名放行 401；官方 `/api/*` 与配置通道仍要求会话 Cookie。403（跨站 / 未信任 Host）始终拒绝，且在密钥比较之前判定。
+- 关闭远程访问（默认）时不劫持 `authorizeIndex` / `requestRejection`，也不签发任何会话。
 - 主 RPC 通道为 `/dsh-remote-control`，保留 `/ai-proxy-remote-control` 兼容别名。
 - 密钥使用恒定时间比较；未启用、未配置或密钥错误时拒绝特权调用。
 - 浏览器密钥暂存在 `localStorage` 的 `dsh-remote-control.secret`；可随时锁定并清除。
 - 自动迁移旧版 `dsh-ai-proxy.remote-control-secret` 浏览器键。
-- 官方 `/api/*` 仍走 Connection 的浏览器会话校验；远程特权调用只经过本插件的固定白名单。
+- 官方 `/api/*` 仍走 Connection 的浏览器会话校验；本插件不绕过它，而是按需**签发**会话（见下节）。远程特权调用只经过本插件的固定白名单。
 - `localhost`、`127.0.0.1` 和 IPv6 回环地址不显示锁屏。
 
 ## 安装
@@ -22,7 +23,7 @@ DSH 特权 API。
 插件自带 `cordis.patch.yml`，安装后会插入 `remote-control` Cordis 行，默认关闭远程访问：
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-control-0.1.10.tgz
+dsh plugin --profile web add ./dsh-remote-control-0.1.11.tgz
 dsh service restart
 ```
 
@@ -39,7 +40,7 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 
 ```sh
 cd ~/.dsh/profiles/web
-pnpm add /path/to/dsh-remote-control-0.1.10.tgz
+pnpm add /path/to/dsh-remote-control-0.1.11.tgz
 ```
 
 对应的手动 Cordis 配置为：
@@ -88,6 +89,41 @@ DSH_REMOTE_CONTROL_SECRET='replace-with-a-long-random-secret'
 
 `/dsh-remote-control-config` 是单独的 loopback-only 配置通道。公网通道不能启用远程访问，
 也不能替换 Host 密钥。
+
+### 会话握手：为什么解锁后必须再补一次 Cookie
+
+`dsh web` 把**所有**浏览器请求（`/`、`/api/*`、`/api/remote.mux` WebSocket）都栅格在
+进程 launch token 换来的会话 Cookie 后面。锁屏本身只能证明「持有共享密钥」，它不会、也
+不该绕过官方会话：
+
+| 阶段 | 无会话 Cookie 时的结果 |
+| --- | --- |
+| `GET /`（非回环 + `enabled`） | 插件直通 index.html，锁屏可加载 |
+| `POST /dsh-remote-control/status` | 插件放行 401，锁屏据此判断启用/密钥状态 |
+| `GET /api/remote.mux`、任意 `/api/*` | **官方 401** —— Connection 的浏览器会话门禁 |
+
+因此旧版本（0.1.10）在远程解锁后，界面能渲染但左下角一直显示「自动重连中」，工作区
+永远没有数据。0.1.11 起，锁屏与设置页在密钥校验通过后会调用握手端点补齐会话：
+
+```http
+POST /dsh-remote-control/session
+content-type: application/json
+cookie: <浏览器自身的会话 Cookie，按需携带>
+
+{ "token": "…" }
+```
+
+- 签发成功返回 `200 {"ok":true,"minted":true}`，并通过 `Set-Cookie` 下发 Connection 签发的会话
+  Cookie（HttpOnly、SameSite=Strict、按 `host:port` 绑定，浏览器脚本读不到）。
+- 已经持有有效会话时返回 `200 {"ok":true,"minted":false}`，不重复下发。客户端据此区分
+  「本页是在没有会话的情况下启动的」：`minted: true` 时会自动刷新一次页面，让 SPA 在
+  已有会话的干净状态下重新启动（刷新后的自动校验拿到 `minted:false`，因此不会循环刷新）。
+- `DELETE` 同一路径会清除该浏览器当前的 `dsh-auth-*` 会话 Cookie，供「锁定远程会话 /
+  清除本地凭证」使用；两次调用都要求共享密钥。
+- Host 不可信 / 跨站（403）在比较密钥之前就拒绝；未启用或密钥错误分别返回 `403` / `401`；
+  宿主未暴露 launch token（无法签发）返回 `503`，此时请改用 `dsh web` 打印的 `?token=`
+  链接访问。
+- 该端点不返回 launch token 本身，只返回由它派生、且绑定到调用方 authority 的 Cookie。
 
 ## 无桌面 Linux 主机：直接编辑配置文件
 
@@ -182,8 +218,14 @@ curl -s -X POST http://127.0.0.1:<port>/dsh-remote-control-config \
 
 - 本插件是共享密钥门禁，不替代 HTTPS、反向代理访问控制、网络防火墙或 DSH 的
   `--trusted-host` 校验。
-- 启用后未认证根路径可以加载 SPA / Unlock Screen，这不是会话认证；官方 `/api/*`
-  在没有浏览器 Cookie 时仍返回 401。
+- 启用后未认证的**非回环**根路径可以加载 SPA / Unlock Screen，这不是会话认证；官方 `/api/*`
+  在没有浏览器 Cookie 时仍返回 401。补齐 Cookie 的唯一途径是共享密钥（会话握手）或
+  `dsh web` 打印的 `?token=` 链接，二者等价于完全访问这台 Harness。
+- 解锁后远程浏览器持有**官方会话**，其权限不再局限于 RPC 白名单；共享密钥即完整访问凭据，
+  请按 HTTPS 反向代理的强度保护它（建议高强度随机值，并定期更换）。
+- 「锁定远程会话 / 清除本地凭证」会同时清除浏览器 `localStorage` 密钥与官方会话 Cookie；
+  若该请求失败（例如网络中断），官方会话会保留到其过期时间（默认 30 天），此时可在浏览器
+  设置里手动删除本站 Cookie。
 - 必须通过 HTTPS 暴露远程页面，否则浏览器密钥和会话可能被窃听。
 - 密钥存放在当前浏览器的 `localStorage`，同源脚本可以读取；不要在不可信浏览器或共享账号
   中保存，使用完点击“锁定远程会话 / 清除本地凭证”。
@@ -207,4 +249,5 @@ npm pack --dry-run
 ```
 
 测试覆盖密钥比较与来源优先级、配置通道权限、主通道和兼容别名、固定白名单、Unlock
-Screen、LocalStorage 迁移、浏览器 API 重定向，以及 `enabled` 开关下的 index 直通与 401 通道白名单。
+Screen、LocalStorage 迁移、浏览器 API 重定向、`enabled` 开关下的 index 直通与 401 通道白名单，
+以及会话握手（签发/复用/清除、Host 栅栏、未启用、错误密钥、方法限制、无 launch token 的降级）。

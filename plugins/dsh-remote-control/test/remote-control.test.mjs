@@ -9,6 +9,7 @@ const {
   REMOTE_CONTROL_RPC_CHANNEL,
   REMOTE_CONTROL_RPC_ALIASES,
   REMOTE_CONTROL_SECRET_REF,
+  REMOTE_CONTROL_SESSION_PATH,
   internals,
 } = plugin
 
@@ -49,6 +50,7 @@ class FakeWebServer extends Service {
   constructor(ctx) {
     super(ctx, 'webServer')
     this.taps = []
+    this.routes = new Map()
   }
   tapIndex(fn) {
     this.taps.push(fn)
@@ -56,6 +58,12 @@ class FakeWebServer extends Service {
       const idx = this.taps.indexOf(fn)
       if (idx !== -1) this.taps.splice(idx, 1)
     }
+  }
+  register(route) {
+    const key = route.kind + ':' + route.path
+    if (this.routes.has(key)) throw new Error('duplicate ' + key)
+    this.routes.set(key, route)
+    return () => { this.routes.delete(key) }
   }
 }
 
@@ -86,9 +94,9 @@ class FakeApiProxy extends Service {
   }
 }
 
-function makeHost() {
+function makeHost(doc) {
   const ctx = new Context()
-  const settings = new MemorySettings(ctx)
+  const settings = new MemorySettings(ctx, doc)
   const credentials = new FakeCredentials(ctx)
   const connection = new FakeConnection(ctx)
   const webServer = new FakeWebServer(ctx)
@@ -197,6 +205,18 @@ test('index passthrough and 401 bypass are gated on enabled and limited to remot
   assert.equal(internals.shouldServeUnauthenticatedIndex({ method: 'GET', url: '/' }, true, true), false)
   assert.equal(internals.shouldServeUnauthenticatedIndex({ method: 'GET', url: '/?token=abc' }, true, false), false)
   assert.equal(internals.shouldServeUnauthenticatedIndex({ method: 'POST', url: '/' }, true, false), false)
+  assert.equal(internals.shouldServeUnauthenticatedIndex(
+    { method: 'GET', url: '/', headers: { host: '192.168.1.128:3080' } }, true, false,
+  ), true, 'a remote host with no session still loads the lock screen')
+  assert.equal(internals.shouldServeUnauthenticatedIndex(
+    { method: 'GET', url: '/', headers: { host: '127.0.0.1:3080' } }, true, false,
+  ), false, 'a loopback browser keeps the stock 401 and its token URL hint')
+  assert.equal(internals.shouldServeUnauthenticatedIndex(
+    { method: 'GET', url: '/', headers: new Headers({ host: 'localhost:3080' }) }, true, false,
+  ), false, 'Headers-like carriers classify the same way')
+  assert.equal(internals.isLoopbackHostHeader('localhost'), true)
+  assert.equal(internals.isLoopbackHostHeader('[::1]:3080'), true)
+  assert.equal(internals.isLoopbackHostHeader('192.168.1.128:3080'), false)
 
   assert.equal(internals.shouldBypassBrowserAuthRejection({ url: '/dsh-remote-control' }, true), true)
   assert.equal(internals.shouldBypassBrowserAuthRejection({ url: '/ai-proxy-remote-control' }, true), true)
@@ -265,6 +285,163 @@ test('index passthrough and 401 bypass are gated on enabled and limited to remot
   assert.equal(connection.requestRejection({ url: '/dsh-remote-control?trust=no' }), 403)
 })
 
+// Browser session handshake -------------------------------------------------
+
+const SESSION_COOKIE = 'dsh-auth-hash=signature; Max-Age=1; Path=/; HttpOnly; SameSite=Strict'
+
+function makeSessionHost({ authenticated = false, launchToken = 'launch-token-1', fence = 401 } = {}) {
+  const host = makeHost()
+  host.credentials.store.set(REMOTE_CONTROL_SECRET_REF, 'remote-test')
+  host.connection.browserAuth = { launchToken, isAuthenticated: () => authenticated }
+  host.connection.requestRejection = () => fence
+  return host
+}
+
+/** Record the synthetic native exchange and answer it like Connection would. */
+function recordExchange(connection, minted = SESSION_COOKIE) {
+  const exchanges = []
+  connection.authorizeIndex = (request, response) => {
+    exchanges.push(request)
+    if (new URL(request.url, 'http://dsh.invalid').searchParams.get('token') !== 'launch-token-1') {
+      response.writeHead(401)
+      response.end()
+      return false
+    }
+    response.writeHead(303, { 'set-cookie': minted })
+    response.end()
+    return false
+  }
+  return exchanges
+}
+
+test('the session handshake mints the official browser cookie for the shared secret', async () => {
+  const { ctx, connection } = makeSessionHost()
+  const exchanges = recordExchange(connection)
+  await ctx.plugin(plugin).await()
+  const options = () => ({ enabled: true, secret: 'remote-test' })
+  const request = { method: 'POST', headers: { host: '192.168.1.128:3080' } }
+
+  assert.deepEqual(await internals.handleSessionRequest(ctx, options, request, { token: 'remote-test' }), {
+    status: 200,
+    headers: { 'set-cookie': SESSION_COOKIE },
+    body: '{"ok":true,"minted":true}',
+  })
+  assert.equal(exchanges.length, 1)
+  assert.equal(exchanges[0].method, 'GET')
+  assert.equal(exchanges[0].headers.host, '192.168.1.128:3080', 'the exchange keeps the caller authority')
+  assert.equal(new URL(exchanges[0].url, 'http://dsh.invalid').searchParams.get('token'), 'launch-token-1')
+})
+
+test('the session handshake refuses everything but the shared secret', async () => {
+  const { ctx, connection } = makeSessionHost()
+  const exchanges = recordExchange(connection)
+  await ctx.plugin(plugin).await()
+  const enabled = () => ({ enabled: true, secret: 'remote-test' })
+  const request = { method: 'POST', headers: { host: '192.168.1.128:3080' } }
+  const unauthorized = {
+    status: 401,
+    body: JSON.stringify({ ok: false, error: { code: 'unauthorized', message: '远程控制认证失败', details: {} } }),
+  }
+
+  assert.deepEqual(await internals.handleSessionRequest(ctx, enabled, request, { token: 'wrong' }), unauthorized)
+  assert.deepEqual(await internals.handleSessionRequest(ctx, enabled, request, {}), unauthorized)
+  assert.deepEqual(await internals.handleSessionRequest(ctx, enabled, request, undefined), unauthorized)
+  assert.deepEqual(await internals.handleSessionRequest(ctx, () => ({ enabled: false, secret: 'remote-test' }), request, { token: 'remote-test' }), {
+    status: 403,
+    body: JSON.stringify({ ok: false, error: { code: 'forbidden', message: '远程控制未在宿主机启用', details: {} } }),
+  })
+  assert.deepEqual(await internals.handleSessionRequest(ctx, enabled, { ...request, method: 'GET' }, {}), {
+    status: 405,
+    headers: { allow: 'POST, DELETE' },
+    body: JSON.stringify({ ok: false, error: { code: 'method-not-allowed', message: 'Remote Control session requests must be POST or DELETE', details: {} } }),
+  })
+  assert.equal(exchanges.length, 0, 'no refusal reaches the native exchange')
+})
+
+test('an untrusted authority is fenced out before the secret is compared', async () => {
+  const { ctx, connection } = makeSessionHost({ fence: 403 })
+  const exchanges = recordExchange(connection)
+  await ctx.plugin(plugin).await()
+  const request = { method: 'POST', headers: { host: 'evil.example.com' } }
+
+  assert.deepEqual(await internals.handleSessionRequest(ctx, () => ({ enabled: true, secret: 'remote-test' }), request, { token: 'remote-test' }), {
+    status: 403,
+    body: JSON.stringify({ ok: false, error: { code: 'forbidden', message: 'Remote Control session requests require a trusted host', details: {} } }),
+  })
+  assert.equal(exchanges.length, 0)
+})
+
+test('an existing session is kept and an unminteable host is reported', async () => {
+  const authenticated = makeSessionHost({ authenticated: true })
+  const authenticatedExchanges = recordExchange(authenticated.connection)
+  await authenticated.ctx.plugin(plugin).await()
+  const options = () => ({ enabled: true, secret: 'remote-test' })
+  const request = { method: 'POST', headers: { host: '192.168.1.128:3080' } }
+  assert.deepEqual(await internals.handleSessionRequest(authenticated.ctx, options, request, { token: 'remote-test' }), {
+    status: 200,
+    body: '{"ok":true,"minted":false}',
+  })
+  assert.equal(authenticatedExchanges.length, 0, 'a live session is never re-minted')
+
+  const legacy = makeSessionHost({ launchToken: null })
+  recordExchange(legacy.connection)
+  await legacy.ctx.plugin(plugin).await()
+  assert.deepEqual(await internals.handleSessionRequest(legacy.ctx, options, request, { token: 'remote-test' }), {
+    status: 503,
+    body: JSON.stringify({
+      ok: false,
+      error: {
+        code: 'unavailable',
+        message: 'Host 无法签发浏览器会话，请改用 dsh web 打印的带 token 链接访问',
+        details: {},
+      },
+    }),
+  })
+})
+
+test('DELETE drops the session cookie the browser carried', async () => {
+  const { ctx, connection } = makeSessionHost()
+  const exchanges = recordExchange(connection)
+  await ctx.plugin(plugin).await()
+  const options = () => ({ enabled: true, secret: 'remote-test' })
+  const headers = { host: '192.168.1.128:3080', cookie: 'other=1; dsh-auth-hash=signature' }
+
+  const cleared = await internals.handleSessionRequest(ctx, options, { method: 'DELETE', headers }, { token: 'remote-test' })
+  assert.equal(cleared.status, 204)
+  assert.match(cleared.headers['set-cookie'], /^dsh-auth-hash=; Path=\/; Max-Age=0;/)
+  assert.equal(exchanges.length, 0)
+
+  assert.deepEqual(
+    await internals.handleSessionRequest(ctx, options, { method: 'DELETE', headers: { host: '192.168.1.128:3080' } }, { token: 'remote-test' }),
+    { status: 204 },
+  )
+})
+
+test('Host registers one exact session route that owns its response', async () => {
+  const { ctx, connection, webServer } = makeSessionHost()
+  recordExchange(connection)
+  await ctx.plugin(plugin).await()
+  await connection.registrations.get(CONFIG_RPC_CHANNEL).handler('setEnabled', { enabled: true })
+  const route = webServer.routes.get('exact:' + REMOTE_CONTROL_SESSION_PATH)
+  assert(route, 'the session route is an exact route so the SPA fallback never claims it')
+
+  const response = {
+    writeHead(status, headers) { this.status = status; this.headers = headers },
+    end(body) { this.body = body },
+  }
+  await route.handler({
+    method: 'POST',
+    url: REMOTE_CONTROL_SESSION_PATH,
+    headers: { host: '192.168.1.128:3080' },
+    async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify({ token: 'remote-test' })) },
+  }, response)
+
+  assert.equal(response.status, 200)
+  assert.equal(response.headers['cache-control'], 'no-store')
+  assert.equal(response.headers['set-cookie'], SESSION_COOKIE)
+  assert.equal(response.body, '{"ok":true,"minted":true}')
+})
+
 // Browser bundle harness ---------------------------------------------------
 
 let definition
@@ -295,6 +472,13 @@ globalThis.localStorage = {
 
 let hooks = []
 let effects = []
+let fetchCalls = []
+let fetchHandler = async () => ({ status: 200, ok: true, json: async () => ({ ok: true, minted: false }) })
+const previousFetch = globalThis.fetch
+globalThis.fetch = async (input, init) => {
+  fetchCalls.push({ input: String(input), method: init?.method, body: init?.body })
+  return fetchHandler(input, init)
+}
 let hookIndex = 0
 let effectIndex = 0
 const react = {
@@ -365,6 +549,8 @@ class BrowserConnection extends Service {
 function resetBrowser() {
   hooks = []
   effects = []
+  fetchCalls = []
+  fetchHandler = async () => ({ status: 200, ok: true, json: async () => ({ ok: true, minted: false }) })
 }
 
 function render(component, props = {}) {
@@ -434,6 +620,9 @@ test('remote Unlock Screen authenticates, stores the secret and redirects privil
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(slots.registrations.some((item) => item.entry.name === 'root'), false)
     assert.equal(storage.get('dsh-remote-control.secret'), 'remote-test')
+    assert.deepEqual(fetchCalls, [{
+      input: REMOTE_CONTROL_SESSION_PATH, method: 'POST', body: JSON.stringify({ token: 'remote-test' }),
+    }], 'unlock completes the host browser session before restoring the workspace')
 
     assert.deepEqual(await connection.api.settings.describe({}), {
       rpcId: 'remote-control', result: { ok: true, value: { proxied: 'settings.describe' } },
@@ -471,6 +660,141 @@ test('a legacy browser secret migrates to the independent storage key', async ()
     assert.equal(slots.registrations.some((item) => item.entry.name === 'root'), false)
     assert.equal(storage.get('dsh-remote-control.secret'), 'remote-test')
     assert.equal(storage.has('dsh-ai-proxy.remote-control-secret'), false)
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('a rejected session handshake keeps the gate mounted with the host message', async () => {
+  const previousLocation = globalThis.location
+  globalThis.location = { hostname: 'remote.example', host: 'remote.example' }
+  storage.clear()
+  resetBrowser()
+  fetchHandler = async () => ({
+    status: 401, ok: false, json: async () => ({ ok: false, error: { code: 'unauthorized', message: '远程控制认证失败' } }),
+  })
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+    const gate = slots.registrations.find((item) => item.entry.name === 'root')
+
+    let view = render(gate.component)
+    findElement(view, (node) => node?.props?.['aria-label'] === '远程访问密钥').props.onChange({ target: { value: 'remote-test' } })
+    view = render(gate.component)
+    findElement(view, (node) => node?.type === 'form').props.onSubmit({ preventDefault() {} })
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert(slots.registrations.some((item) => item.entry.name === 'root'), 'a page without the host session is not restored')
+    assert.equal(storage.has('dsh-remote-control.secret'), false)
+    view = render(gate.component)
+    assert(findElement(view, (node) => node?.type === 'p' && String(node.props.children).includes('未能建立官方浏览器会话')))
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('a freshly minted session restarts the page instead of half-booting the workspace', async () => {
+  const previousLocation = globalThis.location
+  let reloads = 0
+  globalThis.location = { hostname: 'remote.example', host: 'remote.example', reload() { reloads += 1 } }
+  storage.clear()
+  resetBrowser()
+  fetchHandler = async () => ({ status: 200, ok: true, json: async () => ({ ok: true, minted: true }) })
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+    const gate = slots.registrations.find((item) => item.entry.name === 'root')
+
+    let view = render(gate.component)
+    findElement(view, (node) => node?.props?.['aria-label'] === '远程访问密钥').props.onChange({ target: { value: 'remote-test' } })
+    view = render(gate.component)
+    findElement(view, (node) => node?.type === 'form').props.onSubmit({ preventDefault() {} })
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(reloads, 1, 'the page restarts so the SPA boots against a live /api surface')
+    assert.equal(storage.get('dsh-remote-control.secret'), 'remote-test')
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('the automatic check restarts a sessionless page exactly once', async () => {
+  const previousLocation = globalThis.location
+  let reloads = 0
+  globalThis.location = { hostname: 'remote.example', host: 'remote.example', reload() { reloads += 1 } }
+  storage.clear()
+  storage.set('dsh-remote-control.secret', 'remote-test')
+  resetBrowser()
+  fetchHandler = async () => ({ status: 200, ok: true, json: async () => ({ ok: true, minted: true }) })
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+    const gate = slots.registrations.find((item) => item.entry.name === 'root')
+
+    render(gate.component)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(reloads, 1)
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('an older host without the session endpoint still restores the workspace', async () => {
+  const previousLocation = globalThis.location
+  globalThis.location = { hostname: 'remote.example', host: 'remote.example' }
+  storage.clear()
+  resetBrowser()
+  fetchHandler = async () => ({ status: 404, ok: false, json: async () => ({}) })
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+    const gate = slots.registrations.find((item) => item.entry.name === 'root')
+
+    let view = render(gate.component)
+    findElement(view, (node) => node?.props?.['aria-label'] === '远程访问密钥').props.onChange({ target: { value: 'remote-test' } })
+    view = render(gate.component)
+    findElement(view, (node) => node?.type === 'form').props.onSubmit({ preventDefault() {} })
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(slots.registrations.some((item) => item.entry.name === 'root'), false)
+    assert.equal(storage.get('dsh-remote-control.secret'), 'remote-test')
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('locking a remote session drops the minted host session', async () => {
+  const previousLocation = globalThis.location
+  globalThis.location = { hostname: 'remote.example', host: 'remote.example' }
+  storage.clear()
+  storage.set('dsh-remote-control.secret', 'remote-test')
+  resetBrowser()
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+    const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
+    const view = render(section.component, section.entry.inject())
+    const lockButton = findElement(view, (node) => node?.props?.children?.includes?.('锁定远程会话 / 清除本地凭证'))
+    assert(lockButton)
+
+    lockButton.props.onClick()
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(storage.has('dsh-remote-control.secret'), false)
+    assert(slots.registrations.some((item) => item.entry.name === 'root'), 'locking restores the gate')
+    assert.deepEqual(fetchCalls.filter((call) => call.method === 'DELETE'), [{
+      input: REMOTE_CONTROL_SESSION_PATH, method: 'DELETE', body: JSON.stringify({ token: 'remote-test' }),
+    }])
   } finally {
     globalThis.location = previousLocation
   }

@@ -26,6 +26,7 @@ window.__ModuleLoader__.load({
 
     const REMOTE_CONTROL_RPC_CHANNEL = "/dsh-remote-control";
     const CONFIG_RPC_CHANNEL = "/dsh-remote-control-config";
+    const SESSION_PATH = "/dsh-remote-control/session";
     const STORAGE_KEY = "dsh-remote-control.secret";
     const LEGACY_STORAGE_KEY = "dsh-ai-proxy.remote-control-secret";
     const SETTINGS_SLOT = "settings.section";
@@ -104,6 +105,71 @@ window.__ModuleLoader__.load({
         return result.value;
       };
 
+      /**
+       * Complete the host-side browser session once the shared secret is verified.
+       * The gate alone cannot carry the workspace: every /api request — including
+       * the remote.mux stream behind connection.state — stays fenced by Connection's
+       * process-token cookie, so without this exchange a remote page unlocks and then
+       * sits at 自动重连中 forever. A missing endpoint (older host build) degrades to
+       * the previous behaviour instead of locking the user out.
+       */
+      const openSession = async (token) => {
+        if (typeof globalThis.fetch !== "function") return { ok: true, skipped: true };
+        try {
+          const response = await globalThis.fetch(SESSION_PATH, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ token }),
+            credentials: "same-origin",
+          });
+          if (response.status === 404 || response.status === 405) return { ok: true, unsupported: true };
+          let payload;
+          try {
+            payload = await response.json();
+          } catch {
+            payload = undefined;
+          }
+          if (response.status !== 200) {
+            const message = payload?.error?.message;
+            return {
+              ok: false,
+              message: typeof message === "string" && message ? message : "HTTP " + String(response.status),
+            };
+          }
+          if (payload?.ok !== true) return { ok: false, message: "Host 未确认浏览器会话" };
+          return { ok: true, minted: payload.minted === true };
+        } catch (error) {
+          return { ok: false, message: error instanceof Error ? error.message : String(error) };
+        }
+      };
+
+      /**
+       * A page that reached the gate without a host session booted against a dead
+       * /api surface, so restart it once the freshly minted cookie exists. The
+       * reloaded page re-runs the automatic check and finds the session already
+       * alive, which keeps this from turning into a reload loop.
+       */
+      const reloadForFreshSession = (session) => {
+        if (session.minted !== true) return false;
+        const reload = globalThis.location?.reload;
+        if (typeof reload !== "function") return false;
+        reload.call(globalThis.location);
+        return true;
+      };
+
+      /** Drop the official session this browser minted; failures keep the gate usable. */
+      const closeSession = async (token) => {
+        if (typeof globalThis.fetch !== "function" || !token) return;
+        try {
+          await globalThis.fetch(SESSION_PATH, {
+            method: "DELETE",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ token }),
+            credentials: "same-origin",
+          });
+        } catch {}
+      };
+
       const syncSettingsMirror = () => {
         try {
           if (ctx.connection) ctx.connection.isLoopback = true;
@@ -135,6 +201,9 @@ window.__ModuleLoader__.load({
         disposeGate = undefined;
         dispose?.();
         syncSettingsMirror();
+        try {
+          ctx.connection?.reconnect?.();
+        } catch {}
       };
 
       function UnlockScreen() {
@@ -150,8 +219,15 @@ window.__ModuleLoader__.load({
             if (!result || result.ok !== true) throw new Error(result?.error?.message || "无法读取远程控制状态");
             const next = result.value || {};
             if (next.authenticated === true) {
+              const session = await openSession(token.trim());
+              if (session.ok !== true) {
+                setState({ checking: false, enabled: next.enabled === true, secretConfigured: next.secretConfigured === true });
+                setError("密钥校验通过，但未能建立官方浏览器会话: " + session.message);
+                return;
+              }
               currentSecret = token.trim();
               saveSecret(currentSecret);
+              if (reloadForFreshSession(session)) return;
               unlock();
               return;
             }
@@ -229,8 +305,10 @@ window.__ModuleLoader__.load({
         disposeGate = ctx.slots.register({ name: "root", priority: GATE_PRIORITY }, UnlockScreen);
       };
       const lock = () => {
+        const token = currentSecret;
         currentSecret = "";
         saveSecret("");
+        void closeSession(token);
         mountGate();
       };
       mountGate();
@@ -298,6 +376,9 @@ window.__ModuleLoader__.load({
           if (!result || result.ok !== true || result.value?.authenticated !== true) throw new Error(result?.error?.message || "远程控制认证失败");
           currentSecret = token;
           saveSecret(token);
+          const session = await openSession(token);
+          if (session.ok !== true) throw new Error("未能建立官方浏览器会话: " + session.message);
+          if (reloadForFreshSession(session)) return;
           setRemote(Object.assign({}, result.value, { message: "远程控制已认证" }));
           syncSettingsMirror();
         };
