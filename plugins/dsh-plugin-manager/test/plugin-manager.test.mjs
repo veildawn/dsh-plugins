@@ -632,6 +632,13 @@ describe('dsh-market lockfile RPC (getLockfileHealth / repairLockfile)', () => {
   })
 })
 
+/**
+ * The client bundle registers itself exactly once per process through
+ * `window.__ModuleLoader__.load`, and `import()` caches the evaluated module.
+ * Every client-side suite below therefore shares this captured definition.
+ */
+let capturedPluginDefinition = null
+
 describe('dsh-plugin-manager client bundle verification', () => {
   it("renders PluginManagerSection under all tab and update states without crashing", async () => {
     let definition;
@@ -639,6 +646,7 @@ describe('dsh-plugin-manager client bundle verification', () => {
     globalThis.window = { __ModuleLoader__: { load(value) { definition = value; } } };
     try {
       await import("../lib/client.js");
+      capturedPluginDefinition = definition;
       const fakeReact = {
         useEffect: () => {},
         useRef: (init) => ({ current: init }),
@@ -1244,11 +1252,338 @@ describe('dsh-market DSH host update detection', () => {
   })
 
   it('queries DSH update with stubbed fetch and spawn', async () => {
-    const fakeSpawn = () => ({ status: 0, stdout: '0.1.2-rc.1\n' })
-    const res = await queryDshUpdate({ spawnFn: fakeSpawn })
-    assert.equal(res.name, '@deepseek-ai/dsh')
-    assert.equal(res.currentVersion, '0.1.2-rc.1')
-    assert.ok(typeof res.latestVersion === 'string' && res.latestVersion.length > 0)
-    assert.equal(res.hasUpdate, true)
+    // Fully stubbed: this test previously reached the live npm registry and
+    // GitHub, so its hardcoded expectation broke every time a new DSH release
+    // was published (e.g. 0.1.5-rc.1 -> 0.1.5-rc.3) without any code regression.
+    const urls = []
+    _setHttpFetch(async (url) => {
+      urls.push(url)
+      if (url.includes('registry.npmjs.org')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ 'dist-tags': { latest: '0.1.5-rc.1' }, time: { '0.1.5-rc.1': '2026-01-01T00:00:00.000Z' } }),
+        }
+      }
+      return { ok: true, status: 200, json: async () => [] }
+    })
+    try {
+      resetMarketCaches()
+      const fakeSpawn = () => ({ status: 0, stdout: '0.1.2-rc.1\n' })
+      const res = await queryDshUpdate({ spawnFn: fakeSpawn })
+      assert.equal(res.name, '@deepseek-ai/dsh')
+      assert.equal(res.currentVersion, '0.1.2-rc.1')
+      assert.equal(res.latestVersion, '0.1.5-rc.1')
+      assert.equal(res.hasUpdate, true)
+      assert.equal(res.releaseUrl.includes('deepseek-harness'), true)
+      assert.equal(urls.some((u) => u.includes('registry.npmjs.org')), true, 'must query the npm registry')
+    } finally {
+      _resetHttpFetch()
+      resetMarketCaches()
+    }
+  })
+})
+
+/**
+ * Regression guard for:
+ *   「DSH 有更新时，'复制更新命令' 按钮点击后未起作用」
+ *
+ * The button used to call `navigator.clipboard.writeText(cmd)` fire-and-forget
+ * inside a synchronous try/catch. The Clipboard API is promise-based, so a
+ * rejection (permission denied / document unfocused / API absent) escaped that
+ * try/catch, the execCommand fallback never ran, and no feedback was rendered —
+ * a button that visibly did nothing. These tests render the real component and
+ * click the real rendered button against a minimal DOM.
+ */
+describe('dsh-plugin-manager DSH update banner copy command', () => {
+  const DSH_CMD = 'npm install -g @deepseek-ai/dsh'
+  const DSH_PAYLOAD = {
+    currentVersion: '0.1.2-rc.1',
+    latestVersion: '0.1.5-rc.1',
+    hasUpdate: true,
+    releaseUrl: 'https://example.test/release',
+  }
+
+  /**
+   * Map every `const [name, setName] = react.useState(...)` to its name. The
+   * hook shim below is keyed by these names, so reordering or inserting a hook
+   * can never silently point the test at the wrong state slot.
+   */
+  const CLIENT_SOURCE = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const STATE_SLOTS = [...CLIENT_SOURCE.matchAll(/const \[(\w+), set\w+\] = react\.useState\(/g)]
+    .map((match) => match[1])
+
+  const findNode = (node, predicate) => {
+    if (!node || typeof node !== 'object') return null
+    if (predicate(node)) return node
+    const children = node.props ? node.props.children : null
+    const list = Array.isArray(children) ? children : (children == null ? [] : [children])
+    for (const child of list) {
+      const hit = findNode(child, predicate)
+      if (hit) return hit
+    }
+    return null
+  }
+
+  /** Static createElement stores children as an array, so join the text bits. */
+  const labelOf = (node) => {
+    const children = node.props ? node.props.children : null
+    const list = Array.isArray(children) ? children : [children]
+    return list.filter((child) => typeof child === 'string').join('')
+  }
+
+  const findButton = (tree, predicate) =>
+    findNode(tree, (n) => n.type === 'button' && typeof n.props?.onClick === 'function' && predicate(n))
+
+  const bannerCopyButton = (tree) => findButton(tree, (n) => labelOf(n) === '复制更新命令')
+  const copiedBannerButton = (tree) => findButton(tree, (n) => labelOf(n) === '✓ 已复制')
+  const badgeCopyButton = (tree) => findButton(tree, (n) =>
+    typeof n.props.className === 'string'
+    && n.props.className.includes('dm-dsh-badge')
+    && labelOf(n).includes('可更新'))
+
+  const clickCopyButton = async ({ clipboard, execCommand, button = 'banner', dshUpdate = DSH_PAYLOAD }) => {
+    // Record process-level rejections: the old implementation leaked one, which
+    // is precisely why the click produced no visible result.
+    const unhandled = []
+    const onUnhandled = (reason) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandled)
+
+    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+
+    // Capture every timer so the 2s "已复制" reset can be fired on demand.
+    const timers = []
+    const windowStub = {
+      setTimeout: (fn, delay) => { timers.push({ fn, delay }); return timers.length },
+      clearTimeout: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      clearInterval: () => {},
+      setInterval: () => 0,
+    }
+
+    const copied = []
+    let execCalls = 0
+    // apply() injects a <style> node via document.getElementById/head, and the
+    // execCommand fallback builds an offscreen <textarea> with focus/select.
+    const fakeDocument = {
+      getElementById: () => null,
+      head: { appendChild: () => {} },
+      body: { appendChild: () => {}, removeChild: () => {} },
+      createElement: () => ({
+        style: {},
+        value: '',
+        setAttribute: () => {},
+        focus: () => {},
+        select: () => {},
+      }),
+      execCommand: (cmd) => {
+        execCalls += 1
+        if (execCommand) return execCommand(cmd)
+        copied.push(DSH_CMD)
+        return true
+      },
+    }
+
+    // `navigator` / `document` / `window` are getter-only accessors on modern
+    // Node globals, so assignment throws — swap the descriptors instead.
+    Object.defineProperty(globalThis, 'window', { value: windowStub, configurable: true, writable: true })
+    Object.defineProperty(globalThis, 'navigator', { value: { clipboard }, configurable: true, writable: true })
+    Object.defineProperty(globalThis, 'document', { value: fakeDocument, configurable: true, writable: true })
+
+    try {
+      const store = { dshUpdate, feedback: '', feedbackKind: 'ok' }
+      const renders = []
+      let hookIndex = 0
+
+      const fakeReact = {
+        Fragment: 'Fragment',
+        createElement: (type, props, ...children) => ({ type, props: { ...(props || {}), children } }),
+        useEffect: () => {},
+        useMemo: (fn) => fn(),
+        useRef: (init) => ({ current: init }),
+        // The bundle calls `react.useCallback(fn)` and invokes the result with
+        // an argument, so hand the raw function back (arity preserved).
+        useCallback: (fn) => fn,
+        useState: (init) => {
+          const name = STATE_SLOTS[hookIndex++]
+          const has = Object.prototype.hasOwnProperty.call(store, name)
+          const current = has ? store[name] : (typeof init === 'function' ? init() : init)
+          if (!has) store[name] = current
+          return [current, (value) => {
+            store[name] = typeof value === 'function' ? value(store[name]) : value
+            render()
+          }]
+        },
+      }
+
+      const plugin = capturedPluginDefinition.factory((id) => {
+        if (id === 'react') return fakeReact
+        if (id === 'react-dom') return { createPortal: (node) => node }
+        if (id === '@deepseek-ai/dsh-client-ui-primitives') {
+          return new Proxy({}, { get: () => () => ({ type: 'icon' }) })
+        }
+        return {}
+      })
+
+      const slots = []
+      plugin.apply({
+        slots: { inject: (slot, fn) => fn(), register: (entry, comp) => slots.push({ entry, comp }) },
+        connection: {
+          rpc: {
+            call: async (channel, method) => {
+              if (method === 'getDshUpdate') return dshUpdate
+              if (method === 'getRepoPlugins') return { plugins: [], repoOrigin: 'veildawn/dsh-plugins', profile: 'web' }
+              if (method === 'getConfig') return {}
+              if (method === 'getCommunityPlugins') return { plugins: [] }
+              return {}
+            },
+          },
+        },
+        remote: { $on: () => () => {} },
+      })
+
+      const render = () => {
+        hookIndex = 0
+        const tree = slots[0].comp({})
+        renders.push(tree)
+        return tree
+      }
+
+      const tree = render()
+      const btn = button === 'badge' ? badgeCopyButton(tree) : bannerCopyButton(tree)
+      assert.ok(btn, `the ${button} copy button must be rendered for the update banner`)
+
+      await btn.props.onClick()
+      await new Promise((resolve) => setImmediate(resolve))
+
+      // Let the loadDshUpdate RPC promise settle so state-driven renders land.
+      await new Promise((resolve) => setImmediate(resolve))
+
+      return {
+        copied,
+        execCalls,
+        unhandled,
+        store,
+        timers,
+        renders,
+        latest: () => renders[renders.length - 1],
+      }
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled)
+      if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+      else delete globalThis.window
+      if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator)
+      else delete globalThis.navigator
+      if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument)
+      else delete globalThis.document
+    }
+  }
+
+  it('banner button writes the update command to the clipboard and reports success', async () => {
+    const writes = []
+    const { store, unhandled } = await clickCopyButton({
+      clipboard: { writeText: async (text) => { writes.push(text) } },
+      execCommand: null,
+    })
+    assert.deepEqual(writes, [DSH_CMD])
+    assert.equal(store.feedbackKind, 'ok')
+    assert.equal(store.feedback.includes(DSH_CMD), true, 'success toast must contain the command')
+    assert.equal(unhandled.length, 0, 'copy must not leak an unhandled rejection')
+  })
+
+  it('falls back to execCommand when the clipboard API is missing (no dead click)', async () => {
+    const { copied, execCalls, store, unhandled } = await clickCopyButton({
+      clipboard: undefined,
+      execCommand: null,
+    })
+    assert.deepEqual(copied, [DSH_CMD], 'execCommand fallback must run when clipboard is unavailable')
+    assert.equal(execCalls >= 1, true)
+    assert.equal(store.feedbackKind, 'ok')
+    assert.equal(unhandled.length, 0)
+  })
+
+  it('falls back to execCommand when clipboard.writeText rejects (the reported dead-button path)', async () => {
+    const { copied, store, unhandled } = await clickCopyButton({
+      clipboard: { writeText: async () => { throw new Error('NotAllowedError: Document is not focused') } },
+      execCommand: null,
+    })
+    assert.deepEqual(copied, [DSH_CMD], 'rejected writeText must fall back to execCommand')
+    assert.equal(store.feedbackKind, 'ok')
+    assert.equal(unhandled.length, 0, 'fire-and-forget writeText rejection previously escaped the try/catch')
+  })
+
+  it('surfaces a manual-copy error toast when every clipboard path fails', async () => {
+    const { store, unhandled } = await clickCopyButton({
+      clipboard: { writeText: async () => { throw new Error('NotAllowedError') } },
+      execCommand: () => false,
+    })
+    assert.equal(store.feedbackKind, 'error')
+    assert.equal(store.feedback.includes('复制失败'), true)
+    assert.equal(store.feedback.includes(DSH_CMD), true, 'failure toast must still expose the command')
+    assert.equal(unhandled.length, 0)
+  })
+
+  it('badge button shares the same robust copy path', async () => {
+    const writes = []
+    const { store, unhandled } = await clickCopyButton({
+      clipboard: { writeText: async (text) => { writes.push(text) } },
+      execCommand: null,
+      button: 'badge',
+    })
+    assert.deepEqual(writes, [DSH_CMD])
+    assert.equal(store.feedbackKind, 'ok')
+    assert.equal(unhandled.length, 0)
+  })
+
+  it('shows immediate in-button feedback and resets it on the 2s timer', async () => {
+    const { latest, timers, unhandled } = await clickCopyButton({
+      clipboard: { writeText: async () => {} },
+      execCommand: null,
+    })
+    assert.ok(copiedBannerButton(latest()), 'button must switch to the "✓ 已复制" state right after a successful copy')
+    assert.equal(timers.some((t) => t.delay === 2000), true, 'the copied state must be reset by a 2000ms timer')
+    for (const timer of timers.filter((t) => t.delay === 2000)) timer.fn()
+    assert.ok(bannerCopyButton(latest()), 'button must return to "复制更新命令" once the timer fires')
+    assert.equal(unhandled.length, 0)
+  })
+
+  it('renders the banner from the loadDshUpdate RPC payload', async () => {
+    const writes = []
+    // Note: the harness already clicked the copy button, so this assertion runs
+    // against renders rather than the live tree — after a successful copy the
+    // banner button is intentionally replaced by the "✓ 已复制" state.
+    const { renders, unhandled } = await clickCopyButton({
+      clipboard: { writeText: async (text) => { writes.push(text) } },
+      execCommand: null,
+    })
+    assert.deepEqual(writes, [DSH_CMD], 'the payload-driven banner button must copy the update command')
+    const banner = renders
+      .map((tree) => findNode(tree, (n) =>
+        typeof n.props?.className === 'string' && n.props.className.includes('dm-dsh-banner')))
+      .find(Boolean)
+    assert.ok(banner, 'the update banner must render when getDshUpdate reports hasUpdate')
+    const copyLabel = findNode(banner, (n) => n.type === 'button' && labelOf(n) === '复制更新命令')
+    assert.ok(copyLabel, 'the payload-driven banner must expose a "复制更新命令" button')
+    assert.equal(copyLabel.props.title.includes(DSH_CMD), true, 'button title must document the exact command')
+    assert.equal(unhandled.length, 0)
+  })
+
+  it('client bundle keeps the raw clipboard write inside the shared helper only', () => {
+    const calls = CLIENT_SOURCE.split('navigator.clipboard.writeText').length - 1
+    // Shared copyText() holds the only guard + awaited write; the third
+    // occurrence is its explanatory doc comment.
+    assert.equal(calls, 3, 'raw navigator.clipboard.writeText must live only in the shared helper')
+    assert.equal(CLIENT_SOURCE.includes('const copyText = async (text)'), true)
+    assert.equal(CLIENT_SOURCE.includes('await navigator.clipboard.writeText(text)'), true)
+    assert.equal(CLIENT_SOURCE.includes('document.execCommand("copy")'), true)
+  })
+
+  it('keeps the state slot names used by this suite stable', () => {
+    for (const name of ['dshUpdate', 'feedback', 'feedbackKind']) {
+      assert.equal(STATE_SLOTS.includes(name), true, `client.js must keep a useState named ${name}`)
+    }
   })
 })

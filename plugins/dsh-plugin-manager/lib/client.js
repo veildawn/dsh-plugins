@@ -264,6 +264,8 @@ window.__ModuleLoader__.load({
       .dm-action-btn:disabled{opacity:.45;cursor:default}
       .dm-action-btn.primary{background:var(--dsw-alias-brand-primary,var(--dsw-alias-button-primary-fill,#4d6bfe));border-color:transparent;color:#fff}
       .dm-action-btn.primary:hover{opacity:.9}
+      .dm-action-btn.primary.copied{background:#10b981;border-color:transparent;color:#fff}
+      .dm-action-btn.primary.copied:hover{opacity:1}
       .dm-action-btn.success{background:#10b981;border-color:transparent;color:#fff}
       .dm-action-btn.warning{border-color:var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));color:var(--dsw-alias-label-primary,#1f2328)}
       .dm-action-btn.danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 45%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
@@ -407,6 +409,7 @@ window.__ModuleLoader__.load({
         const [draft, setDraft] = react.useState(null);
         const [taskState, setTaskState] = react.useState(null);
         const [copiedMap, setCopiedMap] = react.useState({}); // { [pluginName]: boolean }
+        const [dshCmdCopied, setDshCmdCopied] = react.useState(false);
         const [restartingState, setRestartingState] = react.useState(null);
         const [confirmState, setConfirmState] = react.useState(null);
         const confirmResolverRef = react.useRef(null);
@@ -470,6 +473,62 @@ window.__ModuleLoader__.load({
           setFeedback(text);
           setFeedbackKind(kind);
           window.setTimeout(() => setFeedback(""), 4000);
+        };
+
+        /**
+         * Legacy synchronous copy fallback for documents where the async
+         * Clipboard API is unavailable (insecure context, clipboard permission
+         * denied, document not focused, embedded frame...).
+         */
+        const execCopy = (text) => {
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.setAttribute("readonly", "");
+            ta.style.position = "fixed";
+            ta.style.top = "0";
+            ta.style.left = "0";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            const ok = document.execCommand("copy");
+            document.body.removeChild(ta);
+            return Boolean(ok);
+          } catch {
+            return false;
+          }
+        };
+
+        /**
+         * Single robust clipboard entry point shared by every "copy" affordance.
+         *
+         * The async Clipboard API is a secure-context permission: the returned
+         * promise can REJECT (NotAllowedError when the document is unfocused or
+         * the permission is denied) and `navigator.clipboard` itself can be
+         * undefined. A fire-and-forget `navigator.clipboard.writeText(cmd)`
+         * therefore fails silently with no fallback and no user feedback, which
+         * looked like a dead button. Always await it, then fall back.
+         */
+        const copyText = async (text) => {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            try {
+              await navigator.clipboard.writeText(text);
+              return true;
+            } catch {}
+          }
+          return execCopy(text);
+        };
+
+        /**
+         * Copy with unified user feedback: notify only reports a real success,
+         * otherwise the command is surfaced so the user can copy it manually.
+         */
+        const copyWithFeedback = async (text) => {
+          const ok = await copyText(text);
+          if (ok) notify(`已复制更新命令到剪贴板：${text}`);
+          else notify(`复制失败，请手动执行：${text}`, "error");
+          return ok;
         };
 
         const loadRepo = react.useCallback(async (force = false) => {
@@ -784,32 +843,11 @@ window.__ModuleLoader__.load({
               }, 2500);
             }
           };
-          
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(cmd).then(done).catch(() => {
-              execCopy(cmd);
-              done();
-            });
-          } else {
-            execCopy(cmd);
-            done();
-          }
-        };
 
-        const execCopy = (text) => {
-          try {
-            const ta = document.createElement("textarea");
-            ta.value = text;
-            ta.style.position = "fixed";
-            ta.style.top = "0";
-            ta.style.left = "0";
-            ta.style.opacity = "0";
-            document.body.appendChild(ta);
-            ta.focus();
-            ta.select();
-            document.execCommand("copy");
-            document.body.removeChild(ta);
-          } catch {}
+          void copyText(cmd).then((copiedOk) => {
+            if (copiedOk) done();
+            else notify(`复制失败，请手动执行：${cmd}`, "error");
+          });
         };
 
         const categoryName = (id) => {
@@ -1024,17 +1062,17 @@ window.__ModuleLoader__.load({
                 style: { textDecoration: "none" }
               }, "查看更新日志") : null,
               react.createElement("button", {
-                className: "dm-action-btn primary",
+                className: dshCmdCopied ? "dm-action-btn primary copied" : "dm-action-btn primary",
                 type: "button",
+                title: "复制升级命令：npm install -g @deepseek-ai/dsh",
                 onClick: () => {
-                  try {
-                    navigator.clipboard.writeText("npm install -g @deepseek-ai/dsh");
-                    notify("已复制更新命令到剪贴板：npm install -g @deepseek-ai/dsh");
-                  } catch {
-                    notify("npm install -g @deepseek-ai/dsh");
-                  }
+                  void copyWithFeedback("npm install -g @deepseek-ai/dsh").then((copiedOk) => {
+                    if (!copiedOk) return;
+                    setDshCmdCopied(true);
+                    window.setTimeout(() => setDshCmdCopied(false), 2000);
+                  });
                 }
-              }, "复制更新命令")
+              }, dshCmdCopied ? "✓ 已复制" : "复制更新命令")
             )
           ) : null,
           react.createElement("div", { className: "dm-console-card" },
@@ -1053,12 +1091,7 @@ window.__ModuleLoader__.load({
                       type: "button",
                       title: "点击复制升级命令 npm install -g @deepseek-ai/dsh",
                       onClick: () => {
-                        try {
-                          navigator.clipboard.writeText("npm install -g @deepseek-ai/dsh");
-                          notify("已复制更新命令到剪贴板：npm install -g @deepseek-ai/dsh");
-                        } catch {
-                          notify("npm install -g @deepseek-ai/dsh");
-                        }
+                        void copyWithFeedback("npm install -g @deepseek-ai/dsh");
                       }
                     }, `⚡ 可更新 v${dshUpdate.latestVersion}`) : react.createElement("span", {
                       className: "dm-dsh-badge up-to-date",
