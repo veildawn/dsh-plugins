@@ -63,7 +63,7 @@ rm ~/Library/LaunchAgents/com.deepseek.dsh-web.plist
 使用 DSH 官方 CLI 安装本插件：
 
 ```bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.21/dsh-plugin-manager-0.3.21.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.22/dsh-plugin-manager-0.3.22.tgz
 ```
 
 或使用本地打包安装：
@@ -71,7 +71,7 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 ```bash
 cd plugins/dsh-plugin-manager
 npm pack
-dsh plugin add --profile web ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3.21.tgz
+dsh plugin add --profile web ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3.22.tgz
 ```
 
 ---
