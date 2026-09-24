@@ -2,9 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import {
+  MODEL_ROLES_PRESET,
+  MODEL_ROLES_PRESET_NAME,
   SETTINGS_RPC_CHANNEL,
   apply as applyHost,
   contentHasImage,
+  ensureModelRolesPreset,
   handleSettingsRpc,
 } from '../lib/index.js'
 
@@ -126,6 +129,43 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   assert.doesNotMatch(client, /conversation\.input\.left|ModelRoleSelect|ROLE_SLOT|"subagent"|子代理角色（兼容）/)
 })
 
+test('the opt-in preset is provisioned once as a named copy of Standard Mode', async () => {
+  const copies = []
+  let presets = [{ id: 'standard' }]
+  const roster = {
+    authorable: true,
+    async list() { return presets },
+    async copy(from, id, name) {
+      copies.push({ from, id, name })
+      presets = [...presets, { id }]
+    },
+  }
+  assert.deepEqual(await ensureModelRolesPreset(roster), { status: 'created' })
+  assert.deepEqual(copies, [{
+    from: 'standard', id: MODEL_ROLES_PRESET, name: MODEL_ROLES_PRESET_NAME,
+  }])
+  assert.deepEqual(await ensureModelRolesPreset(roster), { status: 'exists' })
+  assert.equal(copies.length, 1)
+
+  // Broken preset is detected and preserved
+  assert.deepEqual(await ensureModelRolesPreset({
+    authorable: true,
+    async list() { return [{ id: MODEL_ROLES_PRESET, broken: 'missing dependency' }] },
+  }), { status: 'broken', reason: 'missing dependency' })
+
+  // When agentPresets is missing, list fails, or not authorable
+  assert.deepEqual(await ensureModelRolesPreset(null), { status: 'unavailable' })
+  const listErr = new Error('disk failure')
+  assert.deepEqual(await ensureModelRolesPreset({
+    authorable: true,
+    async list() { throw listErr },
+  }), { status: 'list-failed', error: listErr })
+  assert.deepEqual(await ensureModelRolesPreset({
+    authorable: false,
+    async list() { return [] },
+  }), { status: 'not-authorable' })
+})
+
 test('loopback settings RPC exposes and revision-checks the plugin namespace', async () => {
   const calls = []
   const settings = {
@@ -214,6 +254,15 @@ test('host registers advisor control and delegates image requests before main ro
       },
     },
     inject(dependencies, install) {
+      if (dependencies.includes('agentPresets')) {
+        return install({
+          agentPresets: {
+            authorable: true,
+            async list() { return [{ id: 'model-roles' }] },
+            async copy() { assert.fail('existing preset must not be copied') },
+          },
+        })
+      }
       assert.deepEqual(dependencies, ['connection'])
       return install({
         connection: {
@@ -271,6 +320,81 @@ test('host registers advisor control and delegates image requests before main ro
   })), {
     provider: 'native', model: 'text', maxTokens: 100,
   })
+})
+
+test('apply wires agentPresets dynamic injection to provision preset and log appropriately', async () => {
+  const injectedDeps = []
+  const copies = []
+  const logs = { info: [], warn: [] }
+  let presets = [{ id: 'standard' }]
+
+  const ctx = {
+    logger: {
+      info(msg) { logs.info.push(msg) },
+      warn(msg, err) { logs.warn.push({ msg, err }) },
+      error() {},
+    },
+    settings: {
+      register() { return { get: () => ({ roles: [] }), watch() {} } },
+    },
+    commands: { register() { return () => {} } },
+    llm: { stream() {} },
+    subagents: {},
+    inject(dependencies, install) {
+      injectedDeps.push(dependencies)
+      if (dependencies.includes('agentPresets')) {
+        return install({
+          agentPresets: {
+            authorable: true,
+            async list() { return presets },
+            async copy(from, id, name) {
+              copies.push({ from, id, name })
+              presets = [...presets, { id }]
+            },
+          },
+        })
+      }
+      return () => {}
+    },
+    on() {},
+  }
+
+  applyHost(ctx)
+  assert(injectedDeps.some((deps) => deps.includes('agentPresets')), 'agentPresets must be injected')
+  // Allow async inject handler to settle
+  await new Promise((r) => setTimeout(r, 10))
+
+  assert.deepEqual(copies, [{
+    from: 'standard', id: MODEL_ROLES_PRESET, name: MODEL_ROLES_PRESET_NAME,
+  }])
+  assert.equal(logs.info.length, 1)
+  assert.match(logs.info[0], /created the 智选模式 Agent Preset/u)
+
+  // Verify warning logged when authorable is false
+  const warnLogs = []
+  const warnCtx = {
+    ...ctx,
+    logger: {
+      info() {},
+      warn(msg, err) { warnLogs.push(msg) },
+      error() {},
+    },
+    inject(dependencies, install) {
+      if (dependencies.includes('agentPresets')) {
+        return install({
+          agentPresets: {
+            authorable: false,
+            async list() { return [] },
+          },
+        })
+      }
+      return () => {}
+    },
+  }
+  applyHost(warnCtx)
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(warnLogs.length, 1)
+  assert.match(warnLogs[0], /no writable user preset root/u)
 })
 test('client settingsRequest falls back to api.settings on HTTP 403', async () => {
   const IconBranchOutline16 = props => ({ type: 'svg', props })

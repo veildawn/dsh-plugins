@@ -26,6 +26,7 @@ export const CONFIGURABLE_ROLES = Object.freeze(OMP_ROLES.filter((role) => role 
 export const ROLE_ID_PATTERN = /^[a-z][a-z0-9_-]*$/u
 export const ADVISOR_COMMAND = 'advisor'
 export const MODEL_ROLES_PRESET = 'model-roles'
+export const MODEL_ROLES_PRESET_NAME = '智选模式'
 export const STANDARD_PRESETS = Object.freeze(new Set([
   'standard',
   'code',

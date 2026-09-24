@@ -24,6 +24,7 @@ import {
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
   MODEL_ROLES_PRESET,
+  MODEL_ROLES_PRESET_NAME,
   OMP_ROLES,
   ROLE_ID_PATTERN,
   STANDARD_PRESETS,
@@ -53,6 +54,7 @@ export {
   BUILTIN_ROLES,
   CONFIGURABLE_ROLES,
   MODEL_ROLES_PRESET,
+  MODEL_ROLES_PRESET_NAME,
   OMP_ROLES,
   ROLE_ID_PATTERN,
   STANDARD_PRESETS,
@@ -276,11 +278,65 @@ export async function classifyAutomaticRole(ctx, agent, table, signal) {
   return parseAutomaticRole(output) ?? 'default'
 }
 
+/** Ensure the opt-in Agent Preset exists as a full copy of Standard Mode. */
+export async function ensureModelRolesPreset(agentPresets) {
+  if (!agentPresets) return { status: 'unavailable' }
+
+  const findPreset = (presets) => Array.isArray(presets)
+    ? presets.find((preset) => preset?.id === MODEL_ROLES_PRESET)
+    : undefined
+  const existingResult = (preset) => preset?.broken
+    ? { status: 'broken', reason: preset.broken }
+    : { status: 'exists' }
+
+  let presets
+  try {
+    presets = await agentPresets.list()
+  } catch (error) {
+    return { status: 'list-failed', error }
+  }
+
+  const existing = findPreset(presets)
+  if (existing !== undefined) return existingResult(existing)
+  if (!agentPresets.authorable) return { status: 'not-authorable' }
+
+  try {
+    await agentPresets.copy('standard', MODEL_ROLES_PRESET, MODEL_ROLES_PRESET_NAME)
+    return { status: 'created' }
+  } catch (error) {
+    // A concurrent hot-reload may win the same id between list() and copy().
+    try {
+      const raced = findPreset(await agentPresets.list())
+      if (raced !== undefined) return existingResult(raced)
+    } catch {}
+    return { status: 'copy-failed', error }
+  }
+}
+
+function reportPresetProvision(ctx, result) {
+  if (result.status === 'created') {
+    ctx.logger.info?.('model-roles: created the 智选模式 Agent Preset from standard')
+  } else if (result.status === 'not-authorable') {
+    ctx.logger.warn?.('model-roles: cannot create the 智选模式 preset because this deployment has no writable user preset root')
+  } else if (result.status === 'list-failed') {
+    ctx.logger.warn?.('model-roles: could not inspect Agent Presets; 智选模式 was not provisioned', result.error)
+  } else if (result.status === 'broken') {
+    ctx.logger.warn?.(`model-roles: the existing 智选模式 preset is broken and was left untouched: ${result.reason}`)
+  } else if (result.status === 'copy-failed') {
+    ctx.logger.warn?.('model-roles: failed to create the 智选模式 preset from standard', result.error)
+  }
+}
+
 /**
  * Register settings and the request router. Settings watchers keep the last
  * good table if a hand-edited document introduces duplicate/invalid role ids.
  */
 export function apply(ctx, config = {}) {
+  ctx.inject(['agentPresets'], async (presetCtx) => {
+    const result = await ensureModelRolesPreset(presetCtx.agentPresets)
+    reportPresetProvision(ctx, result)
+  })
+
   const scope = ctx.settings.register(NS, Config, { base: config })
   let settings = scope.get()
   let table = resolveRoleTable(settings)

@@ -93,6 +93,10 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 升级插件时必须先等待所有运行中的会话结束再重启 DSH；重启活跃服务会让尚未关闭的回合以
 `interrupted` 结束。仅修改角色设置不需要重启，保存后会从下一次请求即时生效。
 
+插件加载时会自动检测并创建名为 **智选模式** 的 Agent Preset（ID 为 `model-roles`），以标准模式为模板复制并提供多模型智能分工。安装后无需手动新建预设，直接在新建会话或会话顶部切换至「智选模式」即可。
+
+若运行环境未配置可写的用户预设目录（`authorable: false`），插件会自动记录告警日志并保持静默旁路；此时可手动创建目录 `${DSH_HOME:-~/.dsh}/.agent-presets/model-roles/` 并将 `standard` 预设的 `agent.cordis.yml` 放入其中。
+
 插件自带的 Cordis 配置为空映射，安装后不会改变原生行为：
 
 ```yaml
