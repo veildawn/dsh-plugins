@@ -45,6 +45,7 @@ import {
   routeAgentRequest,
   routeForRole,
   sanitizeSandboxToolArgs,
+  sanitizeToolSchema,
   taskTextOf,
   withoutImageBlocks,
 } from './core.js'
@@ -76,6 +77,7 @@ export {
   routeAgentRequest,
   routeForRole,
   sanitizeSandboxToolArgs,
+  sanitizeToolSchema,
   taskTextOf,
   withoutImageBlocks,
 }
@@ -347,13 +349,28 @@ export function apply(ctx, config = {}) {
   const classifiedTurns = new WeakMap()
   const visionFallbackTurns = new WeakMap()
 
+  function resolveStandingMode(session) {
+    try {
+      return ctx.get('sandboxPolicy')?.resolve?.(session ? { session } : {})?.mode
+    } catch {
+      return undefined
+    }
+  }
+
+  // 1. 提示词组装期：动态收窄工具 Schema，在最高权限下剔除提权参数，消除大模型误传诱导
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const result = await next()
+    if (!Array.isArray(result?.tools)) return result
+    const currentMode = resolveStandingMode(context?.agent?.session)
+    const tools = result.tools.map((tool) => sanitizeToolSchema(tool, currentMode))
+    return tools.every((tool, index) => tool === result.tools[index]) ? result : { ...result, tools }
+  }, { global: true, prepend: true })
+
+  // 2. 工具执行期：全局兜底拦截非严格更宽的沙箱提权参数，避免触发宿主 strictly-wider 断言
   ctx.on('tools/execute', async (exec, next) => {
-    if (!isModelRolesActive(exec?.agent, table)) return next()
     const args = exec?.arguments
     if (args && typeof args === 'object' && args.sandbox_permissions) {
-      const sandboxPolicy = ctx.get('sandboxPolicy')
-      const standing = sandboxPolicy?.resolve?.({ session: exec?.agent?.session })
-      const effectiveMode = standing?.mode ?? 'workspace-write'
+      const effectiveMode = resolveStandingMode(exec?.agent?.session) ?? 'workspace-write'
       const sanitized = sanitizeSandboxToolArgs(exec.name, args, effectiveMode)
       if (sanitized !== args) {
         const originalArgs = exec.arguments
@@ -366,7 +383,7 @@ export function apply(ctx, config = {}) {
       }
     }
     return next()
-  })
+  }, { global: true, prepend: true })
 
   scope.watch((next) => {
     try {

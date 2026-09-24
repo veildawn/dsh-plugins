@@ -293,7 +293,52 @@ export function isModelRolesActive(agent, table) {
 export const SANDBOX_WIDER_MODES = Object.freeze({
   'read-only': Object.freeze(['workspace-write', 'danger-full-access']),
   'workspace-write': Object.freeze(['danger-full-access']),
+  'danger-full-access': Object.freeze([]),
 })
+
+/**
+ * 按当前会话沙箱权限动态收窄工具 Schema。
+ * 在已达到最高权限（danger-full-access）时完全移除提权字段，避免诱导模型误传参数；
+ * 在中间档位（workspace-write）时只保留严格更宽的枚举值。
+ */
+export function sanitizeToolSchema(tool, currentMode) {
+  const params = tool?.parameters
+  const properties = params?.properties
+  if (!properties || !Object.hasOwn(properties, 'sandbox_permissions')) return tool
+  const wider = SANDBOX_WIDER_MODES[currentMode]
+  if (wider === undefined) return tool
+  if (wider.length === 0) return withoutEscalationFields(tool)
+  const declared = properties.sandbox_permissions?.enum
+  const nextEnum = Array.isArray(declared) ? declared.filter((mode) => wider.includes(mode)) : [...wider]
+  if (Array.isArray(declared) && nextEnum.length === declared.length && nextEnum.every((mode, index) => mode === declared[index])) {
+    return tool
+  }
+  return {
+    ...tool,
+    parameters: {
+      ...params,
+      properties: {
+        ...properties,
+        sandbox_permissions: { ...properties.sandbox_permissions, enum: nextEnum },
+      },
+    },
+  }
+}
+
+function withoutEscalationFields(tool) {
+  const { sandbox_permissions, justification, ...properties } = tool.parameters.properties
+  const required = Array.isArray(tool.parameters.required)
+    ? tool.parameters.required.filter((key) => key !== 'sandbox_permissions' && key !== 'justification')
+    : tool.parameters.required
+  return {
+    ...tool,
+    parameters: {
+      ...tool.parameters,
+      properties,
+      ...(required === undefined ? {} : { required }),
+    },
+  }
+}
 
 /**
  * Sanitize tool arguments for sandbox-aware tools (write, edit, bash, pwsh).

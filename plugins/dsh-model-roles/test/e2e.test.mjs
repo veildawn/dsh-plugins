@@ -542,3 +542,63 @@ test('smart mode heals sandbox arguments on tool execution to prevent strictly-w
   assert.equal(receivedArgs.sandbox_permissions, undefined, 'sandbox_permissions must be stripped')
   assert.equal(receivedArgs.justification, undefined, 'justification must be stripped')
 })
+
+test('sandbox guard also protects standard non-smart sessions and sanitizes prompt assembly', async () => {
+  const { ctx } = createRuntime([])
+  let receivedArgs
+  ctx.tools.register({
+    name: 'pwsh',
+    description: 'Execute command',
+    parameters: {
+      properties: {
+        command: { type: 'string' },
+        sandbox_permissions: { type: 'string', enum: ['workspace-write', 'danger-full-access'] },
+        justification: { type: 'string' },
+      },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    execute(args) {
+      receivedArgs = args
+      if (args.sandbox_permissions === 'danger-full-access') {
+        throw new Error('sandbox escalation to "danger-full-access" is not strictly wider than this call\'s current "danger-full-access" mode')
+      }
+      return 'ok'
+    },
+  })
+
+  ctx.provide('sandboxPolicy', {
+    resolve: () => ({ mode: 'danger-full-access' }),
+  })
+
+  // 模拟没有智选模式 preset 的普通标准会话 (preset: standard)
+  const session = ctx.sessions.create('standard-session', {
+    meta: { agentPreset: 'standard' },
+  })
+  const agent = { id: session.id, session, options: {}, ctx }
+
+  // 1. 测试工具执行防御（在非智选会话中同样生效）
+  const toolResult = await ctx.tools.execute({
+    callId: 'call-2',
+    name: 'pwsh',
+    arguments: {
+      command: 'dir',
+      sandbox_permissions: 'danger-full-access',
+      justification: 'run command',
+    },
+    agent,
+    signal: AbortSignal.timeout(5_000),
+  })
+
+  assert.equal(toolResult.isError, false, 'must execute successfully in standard session')
+  assert.equal(receivedArgs.sandbox_permissions, undefined, 'sandbox_permissions must be stripped in standard session')
+
+  // 2. 测试提示词组装期 Schema 收窄防御
+  const assembled = await ctx.systemPrompt.assemble({ agent })
+  const pwshTool = assembled.tools.find((t) => t.name === 'pwsh')
+  assert.ok(pwshTool, 'pwsh tool schema should exist')
+  assert.equal(pwshTool.parameters.properties.sandbox_permissions, undefined, 'must hide sandbox_permissions from prompt schema at top mode')
+})
+

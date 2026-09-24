@@ -19,6 +19,7 @@ import {
   routeAgentRequest,
   routeForRole,
   sanitizeSandboxToolArgs,
+  sanitizeToolSchema,
   taskTextOf,
 } from '../lib/core.js'
 
@@ -294,4 +295,29 @@ test('sanitizeSandboxToolArgs removes non-strictly-wider escalation and heals bl
   assert.deepEqual(sanitizeSandboxToolArgs('write', { file_path: 'a.txt' }, 'danger-full-access'), { file_path: 'a.txt' })
   assert.equal(sanitizeSandboxToolArgs('write', null), null)
 })
+
+test('sanitizeToolSchema hides impossible escalation and keeps a real wider rung', () => {
+  const tool = {
+    name: 'pwsh',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string' },
+        sandbox_permissions: { type: 'string', enum: ['workspace-write', 'danger-full-access'] },
+        justification: { type: 'string' },
+      },
+      required: ['command', 'sandbox_permissions'],
+    },
+  }
+
+  const full = sanitizeToolSchema(tool, 'danger-full-access')
+  assert.equal('sandbox_permissions' in full.parameters.properties, false)
+  assert.equal('justification' in full.parameters.properties, false)
+  assert.deepEqual(full.parameters.required, ['command'])
+
+  const write = sanitizeToolSchema(tool, 'workspace-write')
+  assert.deepEqual(write.parameters.properties.sandbox_permissions.enum, ['danger-full-access'])
+  assert.equal(sanitizeToolSchema(tool, 'read-only'), tool)
+})
+
 
