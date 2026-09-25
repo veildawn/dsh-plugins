@@ -40,10 +40,12 @@ import {
   parseAutomaticRole,
   planModeActive,
   presetOf,
+  resolveBaselineModel,
   resolveRoleTable,
   roleForAgent,
   routeAgentRequest,
   routeForRole,
+  sameModelSelection,
   sanitizeSandboxToolArgs,
   sanitizeToolSchema,
   taskTextOf,
@@ -72,10 +74,12 @@ export {
   parseAutomaticRole,
   planModeActive,
   presetOf,
+  resolveBaselineModel,
   resolveRoleTable,
   roleForAgent,
   routeAgentRequest,
   routeForRole,
+  sameModelSelection,
   sanitizeSandboxToolArgs,
   sanitizeToolSchema,
   taskTextOf,
@@ -348,6 +352,42 @@ export function apply(ctx, config = {}) {
   const reviewedTurns = new WeakMap()
   const classifiedTurns = new WeakMap()
   const visionFallbackTurns = new WeakMap()
+  const sessionBaselines = new WeakMap()
+
+  function getSessionBaseline(agent) {
+    let baseline = sessionBaselines.get(agent.session)
+    if (baseline !== undefined) return baseline
+    const defaultSelection = ctx.get?.('agentDefaultModel')?.currentSelection?.()
+    baseline = resolveBaselineModel(agent, defaultSelection)
+    if (baseline?.provider && baseline?.model) {
+      sessionBaselines.set(agent.session, baseline)
+    }
+    return baseline
+  }
+
+  function restoreBaselineIfNeeded(agent, trigger = 'turn-stopping') {
+    if (!isModelRolesActive(agent, table)) return
+    if (isSubagent(agent)) return
+
+    const baseline = getSessionBaseline(agent)
+    if (!baseline?.provider || !baseline?.model) return
+
+    // 检查本会话最后使用的或请求中的模型配置
+    const lastConfig = agent.session.requestHeader()?.config
+    if (!lastConfig || sameModelSelection(lastConfig, baseline)) return
+
+    try {
+      agent.session.append('model/selection', {
+        provider: baseline.provider,
+        model: baseline.model,
+        ...(baseline.reasoningEffort ? { reasoningEffort: baseline.reasoningEffort } : {}),
+        _restoredByModelRoles: true,
+      })
+      ctx.logger.info?.(`model-roles: restored baseline model ${baseline.provider}/${baseline.model} on ${trigger}`)
+    } catch (error) {
+      ctx.logger.warn?.(`model-roles: failed to restore baseline model selection on ${trigger}`, error)
+    }
+  }
 
   function resolveStandingMode(session) {
     try {
@@ -481,6 +521,10 @@ export function apply(ctx, config = {}) {
     if (!isModelRolesActive(agent, table)) {
       return current
     }
+
+    // 确保会话进入本回合前，已经牢牢锁定了初始/用户基准模型
+    getSessionBaseline(agent)
+
     if (visionFallbackTurns.get(agent)?.has(turn)) {
       return applyRoleRoute(current, routeForRole(table, 'vision'))
     }
@@ -572,6 +616,33 @@ export function apply(ctx, config = {}) {
         ctx.logger.warn('model-roles: advisor disposal failed')
         ctx.logger.warn(error)
       })
+    }
+  })
+
+  // 3. 监听会话显式模型切换事件，如果用户在交互中主动修改了模型，更新基准模型
+  ctx.on('session/event', (session, event) => {
+    if (event?.type === 'model/selection' && event.data?.provider && event.data?.model) {
+      // 若该事件不是插件内部恢复发出的，则更新用户选定的基准模型
+      if (!event.data?._restoredByModelRoles) {
+        sessionBaselines.set(session, {
+          provider: event.data.provider,
+          model: event.data.model,
+          ...(event.data.reasoningEffort ? { reasoningEffort: String(event.data.reasoningEffort) } : {}),
+        })
+      }
+    }
+  })
+
+  // 4. 自然结束点：若本回合因角色路由切换了模型，在回合即将结束且不再追加 steering 时恢复为基准模型
+  ctx.on('agent/turn-stopping', async ({ agent }) => {
+    if (agent?.inbox?.nextStep?.length > 0) return
+    restoreBaselineIfNeeded(agent, 'turn-stopping')
+  })
+
+  // 5. 任何中断、打断、异常或会话停止点：当 agent 进入 idle 状态时，执行最终兜底恢复
+  ctx.on('agent/status', async ({ agent, status }) => {
+    if (status === 'idle') {
+      restoreBaselineIfNeeded(agent, 'agent-idle')
     }
   })
 }

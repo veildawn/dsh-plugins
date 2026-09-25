@@ -602,3 +602,115 @@ test('sandbox guard also protects standard non-smart sessions and sanitizes prom
   assert.equal(pwshTool.parameters.properties.sandbox_permissions, undefined, 'must hide sandbox_permissions from prompt schema at top mode')
 })
 
+test('smart mode: restores default model selection after turn ends when a role was switched', async () => {
+  const { ctx } = createRuntime([
+    { role: 'slow', provider: 'e2e', model: 'slow-model' },
+    { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
+  ])
+
+  // 创建智选模式会话，初始模型为 default-model
+  const session = ctx.sessions.create('smart-restore-session', {
+    meta: { agentPreset: 'model-roles' },
+  })
+  session.append('model/selection', { provider: 'e2e', model: 'default-model' })
+
+  const agent = {
+    id: session.id,
+    session,
+    options: { provider: 'e2e', model: 'default-model' },
+    ctx,
+    inbox: { nextStep: [] },
+  }
+
+  // 1. 第一步：触发请求，由于是高难度任务，自动分类或角色指定为 slow
+  agent.options.modelRole = 'slow'
+  const requestedConfig = await agentEvents(ctx, agent).waterfall('agent/request', {
+    agent,
+    turn: 1,
+    step: 1,
+    signal: AbortSignal.timeout(5_000),
+  }, () => Promise.resolve({
+    provider: 'e2e',
+    model: 'default-model',
+  }))
+  assert.equal(requestedConfig.model, 'slow-model', 'turn request must be routed to slow-model')
+
+  // 模拟请求被执行并持久化到 request/header
+  session.append('request/header', {
+    header: {
+      config: { provider: 'e2e', model: 'slow-model' },
+    },
+    reason: 'initial',
+  })
+
+  // 2. 回合结束：触发 agent/turn-stopping
+  await agentEvents(ctx, agent).serial('agent/turn-stopping', {
+    agent,
+    turn: 1,
+    signal: AbortSignal.timeout(5_000),
+  })
+
+  // 3. 验证会话事件中已经追加恢复默认模型的事件
+  const lastEvent = session.events.at(-1)
+  assert.equal(lastEvent.type, 'model/selection', 'must append model/selection event to restore baseline')
+  assert.equal(lastEvent.data.model, 'default-model', 'restored model must be default-model')
+  assert.equal(lastEvent.data.provider, 'e2e', 'restored provider must be e2e')
+})
+
+test('smart mode: restores default model and reasoning effort on abort/idle or session stop', async () => {
+  const { ctx } = createRuntime([
+    { role: 'slow', provider: 'e2e', model: 'slow-model', reasoningEffort: 'low' },
+  ])
+
+  // 创建智选模式会话，用户显式选择了 high 思考等级
+  const session = ctx.sessions.create('smart-idle-restore-session', {
+    meta: { agentPreset: 'model-roles' },
+  })
+  session.append('model/selection', { provider: 'e2e', model: 'default-model', reasoningEffort: 'high' })
+
+  const agent = {
+    id: session.id,
+    session,
+    options: { provider: 'e2e', model: 'default-model', reasoningEffort: 'high' },
+    ctx,
+    inbox: { nextStep: [] },
+  }
+
+  // 模拟任务开始，角色路由切换为带 low 思考等级的 slow-model
+  agent.options.modelRole = 'slow'
+  const requestedConfig = await agentEvents(ctx, agent).waterfall('agent/request', {
+    agent,
+    turn: 1,
+    step: 1,
+    signal: AbortSignal.timeout(5_000),
+  }, () => Promise.resolve({
+    provider: 'e2e',
+    model: 'default-model',
+    reasoningEffort: 'high',
+  }))
+  assert.equal(requestedConfig.model, 'slow-model')
+  assert.equal(requestedConfig.reasoningEffort, 'low')
+
+  session.append('request/header', {
+    header: {
+      config: { provider: 'e2e', model: 'slow-model', reasoningEffort: 'low' },
+    },
+    reason: 'change',
+  })
+
+  // 模拟任务被用户强行打断取消（未调用 turn-stopping，直接进入 idle）
+  await agentEvents(ctx, agent).emit('agent/status', {
+    agent,
+    status: 'idle',
+  })
+
+  // 验证会话在停止时精准还原为用户设定的 default-model 及 high 思考等级
+  const lastEvent = session.events.at(-1)
+  assert.equal(lastEvent.type, 'model/selection')
+  assert.equal(lastEvent.data.model, 'default-model')
+  assert.equal(lastEvent.data.provider, 'e2e')
+  assert.equal(lastEvent.data.reasoningEffort, 'high')
+})
+
+
+

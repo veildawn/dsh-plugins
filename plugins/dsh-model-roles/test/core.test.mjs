@@ -320,4 +320,61 @@ test('sanitizeToolSchema hides impossible escalation and keeps a real wider rung
   assert.equal(sanitizeToolSchema(tool, 'read-only'), tool)
 })
 
+test('resolveBaselineModel resolves active baseline from events, header, options, or default', async () => {
+  const { resolveBaselineModel, sameModelSelection } = await import('../lib/core.js')
+
+  // Case 1: from model/selection event
+  const agentWithEvent = {
+    session: {
+      events: [
+        { type: 'model/selection', data: { provider: 'anthropic', model: 'claude-3-7-sonnet', reasoningEffort: 'high' } },
+      ],
+      requestHeader: () => ({ config: { provider: 'openai', model: 'gpt-4o' } }),
+    },
+    options: { provider: 'ollama', model: 'llama3' },
+  }
+  assert.deepEqual(resolveBaselineModel(agentWithEvent), {
+    provider: 'anthropic',
+    model: 'claude-3-7-sonnet',
+    reasoningEffort: 'high',
+  })
+
+  // Case 2: from requestHeader
+  const agentWithHeader = {
+    session: {
+      events: [],
+      requestHeader: () => ({ config: { provider: 'openai', model: 'gpt-4o', reasoningEffort: 'medium' } }),
+    },
+    options: { provider: 'ollama', model: 'llama3' },
+  }
+  assert.deepEqual(resolveBaselineModel(agentWithHeader), {
+    provider: 'openai',
+    model: 'gpt-4o',
+    reasoningEffort: 'medium',
+  })
+
+  // Case 3: from agent options
+  const agentWithOptions = {
+    session: { events: [] },
+    options: { provider: 'ollama', model: 'llama3' },
+  }
+  assert.deepEqual(resolveBaselineModel(agentWithOptions), {
+    provider: 'ollama',
+    model: 'llama3',
+  })
+
+  // Case 4: from deployment default
+  const emptyAgent = { session: { events: [] } }
+  assert.deepEqual(resolveBaselineModel(emptyAgent, { provider: 'deepseek', model: 'deepseek-chat' }), {
+    provider: 'deepseek',
+    model: 'deepseek-chat',
+  })
+
+  // sameModelSelection checks
+  assert.equal(sameModelSelection({ provider: 'a', model: 'b' }, { provider: 'a', model: 'b' }), true)
+  assert.equal(sameModelSelection({ provider: 'a', model: 'b', reasoningEffort: 'low' }, { provider: 'a', model: 'b' }), false)
+  assert.equal(sameModelSelection({ provider: 'a', model: 'b' }, { provider: 'a', model: 'c' }), false)
+})
+
+
 

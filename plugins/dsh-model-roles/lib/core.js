@@ -243,6 +243,64 @@ export function isSubagent(agent) {
     || (Number.isSafeInteger(agent?.options?.subagentDepth) && agent.options.subagentDepth > 0)
 }
 
+/**
+ * 判断两个模型配置是否等价（provider、model 及 reasoningEffort）。
+ */
+export function sameModelSelection(left, right) {
+  if (left === right) return true
+  if (!left || !right) return false
+  return left.provider === right.provider
+    && left.model === right.model
+    && (left.reasoningEffort ?? '') === (right.reasoningEffort ?? '')
+}
+
+export function toRouteConfig(entry) {
+  if (!entry?.provider || !entry?.model) return undefined
+  return {
+    provider: entry.provider,
+    model: entry.model,
+    ...(entry.reasoningEffort !== undefined && entry.reasoningEffort !== null
+      ? { reasoningEffort: String(entry.reasoningEffort) }
+      : {}),
+  }
+}
+
+/**
+ * 解析会话当前生效的基准选择模型。
+ * 遵循严格防污染准则：
+ * 1. 扫描 session.events 中显式的 'model/selection' 事件（用户手动选定，或插件还原标记）
+ * 2. 初始请求头（仅当 reason 为 'initial' 时的 request/header，绝不取中间路由后的 'change' 请求头）
+ * 3. agent 启动 options
+ * 4. 全局 defaultModel
+ */
+export function resolveBaselineModel(agent, defaultModel) {
+  const events = agent?.session?.events ?? []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index]?.type === 'model/selection') {
+      const match = toRouteConfig(events[index].data)
+      if (match) return match
+    }
+  }
+
+  // 匹配 session 中最初的 'initial' 请求头，或没有其他路由事件时未受污染的 header
+  for (const event of events) {
+    if (event?.type === 'request/header' && event.data?.reason === 'initial') {
+      const match = toRouteConfig(event.data.header?.config)
+      if (match) return match
+    }
+  }
+
+  // 检查当前 session requestHeader（若历史中没有任何修改记录）
+  const directHeader = agent?.session?.requestHeader?.()
+  if (directHeader && (!directHeader.reason || directHeader.reason === 'initial')) {
+    const match = toRouteConfig(directHeader.config ?? directHeader)
+    if (match) return match
+  }
+
+  return toRouteConfig(agent?.options)
+    ?? toRouteConfig(defaultModel)
+}
+
 /** Resolve the live preset id, falling back to the creation header. */
 export function presetOf(agent) {
   try {
