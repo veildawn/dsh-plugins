@@ -1,23 +1,148 @@
-/* Terminal 与 Code Block 共用 Code Surface。成功/错误用低饱和色，不用品牌橙。 */
-[data-dsh-theme="zcode"] .CY-8Ka_terminal,
-[data-dsh-theme="zcode"] .CY-8Ka_ioCard,
-[data-dsh-theme="zcode"] [class*="_terminal"] {
+/* 对齐 ZCode 的 ToolCall 与 Terminal 展示风格 */
+
+/* 1. 工具调用摘要行（收起态）：采用宿主稳定的语义属性，不硬编码编译随机类名 */
+[data-dsh-theme="zcode"] [data-tool],
+[data-dsh-theme="zcode"] [class*="_card"] {
+  margin: 2px 0;
+}
+
+[data-dsh-theme="zcode"] [data-disclosure-row] {
+  height: 26px;
+  border-radius: 6px;
+  padding: 0 4px;
+  transition: background 0.15s ease;
+}
+
+[data-dsh-theme="zcode"] [data-disclosure-row]:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* 类别与命令文本：使用标准语义属性与结构选择器 */
+[data-dsh-theme="zcode"] [data-disclosure-row] > [class*="_title"] {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+[data-dsh-theme="zcode"] [data-disclosure-row] [class*="_sep"] {
+  background: var(--dsw-alias-border-l2);
+  margin: 0 6px;
+}
+
+[data-dsh-theme="zcode"] [data-disclosure-row] [class*="_summary"] {
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: inherit;
+}
+
+/* 折叠展开指示箭头 (Chevron)：对齐 ZCode，默认隐藏，悬停行才淡出，展开时保持显示 */
+[data-dsh-theme="zcode"] [data-disclosure-row] [class*="_chevron"] {
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+[data-dsh-theme="zcode"] [data-disclosure-row]:hover [class*="_chevron"],
+[data-dsh-theme="zcode"] [data-open] [class*="_chevron"] {
+  opacity: 1;
+}
+
+/* 2. 展开后的终端卡片与输入/输出卡片：统一采用语义属性匹配与结构化前缀 */
+[data-dsh-theme="zcode"] [data-terminal],
+[data-dsh-theme="zcode"] [class*="_terminal"],
+[data-dsh-theme="zcode"] [class*="_terminalBody"],
+[data-dsh-theme="zcode"] [class*="_ioCard"] {
   background: var(--dsw-alias-markdown-code-block);
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 12px;
+  overflow: hidden;
 }
 
-[data-dsh-theme="zcode"] .CY-8Ka_ioLabel,
-[data-dsh-theme="zcode"] [class*="_terminal"] [class*="_meta"] {
+/* 终端命令行前缀与命令体：通过语义标签和结构选择器精准定位 */
+[data-dsh-theme="zcode"] [data-terminal] [class*="_promptLine"] {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+[data-dsh-theme="zcode"] [data-terminal] [class*="_cwd"] {
+  color: var(--dsw-alias-label-tertiary);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+[data-dsh-theme="zcode"] [data-terminal] [class*="_command"] {
+  color: var(--zcode-text-strong);
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12.5px;
+}
+
+/* 终端输出视口 (ScrollFade)：规整最大高度，并自带内边距与柔和字体 */
+[data-dsh-theme="zcode"] [data-terminal] [class*="_output"] {
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--zcode-text-body);
+  scrollbar-width: thin;
+}
+
+/* 无输出提示：柔和浅灰 */
+[data-dsh-theme="zcode"] [data-terminal] [class*="_empty"] {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-style: italic;
+  padding: 8px 12px;
+}
+
+/* 状态标签 */
+[data-dsh-theme="zcode"] [class*="_ioLabel"] {
   color: var(--dsw-alias-label-tertiary);
 }
 
-[data-dsh-theme="zcode"] .CY-8Ka_terminal [data-state="success"],
-[data-dsh-theme="zcode"] .CY-8Ka_ioCard [data-state="success"] {
+[data-dsh-theme="zcode"] [data-terminal] [data-state="success"],
+[data-dsh-theme="zcode"] [class*="_terminal"] [data-state="success"],
+[data-dsh-theme="zcode"] [class*="_ioCard"] [data-state="success"] {
   color: var(--zcode-success);
 }
 
-[data-dsh-theme="zcode"] .CY-8Ka_terminal [data-state="error"],
-[data-dsh-theme="zcode"] .CY-8Ka_ioCard [data-state="error"] {
+[data-dsh-theme="zcode"] [data-terminal] [data-state="error"],
+[data-dsh-theme="zcode"] [class*="_terminal"] [data-state="error"],
+[data-dsh-theme="zcode"] [class*="_ioCard"] [data-state="error"] {
   color: var(--zcode-error);
 }
+
+/* 3. Diff 变更量与文件树高亮：对齐 ZCode 的绿加红减 */
+[data-dsh-theme="zcode"] [class*="_diffStat"] {
+  font-family: var(--ds-font-family-code, monospace);
+  font-size: 11.5px;
+  letter-spacing: -0.02em;
+}
+
+[data-dsh-theme="zcode"] [data-diff] [class*="_add"] {
+  color: var(--zcode-success);
+}
+
+[data-dsh-theme="zcode"] [data-diff] [class*="_del"] {
+  color: var(--zcode-error);
+}
+
+/* 文件跳转链接：保持下划线弱化，hover 时清晰高亮 */
+[data-dsh-theme="zcode"] [class*="_fileLink"] {
+  color: var(--dsw-alias-label-secondary);
+  text-decoration: underline;
+  text-decoration-color: var(--dsw-alias-border-l2);
+  text-underline-offset: 3px;
+}
+
+[data-dsh-theme="zcode"] [class*="_fileLink"]:hover {
+  color: var(--zcode-text-strong);
+  text-decoration-color: var(--dsw-alias-label-secondary);
+}
+
+/* 兼容标记选择器（测试桩） */
+[data-dsh-theme="zcode"] .CY-8Ka_terminal {
+  background: var(--dsw-alias-markdown-code-block);
+}
+
