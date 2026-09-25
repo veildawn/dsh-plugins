@@ -266,23 +266,36 @@ export function toRouteConfig(entry) {
 }
 
 /**
- * 解析会话当前生效的基准选择模型。
+ * 解析会话当前生效的基准选择模型（用户手动指定的首选模型和思考等级）。
  * 遵循严格防污染准则：
- * 1. 扫描 session.events 中显式的 'model/selection' 事件（用户手动选定，或插件还原标记）
+ * 1. 扫描 session.events 中显式的 'model/selection' 事件，
+ *    优先查找用户手动选定的事件（排除内部自动还原事件 _restoredByModelRoles: true）
  * 2. 初始请求头（仅当 reason 为 'initial' 时的 request/header，绝不取中间路由后的 'change' 请求头）
- * 3. agent 启动 options
- * 4. 全局 defaultModel
+ * 3. 若存在系统还原的 model/selection 事件，也可作为保底候选
+ * 4. agent 启动 options
+ * 5. 全局 defaultModel
  */
 export function resolveBaselineModel(agent, defaultModel) {
   const events = agent?.session?.events ?? []
+  let restoredFallback
+
+  // 1. 优先从后往前查找用户手动选定的 model/selection（非插件还原产生的事件）
   for (let index = events.length - 1; index >= 0; index -= 1) {
-    if (events[index]?.type === 'model/selection') {
-      const match = toRouteConfig(events[index].data)
-      if (match) return match
+    const event = events[index]
+    if (event?.type === 'model/selection') {
+      const match = toRouteConfig(event.data)
+      if (match) {
+        if (!event.data?._restoredByModelRoles) {
+          return match
+        }
+        if (!restoredFallback) {
+          restoredFallback = match
+        }
+      }
     }
   }
 
-  // 匹配 session 中最初的 'initial' 请求头，或没有其他路由事件时未受污染的 header
+  // 2. 匹配 session 中最初的 'initial' 请求头
   for (const event of events) {
     if (event?.type === 'request/header' && event.data?.reason === 'initial') {
       const match = toRouteConfig(event.data.header?.config)
@@ -290,12 +303,15 @@ export function resolveBaselineModel(agent, defaultModel) {
     }
   }
 
-  // 检查当前 session requestHeader（若历史中没有任何修改记录）
+  // 3. 检查当前 session requestHeader（若没有任何修改记录）
   const directHeader = agent?.session?.requestHeader?.()
   if (directHeader && (!directHeader.reason || directHeader.reason === 'initial')) {
     const match = toRouteConfig(directHeader.config ?? directHeader)
     if (match) return match
   }
+
+  // 4. 若之前有还原过的有效配置，则采用
+  if (restoredFallback) return restoredFallback
 
   return toRouteConfig(agent?.options)
     ?? toRouteConfig(defaultModel)

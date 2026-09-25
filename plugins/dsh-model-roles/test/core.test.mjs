@@ -370,6 +370,22 @@ test('resolveBaselineModel resolves active baseline from events, header, options
     model: 'deepseek-chat',
   })
 
+  // Case 5: ignores _restoredByModelRoles when earlier explicit user selection exists
+  const agentWithRestoreHistory = {
+    session: {
+      events: [
+        { type: 'model/selection', data: { provider: 'anthropic', model: 'claude-3-7-sonnet', reasoningEffort: 'high' } },
+        { type: 'model/selection', data: { provider: 'e2e', model: 'slow-model', _restoredByModelRoles: true } },
+      ],
+    },
+    options: { provider: 'ollama', model: 'llama3' },
+  }
+  assert.deepEqual(resolveBaselineModel(agentWithRestoreHistory), {
+    provider: 'anthropic',
+    model: 'claude-3-7-sonnet',
+    reasoningEffort: 'high',
+  })
+
   // sameModelSelection checks
   assert.equal(sameModelSelection({ provider: 'a', model: 'b' }, { provider: 'a', model: 'b' }), true)
   assert.equal(sameModelSelection({ provider: 'a', model: 'b', reasoningEffort: 'low' }, { provider: 'a', model: 'b' }), false)

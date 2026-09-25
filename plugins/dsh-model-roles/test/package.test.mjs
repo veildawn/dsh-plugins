@@ -313,7 +313,7 @@ test('host registers advisor control and delegates image requests before main ro
   assert.equal(starts.length, 1)
   assert.equal(starts[0].provider, 'spawn')
   assert.equal(starts[0].request.agentOptions.modelRole, 'vision')
-  assert.equal(decision.messages.some((message) => contentHasImage(message.content)), false)
+  assert.equal(decision.messages.some((message) => contentHasImage(message.content)), true)
   assert.match(decision.messages.at(-1).content[0].text, /red banner/u)
   assert.deepEqual(await requestListener({ agent: imageAgent }, async () => ({
     provider: 'native', model: 'text', maxTokens: 100,

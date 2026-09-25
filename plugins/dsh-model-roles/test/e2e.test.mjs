@@ -282,7 +282,8 @@ test('image input runs once in a vision subagent and returns text-only analysis 
   assert.equal(starts[0].agentOptions.maxTokens, 4096)
   assert.deepEqual(starts[0].toolFilter, { allow: [] })
   assert(starts[0].prompt.some((block) => block.type === 'image'))
-  assert.equal(decision.messages.some((message) => modelRoles.contentHasImage(message.content)), false)
+  // decision.messages 必须保留原始用户图片，以便持久化到 user/message 事件中供前端正常渲染回显
+  assert.equal(decision.messages.some((message) => modelRoles.contentHasImage(message.content)), true)
   const returned = decision.messages.find((message) => message.source?.kind === 'plugin')
   assert.match(returned.content[0].text, /red error banner/u)
   assert.equal(returned.source.summary, 'Vision analysis')
@@ -711,6 +712,53 @@ test('smart mode: restores default model and reasoning effort on abort/idle or s
   assert.equal(lastEvent.data.provider, 'e2e')
   assert.equal(lastEvent.data.reasoningEffort, 'high')
 })
+
+test('smart mode: restores user-selected model when changed mid-session', async () => {
+  const { ctx } = createRuntime([
+    { role: 'slow', provider: 'e2e', model: 'slow-model' },
+  ])
+
+  const session = ctx.sessions.create('smart-mid-change-session', {
+    meta: { agentPreset: 'model-roles' },
+  })
+  // 用户初始选择 A
+  session.append('model/selection', { provider: 'e2e', model: 'model-a' })
+
+  const agent = {
+    id: session.id,
+    session,
+    options: { provider: 'e2e', model: 'model-a' },
+    ctx,
+    inbox: { nextStep: [] },
+  }
+
+  // 回合 1：角色切换为 slow-model
+  agent.options.modelRole = 'slow'
+  await agentEvents(ctx, agent).waterfall('agent/request', {
+    agent, turn: 1, step: 1, signal: AbortSignal.timeout(5_000),
+  }, () => Promise.resolve({ provider: 'e2e', model: 'model-a' }))
+
+  session.append('request/header', {
+    header: { config: { provider: 'e2e', model: 'slow-model' } },
+    reason: 'change',
+  })
+
+  // 假设用户中途手动切换为了 model-b
+  session.append('model/selection', { provider: 'e2e', model: 'model-b', reasoningEffort: 'high' })
+
+  // 任务完成，结束回合
+  await agentEvents(ctx, agent).serial('agent/turn-stopping', {
+    agent, turn: 1, signal: AbortSignal.timeout(5_000),
+  })
+
+  // 必须精准恢复为中途切换的新模型 model-b
+  const lastEvent = session.events.at(-1)
+  assert.equal(lastEvent.type, 'model/selection')
+  assert.equal(lastEvent.data.model, 'model-b')
+  assert.equal(lastEvent.data.reasoningEffort, 'high')
+})
+
+
 
 
 

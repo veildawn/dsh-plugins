@@ -87,7 +87,7 @@ export {
 }
 
 export const name = 'model-roles'
-export const inject = ['settings', 'commands', 'llm', 'subagents']
+export const inject = ['settings', 'commands', 'llm', 'subagents', 'agents']
 export const NS = 'model-roles'
 export const SETTINGS_RPC_CHANNEL = '/model-roles-settings'
 export const VISION_SUBAGENT_PROVIDER = 'spawn'
@@ -225,35 +225,27 @@ function visionPrompt(messages) {
   return prompt
 }
 
-function replaceImagesWithAnalysis(messages, analysis) {
-  const replaced = messages.map((message) => {
-    if (!contentHasImage(message?.content)) return message
-    const content = withoutImageBlocks(message.content)
-    return {
-      ...message,
-      content: content.length > 0
-        ? content
-        : [{ type: 'text', text: '[Image delegated to the vision subagent.]' }],
-    }
-  })
-  replaced.push(createUserMessage({
-    content: [{
-      type: 'text',
-      text: [
-        'Vision subagent analysis:',
-        analysis.slice(0, VISION_ANALYSIS_MAX_CHARS),
-        '',
-        '[Instruction for the model: The image/screenshot attached by the user has been analyzed above by the Vision subagent. Do not attempt to use the "read" tool to read any temporary screenshot or image path, as the visual details are already fully provided in this analysis.]',
-      ].join('\n'),
-    }],
-    source: {
-      kind: 'plugin',
-      plugin: NS,
-      form: 'notice',
-      summary: 'Vision analysis',
-    },
-  }))
-  return replaced
+function appendAnalysisNotice(messages, analysis) {
+  return [
+    ...messages,
+    createUserMessage({
+      content: [{
+        type: 'text',
+        text: [
+          'Vision subagent analysis:',
+          analysis.slice(0, VISION_ANALYSIS_MAX_CHARS),
+          '',
+          '[Instruction for the model: The image/screenshot attached by the user has been analyzed above by the Vision subagent. Do not attempt to use the "read" tool to read any temporary screenshot or image path, as the visual details are already fully provided in this analysis.]',
+        ].join('\n'),
+      }],
+      source: {
+        kind: 'plugin',
+        plugin: NS,
+        form: 'notice',
+        summary: 'Vision analysis',
+      },
+    }),
+  ]
 }
 
 function actionableAdvice(text) {
@@ -354,7 +346,7 @@ export function apply(ctx, config = {}) {
   const visionFallbackTurns = new WeakMap()
   const sessionBaselines = new WeakMap()
 
-  function getSessionBaseline(agent) {
+  function resolveCurrentBaseline(agent) {
     let baseline = sessionBaselines.get(agent.session)
     if (baseline !== undefined) return baseline
     const defaultSelection = ctx.get?.('agentDefaultModel')?.currentSelection?.()
@@ -369,20 +361,26 @@ export function apply(ctx, config = {}) {
     if (!isModelRolesActive(agent, table)) return
     if (isSubagent(agent)) return
 
-    const baseline = getSessionBaseline(agent)
+    const baseline = resolveCurrentBaseline(agent)
     if (!baseline?.provider || !baseline?.model) return
 
-    // 检查本会话最后使用的或请求中的模型配置
+    // 检查本会话当前实际生效/最后使用的请求头配置
     const lastConfig = agent.session.requestHeader()?.config
     if (!lastConfig || sameModelSelection(lastConfig, baseline)) return
 
     try {
-      agent.session.append('model/selection', {
+      const selectionData = {
         provider: baseline.provider,
         model: baseline.model,
         ...(baseline.reasoningEffort ? { reasoningEffort: baseline.reasoningEffort } : {}),
         _restoredByModelRoles: true,
-      })
+      }
+      const controller = ctx.get?.('sessionController')
+      if (typeof controller?.agents?.selectForNextRequest === 'function') {
+        controller.agents.selectForNextRequest(agent, selectionData)
+      } else {
+        agent.session.append('model/selection', selectionData)
+      }
       ctx.logger.info?.(`model-roles: restored baseline model ${baseline.provider}/${baseline.model} on ${trigger}`)
     } catch (error) {
       ctx.logger.warn?.(`model-roles: failed to restore baseline model selection on ${trigger}`, error)
@@ -496,7 +494,7 @@ export function apply(ctx, config = {}) {
       }
       return {
         kind: 'enter',
-        messages: replaceImagesWithAnalysis(decision.messages, analysis),
+        messages: appendAnalysisNotice(decision.messages, analysis),
       }
     } catch (error) {
       let turns = visionFallbackTurns.get(agent)
@@ -522,8 +520,8 @@ export function apply(ctx, config = {}) {
       return current
     }
 
-    // 确保会话进入本回合前，已经牢牢锁定了初始/用户基准模型
-    getSessionBaseline(agent)
+    // 确保在回合开始处理任何路由前，精准锁定当前会话的基准模型
+    resolveCurrentBaseline(agent)
 
     if (visionFallbackTurns.get(agent)?.has(turn)) {
       return applyRoleRoute(current, routeForRole(table, 'vision'))
@@ -549,13 +547,38 @@ export function apply(ctx, config = {}) {
 
   ctx.on('llm/stream', (options, next) => {
     if (reroutedAuxiliaryRequests.delete(options)) return next()
-    if (options?.purpose !== 'session-title' && options?.purpose !== 'compaction') {
+    if (options?.purpose === 'session-title' || options?.purpose === 'compaction') {
+      const rerouted = applyRoleRoute(options, routeForRole(table, 'tiny'))
+      if (rerouted !== options) {
+        reroutedAuxiliaryRequests.add(rerouted)
+        return ctx.llm.stream(rerouted)
+      }
       return next()
     }
-    const rerouted = applyRoleRoute(options, routeForRole(table, 'tiny'))
-    if (rerouted === options) return next()
-    reroutedAuxiliaryRequests.add(rerouted)
-    return ctx.llm.stream(rerouted)
+
+    // 智选模式下：若当前对话使用的模型不是 vision 模型（即已经委派给了 vision 子代理），
+    // 且消息中包含图片，则在传递给主模型推理请求时剥离图片块，由之前注入的 Vision analysis 提供语义，
+    // 既不污染会话持久化与前端展示，又避免主模型长期占用多模态图片 token 或因不支持图片而报错。
+    const sessionId = options?.sessionId
+    const agent = sessionId ? ctx.get?.('agents')?.get?.(sessionId) : undefined
+    if (agent && isModelRolesActive(agent, table) && options.model !== routeForRole(table, 'vision')?.model) {
+      if (Array.isArray(options.messages) && options.messages.some((m) => contentHasImage(m?.content))) {
+        const strippedMessages = options.messages.map((m) => {
+          if (!contentHasImage(m?.content)) return m
+          const content = withoutImageBlocks(m.content)
+          return {
+            ...m,
+            content: content.length > 0 ? content : [{ type: 'text', text: '[Image delegated to the vision subagent.]' }],
+          }
+        })
+        return next({
+          ...options,
+          messages: strippedMessages,
+        })
+      }
+    }
+
+    return next()
   }, { global: true, prepend: true })
 
   ctx.on('agent/turn-stopping', async ({ agent, turn, signal }) => {
