@@ -359,7 +359,13 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /._7KE1Ra_trigger[^{]*{[^}]*width:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon{display:none!important}/)
   assert.match(css, /.dsh-mobile-composer-info{[^}]*text-align:center/)
-  assert.match(css, /.JObwrW_root{[^}]*width:32px!important;[^}]*height:32px!important/)
+  // 上下文 meter：内容自适应药丸（不是 32x32 圆钮），避免百分比被裁掉
+  assert.match(css, /\.JObwrW_root\{width:auto!important;[^}]*height:32px!important/)
+  assert.match(css, /\.JObwrW_trigger\{[^}]*width:auto!important;[^}]*border-radius:999px!important;[^}]*display:inline-flex!important;[^}]*gap:6px!important/)
+  assert.match(css, /\.JObwrW_trigger>span\{display:inline-block!important/)
+  assert.match(css, /\.uV2eYG_dock>\[data-slot="conversation\.composer\.dock"\]\{flex:1 1 auto!important;width:auto!important;min-width:0!important/)
+  assert.match(css, /\.dsh-mobile-upload-btn,\s*\.dsh-mobile-tools-btn,\s*\.Sh0Q9G_trigger,\s*\.term-composer-btn,\s*\._7KE1Ra_trigger\s*\{/,
+    '统一圆钮规范的选择器列表不再包含 meter')
   // 上下文 meter 必须留在输入框内：卡片补足底部内边距，dock 以负边距收回卡内
   assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)[^{]*\{[^}]*padding-bottom:40px!important\}/)
   assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock[^{]*\{[^}]*margin-top:-38px!important/)
