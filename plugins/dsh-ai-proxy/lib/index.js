@@ -834,9 +834,19 @@ function readSettingsSection(ctx, ns) {
   return described.find((entry) => entry?.ns === ns)?.value
 }
 
+/**
+ * The composition layer a settings section inherits from, as plain data.
+ * `settings.register` resolves the schema over its `base` itself, so the base
+ * must be raw config: the resolved fiber config carries live references on a
+ * schemastery with volatile support, and a reference is not config data.
+ */
+function settingsBase(ctx, config) {
+  return unwrapConfig(ctx.fiber?.entry?.options?.config ?? config ?? {})
+}
+
 function openSettingsScope(ctx, ns, config) {
   if (typeof ctx.settings?.register === 'function') {
-    return ctx.settings.register(ns, Config, { base: config ?? {} })
+    return ctx.settings.register(ns, Config, { base: settingsBase(ctx, config) })
   }
   const read = () => unwrapConfig(config ?? {})
   return {
@@ -1171,7 +1181,7 @@ export const internals = {
   pkcePair, base64url,
   discoverEndpoints, tokenRequest, startCallbackListener,
   normalizeApiFormat, resolveModelsEndpoint,
-  isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE,
+  isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE, settingsBase,
   API_FORMAT_CHAT_COMPLETIONS, API_FORMAT_ANTHROPIC_MESSAGES, API_FORMAT_RESPONSES, API_FORMATS, DEFAULT_API_FORMAT,
   PI_AI_PROTOCOL_CHAT_COMPLETIONS, PI_AI_PROTOCOL_RESPONSES, PI_AI_PROTOCOL_ANTHROPIC,
 }

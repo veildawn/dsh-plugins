@@ -114,20 +114,26 @@ function badSettingsRequest(message) {
   }
 }
 
-function settingsRpcView(settingsProvider) {
-  const descriptor = settingsProvider
-    .describe({ redactSecrets: true })
-    .find((entry) => entry.ns === NS)
-  if (descriptor === undefined) throw new Error(`${NS} settings are not registered`)
+function settingsRpcView(settingsProvider, fallbackValue, targetNs = NS) {
+  const descriptor = typeof settingsProvider?.describe === 'function'
+    ? settingsProvider.describe({ redactSecrets: true }).find((entry) => entry.ns === targetNs)
+    : undefined
+  if (descriptor !== undefined) {
+    return {
+      writable: settingsProvider.writable,
+      value: descriptor.value,
+      revision: descriptor.revision,
+    }
+  }
   return {
-    writable: settingsProvider.writable,
-    value: descriptor.value,
-    revision: descriptor.revision,
+    writable: true,
+    value: unwrapConfig(fallbackValue ?? {}),
+    revision: 0,
   }
 }
 
 /** Dedicated host RPC wire for a namespace hidden by DSH's settings allowlist. */
-export async function handleSettingsRpc(settingsProvider, method, payload) {
+export async function handleSettingsRpc(settingsProvider, method, payload, currentSettings = {}, targetNs = NS) {
   const keys = payload === null || typeof payload !== 'object' || Array.isArray(payload)
     ? null
     : Reflect.ownKeys(payload)
@@ -136,7 +142,7 @@ export async function handleSettingsRpc(settingsProvider, method, payload) {
   try {
     if (method === 'describe') {
       if (keys.length !== 0) return badSettingsRequest('model-roles describe requests must carry an empty object')
-      return { ok: true, value: settingsRpcView(settingsProvider) }
+      return { ok: true, value: settingsRpcView(settingsProvider, currentSettings, targetNs) }
     }
     if (method === 'replace') {
       if (keys.length !== 2 || !Object.hasOwn(payload, 'section') || !Object.hasOwn(payload, 'expectedRevision')) {
@@ -149,7 +155,7 @@ export async function handleSettingsRpc(settingsProvider, method, payload) {
         return badSettingsRequest('model-roles expectedRevision must be a non-negative integer')
       }
       await settingsProvider.replace(NS, payload.section, payload.expectedRevision)
-      return { ok: true, value: settingsRpcView(settingsProvider) }
+      return { ok: true, value: settingsRpcView(settingsProvider, currentSettings, targetNs) }
     }
     return badSettingsRequest(`Unknown model-roles settings method: ${method}`)
   } catch (error) {
@@ -171,6 +177,12 @@ const roleEntry = z.object({
   reasoningEffort: z.string().default(''),
 })
 
+
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+function liveField(schema) {
+  return typeof schema?.volatile === 'function' ? schema.volatile() : schema
+}
 
 function isVolatileRef(value) {
   return value !== null && typeof value === 'object' && typeof value.get === 'function'
@@ -207,13 +219,13 @@ function openSettingsScope(ctx, ns, schema, config) {
 
 /** Settings section and Cordis entry configuration. */
 export const Config = z.object({
-  roles: z.array(roleEntry).default([]),
-  advisor: z.object({
+  roles: liveField(z.array(roleEntry).default([])),
+  advisor: liveField(z.object({
     enabled: z.boolean().default(false),
     subagents: z.boolean().default(false),
     provider: z.string().min(1).default('spawn'),
     maxTranscriptChars: z.number().step(1).min(1_000).max(1_000_000).default(60_000),
-  }).default({}),
+  }).default({})),
 })
 
 function renderAdvisorTranscript(agent, maxChars) {
@@ -472,9 +484,10 @@ export function apply(ctx, config = {}) {
   // configurable-provider namespaces. Keep this plugin editable through a
   // narrowly scoped Connection channel instead.
   ctx.inject(['connection'], (connectionCtx) => {
+    const targetNs = settingsNamespace(ctx, NS)
     connectionCtx.connection.rpc.handle(
       SETTINGS_RPC_CHANNEL,
-      (method, payload) => handleSettingsRpc(ctx.settings, method, payload),
+      (method, payload) => handleSettingsRpc(ctx.settings, method, payload, settings, targetNs),
       { authority: 'trusted-host' },
     )
   })

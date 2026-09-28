@@ -57,6 +57,12 @@ export const NS = 'plugin-manager'
 export const MARKET_RPC_CHANNEL = '/dsh-plugin-manager-rpc'
 
 
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+function liveField(schema) {
+  return typeof schema?.volatile === 'function' ? schema.volatile() : schema
+}
+
 function isVolatileRef(value) {
   return value !== null && typeof value === 'object' && typeof value.get === 'function'
     && !Array.isArray(value) && Object.keys(value).length === 0
@@ -91,11 +97,12 @@ function openSettingsScope(ctx, ns, schema, config) {
 }
 
 export const Config = z.object({
-  repoOrigin: z.string().default(DEFAULT_REPO_ORIGIN),
-  communityCatalogUrl: z.string().default(DEFAULT_COMMUNITY_CATALOG_URL),
-  autoCheckUpdates: z.boolean().default(true),
-  mirrorUrl: z.string().default(''),
+  repoOrigin: liveField(z.string().default(DEFAULT_REPO_ORIGIN)),
+  communityCatalogUrl: liveField(z.string().default(DEFAULT_COMMUNITY_CATALOG_URL)),
+  autoCheckUpdates: liveField(z.boolean().default(true)),
+  mirrorUrl: liveField(z.string().default('')),
 })
+Config.meta = { ...Config.meta, volatile: true }
 
 export function resolveOptions(raw = {}) {
   return {

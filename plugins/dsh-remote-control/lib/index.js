@@ -23,6 +23,12 @@ export const REMOTE_CONTROL_SESSION_PATH = '/dsh-remote-control/session'
 export const SESSION_BODY_MAX_BYTES = 8192
 
 
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+function liveField(schema) {
+  return typeof schema?.volatile === 'function' ? schema.volatile() : schema
+}
+
 function isVolatileRef(value) {
   return value !== null && typeof value === 'object' && typeof value.get === 'function'
     && !Array.isArray(value) && Object.keys(value).length === 0
@@ -57,9 +63,10 @@ function openSettingsScope(ctx, ns, schema, config) {
 }
 
 export const Config = z.object({
-  enabled: z.boolean().default(false),
-  secret: z.string().role('secret').default(''),
+  enabled: liveField(z.boolean().default(false)),
+  secret: liveField(z.string().role('secret').default('')),
 })
+Config.meta = { ...Config.meta, volatile: true }
 
 export function resolveOptions(raw = {}) {
   const enabled = raw.enabled ?? false
