@@ -129,6 +129,60 @@ test('manifest, bundle patch and package contents form a DSH plugin', async () =
   assert.doesNotMatch(client, /conversation\.input\.left|ModelRoleSelect|ROLE_SLOT|"subagent"|子代理角色（兼容）/)
 })
 
+test('0.1.7 hosts get the preset through the Loader-row API', async () => {
+  // DSH 0.1.7 keeps presets as Loader rows and exposes register(); the plugin
+  // clones the shipped `standard` row instead of the removed copy()/authorable
+  // pair, and re-registers it on every boot (the registration is in memory).
+  const standardPlugins = [{ id: 'persona', name: '@deepseek-ai/dsh-persona' }]
+  const registered = []
+  let presets = [{ id: 'standard' }]
+  const roster = {
+    async list() { return presets },
+    async register(definition) {
+      registered.push(definition)
+      presets = [...presets, { id: definition.id }]
+    },
+  }
+  const ctx = { get: () => ({ entries: () => [
+    { options: { name: '@deepseek-ai/dsh-agent-preset', config: { id: 'ptc', plugins: [{ id: 'other' }] } } },
+    { options: { name: '@deepseek-ai/dsh-agent-preset', config: { id: 'standard', order: 1, plugins: standardPlugins } } },
+  ] }) }
+
+  assert.deepEqual(await ensureModelRolesPreset(roster, ctx), { status: 'created' })
+  assert.equal(registered.length, 1)
+  assert.deepEqual(registered[0].id, MODEL_ROLES_PRESET)
+  assert.deepEqual(registered[0].name, MODEL_ROLES_PRESET_NAME)
+  assert.deepEqual(registered[0].plugins, standardPlugins)
+  assert.notEqual(registered[0].plugins, standardPlugins, 'the cloned rows are detached from the Loader entry')
+  assert.equal(typeof registered[0].order, 'number')
+
+  // Already present: no second registration, whichever host generation served it.
+  assert.deepEqual(await ensureModelRolesPreset(roster, ctx), { status: 'exists' })
+  assert.equal(registered.length, 1)
+
+  // A register() race resolves to the row that won.
+  const racing = {
+    async list() { return [{ id: 'standard' }, { id: MODEL_ROLES_PRESET }] },
+    async register() { throw new Error('Duplicate agent preset: model-roles') },
+  }
+  assert.deepEqual(await ensureModelRolesPreset(racing, ctx), { status: 'exists' })
+  const failing = {
+    async list() { return [{ id: 'standard' }] },
+    async register() { throw new Error('mount failed') },
+  }
+  assert.deepEqual(await ensureModelRolesPreset(failing, ctx), { status: 'register-failed', error: new Error('mount failed') })
+
+  // Without the shipped standard row (or without a context at all) there is
+  // nothing to clone, so the roster is left untouched.
+  for (const cloneCtx of [{ get: () => undefined }, undefined]) {
+    const untouched = {
+      async list() { return [{ id: 'standard' }] },
+      async register() { throw new Error('must not register without a template') },
+    }
+    assert.deepEqual(await ensureModelRolesPreset(untouched, cloneCtx), { status: 'standard-missing' })
+  }
+})
+
 test('the opt-in preset is provisioned once as a named copy of Standard Mode', async () => {
   const copies = []
   let presets = [{ id: 'standard' }]

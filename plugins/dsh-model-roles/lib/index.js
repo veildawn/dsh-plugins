@@ -25,6 +25,9 @@ import {
   CONFIGURABLE_ROLES,
   MODEL_ROLES_PRESET,
   MODEL_ROLES_PRESET_NAME,
+  MODEL_ROLES_PRESET_DESCRIPTION,
+  MODEL_ROLES_PRESET_ORDER,
+  AGENT_PRESET_PLUGIN,
   OMP_ROLES,
   ROLE_ID_PATTERN,
   STANDARD_PRESETS,
@@ -59,6 +62,9 @@ export {
   CONFIGURABLE_ROLES,
   MODEL_ROLES_PRESET,
   MODEL_ROLES_PRESET_NAME,
+  MODEL_ROLES_PRESET_DESCRIPTION,
+  MODEL_ROLES_PRESET_ORDER,
+  AGENT_PRESET_PLUGIN,
   OMP_ROLES,
   ROLE_ID_PATTERN,
   STANDARD_PRESETS,
@@ -338,8 +344,42 @@ export async function classifyAutomaticRole(ctx, agent, table, signal) {
   return parseAutomaticRole(output) ?? 'default'
 }
 
-/** Ensure the opt-in Agent Preset exists as a full copy of Standard Mode. */
-export async function ensureModelRolesPreset(agentPresets) {
+/**
+ * The shipped `standard` declaration's plugin rows, read from the Loader tree.
+ * DSH 0.1.7 keeps presets as Loader rows (`preset-standard` mounts
+ * `@deepseek-ai/dsh-agent-preset`), so this is the template the smart-routing
+ * preset clones - the same copy `agentPresets.copy('standard', ...)` made on
+ * hosts that still expose it.
+ */
+function standardPresetPlugins(ctx) {
+  let entries = []
+  try {
+    const editor = typeof ctx?.get === 'function' ? ctx.get('configEditor') : undefined
+    if (editor !== undefined && typeof editor.entries === 'function') entries = editor.entries()
+    else if (typeof ctx?.root?.loader?.entries === 'function') entries = [...ctx.root.loader.entries()]
+  } catch {
+    return undefined
+  }
+  const row = entries.find((entry) => entry?.options?.name === AGENT_PRESET_PLUGIN
+    && entry?.options?.config?.id === 'standard')
+  const plugins = row?.options?.config?.plugins
+  if (!Array.isArray(plugins) || plugins.length === 0) return undefined
+  try {
+    return structuredClone(plugins)
+  } catch {
+    return plugins
+  }
+}
+
+/**
+ * Ensure the opt-in Agent Preset exists as a full copy of Standard Mode.
+ *
+ * Two host generations are supported: 0.1.7+ exposes `agentPresets.register()`
+ * and keeps presets as Loader rows, so the declaration is cloned from the
+ * shipped `standard` row and re-registered on every boot; older hosts expose
+ * the file-backed `authorable`/`copy()` pair instead.
+ */
+export async function ensureModelRolesPreset(agentPresets, ctx) {
   if (!agentPresets) return { status: 'unavailable' }
 
   const findPreset = (presets) => Array.isArray(presets)
@@ -358,6 +398,33 @@ export async function ensureModelRolesPreset(agentPresets) {
 
   const existing = findPreset(presets)
   if (existing !== undefined) return existingResult(existing)
+
+  if (typeof agentPresets.register === 'function') {
+    const plugins = standardPresetPlugins(ctx)
+    if (plugins === undefined) return { status: 'standard-missing' }
+    try {
+      await agentPresets.register({
+        id: MODEL_ROLES_PRESET,
+        name: MODEL_ROLES_PRESET_NAME,
+        description: MODEL_ROLES_PRESET_DESCRIPTION,
+        order: MODEL_ROLES_PRESET_ORDER,
+        plugins,
+      })
+    } catch (error) {
+      // A concurrent boot may win the same id between list() and register().
+      try {
+        const raced = findPreset(await agentPresets.list())
+        if (raced !== undefined) return existingResult(raced)
+      } catch {}
+      return { status: 'register-failed', error }
+    }
+    try {
+      const registered = findPreset(await agentPresets.list())
+      if (registered?.broken !== undefined) return { status: 'broken', reason: registered.broken }
+    } catch {}
+    return { status: 'created' }
+  }
+
   if (!agentPresets.authorable) return { status: 'not-authorable' }
 
   try {
@@ -376,6 +443,10 @@ export async function ensureModelRolesPreset(agentPresets) {
 function reportPresetProvision(ctx, result) {
   if (result.status === 'created') {
     ctx.logger.info?.('model-roles: created the 智选模式 Agent Preset from standard')
+  } else if (result.status === 'standard-missing') {
+    ctx.logger.warn?.('model-roles: could not find the shipped standard Agent Preset to clone; 智选模式 was not provisioned')
+  } else if (result.status === 'register-failed') {
+    ctx.logger.warn?.('model-roles: failed to register the 智选模式 preset', result.error)
   } else if (result.status === 'not-authorable') {
     ctx.logger.warn?.('model-roles: cannot create the 智选模式 preset because this deployment has no writable user preset root')
   } else if (result.status === 'list-failed') {
@@ -393,7 +464,7 @@ function reportPresetProvision(ctx, result) {
  */
 export function apply(ctx, config = {}) {
   ctx.inject(['agentPresets'], async (presetCtx) => {
-    const result = await ensureModelRolesPreset(presetCtx.agentPresets)
+    const result = await ensureModelRolesPreset(presetCtx.agentPresets, presetCtx)
     reportPresetProvision(ctx, result)
   })
 

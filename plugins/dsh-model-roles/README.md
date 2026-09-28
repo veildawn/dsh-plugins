@@ -95,7 +95,12 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 
 插件加载时会自动检测并创建名为 **智选模式** 的 Agent Preset（ID 为 `model-roles`），以标准模式为模板复制并提供多模型智能分工。安装后无需手动新建预设，直接在新建会话或会话顶部切换至「智选模式」即可。
 
-若运行环境未配置可写的用户预设目录（`authorable: false`），插件会自动记录告警日志并保持静默旁路；此时可手动创建目录 `${DSH_HOME:-~/.dsh}/.agent-presets/model-roles/` 并将 `standard` 预设的 `agent.cordis.yml` 放入其中。
+自动创建按宿主世代选择实现：
+
+- **DSH 0.1.7 及以后**：预设本身是 Loader 行（`preset-*` → `@deepseek-ai/dsh-agent-preset`）。插件启动时读取随宿主发布的 `standard` 预设行的 `plugins`，并用 `ctx.agentPresets.register({ id: 'model-roles', name: '智选模式', … })` 注册一份副本。该注册是内存态，每次启动重建；`standard` 升级后副本随之更新，不会漂移。若 profile 文档里已经有 `config.id: model-roles` 的预设行，插件检测到后不再注册（可用这种方式自行固化/自定义插件清单）。
+- **旧的 0.1.0-rc 线宿主**：走文件式预设接口 `agentPresets.copy('standard', 'model-roles', '智选模式')`（`authorable: true` 时），预设落在 `${DSH_HOME:-~/.dsh}/.agent-presets/model-roles/`。
+
+两代接口都不存在时（既无 `register()` 也不 `authorable`）插件记录一条告警并静默旁路——注意旧文档里的 `.agent-presets/` 目录兜底**只对旧宿主有效**：0.1.7 宿主不再读取该目录，此时请让 Agent 把预设行写进 `cordis.patch.yml`（或等插件升级）。
 
 插件自带的 Cordis 配置为空映射，安装后不会改变原生行为：
 

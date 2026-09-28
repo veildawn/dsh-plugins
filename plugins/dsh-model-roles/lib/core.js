@@ -27,6 +27,12 @@ export const ROLE_ID_PATTERN = /^[a-z][a-z0-9_-]*$/u
 export const ADVISOR_COMMAND = 'advisor'
 export const MODEL_ROLES_PRESET = 'model-roles'
 export const MODEL_ROLES_PRESET_NAME = '智选模式'
+/** Copy shown next to the preset in the picker; mirrors the shipped standard mode. */
+export const MODEL_ROLES_PRESET_DESCRIPTION = '功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。'
+/** Roster position, after the shipped standard/ptc/minimal/cordis declarations. */
+export const MODEL_ROLES_PRESET_ORDER = 5
+/** The shipped preset declaration this plugin clones. */
+export const AGENT_PRESET_PLUGIN = '@deepseek-ai/dsh-agent-preset'
 export const STANDARD_PRESETS = Object.freeze(new Set([
   'standard',
   'code',
