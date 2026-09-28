@@ -136,6 +136,13 @@ window.__ModuleLoader__.load({
         .uV2eYG_primary:active{transform:scale(.96)!important}
         .Sh0Q9G_trigger,.uV2eYG_select,.rS3zOq_chip,._7KE1Ra_trigger{box-sizing:border-box;height:32px!important;min-height:32px!important;font-size:12px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
         .rS3zOq_chip{box-sizing:border-box!important;width:max-content!important;height:32px!important;min-width:max-content!important;min-height:32px!important;padding:0 10px!important;border-radius:999px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:4px!important;white-space:nowrap!important;overflow:visible!important;flex:none!important;line-height:1!important}
+        /* 上下文用量按钮属于输入区：宿主把 dock（统计行 + 上下文 meter）放在卡片下方，
+           而上面的 32x32 统一按钮样式会让 meter 看起来"浮"在输入框外面。这里在渲染了
+           meter、且 dock 没有计划复核/待办面板时，把 dock 收回卡片内部（卡片补足底部
+           内边距，dock 负边距上移），按钮与统计行都落在输入框的圆角内。卡片是
+           position:relative，dock 必须同样定位并抬高层级，否则会被卡片背景盖住。 */
+        [data-composer-card]:has(+.uV2eYG_dock .JObwrW_root):not(:has(+.uV2eYG_dock [data-plan-review-scroll])):not(:has(+.uV2eYG_dock [data-plan-review-key])){padding-bottom:40px!important}
+        [data-composer-card]:has(+.uV2eYG_dock .JObwrW_root)+.uV2eYG_dock:not(:has([data-plan-review-scroll])):not(:has([data-plan-review-key])){width:auto!important;max-width:100%!important;margin-top:-38px!important;padding:0 12px 6px!important;position:relative!important;z-index:1!important}
         [data-plan-review-key],[data-slot="conversation.composer.dock"],[data-plan-review-scroll]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important}
         [data-plan-review-scroll]{max-height:min(45dvh,360px)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important}
         .Sh0Q9G_trigger,.uV2eYG_select{max-width:32px!important;min-width:32px!important}
