@@ -23,9 +23,25 @@ export const REMOTE_CONTROL_SESSION_PATH = '/dsh-remote-control/session'
 export const SESSION_BODY_MAX_BYTES = 8192
 
 
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+function liveField(schema) {
+  return typeof schema?.volatile === 'function' ? schema.volatile() : schema
+}
+
 function isVolatileRef(value) {
-  return value !== null && typeof value === 'object' && typeof value.get === 'function'
-    && !Array.isArray(value) && Object.keys(value).length === 0
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  if (typeof value.get !== 'function') return false
+  return VOLATILE_WRITE in value || Object.keys(value).length === 0
+}
+
+/**
+ * Plain composition layer for the legacy settings seam. `settings.register`
+ * resolves the schema over its `base` itself, so the base must be raw config:
+ * the resolved fiber config carries live references.
+ */
+function settingsBase(ctx, config) {
+  return unwrapConfig(ctx.fiber?.entry?.options?.config ?? config ?? {})
 }
 
 function unwrapConfig(value, seen = new Set()) {
@@ -44,7 +60,7 @@ function settingsNamespace(ctx, fallback) {
 
 function openSettingsScope(ctx, ns, schema, config) {
   if (typeof ctx.settings?.register === 'function') {
-    return ctx.settings.register(ns, schema, { base: config ?? {} })
+    return ctx.settings.register(ns, schema, { base: settingsBase(ctx, config) })
   }
   const read = () => unwrapConfig(config ?? {})
   return {
@@ -56,9 +72,11 @@ function openSettingsScope(ctx, ns, schema, config) {
   }
 }
 
+export { isVolatileRef, liveField, settingsBase, unwrapConfig }
+
 export const Config = z.object({
-  enabled: z.boolean().default(false),
-  secret: z.string().role('secret').default(''),
+  enabled: liveField(z.boolean().default(false)),
+  secret: liveField(z.string().role('secret').default('')),
 })
 
 export function resolveOptions(raw = {}) {
@@ -410,10 +428,10 @@ export function shouldServeUnauthenticatedIndex(request, enabled, isAuthenticate
 }
 
 export function apply(ctx, config) {
-  let current = () => config ?? {}
+  let current = () => unwrapConfig(config ?? {})
   const options = () => resolveOptions(current())
   const scope = openSettingsScope(ctx, NS, Config, config)
-  current = () => scope.get()
+  current = () => unwrapConfig(scope.get())
 
   ctx.inject(['webServer'], (webServerCtx) => {
     const polyfillScript = `<script>(function(){if(typeof globalThis!=="undefined"){const c=globalThis.crypto||(globalThis.crypto={});if(typeof c.randomUUID!=="function"){c.randomUUID=function(){if(typeof c.getRandomValues==="function"){return([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(d){return(d^c.getRandomValues(new Uint8Array(1))[0]&15>>d/4).toString(16);});}return"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,function(p){const r=Math.random()*16|0;return(p==="x"?r:r&3|8).toString(16);});};}}})();</script>`

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { Config, internals, resolveOptions } from '../lib/index.js'
 
 const {
-  isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE,
+  isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE, settingsBase,
   AiProxyApi,
   pkcePair, effortName,
   resolveDefaultEffort, inputModalitiesOf,
@@ -347,13 +347,37 @@ test('liveField: marks a field only on hosts whose schema implements volatile fi
   assert.equal(legacy.meta.volatile, undefined)
 })
 
-test('Config: the gateway fields are live, the rest stays ordinary config', () => {
+test('Config: the gateway fields are live whenever the schema can be', () => {
+  // The local devDependency pins schemastery 3.18.1 while a fresh install (CI,
+  // the host itself) resolves 3.18.4, so both shapes must be asserted honestly.
+  const supportsLiveFields = typeof Config.dict.baseURL.volatile === 'function'
+  for (const key of ['baseURL', 'apiFormat', 'defaultReasoningEffort']) {
+    assert.equal(Config.dict[key].meta?.volatile === true, supportsLiveFields,
+      key + (supportsLiveFields ? ' must be declared live' : ' stays ordinary on this schemastery'))
+  }
+  assert.notEqual(Config.dict.models.meta?.volatile, true, 'the model catalog is never a live field')
+  assert.notEqual(Config.dict.clientId.meta?.volatile, true, 'clientId is composition config, not a live field')
+
   const resolved = Config({})
-  assert.equal(resolved.baseURL, 'http://localhost:18080')
-  assert.equal(resolved.apiFormat, 'chat/completions')
-  assert.equal(resolved.defaultReasoningEffort, 'highest')
-  assert.deepEqual(resolved.models, [])
-  assert.equal(isVolatileRef(resolved.baseURL), false,
-    'this schemastery has no volatile fields, so the plugin still reads plain values')
-  assert.deepEqual(resolveOptions(resolved).models, [])
+  assert.equal(isVolatileRef(resolved.baseURL), supportsLiveFields,
+    'live fields resolve to references exactly when the schema declares them')
+  const plain = unwrapConfig(resolved)
+  assert.equal(plain.baseURL, 'http://localhost:18080')
+  assert.equal(plain.apiFormat, 'chat/completions')
+  assert.equal(plain.defaultReasoningEffort, 'highest')
+  assert.deepEqual(plain.models, [])
+  assert.deepEqual(resolveOptions(plain).models, [])
+})
+
+test('settingsBase: the legacy seam receives raw config, never live references', () => {
+  const gateway = liveRef('http://gw.example')
+  const resolved = { baseURL: gateway.ref, apiFormat: 'responses', clientId: 'dsh' }
+  // No loader entry (direct ctx.plugin): the resolved config is all there is.
+  assert.deepEqual(settingsBase({ fiber: undefined }, resolved), {
+    baseURL: 'http://gw.example', apiFormat: 'responses', clientId: 'dsh',
+  })
+  // With an entry, the composition layer wins: register resolves it itself.
+  const entryConfig = { baseURL: 'http://localhost:18080', clientId: 'dsh' }
+  assert.deepEqual(settingsBase({ fiber: { entry: { options: { config: entryConfig } } } }, resolved), entryConfig)
+  assert.deepEqual(settingsBase({ fiber: undefined }, undefined), {})
 })

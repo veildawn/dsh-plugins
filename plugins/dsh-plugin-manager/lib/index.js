@@ -57,9 +57,25 @@ export const NS = 'plugin-manager'
 export const MARKET_RPC_CHANNEL = '/dsh-plugin-manager-rpc'
 
 
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+function liveField(schema) {
+  return typeof schema?.volatile === 'function' ? schema.volatile() : schema
+}
+
 function isVolatileRef(value) {
-  return value !== null && typeof value === 'object' && typeof value.get === 'function'
-    && !Array.isArray(value) && Object.keys(value).length === 0
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  if (typeof value.get !== 'function') return false
+  return VOLATILE_WRITE in value || Object.keys(value).length === 0
+}
+
+/**
+ * Plain composition layer for the legacy settings seam. `settings.register`
+ * resolves the schema over its `base` itself, so the base must be raw config:
+ * the resolved fiber config carries live references.
+ */
+function settingsBase(ctx, config) {
+  return unwrapConfig(ctx.fiber?.entry?.options?.config ?? config ?? {})
 }
 
 function unwrapConfig(value, seen = new Set()) {
@@ -78,7 +94,7 @@ function settingsNamespace(ctx, fallback) {
 
 function openSettingsScope(ctx, ns, schema, config) {
   if (typeof ctx.settings?.register === 'function') {
-    return ctx.settings.register(ns, schema, { base: config ?? {} })
+    return ctx.settings.register(ns, schema, { base: settingsBase(ctx, config) })
   }
   const read = () => unwrapConfig(config ?? {})
   return {
@@ -90,11 +106,13 @@ function openSettingsScope(ctx, ns, schema, config) {
   }
 }
 
+export { isVolatileRef, liveField, settingsBase, unwrapConfig }
+
 export const Config = z.object({
-  repoOrigin: z.string().default(DEFAULT_REPO_ORIGIN),
-  communityCatalogUrl: z.string().default(DEFAULT_COMMUNITY_CATALOG_URL),
-  autoCheckUpdates: z.boolean().default(true),
-  mirrorUrl: z.string().default(''),
+  repoOrigin: liveField(z.string().default(DEFAULT_REPO_ORIGIN)),
+  communityCatalogUrl: liveField(z.string().default(DEFAULT_COMMUNITY_CATALOG_URL)),
+  autoCheckUpdates: liveField(z.boolean().default(true)),
+  mirrorUrl: liveField(z.string().default('')),
 })
 
 export function resolveOptions(raw = {}) {
@@ -1217,9 +1235,9 @@ export function handleRestartHost(options, payload = {}, deps = {}) {
 }
 
 export function apply(ctx, config) {
-  let current = () => config ?? {}
+  let current = () => unwrapConfig(config ?? {})
   const scope = openSettingsScope(ctx, NS, Config, config)
-  current = () => scope.get()
+  current = () => unwrapConfig(scope.get())
   const options = () => resolveOptions(current())
 
   ctx.connection.rpc.handle(
