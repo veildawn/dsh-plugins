@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-manager",
-  "version": "0.3.23",
+  "version": "0.3.24",
   "description": "Visual plugin manager for DeepSeek Harness — manage repository updates, browse 2200+ community plugins by category, one-click batch update, removal, and smooth async daemon restart",
   "type": "module",
   "main": "lib/index.js",
@@ -18,7 +18,7 @@
     "cordis.patch.yml"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs && node ../../scripts/check-host-settings.mjs plugins/dsh-plugin-manager plugin-manager"
   },
   "license": "MIT",
   "keywords": [

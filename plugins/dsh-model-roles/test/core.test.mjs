@@ -22,6 +22,7 @@ import {
   sanitizeToolSchema,
   taskTextOf,
 } from '../lib/core.js'
+import { Config, isVolatileRef, liveField, settingsBase, unwrapConfig } from '../lib/index.js'
 
 function agent({ events = [], header = {}, options = {}, livePreset, messages } = {}) {
   return {
@@ -392,5 +393,63 @@ test('resolveBaselineModel resolves active baseline from events, header, options
   assert.equal(sameModelSelection({ provider: 'a', model: 'b' }, { provider: 'a', model: 'c' }), false)
 })
 
+// ── live (volatile) config plumbing ────────────────────────────────────────
 
+const VOLATILE_WRITE_SYMBOL = Symbol.for('cosmokit.volatile.write')
 
+/** A cosmokit `createVolatile` reference: an own `get()` plus the shared write symbol. */
+function liveRef(initial) {
+  let current = initial
+  return {
+    ref: Object.freeze({ get: () => current, [VOLATILE_WRITE_SYMBOL]: (next) => { current = next } }),
+    write: (next) => { current = next },
+  }
+}
+
+test('isVolatileRef: cosmokit references count, config data never does', () => {
+  const { ref } = liveRef('x')
+  assert.equal(isVolatileRef(ref), true)
+  assert.equal(isVolatileRef({ get: () => 1, baseURL: 'x' }), false, 'a data object with a get method is not a reference')
+  for (const value of [undefined, null, 'x', 42, true, ['x'], { a: 1 }]) {
+    assert.equal(isVolatileRef(value), false, String(value) + ' is plain data')
+  }
+})
+
+test('unwrapConfig: live references resolve to their current value, nested included', () => {
+  const secret = liveRef('s3cret')
+  const config = { enabled: secret.ref, nested: { list: [secret.ref] } }
+  assert.deepEqual(unwrapConfig(config), { enabled: 's3cret', nested: { list: ['s3cret'] } })
+  // The Loader swaps the value inside the same reference, never the reference.
+  secret.write('rotated')
+  assert.equal(unwrapConfig(config).enabled, 'rotated')
+})
+
+test('settingsBase: the legacy settings seam receives raw plain config', () => {
+  const live = liveRef('http://gw.example')
+  const resolved = { enabled: live.ref, mode: 'x' }
+  assert.deepEqual(settingsBase({ fiber: undefined }, resolved), { enabled: 'http://gw.example', mode: 'x' },
+    'without a loader entry the resolved config is all there is, so it is unwrapped')
+  const entryConfig = { enabled: true }
+  assert.deepEqual(settingsBase({ fiber: { entry: { options: { config: entryConfig } } } }, resolved), entryConfig,
+    'with an entry, register receives the raw composition layer it resolves itself')
+  assert.deepEqual(settingsBase({ fiber: undefined }, undefined), {})
+})
+
+test('Config: every field this section owns is live, and unwraps to plain data', () => {
+  // The local devDependency may pin schemastery 3.18.1 while a fresh install
+  // (CI, the host itself) resolves 3.18.4, so both shapes must hold: the host
+  // settings service refuses every write when no field is volatile, and
+  // consumers must never receive a live reference.
+  const keys = Object.keys(Config.dict)
+  const supportsLiveFields = typeof Config.dict[keys[0]].volatile === 'function'
+  for (const [key, field] of Object.entries(Config.dict)) {
+    assert.equal(field.meta?.volatile === true, supportsLiveFields,
+      key + (supportsLiveFields ? ' must be declared live' : ' stays ordinary on this schemastery'))
+  }
+  const resolved = Config({})
+  assert.equal(isVolatileRef(resolved[keys[0]]), supportsLiveFields,
+    'live fields resolve to references exactly when the schema declares them')
+  const plain = unwrapConfig(resolved)
+  for (const key of keys) assert.equal(isVolatileRef(plain[key]), false, key + ' unwraps to plain data')
+  assert.deepEqual(Object.keys(plain).sort(), [...keys].sort(), 'unwrapping keeps every declared field')
+})

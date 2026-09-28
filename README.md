@@ -88,6 +88,21 @@ dsh service restart --profile web
 ### 方式 2：CI/CD 自动触发
 只要给仓库推送形如 `dsh-model-roles@v0.4.6` 的 Tag，GitHub Actions 将会自动检测对应插件目录并构建专属 Release。
 
+### 设置写入自检（`has no volatile fields` 回归）
+DSH 0.1.7 的 `ctx.settings` 是 dsh-settings 的 `SettingsForms`：任何**没有声明 live
+(`.volatile()`) 字段**的插件条目，宿主的写入会直接抛
+`Plugin entry "<id>" has no volatile fields`（前端表现为「保存配置失败」），且该条目不
+会出现在 `describe()` 里。凡是自己写自己设置节的插件，都要把被写入的字段声明为 live，
+并在读取时解包 live 引用。
+
+`scripts/check-host-settings.mjs` 用宿主**真实**的 `Loader`/fiber、`SettingsForms` 与
+schemastery 挂载插件的真实 `Config`，逐字段验证写入被接受、落盘到 profile 补丁且不重载
+fiber；机器上没有 `dsh` 时打印 `SKIP` 退出 0。受影响插件的 `npm test` 已串联该检查：
+
+```bash
+node scripts/check-host-settings.mjs plugins/dsh-archive-manager archive-manager
+```
+
 ---
 
 ## 📄 License
