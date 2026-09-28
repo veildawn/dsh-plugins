@@ -33,9 +33,15 @@ export const MODEL_ROLES_PRESET_DESCRIPTION = '功能完整的编码 Agent，支
 export const MODEL_ROLES_PRESET_ORDER = 5
 /** The shipped preset declaration this plugin clones. */
 export const AGENT_PRESET_PLUGIN = '@deepseek-ai/dsh-agent-preset'
+/**
+ * Preset ids the host itself ships, across generations: `code` was the shipped
+ * PTC mode id before 0.1.7 renamed it to `ptc`. Sessions on any of these keep
+ * their native routing; only `model-roles` (智选模式) activates role routing.
+ */
 export const STANDARD_PRESETS = Object.freeze(new Set([
   'standard',
   'code',
+  'ptc',
   'minimal',
   'cordis',
 ]))
