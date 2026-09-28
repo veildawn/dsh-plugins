@@ -28,8 +28,33 @@ export const Config = z.object({
   trashDir: z.string().default(''),
 })
 
+function settingsNamespace(ctx) {
+  if (typeof ctx.settings?.register === 'function') return NS
+  const id = ctx.fiber?.entry?.options?.id
+  return typeof id === 'string' && id.length > 0 ? id : NS
+}
+
+function openSettingsScope(ctx, config) {
+  if (typeof ctx.settings?.register === 'function') {
+    return ctx.settings.register(NS, Config, { base: config ?? {} })
+  }
+  const read = () => config ?? {}
+  const ns = settingsNamespace(ctx)
+  return {
+    get: read,
+    async update(patch) {
+      if (typeof ctx.settings?.mutate !== 'function') return
+      await ctx.settings.mutate(ns, Object.entries(patch).map(([key, value]) => ({ op: 'set', path: [key], value })))
+    },
+    async replace(section) {
+      if (typeof ctx.settings?.replace !== 'function') return
+      await ctx.settings.replace(ns, section)
+    },
+  }
+}
+
 export function apply(ctx, config) {
-  const scope = ctx.settings.register(NS, Config, { base: config ?? {} })
+  const scope = openSettingsScope(ctx, config)
   const options = () => resolveOptions(scope.get())
 
   ctx.inject(['connection'], (connectionCtx) => {

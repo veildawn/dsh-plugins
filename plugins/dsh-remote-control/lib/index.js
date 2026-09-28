@@ -22,6 +22,40 @@ export const REMOTE_CONTROL_SESSION_PATH = '/dsh-remote-control/session'
 /** Cap for the handshake JSON body: one shared secret plus envelope slack. */
 export const SESSION_BODY_MAX_BYTES = 8192
 
+
+function isVolatileRef(value) {
+  return value !== null && typeof value === 'object' && typeof value.get === 'function'
+    && !Array.isArray(value) && Object.keys(value).length === 0
+}
+
+function unwrapConfig(value, seen = new Set()) {
+  if (isVolatileRef(value)) return unwrapConfig(value.get(), seen)
+  if (value === null || typeof value !== 'object') return value
+  if (seen.has(value)) return value
+  if (Array.isArray(value)) return value.map((item) => unwrapConfig(item, seen))
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, unwrapConfig(item, seen)]))
+}
+
+function settingsNamespace(ctx, fallback) {
+  if (typeof ctx.settings?.register === 'function') return fallback
+  const id = ctx.fiber?.entry?.options?.id
+  return typeof id === 'string' && id.length > 0 ? id : fallback
+}
+
+function openSettingsScope(ctx, ns, schema, config) {
+  if (typeof ctx.settings?.register === 'function') {
+    return ctx.settings.register(ns, schema, { base: config ?? {} })
+  }
+  const read = () => unwrapConfig(config ?? {})
+  return {
+    get: read,
+    watch(listener) {
+      if (typeof ctx.on !== 'function') return () => {}
+      return ctx.on('loader/volatile-update', () => listener(read()))
+    },
+  }
+}
+
 export const Config = z.object({
   enabled: z.boolean().default(false),
   secret: z.string().role('secret').default(''),
@@ -102,7 +136,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
       if (keys.length !== 1 || !Object.hasOwn(payload, 'enabled') || typeof payload.enabled !== 'boolean') {
         return errorResult('Remote Control setEnabled requests must carry exactly one boolean enabled field')
       }
-      await ctx.settings.mutate(NS, [{ op: 'set', path: ['enabled'], value: payload.enabled }])
+      await ctx.settings.mutate(settingsNamespace(ctx, NS), [{ op: 'set', path: ['enabled'], value: payload.enabled }])
       const value = await status(ctx, options, '')
       return { ok: true, value: { enabled: value.enabled, secretConfigured: value.secretConfigured } }
     }
@@ -378,7 +412,7 @@ export function shouldServeUnauthenticatedIndex(request, enabled, isAuthenticate
 export function apply(ctx, config) {
   let current = () => config ?? {}
   const options = () => resolveOptions(current())
-  const scope = ctx.settings.register(NS, Config, { base: config ?? {} })
+  const scope = openSettingsScope(ctx, NS, Config, config)
   current = () => scope.get()
 
   ctx.inject(['webServer'], (webServerCtx) => {

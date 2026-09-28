@@ -512,7 +512,7 @@ class AiProxyApi {
     }
 
     if (mutations.length > 0) {
-      await this.ctx.settings.mutate(NS, mutations)
+      await this.ctx.settings.mutate(this.settingsNs ?? NS, mutations)
       this.invalidateModels()
     }
     return this.gateway()
@@ -749,7 +749,7 @@ class RouteMaterializer {
     if (this.available === false) return false
     let route
     try {
-      route = this.ctx.settings.get(PI_AI_NS)?.providers?.[PROVIDER]
+      route = readSettingsSection(this.ctx, PI_AI_NS)?.providers?.[PROVIDER]
     } catch {
       return false
     }
@@ -778,6 +778,51 @@ const catalogModel = z.object({
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
 })
+
+
+/** Schemastery 3.18.4+ live fields; older test schemas stay unchanged. */
+function isVolatileRef(value) {
+  return value !== null && typeof value === 'object' && typeof value.get === 'function'
+    && !Array.isArray(value) && Object.keys(value).length === 0
+}
+
+function unwrapConfig(value, seen = new Set()) {
+  if (isVolatileRef(value)) return unwrapConfig(value.get(), seen)
+  if (value === null || typeof value !== 'object') return value
+  if (seen.has(value)) return value
+  seen.add(value)
+  if (Array.isArray(value)) return value.map((item) => unwrapConfig(item, seen))
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, unwrapConfig(item, seen)]))
+}
+
+function settingsNamespace(ctx, fallback) {
+  if (typeof ctx.settings?.register === 'function') return fallback
+  const id = ctx.fiber?.entry?.options?.id
+  return typeof id === 'string' && id.length > 0 ? id : fallback
+}
+
+function readSettingsSection(ctx, ns) {
+  if (typeof ctx.settings?.get === 'function') {
+    const value = ctx.settings.get(ns)
+    if (value !== undefined) return unwrapConfig(value)
+  }
+  const described = typeof ctx.settings?.describe === 'function' ? ctx.settings.describe() : []
+  return described.find((entry) => entry?.ns === ns)?.value
+}
+
+function openSettingsScope(ctx, ns, config) {
+  if (typeof ctx.settings?.register === 'function') {
+    return ctx.settings.register(ns, Config, { base: config ?? {} })
+  }
+  const read = () => unwrapConfig(config ?? {})
+  return {
+    get: read,
+    watch(listener) {
+      if (typeof ctx.on !== 'function') return () => {}
+      return ctx.on('loader/volatile-update', () => listener(read()))
+    },
+  }
+}
 
 /** Plugin config; doubles as the ai-proxy settings-section shape. */
 export const Config = z.object({
@@ -937,7 +982,7 @@ export function apply(ctx, config) {
   /** The materialized route as it currently stands in the settings document. */
   const currentRoute = () => {
     try {
-      return ctx.settings.get(PI_AI_NS)?.providers?.[PROVIDER]
+      return readSettingsSection(ctx, PI_AI_NS)?.providers?.[PROVIDER]
     } catch {
       return undefined
     }
@@ -979,7 +1024,9 @@ export function apply(ctx, config) {
     })()
   }
 
-  const scope = ctx.settings.register(NS, Config, { base: config ?? {} })
+  const settingsNs = settingsNamespace(ctx, NS)
+  api.settingsNs = settingsNs
+  const scope = openSettingsScope(ctx, NS, config)
   current = () => scope.get()
 
   let syncTimer
@@ -998,11 +1045,11 @@ export function apply(ctx, config) {
     )
   })
 
-  const stored = ctx.settings.describe().find((entry) => entry.ns === NS)?.user
+  const stored = ctx.settings.describe().find((entry) => entry.ns === settingsNs)?.user
   const hasLegacyOAuthFields = stored !== null && typeof stored === 'object'
     && (Object.hasOwn(stored, 'oauth') || Object.hasOwn(stored, 'oauthStatus'))
   if (ctx.settings.writable && hasLegacyOAuthFields) {
-    void ctx.settings.mutate(NS, [
+    void ctx.settings.mutate(settingsNs, [
       { op: 'unset', path: ['oauth'] },
       { op: 'unset', path: ['oauthStatus'] },
     ]).catch((error) => {

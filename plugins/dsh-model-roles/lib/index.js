@@ -171,6 +171,40 @@ const roleEntry = z.object({
   reasoningEffort: z.string().default(''),
 })
 
+
+function isVolatileRef(value) {
+  return value !== null && typeof value === 'object' && typeof value.get === 'function'
+    && !Array.isArray(value) && Object.keys(value).length === 0
+}
+
+function unwrapConfig(value, seen = new Set()) {
+  if (isVolatileRef(value)) return unwrapConfig(value.get(), seen)
+  if (value === null || typeof value !== 'object') return value
+  if (seen.has(value)) return value
+  if (Array.isArray(value)) return value.map((item) => unwrapConfig(item, seen))
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, unwrapConfig(item, seen)]))
+}
+
+function settingsNamespace(ctx, fallback) {
+  if (typeof ctx.settings?.register === 'function') return fallback
+  const id = ctx.fiber?.entry?.options?.id
+  return typeof id === 'string' && id.length > 0 ? id : fallback
+}
+
+function openSettingsScope(ctx, ns, schema, config) {
+  if (typeof ctx.settings?.register === 'function') {
+    return ctx.settings.register(ns, schema, { base: config ?? {} })
+  }
+  const read = () => unwrapConfig(config ?? {})
+  return {
+    get: read,
+    watch(listener) {
+      if (typeof ctx.on !== 'function') return () => {}
+      return ctx.on('loader/volatile-update', () => listener(read()))
+    },
+  }
+}
+
 /** Settings section and Cordis entry configuration. */
 export const Config = z.object({
   roles: z.array(roleEntry).default([]),
@@ -337,7 +371,7 @@ export function apply(ctx, config = {}) {
     reportPresetProvision(ctx, result)
   })
 
-  const scope = ctx.settings.register(NS, Config, { base: config })
+  const scope = openSettingsScope(ctx, NS, Config, config)
   let settings = scope.get()
   let table = resolveRoleTable(settings)
   const reroutedAuxiliaryRequests = new WeakSet()
