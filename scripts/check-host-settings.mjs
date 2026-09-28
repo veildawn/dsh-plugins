@@ -188,6 +188,30 @@ const live = liveKeys.length > 0
   && (rootLive ? cosmokit.isVolatile(fiber.config) : liveKeys.every((key) => cosmokit.isVolatile(fiber.config[key])));
 check('the resolved config carries live references', live);
 
+// The settings cards talk to a plugin-owned RPC that reads/writes the same
+// entry. When the plugin exposes that seam (model-roles does), drive it too:
+// this is the path that used to answer
+// `model-roles settings are not registered` - the old view threw whenever the
+// entry was missing from describe(), which is exactly what a Config without a
+// live field causes.
+if (typeof plugin.handleSettingsRpc === 'function') {
+  const describedRpc = await plugin.handleSettingsRpc(settings, 'describe', {}, {});
+  check('settings RPC describes the section', describedRpc?.ok === true, JSON.stringify(describedRpc));
+  const liveValue = describedRpc?.value?.value;
+  check('settings RPC hands out plain values', liveValue !== undefined
+    && Object.values(liveValue).every((value) => !cosmokit.isVolatile(value)),
+    JSON.stringify(liveValue)?.slice(0, 120));
+  const replaced = await plugin.handleSettingsRpc(settings, 'replace', {
+    section: structuredClone(liveValue),
+    expectedRevision: describedRpc?.value?.revision ?? 0,
+  }, structuredClone(liveValue));
+  check('settings RPC saves the section', replaced?.ok === true, JSON.stringify(replaced));
+  const reread = await plugin.handleSettingsRpc(settings, 'describe', {}, {});
+  check('settings RPC reads the saved section back', reread?.ok === true
+    && Object.keys(reread.value.value).length === Object.keys(liveValue).length,
+    JSON.stringify(reread)?.slice(0, 160));
+}
+
 rmSync(home, { recursive: true, force: true });
 console.log('');
 console.log(failures === 0 ? 'SETTINGS GATE OK (' + packageName + ')' : 'SETTINGS GATE FAILED: ' + failures + ' check(s)');
