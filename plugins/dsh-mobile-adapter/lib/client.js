@@ -97,8 +97,7 @@ window.__ModuleLoader__.load({
         .dsh-mobile-tools-btn,
         .Sh0Q9G_trigger,
         .term-composer-btn,
-        ._7KE1Ra_trigger,
-        .JObwrW_trigger {
+        ._7KE1Ra_trigger {
           box-sizing:border-box!important;
           width:32px!important;
           height:32px!important;
@@ -164,7 +163,14 @@ window.__ModuleLoader__.load({
         .dsh-mobile-tools-item{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;border:none;border-radius:10px;background:none;color:inherit;font:inherit;font-weight:500;text-align:left;cursor:pointer;user-select:none;white-space:nowrap;-webkit-tap-highlight-color:transparent;touch-action:manipulation;-webkit-user-select:none}
         .dsh-mobile-tools-item:hover,.dsh-mobile-tools-item:active{background:var(--dsw-alias-interactive-bg-hover-solid,rgba(0,0,0,0.1))}
         .dsh-mobile-tools-icon{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;font-size:15px}
-        .JObwrW_root{width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}
+        /* 上下文用量是状态标签（圆环 + 百分比），不是动作按钮：套 32x32 圆形会把
+           文字挤到圆环下方并被卡片边缘裁掉（实测 scrollH 41 > clientH 32）。这里
+           改成内容自适应药丸，高度与其它按钮一致，宽度随百分比增长。 */
+        .JObwrW_root{width:auto!important;max-width:100%!important;height:32px!important;min-width:0!important;flex:none!important;display:inline-flex!important;align-items:center!important}
+        .JObwrW_trigger{box-sizing:border-box!important;width:auto!important;height:32px!important;min-width:0!important;max-width:none!important;max-height:32px!important;border-radius:999px!important;padding:0 10px!important;margin:0!important;display:inline-flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;gap:6px!important;white-space:nowrap!important}
+        .JObwrW_trigger>span{display:inline-block!important;line-height:1!important;white-space:nowrap!important}
+        /* dock 槽位让出宽度给 meter，长统计行收缩而不是把按钮挤出卡片 */
+        .uV2eYG_dock>[data-slot="conversation.composer.dock"]{flex:1 1 auto!important;width:auto!important;min-width:0!important;max-width:100%!important}
         [data-composer-card] textarea{box-sizing:border-box;min-height:44px;max-height:160px;font-size:16px!important}
         .md-code-block button,[role="dialog"] button{min-width:44px;min-height:44px}
         .md-code-block{max-width:100%;overflow:hidden}
