@@ -23,7 +23,22 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
     const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
-    const { ReadBlock, MarkdownText, JsonTree, DiffBlock, IconFolderOpen16, IconFolderOutline16, IconCloseOutline16, IconFullscreenOutline16, IconRefreshOutline16, writeClipboard } = primitives;
+    function DefaultFolderIcon({ size = 16, className }) {
+      return react.createElement("svg", {
+        width: size, height: size, className, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true"
+      },
+        react.createElement("path", {
+          d: "M1.5 3.5C1.5 2.67157 2.17157 2 3 2H6.08579C6.4836 2 6.86508 2.15804 7.14645 2.43934L8.70711 4H13C13.8284 4 14.5 4.67157 14.5 5.5V12.5C14.5 13.3284 13.8284 14 13 14H3C2.17157 14 1.5 13.3284 1.5 12.5V3.5Z",
+          fill: "currentColor"
+        })
+      );
+    }
+    const { ReadBlock, MarkdownText, JsonTree, DiffBlock, writeClipboard } = primitives;
+    const IconFolderOpen16 = primitives.IconFolderOpen16 || primitives.IconFolderOpenRegular || primitives.IconFolderOpenMedium || DefaultFolderIcon;
+    const IconFolderOutline16 = primitives.IconFolderOutline16 || primitives.IconFolderOpenOutlineRegular || DefaultFolderIcon;
+    const IconCloseOutline16 = primitives.IconCloseOutline16 || primitives.IconCloseOutlineRegular;
+    const IconFullscreenOutline16 = primitives.IconFullscreenOutline16 || primitives.IconFullscreenOutlineRegular;
+    const IconRefreshOutline16 = primitives.IconRefreshOutline16 || primitives.IconRefreshOutlineRegular;
 
     // 统一风格的矢量线性图标 (16x16, 统一 currentColor 与线条粗细)
     function SvgIconWrap({ size = 15 }) {

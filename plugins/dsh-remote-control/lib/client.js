@@ -22,7 +22,39 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
-    const { BrandWordmark, IconGlobeOutline14 } = require("@deepseek-ai/dsh-client-ui-primitives");
+    let primitives = {};
+    try { primitives = require("@deepseek-ai/dsh-client-ui-primitives") || {}; } catch {}
+    function DefaultBrandWordmark({ size = 24, className }) {
+      return react.createElement("svg", {
+        width: size, height: size, className, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true"
+      },
+        react.createElement("path", {
+          d: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
+          stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round"
+        })
+      );
+    }
+    const BrandWordmark = primitives.BrandWordmark || DefaultBrandWordmark;
+    function DefaultIconGlobeOutline({ size = 14, className }) {
+      return react.createElement("svg", {
+        width: size, height: size, className, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", strokeWidth: 1.3
+      },
+        react.createElement("path", {
+          d: "M7.99986 14.0887C11.3626 14.0887 14.0886 11.3627 14.0886 7.99998C14.0886 4.63727 11.3626 1.91125 7.99986 1.91125C4.63715 1.91125 1.91113 4.63727 1.91113 7.99998C1.91113 11.3627 4.63715 14.0887 7.99986 14.0887Z",
+          stroke: "currentColor"
+        }),
+        react.createElement("path", { d: "M2.34619 8H13.6538", stroke: "currentColor", strokeLinecap: "square" }),
+        react.createElement("path", {
+          d: "M7.99976 14.0889C9.23509 14.0889 10.1743 11.3629 10.1743 8.00006C10.1743 4.63739 9.23509 1.91138 7.99976 1.91138",
+          stroke: "currentColor"
+        }),
+        react.createElement("path", {
+          d: "M7.99973 14.0889C6.76445 14.0889 5.8252 11.3629 5.8252 8.00006C5.8252 4.63739 6.76445 1.91138 7.99973 1.91138",
+          stroke: "currentColor"
+        })
+      );
+    }
+    const IconGlobeOutline14 = primitives.IconGlobeOutline14 || primitives.IconGlobeOutlineMedium || primitives.IconGlobeOutlineRegular || DefaultIconGlobeOutline;
 
     const REMOTE_CONTROL_RPC_CHANNEL = "/dsh-remote-control";
     const CONFIG_RPC_CHANNEL = "/dsh-remote-control-config";

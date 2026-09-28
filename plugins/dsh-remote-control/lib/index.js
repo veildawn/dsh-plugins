@@ -12,7 +12,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 
 export const name = 'remote-control'
-export const inject = ['credentials', 'settings', 'connection']
+export const inject = ['credentials', 'settings', 'connection', 'webServer']
 export const NS = 'remote-control'
 export const REMOTE_CONTROL_SECRET_REF = 'DSH_REMOTE_CONTROL_SECRET'
 export const REMOTE_CONTROL_RPC_CHANNEL = '/dsh-remote-control'

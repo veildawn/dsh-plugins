@@ -22,7 +22,17 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
-    const { IconApiOutline14 } = require("@deepseek-ai/dsh-client-ui-primitives");
+    let primitives = {};
+    try { primitives = require("@deepseek-ai/dsh-client-ui-primitives") || {}; } catch {}
+    function DefaultIconApiOutline({ size = 14, className }) {
+      return react.createElement("svg", {
+        width: size, height: size, className, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", strokeWidth: 1.3
+      },
+        react.createElement("path", { d: "M3 4L7 8L3 12", stroke: "currentColor" }),
+        react.createElement("path", { d: "M9 12H13", stroke: "currentColor" })
+      );
+    }
+    const IconApiOutline14 = primitives.IconApiOutline14 || primitives.IconApiOutlineMedium || primitives.IconApiOutlineRegular || DefaultIconApiOutline;
 
     const AUTH_RPC_CHANNEL = "/ai-proxy-auth";
     const SETTINGS_SLOT = "settings.section";

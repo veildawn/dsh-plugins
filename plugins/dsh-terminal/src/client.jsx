@@ -1,5 +1,22 @@
 import React, { useState, useEffect, useRef, Fragment } from 'react'
-import { IconCloseOutline16, IconFullscreenOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+function IconFullscreenOutline16({ size = 16, className }) {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true" strokeWidth="1.3">
+      <path d="M2.5 5.5v-3h3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10.5 2.5h3v3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13.5 10.5v3h-3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5.5 13.5h-3v-3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function IconCloseOutline16({ size = 16, className }) {
+  return (
+    <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true" strokeWidth="1.4">
+      <path d="M3.5 3.5l9 9" stroke="currentColor" strokeLinecap="round" />
+      <path d="M12.5 3.5l-9 9" stroke="currentColor" strokeLinecap="round" />
+    </svg>
+  )
+}
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 

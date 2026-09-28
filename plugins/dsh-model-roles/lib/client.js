@@ -22,7 +22,19 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const react = require("react");
-    const { IconBranchOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives");
+    let primitives = {};
+    try { primitives = require("@deepseek-ai/dsh-client-ui-primitives") || {}; } catch {}
+    function DefaultIconBranchOutline({ size = 16, className }) {
+      return react.createElement("svg", {
+        width: size, height: size, className, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", strokeWidth: 1.3
+      },
+        react.createElement("path", { d: "M1.01503 8.0001L5.6964 8.0001C6.41913 8.0001 6.78049 8.0001 7.12115 7.91951C7.4232 7.84804 7.71261 7.72816 7.97858 7.56417C8.27838 7.37929 8.53392 7.12376 9.04498 6.6127L10.9572 4.70051", stroke: "currentColor" }),
+        react.createElement("circle", { cx: "12.4502", cy: "3.70801", r: "1.56962", stroke: "currentColor" }),
+        react.createElement("path", { d: "M7.64307 7.7959L9.04499 9.19782C9.55604 9.70887 9.81158 9.9644 10.1114 10.1493C10.3774 10.3133 10.6668 10.4332 10.9688 10.5046C11.3095 10.5852 11.6708 10.5852 12.3936 10.5852L14.0002 10.5852", stroke: "currentColor" }),
+        react.createElement("circle", { cx: "12.4502", cy: "12.6921", r: "1.56962", stroke: "currentColor" })
+      );
+    }
+    const IconBranchOutline16 = primitives.IconBranchOutline16 || primitives.IconBranchOutlineMedium || primitives.IconBranchOutlineRegular || DefaultIconBranchOutline;
 
     const NS = "model-roles";
     const SETTINGS_RPC_CHANNEL = "/model-roles-settings";

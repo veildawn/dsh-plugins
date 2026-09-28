@@ -64,7 +64,6 @@ window.__ModuleLoader__.load({
     inject: () => inject
   });
   var import_react = __toESM(__require("react"), 1);
-  var import_dsh_client_ui_primitives = __require("@deepseek-ai/dsh-client-ui-primitives");
 
   // ../../node_modules/.pnpm/@xterm+xterm@6.0.0/node_modules/@xterm/xterm/lib/xterm.mjs
   var zs = Object.defineProperty;
@@ -9205,6 +9204,12 @@ ${h2.join(`
   };
 
   // src/client.jsx
+  function IconFullscreenOutline16({ size = 16, className }) {
+    return /* @__PURE__ */ import_react.default.createElement("svg", { width: size, height: size, className, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", strokeWidth: "1.3" }, /* @__PURE__ */ import_react.default.createElement("path", { d: "M2.5 5.5v-3h3", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round" }), /* @__PURE__ */ import_react.default.createElement("path", { d: "M10.5 2.5h3v3", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round" }), /* @__PURE__ */ import_react.default.createElement("path", { d: "M13.5 10.5v3h-3", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round" }), /* @__PURE__ */ import_react.default.createElement("path", { d: "M5.5 13.5h-3v-3", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round" }));
+  }
+  function IconCloseOutline16({ size = 16, className }) {
+    return /* @__PURE__ */ import_react.default.createElement("svg", { width: size, height: size, className, viewBox: "0 0 16 16", fill: "none", "aria-hidden": "true", strokeWidth: "1.4" }, /* @__PURE__ */ import_react.default.createElement("path", { d: "M3.5 3.5l9 9", stroke: "currentColor", strokeLinecap: "round" }), /* @__PURE__ */ import_react.default.createElement("path", { d: "M12.5 3.5l-9 9", stroke: "currentColor", strokeLinecap: "round" }));
+  }
   var RPC_CHANNEL = "/dsh-terminal";
   var OVERLAY_SLOT = "shell.overlay";
   var HEADER_SLOT = "conversation.session.header.utilities";
@@ -10233,7 +10238,7 @@ ${h2.join(`
               title: isFullscreen ? "\u8FD8\u539F\u7A97\u53E3" : "\u5168\u5C4F\u5C55\u5F00",
               onClick: () => setIsFullscreen(!isFullscreen)
             },
-            /* @__PURE__ */ import_react.default.createElement(import_dsh_client_ui_primitives.IconFullscreenOutline16, { size: 16 })
+            /* @__PURE__ */ import_react.default.createElement(IconFullscreenOutline16, { size: 16 })
           ), /* @__PURE__ */ import_react.default.createElement(
             "button",
             {
@@ -10242,7 +10247,7 @@ ${h2.join(`
               title: "\u5173\u95ED\u7EC8\u7AEF\u5E76\u8FD4\u56DE",
               onClick: () => openStore.set(null)
             },
-            /* @__PURE__ */ import_react.default.createElement(import_dsh_client_ui_primitives.IconCloseOutline16, { size: 16 })
+            /* @__PURE__ */ import_react.default.createElement(IconCloseOutline16, { size: 16 })
           ))),
           tabs.map((tab) => /* @__PURE__ */ import_react.default.createElement(
             TerminalTabContent,
