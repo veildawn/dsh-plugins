@@ -17,23 +17,23 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 
 ```bash
 # 1. 使用 GitHub Release 在线安装
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.30/dsh-mobile-adapter-0.1.30.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.37/dsh-mobile-adapter-0.1.37.tgz
 
 # 2. 或在本地打包安装
-dsh plugin add --profile web ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.30.tgz
+dsh plugin add --profile web ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.37.tgz
 ```
 
 ## 重启生效
 
+- **macOS / Linux 用户**：
+  ```bash
+  ./scripts/dsh-web.sh restart
+  ```
 - **Windows 用户**：
   ```powershell
   .\scripts\dsh-web.ps1 restart
   # 或 cmd:
   scripts\dsh-web.cmd restart
-  ```
-- **Linux / macOS 用户**：
-  ```bash
-  dsh service restart --profile web
   ```
 
 ## License

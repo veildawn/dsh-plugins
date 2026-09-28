@@ -16,19 +16,19 @@ DeepSeek Harness (DSH) Web 的 ZCode Design System。以官方 ZCode 桌面端�
 ## 安装
 
 ```bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.1.22/dsh-zcode-theme-0.1.22.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.1.33/dsh-zcode-theme-0.1.33.tgz
 ```
 
 或本地打包：
 
 ```bash
-dsh plugin add --profile web ./plugins/dsh-zcode-theme/dsh-zcode-theme-0.1.22.tgz
+dsh plugin add --profile web ./plugins/dsh-zcode-theme/dsh-zcode-theme-0.1.33.tgz
 ```
 
 ## 重启生效
 
-- **Windows**：`.\scripts\dsh-web.ps1 restart`
-- **Linux / macOS**：`dsh service restart --profile web`
+- **macOS / Linux**：`./scripts/dsh-web.sh restart`
+- **Windows**：`.\scripts\dsh-web.ps1 restart` 或 `scripts\dsh-web.cmd restart`
 
 ## License
 

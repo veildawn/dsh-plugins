@@ -23,24 +23,29 @@ DSH 特权 API。
 插件自带 `cordis.patch.yml`，安装后会插入 `remote-control` Cordis 行，默认关闭远程访问：
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-control-0.1.11.tgz
-dsh service restart
+dsh plugin add --profile web ./dsh-remote-control-0.1.14.tgz
 ```
 
-`dsh service restart` 依赖宿主打包的 systemd/launchd 单元；**`@deepseek-ai/dsh` CLI 本身没有
-`service` 子命令**（`dsh --help` 只列出根命令、`web`、`plugin`），Windows 等没有那层封装的环境执行
-会报 `error: too many arguments`。Windows 下改用本仓库的
-[`scripts/dsh-service.ps1`](../../scripts/dsh-service.ps1)：
+### 重启生效
 
-```powershell
-powershell -File scripts/dsh-service.ps1 restart -Profile web
-```
+`@deepseek-ai/dsh` 官方 CLI 本身没有 `service` 子命令，执行 `dsh service restart` 会报错。请使用本仓库自带的控制脚本：
+
+- **macOS / Linux**：
+  ```bash
+  ./scripts/dsh-web.sh restart
+  ```
+- **Windows**：
+  ```powershell
+  .\scripts\dsh-web.ps1 restart
+  # 或 cmd:
+  scripts\dsh-web.cmd restart
+  ```
 
 手动安装时：
 
 ```sh
 cd ~/.dsh/profiles/web
-pnpm add /path/to/dsh-remote-control-0.1.11.tgz
+pnpm add /path/to/dsh-remote-control-0.1.14.tgz
 ```
 
 对应的手动 Cordis 配置为：

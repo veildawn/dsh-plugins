@@ -62,9 +62,12 @@ gh release create "$TAG" "$TGZ_FILE" \
 
 #### 💻 安装命令 (Installation)
 \`\`\`bash
-dsh profile --name web plugin add https://github.com/veildawn/dsh-plugins/releases/download/$TAG/$(basename "$TGZ_FILE")
-dsh service restart
-\`\`\`"
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/$TAG/$(basename "$TGZ_FILE")
+\`\`\`
+
+#### 🔄 重启服务 (Restart Service)
+- **macOS / Linux**: \`./scripts/dsh-web.sh restart\`
+- **Windows**: \`.\\scripts\\dsh-web.ps1 restart\` (或 \`scripts\\dsh-web.cmd restart\`)"
 
 # 清理本地打包 tgz
 rm -f "$TGZ_FILE"

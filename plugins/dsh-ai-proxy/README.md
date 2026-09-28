@@ -74,18 +74,23 @@ prompt 改写成 `role: "developer"`，而 DeepSeek / GLM 等上游只接受
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-ai-proxy-0.3.0.tgz
-dsh service restart
+dsh plugin add --profile web ./dsh-ai-proxy-0.3.9.tgz
 ```
 
-`dsh service restart` 依赖宿主打包的 systemd/launchd 单元；**这套 CLI（`@deepseek-ai/dsh`）
-本身并不提供 `service` 子命令**（见 `dsh --help`，只有根命令、`web`、`plugin`），在没有那层封装的
-环境——包括 Windows——执行会直接报错 `error: too many arguments`。Windows 下改用本仓库的
-[`scripts/dsh-service.ps1`](../../scripts/dsh-service.ps1)：
+### 重启生效
 
-```powershell
-powershell -File scripts/dsh-service.ps1 restart -Profile web
-```
+`@deepseek-ai/dsh` 官方 CLI 本身并不提供 `service` 子命令，执行 `dsh service restart` 会报错。请使用本仓库自带的控制脚本：
+
+- **macOS / Linux**：
+  ```bash
+  ./scripts/dsh-web.sh restart
+  ```
+- **Windows**：
+  ```powershell
+  .\scripts\dsh-web.ps1 restart
+  # 或 cmd:
+  scripts\dsh-web.cmd restart
+  ```
 
 插件自带 `cordis.patch.yml`。手动 Cordis 配置等价于：
 

@@ -19,17 +19,22 @@
 
 ```bash
 dsh plugin add --profile web <release-tgz-url>
-dsh service restart
 ```
 
-`dsh service restart` 依赖宿主打包的 systemd/launchd 单元；**`@deepseek-ai/dsh` CLI 本身没有
-`service` 子命令**（`dsh --help` 只列出根命令、`web`、`plugin`），Windows 等没有那层封装的环境执行
-会报 `error: too many arguments`。Windows 下改用本仓库的
-[`scripts/dsh-service.ps1`](../../scripts/dsh-service.ps1)：
+### 重启生效
 
-```powershell
-powershell -File scripts/dsh-service.ps1 restart -Profile web
-```
+`@deepseek-ai/dsh` 官方 CLI 本身没有 `service` 子命令，执行 `dsh service restart` 会报错。请使用本仓库自带的控制脚本：
+
+- **macOS / Linux**：
+  ```bash
+  ./scripts/dsh-web.sh restart
+  ```
+- **Windows**：
+  ```powershell
+  .\scripts\dsh-web.ps1 restart
+  # 或 cmd:
+  scripts\dsh-web.cmd restart
+  ```
 
 装完确认 profile 的 `dsh.profile.bundles` 里有 `dsh-file-viewer`，否则插件不会加载。
 

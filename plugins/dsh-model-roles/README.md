@@ -77,18 +77,23 @@ Agent Preset 都使用 DSH 原生生命周期与事实，不要求用户手动�
 ## 安装
 
 ```sh
-dsh plugin --profile web add ./dsh-model-roles-0.4.9.tgz
-dsh service restart
+dsh plugin add --profile web ./dsh-model-roles-0.4.24.tgz
 ```
 
-`dsh service restart` 依赖宿主打包的 systemd/launchd 单元；**`@deepseek-ai/dsh` CLI 本身没有
-`service` 子命令**（`dsh --help` 只列出根命令、`web`、`plugin`），Windows 等没有那层封装的环境执行
-会报 `error: too many arguments`。Windows 下改用本仓库的
-[`scripts/dsh-service.ps1`](../../scripts/dsh-service.ps1)：
+### 重启生效
 
-```powershell
-powershell -File scripts/dsh-service.ps1 restart -Profile web
-```
+`@deepseek-ai/dsh` 官方 CLI 本身没有 `service` 子命令，执行 `dsh service restart` 会报错。请使用本仓库自带的控制脚本：
+
+- **macOS / Linux**：
+  ```bash
+  ./scripts/dsh-web.sh restart
+  ```
+- **Windows**：
+  ```powershell
+  .\scripts\dsh-web.ps1 restart
+  # 或 cmd:
+  scripts\dsh-web.cmd restart
+  ```
 
 升级插件时必须先等待所有运行中的会话结束再重启 DSH；重启活跃服务会让尚未关闭的回合以
 `interrupted` 结束。仅修改角色设置不需要重启，保存后会从下一次请求即时生效。

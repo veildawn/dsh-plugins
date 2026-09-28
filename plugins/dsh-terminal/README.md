@@ -29,18 +29,20 @@
 
 ```bash
 # 安装终端插件
-dsh plugin add --profile web ./plugins/dsh-terminal/dsh-terminal-0.1.0.tgz
+dsh plugin add --profile web ./plugins/dsh-terminal/dsh-terminal-0.1.12.tgz
 ```
 
 ### 2. 重启 DSH 服务生效
 
-- **Windows 用户**（使用仓库自带脚本）：
-  ```powershell
-  powershell -File scripts/dsh-service.ps1 restart -Profile web
-  ```
-- **Linux / macOS 用户**：
+- **macOS / Linux 用户**：
   ```bash
-  dsh service restart --profile web
+  ./scripts/dsh-web.sh restart
+  ```
+- **Windows 用户**：
+  ```powershell
+  .\scripts\dsh-web.ps1 restart
+  # 或 cmd:
+  scripts\dsh-web.cmd restart
   ```
 
 ---

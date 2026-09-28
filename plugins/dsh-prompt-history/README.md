@@ -25,22 +25,23 @@ DeepSeek Harness (DSH) 提示词历史导航与跨端同步插件（Shell-like P
 ```bash
 cd plugins/dsh-prompt-history
 npm pack
-dsh plugin add --profile web ./dsh-prompt-history-0.4.3.tgz
+dsh plugin add --profile web ./dsh-prompt-history-0.4.6.tgz
 ```
 
 ### 2. 重启生效
 
-Windows 环境请使用仓库根目录脚本（不要使用不存在的 `dsh service restart`）：
+请使用仓库根目录脚本（不要使用不存在的 `dsh service restart`）：
 
-```powershell
-.\scripts\dsh-web.ps1 restart
-```
-
-或 cmd：
-
-```cmd
-scripts\dsh-web.cmd restart
-```
+- **macOS / Linux**：
+  ```bash
+  ./scripts/dsh-web.sh restart
+  ```
+- **Windows**（PowerShell 或 CMD）：
+  ```powershell
+  .\scripts\dsh-web.ps1 restart
+  # 或 cmd:
+  scripts\dsh-web.cmd restart
+  ```
 
 ---
 
