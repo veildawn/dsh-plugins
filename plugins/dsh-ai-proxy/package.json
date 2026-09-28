@@ -1,6 +1,6 @@
 {
   "name": "dsh-ai-proxy",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "DeepSeek Harness provider for the AI Proxy Service gateway: OAuth 2.0 (authorization code + PKCE) login, per-plan model discovery with reasoning effort ladders, materialized as an official llm-pi-ai route (wire protocols owned by the host adapter)",
   "type": "module",
   "main": "lib/index.js",
@@ -10,7 +10,7 @@
     "./client": "./lib/client.js"
   },
   "scripts": {
-    "test": "node --test test/core.test.mjs test/client.test.mjs test/smoke.mjs"
+    "test": "node --test test/core.test.mjs test/client.test.mjs test/smoke.mjs && node test/host-live-settings.mjs"
   },
   "files": [
     "lib/index.js",

@@ -2,9 +2,10 @@
 //   node --test test/core.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { internals, resolveOptions } from '../lib/index.js'
+import { Config, internals, resolveOptions } from '../lib/index.js'
 
 const {
+  isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE,
   AiProxyApi,
   pkcePair, effortName,
   resolveDefaultEffort, inputModalitiesOf,
@@ -281,4 +282,78 @@ test('buildProviderProfile: responses protocol also refuses the developer role',
   }), [{ id: 'reasoner', effortLevels: ['low', 'high'] }])
   assert.equal(profile.api, 'openai-responses')
   assert.deepEqual(profile.compat, { supportsDeveloperRole: false })
+})
+
+// ── live (volatile) config plumbing ────────────────────────────────────────
+
+/** A cosmokit `createVolatile` reference: an own `get()` plus the shared write symbol. */
+function liveRef(initial) {
+  let current = initial
+  return {
+    ref: Object.freeze({
+      get: () => current,
+      [VOLATILE_WRITE]: (next) => { current = next },
+    }),
+    write: (next) => { current = next },
+  }
+}
+
+test('isVolatileRef: only cosmokit references count, data never does', () => {
+  const { ref } = liveRef('http://gw.example')
+  assert.equal(isVolatileRef(ref), true)
+  assert.equal(isVolatileRef({ get: () => 1, another: 2 }), false, 'a data object with a get method is not a reference')
+  for (const value of [undefined, null, 'http://gw.example', 42, true, ['http://gw.example'], { baseURL: 'x' }]) {
+    assert.equal(isVolatileRef(value), false, String(value) + ' is plain data')
+  }
+})
+
+test('unwrapConfig: live references resolve to their current value, nested included', () => {
+  const gateway = liveRef('http://gw.example')
+  const effort = liveRef('highest')
+  const config = {
+    baseURL: gateway.ref,
+    defaultReasoningEffort: effort.ref,
+    models: [gateway.ref],
+    clientId: 'dsh',
+  }
+  assert.deepEqual(unwrapConfig(config), {
+    baseURL: 'http://gw.example',
+    defaultReasoningEffort: 'highest',
+    models: ['http://gw.example'],
+    clientId: 'dsh',
+  })
+  // The Loader swaps the value inside the same reference, never the reference.
+  gateway.write('http://192.168.1.253:8319')
+  assert.equal(unwrapConfig(config).baseURL, 'http://192.168.1.253:8319')
+  assert.equal(resolveOptions(unwrapConfig(config)).baseURL, 'http://192.168.1.253:8319')
+})
+
+test('unwrapConfig: plain config passes through with its shape intact', () => {
+  const plain = { baseURL: 'http://gw.example', models: [{ id: 'm', maxTokens: 8 }], clientId: 'dsh' }
+  assert.deepEqual(unwrapConfig(plain), plain)
+  assert.equal(unwrapConfig(null), null)
+  assert.equal(unwrapConfig('http://gw.example'), 'http://gw.example')
+  // Sparse values are the Loader's business, not the unwrapper's: it copies them.
+  assert.deepEqual(unwrapConfig({ retryPolicy: undefined }), { retryPolicy: undefined })
+})
+
+test('liveField: marks a field only on hosts whose schema implements volatile fields', () => {
+  const markable = { meta: {}, volatile() { this.meta.volatile = true; return this } }
+  assert.equal(liveField(markable), markable)
+  assert.equal(markable.meta.volatile, true)
+
+  const legacy = { meta: {} }
+  assert.equal(liveField(legacy), legacy, 'a schemastery without .volatile() keeps the field ordinary')
+  assert.equal(legacy.meta.volatile, undefined)
+})
+
+test('Config: the gateway fields are live, the rest stays ordinary config', () => {
+  const resolved = Config({})
+  assert.equal(resolved.baseURL, 'http://localhost:18080')
+  assert.equal(resolved.apiFormat, 'chat/completions')
+  assert.equal(resolved.defaultReasoningEffort, 'highest')
+  assert.deepEqual(resolved.models, [])
+  assert.equal(isVolatileRef(resolved.baseURL), false,
+    'this schemastery has no volatile fields, so the plugin still reads plain values')
+  assert.deepEqual(resolveOptions(resolved).models, [])
 })

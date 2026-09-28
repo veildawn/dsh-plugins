@@ -780,10 +780,34 @@ const catalogModel = z.object({
 })
 
 
-/** Schemastery 3.18.4+ live fields; older test schemas stay unchanged. */
+/** The shared symbol of cosmokit's live-reference protocol, stable across module copies. */
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+/**
+ * Whether a resolved config value is a live reference rather than plain data.
+ * Schemastery 3.18.4+ hands the plugin a cosmokit reference for every volatile
+ * field (`{ get(), [VOLATILE_WRITE] }`), and the Loader swaps the value inside
+ * that same reference when the profile patch changes, so it must be unwrapped
+ * before the config is validated.
+ */
 function isVolatileRef(value) {
-  return value !== null && typeof value === 'object' && typeof value.get === 'function'
-    && !Array.isArray(value) && Object.keys(value).length === 0
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  if (typeof value.get !== 'function') return false
+  return VOLATILE_WRITE in value || Object.keys(value).length === 0
+}
+
+/**
+ * Mark one top-level field as live. The host settings service edits a plugin's
+ * config through `settings.mutate`, which refuses an entry that declares no
+ * volatile field ("Plugin entry X has no volatile fields"), and the Loader then
+ * applies the write to the running fiber instead of remounting it. Schemastery
+ * copies older than 3.18.4 have no `.volatile()` at all; there the field stays
+ * ordinary config and the legacy `settings.register` seam owns the value.
+ * @param schema Field schema.
+ * @returns The same schema, marked live when the host supports live fields.
+ */
+function liveField(schema) {
+  return typeof schema.volatile === 'function' ? schema.volatile() : schema
 }
 
 function unwrapConfig(value, seen = new Set()) {
@@ -826,11 +850,11 @@ function openSettingsScope(ctx, ns, config) {
 
 /** Plugin config; doubles as the ai-proxy settings-section shape. */
 export const Config = z.object({
-  baseURL: z.string().default(DEFAULT_BASE_URL),
-  apiFormat: z.union(API_FORMATS).default(DEFAULT_API_FORMAT),
+  baseURL: liveField(z.string().default(DEFAULT_BASE_URL)),
+  apiFormat: liveField(z.union(API_FORMATS).default(DEFAULT_API_FORMAT)),
   clientId: z.string().default(DEFAULT_CLIENT_ID),
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
-  defaultReasoningEffort: z.string().default(DEFAULT_REASONING_EFFORT),
+  defaultReasoningEffort: liveField(z.string().default(DEFAULT_REASONING_EFFORT)),
   maxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   modelCacheTtlMs: z.number().step(1).min(10000).default(DEFAULT_MODEL_CACHE_TTL_MS),
@@ -952,7 +976,7 @@ export async function handleAuthRpc(api, method, payload) {
  * and materialize the gateway as one official llm-pi-ai provider route.
  */
 export function apply(ctx, config) {
-  let current = () => config ?? {}
+  let current = () => unwrapConfig(config ?? {})
   let lastRaw
   let lastGood
   const options = () => {
@@ -1027,7 +1051,7 @@ export function apply(ctx, config) {
   const settingsNs = settingsNamespace(ctx, NS)
   api.settingsNs = settingsNs
   const scope = openSettingsScope(ctx, NS, config)
-  current = () => scope.get()
+  current = () => unwrapConfig(scope.get())
 
   let syncTimer
   const scheduleSync = () => {
@@ -1147,6 +1171,7 @@ export const internals = {
   pkcePair, base64url,
   discoverEndpoints, tokenRequest, startCallbackListener,
   normalizeApiFormat, resolveModelsEndpoint,
+  isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE,
   API_FORMAT_CHAT_COMPLETIONS, API_FORMAT_ANTHROPIC_MESSAGES, API_FORMAT_RESPONSES, API_FORMATS, DEFAULT_API_FORMAT,
   PI_AI_PROTOCOL_CHAT_COMPLETIONS, PI_AI_PROTOCOL_RESPONSES, PI_AI_PROTOCOL_ANTHROPIC,
 }

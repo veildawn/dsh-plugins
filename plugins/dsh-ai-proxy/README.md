@@ -11,12 +11,24 @@ API 格式（Chat/completions、Anthropic messages、Responses）全部由宿主
 插件正常加载、OAuth 正常工作，但会记录一条警告并跳过路由材料化（模型选择器中不出现
 AI Proxy 模型）。
 
+设置卡片在两类宿主设置接口上都能工作：
+
+- **0.1.7 及今后的 `SettingsForms` 接口**（`ctx.settings.describe/mutate`）：网关字段必须是
+  schema 声明的 **live（volatile）字段**，否则宿主的写入会直接拒绝：
+  `Plugin entry "llm-ai-proxy" has no volatile fields`，前端表现为
+  `保存配置失败: Plugin entry "llm-ai-proxy" has no volatile fields`。插件把 `baseURL`、
+  `apiFormat`、`defaultReasoningEffort` 声明为 live 字段（需要宿主的 schemastery ≥ `3.18.4`
+  才实现 `.volatile()`），写入落在 profile 的 `cordis.patch.yml` 行 `llm-ai-proxy` 上，并由
+  Loader 原地更新运行中的 fiber——**不需要重启**。
+- **0.1.0-rc 线的 `settings.register` 接口**：插件沿用旧的命名空间 `ai-proxy`，值写在
+  `settings.yaml`；两条路径按宿主能力自动选择，互不干扰。
+
 ## 架构
 
 ```
 DSH ──> 宿主官方 llm-pi-ai 适配器（三协议、usage/finish 映射、图片、重试）──> 网关
          ▲
-         │ settings.yaml 的 llm-pi-ai.providers.ai-proxy（本插件写入）
+         │ 宿主设置文档的 llm-pi-ai.providers.ai-proxy（本插件写入）
 dsh-ai-proxy：
   - OAuth 登录/刷新/撤销，access token 存 AIPROXY_ACCESS_TOKEN 凭据引用
   - 主动刷新定时器在过期前轮换 token（路由的 apiKeyEnv 按请求解析，新 token 自动生效）
@@ -97,8 +109,8 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 - `AIPROXY_TOKEN_EXPIRY`：提前 30 秒计算的到期时间（主动刷新定时器据此排期）；
 - 默认静态密钥引用也是 `AIPROXY_ACCESS_TOKEN`，可通过 `apiKeyEnv` 改写。
 
-令牌永不进入 `settings.yaml`。登出会调用网关 `/oauth/revoke`，清除 OAuth 凭据并移除材料化
-路由。
+令牌只存放在宿主凭据库，永不进入设置文档。登出会调用网关 `/oauth/revoke`，清除 OAuth 凭据
+并移除材料化路由。
 
 ## 模型发现
 
@@ -126,6 +138,10 @@ powershell -File scripts/dsh-service.ps1 restart -Profile web
 `remoteAccess` 和 `remoteAuthSecret` 已从 0.2.0 配置 schema 删除。升级后可从旧 `ai-proxy`
 设置段移除这两个字段。
 
+`baseURL`、`apiFormat`、`defaultReasoningEffort` 对宿主是 **live 字段**：改完立即作用于运行中
+的插件（OAuth、模型发现、材料化路由全部按新值走），不触发重载；其余字段是普通配置，改动
+后由 Loader 按常规生命周期重新应用插件。
+
 ## 远程访问
 
 本插件不会注册 `/dsh-remote-control`、`/ai-proxy-remote-control`，不会修改浏览器
@@ -140,12 +156,15 @@ OAuth 认证接口 `/ai-proxy-auth` 使用连接默认访问策略，可由局�
 
 ## 手动验证清单（部署后）
 
-1. 登录后 `~/.dsh/settings.yaml` 出现 `llm-pi-ai.providers.ai-proxy`（api/baseURL/模型目录；chat/completions 与 responses 带 `compat.supportsDeveloperRole: false`；**没有**路由级 `reasoning`）。
+1. 登录后宿主设置文档出现 `llm-pi-ai.providers.ai-proxy`（api/baseURL/模型目录；chat/completions 与 responses 带 `compat.supportsDeveloperRole: false`；**没有**路由级 `reasoning`）——0.1.7 宿主是 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 `llm-pi-ai` 行，0.1.0-rc 宿主是 `~/.dsh/settings.yaml`。
 2. 模型选择器出现 `ai-proxy` 路由的模型，effort 档位与网关 ladder 一致。
 3. 三种 apiFormat 各发一轮对话：chat/completions 与 responses 的 `baseURL` 带 `/v1`，
    anthropic-messages 的 `baseURL` 为根地址（SDK 自拼 `/v1/messages`）。
 4. token 过期前观察 `AIPROXY_ACCESS_TOKEN` 被主动轮换，会话不中断。
 5. 网关侧不再收到 `x-ai-proxy-session-id` 头（已随协议层移除）。
+6. **设置 → AI Proxy** 改网关地址后点“保存”：不再出现
+   `保存配置失败: Plugin entry "llm-ai-proxy" has no volatile fields`，profile 补丁里
+   `llm-ai-proxy` 行的 `config.baseURL` 立即更新，且插件无需重启即可用新网关登录/拉模型。
 
 ## 开发与测试
 
@@ -153,6 +172,12 @@ OAuth 认证接口 `/ai-proxy-auth` 使用连接默认访问策略，可由局�
 npm test
 npm pack --dry-run
 ```
+
+`npm test` 先跑 `node --test` 的三个用例文件（core/client/smoke，全部使用内置的旧接口假件），
+再跑 `test/host-live-settings.mjs`——它把插件拷进一个临时目录、把 `@deepseek-ai` 作用域指向
+PATH 上 `dsh` 所在的宿主安装，然后用宿主的**真实** `Loader`（真 entry/fiber）、真实
+`SettingsForms`（`describe`/`mutate`）和真实 schemastery volatile 引用跑一遍“设置卡片保存”
+的完整链路；机器上没有 `dsh` 或宿主过旧时打印 `SKIP` 并以 0 退出，CI 不受影响。
 
 `lib/index.js` 是 Host Provider（材料化 + OAuth 门面），`lib/oauth.js` 管理 OAuth 生命周期，
 `lib/client.js` 仅提供 AI Proxy 设置卡。所有 Host 文件均为 ESM，浏览器入口是 DSH
