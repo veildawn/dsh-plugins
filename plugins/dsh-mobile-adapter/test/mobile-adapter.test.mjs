@@ -360,6 +360,13 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon{display:none!important}/)
   assert.match(css, /.dsh-mobile-composer-info{[^}]*text-align:center/)
   assert.match(css, /.JObwrW_root{[^}]*width:32px!important;[^}]*height:32px!important/)
+  // 上下文 meter 必须留在输入框内：卡片补足底部内边距，dock 以负边距收回卡内
+  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)[^{]*\{[^}]*padding-bottom:40px!important\}/)
+  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock[^{]*\{[^}]*margin-top:-38px!important/)
+  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock[^{]*\{[^}]*position:relative!important;z-index:1!important/,
+    'dock 抬高层级，否则会被 position:relative 的卡片背景盖住')
+  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock:not\(:has\(\[data-plan-review-scroll\]\)\):not\(:has\(\[data-plan-review-key\]\)\)/,
+    '面板在场时保持原布局，避免与输入区重叠')
   assert.match(css, /\[data-composer-card\] textarea\{[^}]*min-height:44px;max-height:160px;font-size:16px!important/)
   assert.doesNotMatch(css, /\[data-composer-card\] button[^}]*min-width:44px/)
 
