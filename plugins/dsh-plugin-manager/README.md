@@ -63,7 +63,7 @@ rm ~/Library/LaunchAgents/com.deepseek.dsh-web.plist
 使用 DSH 官方 CLI 安装本插件：
 
 ```bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.22/dsh-plugin-manager-0.3.22.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.25/dsh-plugin-manager-0.3.25.tgz
 ```
 
 或使用本地打包安装：
@@ -71,8 +71,15 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 ```bash
 cd plugins/dsh-plugin-manager
 npm pack
-dsh plugin add --profile web ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3.22.tgz
+dsh plugin add --profile web ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3.25.tgz
 ```
+
+> **0.3.25 起 bundle 行 id 改为 `dsh-plugin-manager`**（此前是 `plugin-manager`）。旧 id 与宿主 base bundle 里的
+> 官方 `@deepseek-ai/dsh-plugin-manager` 冲突：profile 层按 id 覆盖、后写者胜，市场插件顶掉了官方插件，导致
+> 官方 `pluginManager` 服务缺失（示例症状：创造模式 `cordis` 预设报
+> `tool-plugin-manager (@deepseek-ai/dsh-plugin-manager/tools): waiting for pluginManager`）。
+> 如果你在 profile 的 `cordis.patch.yml` 里写过 `- id: plugin-manager` 来覆盖本插件的配置，请把该 id 改成
+> `dsh-plugin-manager`；同时该行的设置节 id 也随之变化（市场配置会回到 bundle 默认值，重新保存一次即可）。
 
 ---
 

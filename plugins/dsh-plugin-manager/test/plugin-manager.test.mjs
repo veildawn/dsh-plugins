@@ -728,10 +728,14 @@ describe('dsh-plugin-manager client bundle verification', () => {
     assert.equal(clientCode.includes('createPortal(modalNode, document.body)'), true)
   })
 
-  it('cordis patch entry id matches the host-side service name', () => {
+  it('cordis patch row id stays distinct from the host plugin-manager row', () => {
     const patch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
     const index = readFileSync(new URL('../lib/index.js', import.meta.url), 'utf8')
-    assert.equal(patch.includes('id: plugin-manager'), true)
+    assert.equal(patch.includes('- id: dsh-plugin-manager'), true)
+    // Layers address rows by id and the last write wins, so sharing the host's
+    // id would shadow @deepseek-ai/dsh-plugin-manager and its `pluginManager`
+    // service (the 创造模式 preset's tool row waits for exactly that service).
+    assert.equal(/^\s*- id: plugin-manager$/m.test(patch), false)
     assert.equal(index.includes("export const name = 'plugin-manager'"), true)
   })
 })

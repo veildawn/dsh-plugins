@@ -5,7 +5,13 @@
     - webServer
 
 # dsh bundle patch: inserts this plugin into a profile's layer stack.
-# `id` matches the host-side service name exported by lib/index.js (`plugin-manager`).
+#
+# The row id must NOT be `plugin-manager`: layers address rows by id with the
+# last write winning, and the host's own base bundle already uses that id for
+# `@deepseek-ai/dsh-plugin-manager` - the plugin that provides the
+# `pluginManager` service. Reusing the id shadowed the host plugin, so the
+# 创造模式 (cordis) preset's `@deepseek-ai/dsh-plugin-manager/tools` row waited
+# forever for a service nobody registered. This row owns its own id instead.
 - insert:
-    - id: plugin-manager
+    - id: dsh-plugin-manager
       name: dsh-plugin-manager
