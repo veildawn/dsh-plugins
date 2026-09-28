@@ -563,7 +563,7 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   assert.equal(backdrop.hidden, true)
   assert.equal(f.doc.sidebarColumn.inert, true)
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '0px')
-  assert.deepEqual(f.observerOptions().attributeFilter, ['data-sidebar-collapsed', 'data-phase', 'aria-label', 'aria-selected', 'placeholder', 'disabled'])
+  assert.deepEqual(f.observerOptions().attributeFilter, ['data-sidebar-collapsed', 'data-phase', 'aria-label', 'aria-selected', 'placeholder', 'disabled', 'data-sidebar-right-open'])
   assert.equal(f.observerOptions().characterData, true)
 
   menu.emit('click')
@@ -783,3 +783,66 @@ test('the tools menu integrates prompt history when available', async () => {
   assert.match(source, /openPromptHistory/)
   assert.match(source, /<span>提示词历史<\/span>/)
 })
+
+test('mobile right sidebar is adapted with top offset and back-to-conversation button', async () => {
+  const css = client.internals.css
+  assert.match(css, /\[data-sidebar-right-session\]\s*\[class\*="P3OORG_panel"\]/)
+  assert.match(css, /\[data-sidebar-right-session\]\s*\[data-sidebar-right-panel\]/)
+  assert.match(css, /top:calc\(52px \+ var\(--dsh-sat\)\)!important/)
+  assert.match(css, /height:calc\(100% - 52px - var\(--dsh-sat\)\)!important/)
+  assert.match(css, /\[class\*="_tabStrip_"\]\{[^}]*min-height:44px!important/)
+  assert.match(css, /\[data-sidebar-right-toggle\],[^}]*\[class\*="P3OORG_iconButton"\]\{[^}]*width:36px!important;[^}]*height:36px!important/)
+
+  const f = fixture()
+  const previous = {
+    document: globalThis.document,
+    window: globalThis.window,
+    MutationObserver: globalThis.MutationObserver,
+  }
+  globalThis.document = f.doc
+  globalThis.window = f.win
+  globalThis.MutationObserver = f.Observer
+  try {
+    const rightbarPanel = new Element('div', f.doc)
+    rightbarPanel.setAttribute('data-sidebar-right-open', 'true')
+    f.doc.body.append(rightbarPanel)
+
+    let toggleClicked = false
+    const toggleBtn = new Element('button', f.doc)
+    toggleBtn.setAttribute('data-sidebar-right-toggle', 'true')
+    toggleBtn.addEventListener('click', () => {
+      toggleClicked = true
+      rightbarPanel.removeAttribute('data-sidebar-right-open')
+    })
+    f.doc.body.append(toggleBtn)
+
+    const origQuerySelector = f.doc.querySelector.bind(f.doc)
+    f.doc.querySelector = (sel) => {
+      if (sel === '[data-sidebar-right-open]') {
+        return rightbarPanel.hasAttribute('data-sidebar-right-open') ? rightbarPanel : null
+      }
+      if (sel.includes('[data-sidebar-right-toggle]')) {
+        return toggleBtn
+      }
+      return origQuerySelector(sel)
+    }
+
+    client.apply(f.ctx)
+    const bar = f.doc.body.children.find((node) => node.className === 'dsh-mobile-bar')
+    const [, , view] = bar.children
+
+    // 此时右栏打开，顶部导航右上角按钮应显示 '← 对话'
+    assert.equal(view.textContent, '← 对话')
+    assert.equal(view.getAttribute('aria-label'), '收起右侧面板，返回对话')
+
+    // 点击该按钮应关闭右栏
+    view.emit('click')
+    assert.equal(toggleClicked, true, 'clicking back button collapses rightbar')
+    assert.equal(view.textContent, '⌁ 轨迹')
+  } finally {
+    globalThis.document = previous.document
+    globalThis.window = previous.window
+    globalThis.MutationObserver = previous.MutationObserver
+  }
+})
+

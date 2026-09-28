@@ -62,6 +62,36 @@ window.__ModuleLoader__.load({
         [data-slot="root"]>div>div:has(>[data-slot="conversation"]),
         [data-slot="root"]>div>div:has([data-slot*="main"]),
         [data-slot="root"]>div>div:has([data-slot*="conversation"]){grid-column:2!important;box-sizing:border-box;display:flex;width:100vw;height:100%;min-height:0;padding:calc(52px + var(--dsh-sat)) var(--dsh-sar) var(--dsh-keyboard-inset,0px) var(--dsh-sal);overflow:hidden}
+        /* 移动端右侧栏（文件查看器/终端等 dockkit 面板）适配：
+           原版右栏在窄屏 autoFullscreen 成 100vw 贴顶绝对定位，其顶部 tabStrip
+           会被固定定位的 .dsh-mobile-bar (z-index 900) 整条盖住，面板自带的
+           收起按钮尺寸也只有 28x28，触屏既看不到也点不到。这里：
+           1. 面板整体下移一个导航栏高度（含安全区），让 tabStrip 完全露出；
+           2. 放大 tabStrip 与收起/全屏按钮的触控区；
+           3. 顶栏右上角在右栏展开时显示「← 对话」，一键收起回到会话；
+           4. 冷启动若右栏仍是展开态则自动收起（见 checkInitialRightbar）。 */
+        [data-sidebar-right-session] [class*="P3OORG_panel"],
+        [data-sidebar-right-session] [data-sidebar-right-panel]{
+          box-sizing:border-box!important;
+          top:calc(52px + var(--dsh-sat))!important;
+          height:calc(100% - 52px - var(--dsh-sat))!important;
+          z-index:860!important;
+        }
+        [class*="_tabStrip_"]{
+          min-height:44px!important;
+          height:auto!important;
+          padding-top:8px!important;
+          padding-bottom:8px!important;
+        }
+        [data-sidebar-right-toggle],
+        [data-sidebar-right-mode],
+        [class*="P3OORG_iconButton"]{
+          width:36px!important;
+          height:36px!important;
+          min-width:36px!important;
+          min-height:36px!important;
+          border-radius:10px!important;
+        }
         [data-slot="conversation"]{flex:1 1 0;height:100%;min-width:0;min-height:0}
         .wSkVaW_root,[class*="_root"]:has(>[class*="_body"]){--dsh-chat-content-width:100%!important;--dsh-composer-card-max-width:100%!important}
         .wSkVaW_widthHandle,[class*="_widthHandle"]{display:none!important}
@@ -626,9 +656,11 @@ window.__ModuleLoader__.load({
         status.dataset.plan = state.plan ? 'true' : 'false'
         status.dataset.preset = state.preset || ''
         localizeDomPermissions(doc)
-        view.hidden = !mobile || trajectory == null
-        if (view.textContent !== (inTrajectory ? '← 对话' : '⌁ 轨迹')) view.textContent = inTrajectory ? '← 对话' : '⌁ 轨迹'
-        const nextViewLabel = inTrajectory ? '关闭轨迹，返回对话' : '查看轨迹'
+        const inRightbar = isRightbarOpen()
+        view.hidden = !mobile || (trajectory == null && !inRightbar)
+        const nextViewText = inRightbar ? '← 对话' : inTrajectory ? '← 对话' : '⌁ 轨迹'
+        if (view.textContent !== nextViewText) view.textContent = nextViewText
+        const nextViewLabel = inRightbar ? '收起右侧面板，返回对话' : inTrajectory ? '关闭轨迹，返回对话' : '查看轨迹'
         if (view.getAttribute('aria-label') !== nextViewLabel) view.setAttribute('aria-label', nextViewLabel)
         backdrop.hidden = !open
         menu.setAttribute('aria-expanded', String(open))
@@ -690,6 +722,41 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const isRightbarOpen = () => {
+        const panel = doc.querySelector('[data-sidebar-right-open]')
+        if (!media.matches || !panel) return false
+        if (typeof panel.closest === 'function') {
+          return panel.closest('[hidden], [aria-hidden="true"]') === null
+        }
+        return true
+      }
+      const closeRightbar = () => {
+        // 尝试点击原生收起按钮
+        const toggleBtn = doc.querySelector('[data-sidebar-right-toggle], button[aria-label*="收起右侧栏"], button[aria-label*="Collapse right sidebar"]')
+        if (toggleBtn) {
+          toggleBtn.click()
+          return
+        }
+        // 尝试通过 ctx.layout 关闭
+        try {
+          if (typeof ctx.layout?.closeRightbar === 'function') {
+            ctx.layout.closeRightbar()
+          }
+        } catch (_) {}
+      }
+
+      // 移动端冷启动如果右侧栏在 localStorage 里是展开的，自动收起右侧栏回到会话
+      let rightbarInitialChecked = false
+      const checkInitialRightbar = () => {
+        if (rightbarInitialChecked || !media.matches) return
+        rightbarInitialChecked = true
+        // 延迟一个 tick 检查，此时 React 树已完成首轮 commit
+        setTimeout(() => {
+          if (media.matches && isRightbarOpen()) {
+            closeRightbar()
+          }
+        }, 100)
+      }
       const toggle = () => {
         if (!media.matches) return
         ctx.layout.toggleSidebar()
@@ -703,6 +770,11 @@ window.__ModuleLoader__.load({
       menu.addEventListener('click', toggle)
       backdrop.addEventListener('click', () => close(true))
       view.addEventListener('click', () => {
+        if (isRightbarOpen()) {
+          closeRightbar()
+          sync()
+          return
+        }
         const trajectory = trajectoryOf()
         const target = trajectory?.getAttribute('aria-selected') === 'true' ? chatOf() : trajectory
         target?.click()
@@ -729,6 +801,11 @@ window.__ModuleLoader__.load({
         if (event.key !== 'Escape') return
         if (!toolsMenu.hidden) {
           closeToolsMenu()
+          return
+        }
+        if (isRightbarOpen()) {
+          closeRightbar()
+          sync()
           return
         }
         if (trajectoryOf()?.getAttribute('aria-selected') === 'true') {
@@ -789,7 +866,7 @@ window.__ModuleLoader__.load({
         subtree: true,
         characterData: true,
         attributes: true,
-        attributeFilter: ['data-sidebar-collapsed', 'data-phase', 'aria-label', 'aria-selected', 'placeholder', 'disabled'],
+        attributeFilter: ['data-sidebar-collapsed', 'data-phase', 'aria-label', 'aria-selected', 'placeholder', 'disabled', 'data-sidebar-right-open'],
       })
       const onMedia = () => {
         requestSync()
@@ -827,6 +904,7 @@ window.__ModuleLoader__.load({
       doc.addEventListener('focusout', requestViewport)
       syncViewport()
       requestSync()
+      checkInitialRightbar()
 
       return () => {
         observer.disconnect()
