@@ -28,6 +28,7 @@ import {
   listLockfilePluginEntries,
   normalizeTarballUrl,
   readHostDshVersion,
+  findProfileName,
   parseDshReleaseTag,
   checkDshUpdate,
 } from '../lib/core.js'
@@ -87,6 +88,46 @@ describe('dsh-market core & version comparison', () => {
       url,
       'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.7/dsh-model-roles-0.4.7.tgz'
     )
+  })
+
+  it('detects profile name from argv (--profile, desktop path, or fallback)', () => {
+    const origArgv = process.argv
+    const origEnv = process.env.DSH_PROFILE
+    try {
+      delete process.env.DSH_PROFILE
+
+      // 1. --profile flag
+      process.argv = ['node', 'dsh', '--profile', 'custom-prof']
+      assert.equal(findProfileName(), 'custom-prof')
+
+      // 2. desktop host path parameter
+      process.argv = [
+        'D:\\Program Files\\DSH\\DeepSeek Harness.exe',
+        '--expose-internals',
+        'D:\\Program Files\\DSH\\resources\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\index.js',
+        'D:\\Program Files\\DSH\\resources\\app.asar\\dsh',
+        'C:\\Users\\Serein\\.dsh\\profiles\\desktop',
+        'D:\\Program Files\\DSH\\resources\\runtime\\primary-runtime',
+      ]
+      assert.equal(findProfileName(), 'desktop')
+
+      // 3. Fallback to DSH_PROFILE env
+      process.argv = ['node']
+      process.env.DSH_PROFILE = 'env-prof'
+      assert.equal(findProfileName(), 'env-prof')
+
+      // 4. Default fallback to web
+      delete process.env.DSH_PROFILE
+      process.argv = ['node']
+      assert.equal(findProfileName(), 'web')
+    } finally {
+      process.argv = origArgv
+      if (origEnv !== undefined) {
+        process.env.DSH_PROFILE = origEnv
+      } else {
+        delete process.env.DSH_PROFILE
+      }
+    }
   })
 })
 

@@ -383,7 +383,20 @@ export function findProfileName() {
   if (idx !== -1 && idx + 1 < argv.length && !argv[idx + 1].startsWith('-')) {
     return argv[idx + 1]
   }
-  return process.env.DSH_PROFILE || 'web'
+  if (process.env.DSH_PROFILE) {
+    return process.env.DSH_PROFILE
+  }
+  // Desktop host passes profile directory path as an argument, e.g.:
+  // .../dsh-desktop-host/lib/index.js <runtimeDir> <home>/profiles/desktop <primaryRuntime> ...
+  for (const arg of argv) {
+    if (typeof arg === 'string') {
+      const match = arg.match(/[\\/]profiles[\\/]([^\\/]+)/)
+      if (match && match[1]) {
+        return match[1]
+      }
+    }
+  }
+  return 'web'
 }
 
 export function profilePluginDir(home, profile) {
