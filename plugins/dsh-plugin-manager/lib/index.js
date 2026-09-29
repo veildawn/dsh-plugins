@@ -611,31 +611,32 @@ export function runDshPluginCommand(args, { onLog, timeoutMs = 600_000, spawnFn 
 
         let foundCmd = null
         for (const resDir of candidateResources) {
-          const dshBin = join(resDir, 'runtime', 'cli', 'bin', process.platform === 'win32' ? 'dsh.cmd' : 'dsh')
-          if (existsSync(dshBin)) {
-            foundCmd = dshBin
-            break
-          }
           const cliPath = join(resDir, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
           if (existsSync(cliPath)) {
             foundCmd = { exec: process.execPath, cli: cliPath }
             break
           }
+          const dshBin = join(resDir, 'runtime', 'cli', 'bin', process.platform === 'win32' ? 'dsh.cmd' : 'dsh')
+          if (existsSync(dshBin)) {
+            foundCmd = dshBin
+            break
+          }
         }
 
-        if (typeof foundCmd === 'string') {
-          cmd = foundCmd
-        } else if (foundCmd && foundCmd.exec) {
+        if (foundCmd && foundCmd.exec) {
           cmd = foundCmd.exec
           finalArgs = ['--expose-internals', foundCmd.cli, ...args]
           env.ELECTRON_RUN_AS_NODE = '1'
+        } else if (typeof foundCmd === 'string') {
+          cmd = foundCmd
         }
       }
 
+      const isDirectBinary = cmd.endsWith('.exe') || cmd.includes('DeepSeek Harness')
       child = spawnFn(cmd, finalArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
         env,
-        shell: process.platform === 'win32' && !cmd.endsWith('.exe'),
+        shell: process.platform === 'win32' && !isDirectBinary,
       })
     } catch (err) {
       resolve({ ok: false, code: null, stdout: '', stderr: String(err && err.message ? err.message : err) })
