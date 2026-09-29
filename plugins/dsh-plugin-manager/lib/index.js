@@ -20,7 +20,7 @@
  */
 
 import z from '@deepseek-ai/schemastery'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici'
@@ -723,7 +723,7 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   })
 
   let result = await attempt()
-  if (!result.ok && /ERR_PNPM_TARBALL_INTEGRITY/.test(result.stderr || result.stdout || '')) {
+  if (!result.ok && /(?:ERR_PNPM_TARBALL_INTEGRITY|ERR_PNPM_MISSING_TARBALL_INTEGRITY)/.test(result.stderr || result.stdout || '')) {
     const res = stripPluginFromLockfile(name)
     if (res.removed > 0 || res.rewritten) {
       push(`  ↻ 检测到 TARBALL_INTEGRITY 失败，已清理 lockfile 并重试一次`)
@@ -783,6 +783,25 @@ export function handleInstallPlugin(options, payload, deps = {}) {
       })
       task.code = result.code
       if (result.ok) {
+        // Automatically sync dsh.profile.bundles in package.json for the profile
+        try {
+          const home = findDshHome()
+          const manifestPath = join(home, 'profiles', profile, 'package.json')
+          if (existsSync(manifestPath)) {
+            const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+            if (manifest && typeof manifest === 'object') {
+              manifest.dsh = manifest.dsh || {}
+              manifest.dsh.profile = manifest.dsh.profile || {}
+              manifest.dsh.profile.bundles = Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : []
+              if (!manifest.dsh.profile.bundles.includes(name)) {
+                manifest.dsh.profile.bundles.push(name)
+                writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+                task.log.push(`✓ 已自动将 ${name} 注册到 profile bundles`)
+              }
+            }
+          }
+        } catch {}
+
         task.status = 'success'
         task.log.push(`✓ ${name} 安装/更新完成`)
       } else {
@@ -948,6 +967,20 @@ export function handleRemovePlugin(options, payload, deps = {}) {
       })
       task.code = result.code
       if (result.ok) {
+        // Automatically sync dsh.profile.bundles in package.json for the profile
+        try {
+          const home = findDshHome()
+          const manifestPath = join(home, 'profiles', profile, 'package.json')
+          if (existsSync(manifestPath)) {
+            const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+            if (manifest && typeof manifest === 'object' && manifest.dsh && manifest.dsh.profile && Array.isArray(manifest.dsh.profile.bundles)) {
+              manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter((b) => b !== name)
+              writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+              task.log.push(`✓ 已从 profile bundles 中移除 ${name}`)
+            }
+          }
+        } catch {}
+
         task.status = 'success'
         task.log.push(`✓ ${name} 卸载成功`)
       } else {
