@@ -1,19 +1,26 @@
-/* Primary / Secondary / Ghost 按钮。 */
-[data-dsh-theme="zcode"] button[data-variant="primary"] {
+/* Primary / Secondary / Ghost 按钮：同时兼容历史属性选择器与宿主 CSS Modules 散列类名。 */
+[data-dsh-theme="zcode"] button[data-variant="primary"],
+[data-dsh-theme="zcode"] button[class*="_primary_"],
+[data-dsh-theme="zcode"] button[class*="primary"] {
   background: var(--dsw-alias-button-primary-fill);
   color: #FFFFFF;
   border-radius: 12px;
 }
 
-[data-dsh-theme="zcode"] button[data-variant="primary"]:hover {
+[data-dsh-theme="zcode"] button[data-variant="primary"]:hover,
+[data-dsh-theme="zcode"] button[class*="_primary_"]:hover,
+[data-dsh-theme="zcode"] button[class*="primary"]:hover {
   background: var(--dsw-alias-button-primary-hover);
 }
 
-[data-dsh-theme="zcode"] button[data-variant="primary"]:active {
+[data-dsh-theme="zcode"] button[data-variant="primary"]:active,
+[data-dsh-theme="zcode"] button[class*="_primary_"]:active,
+[data-dsh-theme="zcode"] button[class*="primary"]:active {
   background: var(--dsw-alias-button-primary-dimmed);
 }
 
-[data-dsh-theme="zcode"] button[data-variant="secondary"] {
+[data-dsh-theme="zcode"] button[data-variant="secondary"],
+[data-dsh-theme="zcode"] button[class*="_secondary_"] {
   background: var(--dsw-alias-bg-module-platform);
   border: 1px solid var(--dsw-alias-border-l1);
   color: var(--dsw-alias-label-primary);
@@ -21,6 +28,7 @@
 }
 
 [data-dsh-theme="zcode"] button[data-variant="ghost"],
+[data-dsh-theme="zcode"] button[class*="_ghost_"],
 [data-dsh-theme="zcode"] .hHd-Xa_iconButton,
 [data-dsh-theme="zcode"] .YDXeBa_iconButton {
   background: transparent;
@@ -28,6 +36,7 @@
 }
 
 [data-dsh-theme="zcode"] button[data-variant="ghost"]:hover,
+[data-dsh-theme="zcode"] button[class*="_ghost_"]:hover,
 [data-dsh-theme="zcode"] .hHd-Xa_iconButton:hover,
 [data-dsh-theme="zcode"] .YDXeBa_iconButton:hover {
   background: var(--dsw-alias-interactive-bg-hover);
@@ -37,6 +46,7 @@
    例如插件中心弹窗的「复制」按钮等，防止文字颜色被通用 typography 的 button 覆盖为白色导致不可见。 */
 [data-dsh-theme="zcode"] button[class*="CopyBtn"],
 [data-dsh-theme="zcode"] button[class*="copyBtn"],
+[data-dsh-theme="zcode"] button[class*="copy"],
 [data-dsh-theme="zcode"] button[class*="_done"],
 [data-dsh-theme="zcode"] button[style*="background: var(--dsw-alias-label-primary)"] {
   color: var(--dsw-alias-bg-layer-3);

@@ -79,13 +79,17 @@
 /* 侧边栏底部连接状态指示器 (ConnectionIndicator)：消除刺眼白底，融入暗色质感 */
 [data-dsh-theme="zcode"] div[class*="_indicator_tixn7"],
 [data-dsh-theme="zcode"] div[class*="_warning_tixn7"],
-[data-dsh-theme="zcode"] div[class*="_success_tixn7"] {
+[data-dsh-theme="zcode"] div[class*="_success_tixn7"],
+[data-dsh-theme="zcode"] div[class*="_indicator_"],
+[data-dsh-theme="zcode"] div[class*="_warning_"],
+[data-dsh-theme="zcode"] div[class*="_success_"] {
   background-color: var(--dsw-alias-interactive-bg-hover);
   color: var(--zcode-text-body);
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 8px;
 }
 
-[data-dsh-theme="zcode"] div[class*="_indicator_tixn7"] svg {
+[data-dsh-theme="zcode"] div[class*="_indicator_tixn7"] svg,
+[data-dsh-theme="zcode"] div[class*="_indicator_"] svg {
   color: var(--dsw-alias-state-warn-primary);
 }

@@ -68,8 +68,9 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* 权限模式选择器 (Sh0Q9G_trigger) */
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger {
+/* 权限模式选择器 (Sh0Q9G_trigger 与当前宿主 iWlSmW_trigger) */
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger,
+[data-dsh-theme="zcode"] .iWlSmW_trigger {
   height: 28px;
   padding: 0 8px;
   border-radius: 8px;
@@ -82,12 +83,15 @@
   gap: 4px;
 }
 
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger:hover:not(:disabled) {
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
 /* 下拉箭头始终保持低调暗灰，分离主图标与文字高亮 */
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger .Sh0Q9G_chevron {
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger .Sh0Q9G_chevron,
+[data-dsh-theme="zcode"] .iWlSmW_trigger [class*="chevron"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger [class*="Chevron"] {
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -95,14 +99,22 @@
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="仅可查看"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="只读"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Read Only" i],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"] {
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="仅可查看"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="只读"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Read Only" i],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="read-only"] {
   color: var(--zcode-success);
 }
 
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="仅可查看"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="只读"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Read Only" i]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"]:hover:not(:disabled) {
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="仅可查看"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="只读"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Read Only" i]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="read-only"]:hover:not(:disabled) {
   background: color-mix(in srgb, var(--zcode-success) 12%, transparent);
   color: var(--zcode-success);
 }
@@ -111,14 +123,22 @@
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区内修改"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区写入"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Workspace Write" i],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"] {
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="工作区内修改"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="工作区写入"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Workspace Write" i],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="workspace-write"] {
   color: var(--dsw-alias-brand-primary);
 }
 
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区内修改"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区写入"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Workspace Write" i]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"]:hover:not(:disabled) {
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="工作区内修改"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="工作区写入"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Workspace Write" i]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="workspace-write"]:hover:not(:disabled) {
   background: var(--dsw-alias-brand-subtle);
   color: var(--dsw-alias-button-primary-hover);
 }
@@ -130,7 +150,14 @@
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full Access"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="danger-full-access"],
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="Full file access"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"] {
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="完全权限"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="完全访问"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Full access" i],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Full Access"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="danger-full-access"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[title*="Full file access"],
+[data-dsh-theme="zcode"] .iWlSmW_trigger[title*="完全权限"] {
   color: var(--zcode-danger-access);
 }
 
@@ -140,7 +167,14 @@
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full Access"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="danger-full-access"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="Full file access"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"]:hover:not(:disabled) {
+[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="完全权限"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="完全访问"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Full access" i]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Full Access"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="danger-full-access"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[title*="Full file access"]:hover:not(:disabled),
+[data-dsh-theme="zcode"] .iWlSmW_trigger[title*="完全权限"]:hover:not(:disabled) {
   background: var(--zcode-danger-access-subtle);
   color: var(--zcode-danger-access-hover);
 }

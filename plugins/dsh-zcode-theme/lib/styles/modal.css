@@ -32,8 +32,8 @@
 [data-dsh-theme="zcode"] .dsh-ph-backdrop,
 [data-dsh-theme="zcode"] .dsh-remote-gate-mask,
 [data-dsh-theme="zcode"] .VOzbGW_mask,
-[data-dsh-theme="zcode"] .fNh4Da_mask,
 [data-dsh-theme="zcode"] .BInVoG_mask,
+[data-dsh-theme="zcode"] [class*="_mask_"],
 [data-dsh-theme="zcode"] body > div[role="presentation"]:has(>[role="dialog"]) {
   background: rgba(0, 0, 0, 0.45);
   -webkit-backdrop-filter: blur(4px);
@@ -73,13 +73,17 @@
 }
 
 [data-dsh-theme="zcode"] [class*="sheet"],
-[data-dsh-theme="zcode"] [class*="Sheet"] {
+[data-dsh-theme="zcode"] [class*="Sheet"],
+[data-dsh-theme="zcode"] [class*="drawer"],
+[data-dsh-theme="zcode"] [class*="Drawer"] {
   background: var(--dsw-specific-sidebar-fill);
   border-color: var(--dsw-alias-border-l2);
 }
 
 [data-dsh-theme="zcode"] [class*="sheet"] [class*="handle"],
-[data-dsh-theme="zcode"] [class*="Sheet"] [class*="Handle"] {
+[data-dsh-theme="zcode"] [class*="Sheet"] [class*="Handle"],
+[data-dsh-theme="zcode"] [class*="drawer"] [class*="handle"],
+[data-dsh-theme="zcode"] [class*="Drawer"] [class*="Handle"] {
   background: var(--zcode-handle);
   border-radius: 999px;
 }

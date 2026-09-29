@@ -22,7 +22,11 @@
 }
 
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"],
-[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"] .Sixlwa_bubble {
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"],
+[data-dsh-theme="zcode"] [data-chat-flow-kind="turn-process"],
+[data-dsh-theme="zcode"] [data-chat-flow-kind="turn-tail"],
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"] .Sixlwa_bubble,
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] .Sixlwa_bubble {
   background: transparent;
   border-color: transparent;
 }
@@ -33,14 +37,19 @@
 }
 
 /* 思考 / 探索：无底灰字，不要背景框。 */
-[data-dsh-theme="zcode"] .EvIC1a_turnStatus {
+[data-dsh-theme="zcode"] .EvIC1a_turnStatus,
+[data-dsh-theme="zcode"] [data-variant="think"],
+[data-dsh-theme="zcode"] [class*="_turnStatus"],
+[data-dsh-theme="zcode"] [data-step-process] {
   background: none;
   color: var(--dsw-alias-label-secondary);
   -webkit-text-fill-color: var(--dsw-alias-label-secondary);
   animation: none;
 }
 
-[data-dsh-theme="zcode"] .EvIC1a_turnStatusClock {
+[data-dsh-theme="zcode"] .EvIC1a_turnStatusClock,
+[data-dsh-theme="zcode"] [class*="_turnStatusClock"],
+[data-dsh-theme="zcode"] [data-step-process-icon] {
   color: var(--dsw-alias-label-tertiary);
   -webkit-text-fill-color: var(--dsw-alias-label-tertiary);
 }
@@ -81,7 +90,8 @@
 
 /* 对齐 ZCode 消息正文排版 (Markdown、列表、段落、表格) */
 [data-dsh-theme="zcode"] .Sixlwa_bubble,
-[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"] {
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"],
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] {
   font-size: 14.5px;
   line-height: 1.7;
   letter-spacing: -0.01em;

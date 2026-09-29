@@ -89,9 +89,12 @@ test('CSS 覆盖规范列出的核心组件', () => {
     ['New Session', '.hHd-Xa_newSession'],
     ['Session', '.YDXeBa_sessionRow'],
     ['Turn Status', '.EvIC1a_turnStatus'],
+    ['Turn Status (think)', '[data-variant="think"]'],
     ['Navigation', '.wSkVaW_header'],
     ['Button', 'button[data-variant="primary"]'],
+    ['Button Class', 'button[class*="_primary_"]'],
     ['Input', '[data-composer-card]'],
+    ['Permission Trigger', '.iWlSmW_trigger'],
     ['Composer', '.uV2eYG_primary'],
     ['Chip', '.rS3zOq_chip'],
     ['Chat Bubble', '.Sixlwa_bubble'],
@@ -138,4 +141,20 @@ test('规范目录结构齐全', async () => {
   assert.equal(STYLE_FILES.includes('tokens.css'), false)
   assert.ok(STYLE_FILES.includes('motion.css'))
   assert.ok(STYLE_FILES.includes('reset.css'))
+})
+
+test('主题关键选择器在宿主或社区插件语料中存活', async () => {
+  const css = loadThemeCss()
+  // 必须确保关键钩子在真实运行时中存活
+  const criticalSelectors = [
+    '.iWlSmW_trigger',
+    'button[class*="_primary_"]',
+    '[data-chat-flow-kind="assistant-step"]',
+    '[data-variant="think"]',
+    'div[class*="_indicator_"]',
+    '[class*="_mask_"]',
+  ]
+  for (const sel of criticalSelectors) {
+    assert.equal(css.includes(sel), true, `主题 CSS 必须包含修复后的活跃选择器: ${sel}`)
+  }
 })
