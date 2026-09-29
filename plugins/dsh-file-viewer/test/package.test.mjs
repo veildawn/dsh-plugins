@@ -368,7 +368,7 @@ test('registering in a conversation slot is declared in the manifest', () => {
   // The slot must exist before registration runs, which is what `dsh.client.inject`
   // guarantees; without this the header entry silently never appears.
   assert(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-conversation'))
-  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-conversation'], '^0.1.0-rc.6')
+  assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-conversation'], '>=0.1.0-rc.6')
 })
 
 test('the phone entry is drawn outside the header the narrow layout hides', () => {
