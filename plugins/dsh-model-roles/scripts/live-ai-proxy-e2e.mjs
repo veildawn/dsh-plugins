@@ -302,7 +302,7 @@ await recordRole('vision', async () => {
   assert.equal(events.filter((event) => event.type === 'user/message')
     .some((event) => containsImage(event.data.content)), false, 'vision: image remained in parent model history')
   const returned = events.find((event) => event.type === 'user/message'
-    && event.data.source?.kind === 'plugin'
+    && event.data.source?.kind === 'plugin:model-roles'
     && event.data.source?.summary === 'Vision analysis')
   assert(returned, 'vision: analysis was not returned to the parent session')
   assert.match(returned.data.content[0].text, /red/i)

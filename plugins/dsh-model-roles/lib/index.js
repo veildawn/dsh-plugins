@@ -305,8 +305,7 @@ function appendAnalysisNotice(messages, analysis) {
         ].join('\n'),
       }],
       source: {
-        kind: 'plugin',
-        plugin: NS,
+        kind: `plugin:${NS}`,
         form: 'notice',
         summary: 'Vision analysis',
       },
@@ -329,7 +328,7 @@ export async function classifyAutomaticRole(ctx, agent, table, signal) {
     ...classifierRoute,
     messages: [createUserMessage({
       content: [{ type: 'text', text: `<task>\n${task}\n</task>` }],
-      source: { kind: 'plugin', plugin: NS },
+      source: { kind: `plugin:${NS}` },
     })],
     system: AUTOMATIC_ROLE_SYSTEM,
     temperature: 0,
@@ -758,8 +757,7 @@ export function apply(ctx, config = {}) {
       agent.steer(createUserMessage({
         content: [{ type: 'text', text: `Advisor review:\n${advice}` }],
         source: {
-          kind: 'plugin',
-          plugin: NS,
+          kind: `plugin:${NS}`,
           form: 'notice',
           summary: 'Advisor review',
         },

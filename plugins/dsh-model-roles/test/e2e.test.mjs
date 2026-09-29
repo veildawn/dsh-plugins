@@ -284,7 +284,7 @@ test('image input runs once in a vision subagent and returns text-only analysis 
   assert(starts[0].prompt.some((block) => block.type === 'image'))
   // decision.messages 必须保留原始用户图片，以便持久化到 user/message 事件中供前端正常渲染回显
   assert.equal(decision.messages.some((message) => modelRoles.contentHasImage(message.content)), true)
-  const returned = decision.messages.find((message) => message.source?.kind === 'plugin')
+  const returned = decision.messages.find((message) => message.source?.kind === 'plugin:model-roles')
   assert.match(returned.content[0].text, /red error banner/u)
   assert.equal(returned.source.summary, 'Vision analysis')
 
@@ -399,8 +399,7 @@ test('/advisor drives the real DSH spawn provider and steers actionable advice',
   assert.equal(steered.length, 1)
   assert.match(steered[0].content[0].text, /Check the error path/u)
   assert.deepEqual(steered[0].source, {
-    kind: 'plugin',
-    plugin: 'model-roles',
+    kind: 'plugin:model-roles',
     form: 'notice',
     summary: 'Advisor review',
   })
