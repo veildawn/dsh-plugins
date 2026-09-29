@@ -29,6 +29,8 @@ import {
   normalizeTarballUrl,
   readHostDshVersion,
   findProfileName,
+  findLockfilePackagesMissingIntegrity,
+  repairLockfileIntegrity,
   parseDshReleaseTag,
   checkDshUpdate,
 } from '../lib/core.js'
@@ -448,6 +450,90 @@ describe('dsh-market lockfile utilities', () => {
     mkdirSync(other, { recursive: true })
     assert.deepEqual(listLockfilePluginEntries('dsh-file-viewer', { home, profile: 'other' }), [])
     assert.equal(lockfileHealthForPlugin('dsh-file-viewer', 'http://x.tgz', { home, profile: 'other' }).healthy, true)
+  })
+
+  // pnpm v10.16+/v11 aborts the WHOLE install (ERR_PNPM_MISSING_TARBALL_INTEGRITY)
+  // while any packages entry lacks an integrity hash, so a single half-written
+  // entry left by an aborted run blocks every later install in that profile.
+  describe('profile-wide integrity repair', () => {
+    const POISONED = [
+      "lockfileVersion: '9.0'",
+      '',
+      'importers:',
+      '',
+      '  .:',
+      '    dependencies:',
+      '      dsh-jev:',
+      '        specifier: https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.8/dsh-jev-0.1.8.tgz',
+      '        version: https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.8/dsh-jev-0.1.8.tgz',
+      '      dsh-healthy:',
+      '        specifier: https://github.com/veildawn/dsh-plugins/releases/download/dsh-healthy@v1.0.0/dsh-healthy-1.0.0.tgz',
+      '        version: https://github.com/veildawn/dsh-plugins/releases/download/dsh-healthy@v1.0.0/dsh-healthy-1.0.0.tgz',
+      '',
+      'packages:',
+      '',
+      '  dsh-jev@https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.8/dsh-jev-0.1.8.tgz:',
+      '    resolution: {tarball: https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.8/dsh-jev-0.1.8.tgz}',
+      '    version: 0.1.8',
+      '',
+      '  dsh-healthy@https://github.com/veildawn/dsh-plugins/releases/download/dsh-healthy@v1.0.0/dsh-healthy-1.0.0.tgz:',
+      '    resolution: {integrity: sha512-OK, tarball: https://github.com/veildawn/dsh-plugins/releases/download/dsh-healthy@v1.0.0/dsh-healthy-1.0.0.tgz}',
+      '    version: 1.0.0',
+      '',
+      'snapshots:',
+      '',
+      '  dsh-jev@https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.8/dsh-jev-0.1.8.tgz:',
+      '    dependencies: {}',
+      '',
+    ].join('\n') + '\n'
+
+    let pHome
+    before(() => {
+      pHome = mkdtempSync(join(tmpdir(), 'dsh-integrity-test-'))
+      const profileDir = join(pHome, 'profiles', 'desktop')
+      mkdirSync(profileDir, { recursive: true })
+      writeFileSync(join(profileDir, 'pnpm-lock.yaml'), POISONED, 'utf8')
+    })
+    after(() => { rmSync(pHome, { recursive: true, force: true }) })
+
+    const opts = () => ({ home: pHome, profile: 'desktop' })
+
+    it('finds every packages entry without an integrity field', () => {
+      const missing = findLockfilePackagesMissingIntegrity(opts())
+      assert.equal(missing.length, 1)
+      assert.ok(missing[0].startsWith('dsh-jev@'))
+    })
+
+    it('marks a plugin unhealthy when an unrelated entry lacks integrity', () => {
+      const health = lockfileHealthForPlugin('dsh-healthy', 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-healthy@v1.0.0/dsh-healthy-1.0.0.tgz', opts())
+      assert.equal(health.staleCount, 0, 'the target itself is up to date')
+      assert.equal(health.missingIntegrity.length, 1)
+      assert.equal(health.healthy, false, 'a poisoned sibling entry still blocks the install')
+    })
+
+    it('repairs the lockfile without dropping importers or healthy entries', async () => {
+      const res = await repairLockfileIntegrity({
+        ...opts(),
+        fetchIntegrity: async () => 'sha512-INJECTED',
+      })
+      assert.equal(res.injected, 1)
+      assert.equal(res.rewritten, true)
+      assert.deepEqual(res.names.length, 1)
+
+      const after = readProfileLockfile(opts())
+      assert.equal(after.includes('dsh-jev@'), true)
+      assert.equal(after.includes('integrity: sha512-INJECTED'), true)
+      assert.equal(after.includes('integrity: sha512-OK'), true)
+      assert.deepEqual(findLockfilePackagesMissingIntegrity(opts()), [])
+      assert.equal(lockfileHealthForPlugin('dsh-healthy', 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-healthy@v1.0.0/dsh-healthy-1.0.0.tgz', opts()).healthy, true)
+    })
+
+    it('is a no-op on a healthy lockfile', async () => {
+      const res = await repairLockfileIntegrity(opts())
+      assert.equal(res.injected, 0)
+      assert.equal(res.stripped, 0)
+      assert.equal(res.rewritten, false)
+    })
   })
 })
 

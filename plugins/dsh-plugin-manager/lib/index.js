@@ -20,6 +20,7 @@
  */
 
 import z from '@deepseek-ai/schemastery'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
@@ -39,7 +40,9 @@ import {
   safePackageName,
   isAllowedRepoUrl,
   findProfileName,
+  findDshHome,
   stripPluginFromLockfile,
+  repairLockfileIntegrity,
   lockfileHealthForPlugin,
   profileLockfilePath,
   readProfileLockfile,
@@ -165,6 +168,32 @@ async function fetchJson(url, timeoutMs = 4_000) {
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
+}
+
+/**
+ * Download a tarball and return its subresource-integrity string
+ * (`sha512-<base64>`), matching what pnpm records in `resolution.integrity`.
+ *
+ * The bundled pnpm v11 omits that field for URL-installed tarballs but refuses
+ * to reuse such a lockfile, so the market has to compute it itself to unblock
+ * every install after the first one in a profile.
+ *
+ * @returns the integrity string, or null when the tarball cannot be read.
+ */
+export async function fetchTarballIntegrity(url, timeoutMs = 60_000) {
+  if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return null
+  try {
+    const res = await httpFetch(url, {
+      headers: { 'User-Agent': 'dsh-market-plugin', 'Accept': 'application/octet-stream' },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!res.ok) return null
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.length === 0) return null
+    return 'sha512-' + createHash('sha512').update(buf).digest('base64')
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -708,6 +737,31 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   const push = (line) => { const s = String(line).replace(/\s+$/, ''); if (s && onLog) onLog(s) }
 
   push(`$ dsh plugin add --profile ${profile} ${source}`)
+
+  // The bundled pnpm v11 writes URL-tarball lockfile entries WITHOUT an
+  // integrity field and then refuses to read that same lockfile back
+  // (ERR_PNPM_MISSING_TARBALL_INTEGRITY), so the profile is poisoned from the
+  // first URL install onwards. Deleting the entries does not help — pnpm
+  // re-adds them in the same shape. Record the real sha512 instead.
+  const repair = async (label) => {
+    const res = await repairLockfileIntegrity({
+      home: findDshHome(),
+      profile,
+      fetchIntegrity: fetchTarballIntegrity,
+    })
+    if (res.injected > 0) {
+      push(`  ↻ lockfile 已补全 ${res.injected} 个包的 integrity 校验值（${label}）`)
+      steps.push('integrity-inject')
+    }
+    if (res.stripped > 0) {
+      push(`  ↻ lockfile 已清理 ${res.stripped} 条无法校验的条目，pnpm 将重新解析`)
+      steps.push('integrity-repair')
+    }
+    return res
+  }
+
+  await repair('安装前')
+
   const health = lockfileHealthForPlugin(name, source)
   if (!health.healthy) {
     const res = stripPluginFromLockfile(name)
@@ -723,13 +777,17 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   })
 
   let result = await attempt()
-  if (!result.ok && /(?:ERR_PNPM_TARBALL_INTEGRITY|ERR_PNPM_MISSING_TARBALL_INTEGRITY)/.test(result.stderr || result.stdout || '')) {
-    const res = stripPluginFromLockfile(name)
-    if (res.removed > 0 || res.rewritten) {
-      push(`  ↻ 检测到 TARBALL_INTEGRITY 失败，已清理 lockfile 并重试一次`)
-      steps.push('integrity-retry')
-      result = await attempt()
-    }
+  if (!result.ok && /ERR_PNPM_(?:MISSING_)?TARBALL_INTEGRITY/.test(result.stderr || result.stdout || '')) {
+    push(`  ↻ 检测到 TARBALL_INTEGRITY 失败，修复 lockfile 后重试一次`)
+    steps.push('integrity-retry')
+    await repair('重试前')
+    result = await attempt()
+  }
+
+  // The add itself may re-write a fresh URL entry without integrity; fill it in
+  // right away so the NEXT install in this profile does not fail.
+  if (result.ok) {
+    await repair('安装后')
   }
 
   return { ...result, steps }

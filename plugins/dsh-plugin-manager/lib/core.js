@@ -663,6 +663,245 @@ function lockfileIndent(line) {
 }
 
 /**
+ * Whether a lockfile key line is the entry for one dependency path.
+ * Keys are `depPath:` in `packages:` and `depPath:` / `depPath(peer@ver):` in
+ * `snapshots:`, so only a `:` or `(` may follow the path.
+ */
+function lockfileKeyMatchesDepPath(line, depPath) {
+  const text = line.trimStart()
+  if (!text.startsWith(depPath)) return false
+  const rest = text.slice(depPath.length)
+  return rest.startsWith(':') || rest.startsWith('(')
+}
+
+/**
+ * Drop the `packages:` / `snapshots:` entry blocks of the given dependency
+ * paths, leaving the `importers:` references in place so pnpm keeps the
+ * dependency and re-resolves it on the next install.
+ *
+ * @param depPaths - dependency paths (e.g. "dsh-jev@<tarball-url>")
+ * @returns { removed, rewritten, lockfilePath }
+ */
+function stripLockfileDepPaths(depPaths, { home = findDshHome(), profile = findProfileName() } = {}) {
+  const lockfilePath = profileLockfilePath({ home, profile })
+  const text = readProfileLockfile({ home, profile })
+  if (!text || depPaths.length === 0) return { removed: 0, rewritten: false, lockfilePath }
+
+  const lines = text.split('\n')
+  const drop = new Array(lines.length).fill(false)
+  let removed = 0
+  let section = null
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const trimmed = line.trim()
+    if (trimmed === '' || trimmed.startsWith('#')) continue
+    const indent = lockfileIndent(line)
+    if (indent === 0) {
+      section = trimmed.endsWith(':') ? trimmed.slice(0, -1) : null
+      continue
+    }
+    if ((section !== 'packages' && section !== 'snapshots') || indent !== 2) continue
+    if (!depPaths.some((depPath) => lockfileKeyMatchesDepPath(line, depPath))) continue
+
+    drop[i] = true
+    removed++
+    let j = i + 1
+    while (j < lines.length) {
+      const next = lines[j]
+      if (next.trim() === '' || next.trim().startsWith('#')) { j++; continue }
+      if (lockfileIndent(next) <= 2) break
+      drop[j] = true
+      j++
+    }
+  }
+
+  if (removed === 0) return { removed: 0, rewritten: false, lockfilePath }
+
+  const kept = []
+  for (let i = 0; i < lines.length; i++) {
+    if (drop[i]) continue
+    if (lines[i].trim() === '' && kept.length > 0 && kept[kept.length - 1].trim() === '') continue
+    kept.push(lines[i])
+  }
+  while (kept.length > 0 && kept[kept.length - 1].trim() === '') kept.pop()
+
+  try {
+    writeFileSync(lockfilePath, kept.join('\n') + '\n', 'utf8')
+  } catch {
+    return { removed, rewritten: false, lockfilePath }
+  }
+  return { removed, rewritten: true, lockfilePath }
+}
+
+/**
+ * List every `packages:` entry whose `resolution` has no `integrity` field.
+ *
+ * pnpm >= 10.16 (and v11) refuses to install *anything* while such an entry
+ * exists — `ERR_PNPM_MISSING_TARBALL_INTEGRITY` — so one half-written entry
+ * from an earlier aborted run blocks every later install in that profile.
+ *
+ * @returns dependency paths, e.g. ["dsh-jev@https://.../dsh-jev-0.1.8.tgz"]
+ */
+export function findLockfilePackagesMissingIntegrity({ home = findDshHome(), profile = findProfileName() } = {}) {
+  const text = readProfileLockfile({ home, profile })
+  if (!text) return []
+
+  const lines = text.split('\n')
+  const missing = []
+  let inPackages = false
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const trimmed = line.trim()
+    if (trimmed === '' || trimmed.startsWith('#')) continue
+    const indent = lockfileIndent(line)
+    if (indent === 0) {
+      inPackages = trimmed === 'packages:'
+      continue
+    }
+    if (!inPackages || indent !== 2) continue
+
+    let hasIntegrity = false
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j]
+      if (next.trim() === '' || next.trim().startsWith('#')) continue
+      if (lockfileIndent(next) <= 2) break
+      if (next.includes('integrity:')) { hasIntegrity = true; break }
+    }
+    if (!hasIntegrity) missing.push(trimmed.replace(/:$/, ''))
+  }
+
+  return missing
+}
+
+/**
+ * Repair a profile lockfile poisoned by entries without `integrity`.
+ *
+ * Why writing the real hash (instead of deleting the entry) is the fix:
+ * the desktop bundles pnpm v11, which *writes* URL-tarball entries without an
+ * `integrity` field and then *refuses to read that same lockfile back*
+ * (`ERR_PNPM_MISSING_TARBALL_INTEGRITY`). Deleting the entry does not help:
+ * the very next install re-adds it in the same integrity-less shape, so the
+ * profile stays poisoned forever after the first URL install. Fetching the
+ * tarball and recording its sha512 breaks the cycle permanently.
+ *
+ * @param fetchIntegrity - async (url) => "sha512-..." (or null on failure)
+ * @returns { injected, stripped, rewritten, lockfilePath, names }
+ */
+export async function repairLockfileIntegrity({ home = findDshHome(), profile = findProfileName(), fetchIntegrity } = {}) {
+  const lockfilePath = profileLockfilePath({ home, profile })
+  const names = findLockfilePackagesMissingIntegrity({ home, profile })
+  if (names.length === 0) return { injected: 0, stripped: 0, rewritten: false, lockfilePath, names: [] }
+
+  const fixes = []
+  const unresolvable = []
+  for (const depPath of names) {
+    const url = tarballUrlFromDepPath(depPath)
+    if (!url || typeof fetchIntegrity !== 'function') { unresolvable.push(depPath); continue }
+    let integrity = null
+    try {
+      integrity = await fetchIntegrity(url)
+    } catch {
+      integrity = null
+    }
+    if (integrity) fixes.push({ depPath, integrity })
+    else unresolvable.push(depPath)
+  }
+
+  let injected = 0
+  let rewritten = false
+  if (fixes.length > 0) {
+    const text = readProfileLockfile({ home, profile })
+    const patched = applyLockfileIntegrity(text, fixes)
+    if (patched.injected > 0) {
+      try {
+        writeFileSync(lockfilePath, patched.text, 'utf8')
+        injected = patched.injected
+        rewritten = true
+      } catch {
+        injected = 0
+      }
+    }
+  }
+
+  // Anything whose tarball could not be hashed falls back to removal so pnpm
+  // can at least try to re-resolve it.
+  const strip = stripLockfileDepPaths(unresolvable, { home, profile })
+  if (strip.rewritten) rewritten = true
+
+  return { injected, stripped: strip.removed, rewritten, lockfilePath, names }
+}
+
+/**
+ * Insert `integrity` into the `resolution: {...}` line of each `packages:`
+ * entry, preserving every other byte of the lockfile.
+ *
+ * Line-based on purpose: the lockfile is YAML with `@`/`%40`/`:` inside keys,
+ * so regex key matching is fragile, while indentation is well-defined.
+ *
+ * @param text - lockfile contents
+ * @param fixes - [{ depPath, integrity }]
+ * @returns { text, injected }
+ */
+export function applyLockfileIntegrity(text, fixes) {
+  if (!text || fixes.length === 0) return { text, injected: 0 }
+
+  const byPath = new Map(fixes.map((f) => [f.depPath, f.integrity]))
+  const lines = text.split('\n')
+  let injected = 0
+  let section = null
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const trimmed = line.trim()
+    if (trimmed === '' || trimmed.startsWith('#')) continue
+    const indent = lockfileIndent(line)
+    if (indent === 0) {
+      section = trimmed.endsWith(':') ? trimmed.slice(0, -1) : null
+      continue
+    }
+    if (section !== 'packages' || indent !== 2) continue
+
+    const key = trimmed.replace(/:$/, '')
+    const integrity = byPath.get(key)
+    if (integrity === undefined) continue
+
+    // Patch the resolution line inside this entry's block.
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j]
+      if (next.trim() === '' || next.trim().startsWith('#')) continue
+      if (lockfileIndent(next) <= 2) break
+      if (!next.includes('resolution:')) continue
+      if (next.includes('integrity:')) break
+      const open = next.indexOf('{')
+      if (open === -1) {
+        lines[j] = next.replace(/resolution:\s*$/, `resolution: {integrity: ${integrity}}`)
+      } else {
+        lines[j] = next.slice(0, open + 1) + `integrity: ${integrity}, ` + next.slice(open + 1)
+      }
+      injected++
+      break
+    }
+  }
+
+  return { text: lines.join('\n'), injected }
+}
+
+/**
+ * Extract the tarball URL embedded in a lockfile depPath, if any.
+ * `dsh-jev@https://host/x.tgz` -> `https://host/x.tgz`
+ */
+export function tarballUrlFromDepPath(depPath) {
+  if (typeof depPath !== 'string') return null
+  for (const marker of ['@https://', '@http://']) {
+    const idx = depPath.indexOf(marker)
+    if (idx !== -1) return depPath.slice(idx + 1)
+  }
+  return null
+}
+
+/**
  * Strip a plugin's references from the profile's pnpm-lock.yaml so that pnpm
  * re-resolves the package from scratch on the next install.
  *
@@ -833,41 +1072,9 @@ export function lockfileHealthForPlugin(pluginName, targetUrl, { home = findDshH
   const entries = listLockfilePluginEntries(pluginName, { home, profile })
   const normTarget = normalizeTarballUrl(targetUrl)
 
-  // In pnpm v10/v11, any package entry missing integrity field causes ERR_PNPM_MISSING_TARBALL_INTEGRITY
-  const lockfilePath = profileLockfilePath({ home, profile })
-  let missingIntegrity = false
-  try {
-    if (existsSync(lockfilePath)) {
-      const text = readFileSync(lockfilePath, 'utf8')
-      const lines = text.split(/\r?\n/)
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]
-        if (line.trimStart().startsWith(pluginName + '@') && lines[i - 1] !== undefined) {
-          // Check if this is under `packages:` section
-          let inPackages = false
-          for (let k = i - 1; k >= 0; k--) {
-            if (lines[k].startsWith('packages:')) { inPackages = true; break }
-            if (lines[k].startsWith('snapshots:') || lines[k].startsWith('importers:')) break
-          }
-          if (inPackages) {
-            let hasIntegrity = false
-            let j = i + 1
-            while (j < lines.length) {
-              const l = lines[j]
-              if (l.trim() === '' || l.trim().startsWith('#')) { j++; continue }
-              if (lockfileIndent(l) <= 2) break
-              if (l.includes('integrity:')) { hasIntegrity = true; break }
-              j++
-            }
-            if (!hasIntegrity) {
-              missingIntegrity = true
-              break
-            }
-          }
-        }
-      }
-    }
-  } catch {}
+  // pnpm v10.16+/v11 aborts the whole install when ANY packages entry lacks
+  // integrity, so one poisoned entry anywhere makes the lockfile unhealthy.
+  const missingIntegrity = findLockfilePackagesMissingIntegrity({ home, profile })
 
   const stale = entries.filter((e) => normalizeTarballUrl(e.url) !== normTarget)
   return {
@@ -876,7 +1083,8 @@ export function lockfileHealthForPlugin(pluginName, targetUrl, { home = findDshH
     targetUrl,
     staleCount: stale.length,
     stale,
-    healthy: stale.length === 0 && !missingIntegrity,
+    missingIntegrity,
+    healthy: stale.length === 0 && missingIntegrity.length === 0,
   }
 }
 
