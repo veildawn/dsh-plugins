@@ -21,7 +21,7 @@
 
 import z from '@deepseek-ai/schemastery'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici'
 import {
@@ -589,10 +589,53 @@ export function runDshPluginCommand(args, { onLog, timeoutMs = 600_000, spawnFn 
   return new Promise((resolve) => {
     let child
     try {
-      child = spawnFn('dsh', args, {
+      // If running inside desktop host, find the dedicated desktop CLI wrapper or execute desktop host cli
+      const isDesktop = process.argv.some((arg) => typeof arg === 'string' && /[\\/]profiles[\\/]desktop/.test(arg))
+        || process.env.DSH_DESKTOP_NODE_EXECUTABLE
+        || process.execPath.includes('DeepSeek Harness')
+
+      let cmd = 'dsh'
+      let finalArgs = args
+      const env = { ...process.env }
+
+      if (isDesktop) {
+        // Desktop executable directory layout:
+        // - Windows: <AppDir>/resources/runtime/cli/bin/dsh.cmd
+        // - macOS: <AppDir>/Contents/Resources/runtime/cli/bin/dsh (or Contents/Resources/app.asar)
+        const execDir = dirname(process.execPath)
+        const candidateResources = [
+          join(execDir, 'resources'),
+          join(execDir, '..', 'Resources'),
+          join(execDir, 'Contents', 'Resources'),
+        ]
+
+        let foundCmd = null
+        for (const resDir of candidateResources) {
+          const dshBin = join(resDir, 'runtime', 'cli', 'bin', process.platform === 'win32' ? 'dsh.cmd' : 'dsh')
+          if (existsSync(dshBin)) {
+            foundCmd = dshBin
+            break
+          }
+          const cliPath = join(resDir, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
+          if (existsSync(cliPath)) {
+            foundCmd = { exec: process.execPath, cli: cliPath }
+            break
+          }
+        }
+
+        if (typeof foundCmd === 'string') {
+          cmd = foundCmd
+        } else if (foundCmd && foundCmd.exec) {
+          cmd = foundCmd.exec
+          finalArgs = ['--expose-internals', foundCmd.cli, ...args]
+          env.ELECTRON_RUN_AS_NODE = '1'
+        }
+      }
+
+      child = spawnFn(cmd, finalArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env },
-        shell: process.platform === 'win32',
+        env,
+        shell: process.platform === 'win32' && !cmd.endsWith('.exe'),
       })
     } catch (err) {
       resolve({ ok: false, code: null, stdout: '', stderr: String(err && err.message ? err.message : err) })
