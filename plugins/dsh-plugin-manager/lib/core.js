@@ -832,6 +832,43 @@ export function listLockfilePluginEntries(pluginName, { home = findDshHome(), pr
 export function lockfileHealthForPlugin(pluginName, targetUrl, { home = findDshHome(), profile = findProfileName() } = {}) {
   const entries = listLockfilePluginEntries(pluginName, { home, profile })
   const normTarget = normalizeTarballUrl(targetUrl)
+
+  // In pnpm v10/v11, any package entry missing integrity field causes ERR_PNPM_MISSING_TARBALL_INTEGRITY
+  const lockfilePath = profileLockfilePath({ home, profile })
+  let missingIntegrity = false
+  try {
+    if (existsSync(lockfilePath)) {
+      const text = readFileSync(lockfilePath, 'utf8')
+      const lines = text.split(/\r?\n/)
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        if (line.trimStart().startsWith(pluginName + '@') && lines[i - 1] !== undefined) {
+          // Check if this is under `packages:` section
+          let inPackages = false
+          for (let k = i - 1; k >= 0; k--) {
+            if (lines[k].startsWith('packages:')) { inPackages = true; break }
+            if (lines[k].startsWith('snapshots:') || lines[k].startsWith('importers:')) break
+          }
+          if (inPackages) {
+            let hasIntegrity = false
+            let j = i + 1
+            while (j < lines.length) {
+              const l = lines[j]
+              if (l.trim() === '' || l.trim().startsWith('#')) { j++; continue }
+              if (lockfileIndent(l) <= 2) break
+              if (l.includes('integrity:')) { hasIntegrity = true; break }
+              j++
+            }
+            if (!hasIntegrity) {
+              missingIntegrity = true
+              break
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
   const stale = entries.filter((e) => normalizeTarballUrl(e.url) !== normTarget)
   return {
     name: pluginName,
@@ -839,7 +876,7 @@ export function lockfileHealthForPlugin(pluginName, targetUrl, { home = findDshH
     targetUrl,
     staleCount: stale.length,
     stale,
-    healthy: stale.length === 0,
+    healthy: stale.length === 0 && !missingIntegrity,
   }
 }
 
