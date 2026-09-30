@@ -21,8 +21,8 @@
 
 import z from '@deepseek-ai/schemastery'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { EnvHttpProxyAgent, fetch as undiciFetch } from 'undici'
 import {
@@ -501,6 +501,23 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
         ? payload.names.filter((n) => typeof n === 'string' && n)
         : []
       if (names.length === 0) return errorResult('repairLockfile requires a non-empty names array')
+      // First heal every entry that lacks an integrity hash by fetching the
+      // real sha512 (with retries — GitHub downloads are often transient).
+      // Stripping alone re-poisons: pnpm re-writes the same integrity-less
+      // entry on its next run, so injecting the hash is the durable fix.
+      try {
+        await repairLockfileIntegrity({
+          home: findDshHome(),
+          profile: findProfileName(),
+          fetchIntegrity: async (url) => {
+            for (let i = 0; i < 3; i++) {
+              const hash = await fetchTarballIntegrity(url, 30_000)
+              if (hash) return hash
+            }
+            return null
+          },
+        })
+      } catch { /* best-effort heal; strip below is the fallback */ }
       const repaired = []
       const failed = []
       for (const name of names) {
@@ -742,11 +759,21 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   // (ERR_PNPM_MISSING_TARBALL_INTEGRITY), so the profile is poisoned from the
   // first URL install onwards. Deleting the entries does not help — pnpm
   // re-adds them in the same shape. Record the real sha512 instead.
+  // The fetch itself is retried: GitHub release downloads are frequently
+  // transient (ETIMEDOUT), and one failed fetch would otherwise strip the
+  // entry only for pnpm to re-poison it seconds later.
+  const fetchIntegrityWithRetry = async (url) => {
+    for (let i = 0; i < 3; i++) {
+      const hash = await fetchTarballIntegrity(url, 30_000)
+      if (hash) return hash
+    }
+    return null
+  }
   const repair = async (label) => {
     const res = await repairLockfileIntegrity({
       home: findDshHome(),
       profile,
-      fetchIntegrity: fetchTarballIntegrity,
+      fetchIntegrity: fetchIntegrityWithRetry,
     })
     if (res.injected > 0) {
       push(`  ↻ lockfile 已补全 ${res.injected} 个包的 integrity 校验值（${label}）`)
@@ -771,35 +798,48 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   }
 
   let actualSource = source
-  let tempTarballPath = null
 
   // In pnpm v11 (bundled with Desktop), installing directly from an HTTP/HTTPS URL
-  // triggers `ERR_PNPM_MISSING_TARBALL_INTEGRITY` because pnpm does not generate
-  // an integrity hash for arbitrary HTTP URLs during resolution and then blocks itself.
-  // When source is an HTTP/HTTPS URL, download it locally to profile .plugin-manager/downloads/
-  // first, and pass the local tarball path to `pnpm add`. pnpm then calculates sha512
-  // integrity automatically without any error.
+  // triggers `ERR_PNPM_MISSING_TARBALL_INTEGRITY`: pnpm neither records an integrity
+  // hash for arbitrary HTTP tarball URLs nor accepts the entry it just wrote. So the
+  // plugin tarball is downloaded into a persistent per-profile cache first
+  // (.plugin-manager/downloads/) and the LOCAL file path is handed to `pnpm add`.
+  // pnpm then computes the sha512 integrity itself and the lockfile stays healthy.
+  // The cache file must be kept: pnpm records `"pkg": "file:<path>"` in package.json,
+  // and deleting the tarball would break every later pnpm run in the profile.
   if (/^https?:\/\//.test(source)) {
     try {
       const downloadDir = join(findDshHome(), 'profiles', profile, '.plugin-manager', 'downloads')
       mkdirSync(downloadDir, { recursive: true })
-      const fileName = basename(new URL(source).pathname) || `${name}.tgz`
-      tempTarballPath = join(downloadDir, `${Date.now()}-${fileName}`)
-      push(`  ⬇ 正在预先下载插件包至本地临时缓存...`)
-      const res = await httpFetch(source, {
-        headers: { 'User-Agent': 'dsh-market-plugin', 'Accept': 'application/octet-stream' },
-        signal: AbortSignal.timeout(180_000),
-      })
-      if (res.ok) {
-        const buf = Buffer.from(await res.arrayBuffer())
-        writeFileSync(tempTarballPath, buf)
-        actualSource = tempTarballPath
-        push(`  ✓ 预下载成功 (${(buf.length / 1024).toFixed(1)} KB)`)
+      const rawName = basename(new URL(source).pathname) || `${name}.tgz`
+      const fileName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const cachedPath = join(downloadDir, fileName)
+      if (existsSync(cachedPath)) {
+        actualSource = cachedPath
+        push(`  ✓ 使用本地缓存的插件包: ${fileName}`)
+      } else {
+        push(`  ⬇ 正在预先下载插件包至本地缓存...`)
+        const res = await httpFetch(source, {
+          headers: { 'User-Agent': 'dsh-market-plugin', 'Accept': 'application/octet-stream' },
+          signal: AbortSignal.timeout(180_000),
+        })
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer())
+          writeFileSync(cachedPath, buf)
+          actualSource = cachedPath
+          push(`  ✓ 预下载成功 (${(buf.length / 1024).toFixed(1)} KB)，改用本地文件安装`)
+        } else {
+          push(`  ⚠ 预下载返回 HTTP ${res.status}，回退直接使用远程 URL`)
+        }
       }
     } catch (err) {
       push(`  ⚠ 预下载失败，回退直接使用远程 URL: ${String(err && err.message ? err.message : err)}`)
       actualSource = source
     }
+  }
+
+  if (actualSource !== source) {
+    push(`$ 实际执行: dsh plugin add --profile ${profile} ${actualSource}`)
   }
 
   const attempt = async () => runDshPluginCommand(['plugin', 'add', '--profile', profile, actualSource], {
@@ -808,7 +848,11 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   })
 
   let result = await attempt()
-  if (!result.ok && /ERR_PNPM_(?:MISSING_)?TARBALL_INTEGRITY/.test(result.stderr || result.stdout || '')) {
+  // NOTE: the error text may arrive on stdout while the dsh wrapper prints its
+  // diagnostics to stderr, so BOTH streams must be searched — `stderr || stdout`
+  // short-circuits and never sees the pnpm error when stderr is non-empty.
+  const combinedOutput = `${result.stderr || ''}\n${result.stdout || ''}`
+  if (!result.ok && /ERR_PNPM_(?:MISSING_)?TARBALL_INTEGRITY/.test(combinedOutput)) {
     push(`  ↻ 检测到 TARBALL_INTEGRITY 失败，修复 lockfile 后重试一次`)
     steps.push('integrity-retry')
     await repair('重试前')
@@ -816,14 +860,10 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   }
 
   // The add itself may re-write a fresh URL entry without integrity; fill it in
-  // right away so the NEXT install in this profile does not fail.
-  if (result.ok) {
-    await repair('安装后')
-  }
-
-  if (tempTarballPath && existsSync(tempTarballPath)) {
-    try { rmSync(tempTarballPath, { force: true }) } catch {}
-  }
+  // right away so the NEXT install in this profile does not fail. Also repair
+  // after a failure so the poisoned entry pnpm just wrote cannot block the
+  // user's very next attempt.
+  await repair(result.ok ? '安装后' : '失败后')
 
   return { ...result, steps }
 }

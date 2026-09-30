@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1075,6 +1075,84 @@ describe('dsh-market install tasks (fake spawn)', () => {
     const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
     assert.equal(task.status, 'success')
     assert.equal(captured.calls[0].args[4], 'dsh-status-rotator')
+  })
+
+  it('pre-downloads the repo tarball and installs from the persistent local cache', async () => {
+    captured.calls.length = 0
+    // Serve real bytes for the release tarball so the pre-download path activates.
+    _setHttpFetch(async (url) => {
+      if (String(url).includes('api.github.com')) return { ok: true, json: async () => FAKE_RELEASES }
+      if (String(url).includes('plugins.json')) return { ok: true, json: async () => FAKE_COMMUNITY }
+      if (String(url).endsWith('.tgz')) return { ok: true, arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer }
+      return { ok: false, status: 404, json: async () => ({}) }
+    })
+    try {
+      const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo' }, { spawnFn: fakeSpawn })
+      assert.equal(res.ok, true)
+      const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+      assert.equal(task.status, 'success')
+      assert.equal(captured.calls.length, 1)
+      const arg = captured.calls[0].args[4]
+      assert.ok(
+        arg.includes(join('profiles', 'web', '.plugin-manager', 'downloads')),
+        `install must use the local cache path, got: ${arg}`
+      )
+      assert.ok(arg.endsWith('dsh-model-roles-0.4.8.tgz'))
+      // The cached tarball must be KEPT: pnpm records `"pkg": "file:<path>"` in
+      // package.json, so deleting it would break every later pnpm run.
+      assert.equal(existsSync(arg), true)
+      assert.equal(task.log.some((l) => l.includes('实际执行')), true)
+
+      // A second install of the same version reuses the cached file verbatim.
+      captured.calls.length = 0
+      const res2 = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo' }, { spawnFn: fakeSpawn })
+      assert.equal(res2.ok, true)
+      await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res2.value.taskId)
+      assert.equal(captured.calls[0].args[4], arg)
+    } finally {
+      _resetHttpFetch()
+      _setHttpFetch(async (url) => {
+        if (String(url).includes('api.github.com')) return { ok: true, json: async () => FAKE_RELEASES }
+        if (String(url).includes('plugins.json')) return { ok: true, json: async () => FAKE_COMMUNITY }
+        return { ok: false, status: 404, json: async () => ({}) }
+      })
+      rmSync(join(testHome, 'profiles', 'web', '.plugin-manager'), { recursive: true, force: true })
+    }
+  })
+
+  it('retries once when pnpm reports MISSING_TARBALL_INTEGRITY on stdout while stderr carries dsh diagnostics', async () => {
+    captured.calls.length = 0
+    let calls = 0
+    const flakySpawn = (cmd, args, opts) => {
+      captured.calls.push({ cmd, args })
+      calls++
+      const child = new EventEmitter()
+      child.stdout = new EventEmitter()
+      child.stderr = new EventEmitter()
+      child.kill = () => {}
+      setImmediate(() => {
+        if (calls === 1) {
+          // Reproduces the real desktop CLI layout: pnpm's error lands on stdout
+          // while the dsh wrapper prints its diagnostics line on stderr. The old
+          // `stderr || stdout` short-circuit never saw the pnpm error and the
+          // retry never fired.
+          child.stdout.emit('data', Buffer.from('[ERR_PNPM_MISSING_TARBALL_INTEGRITY] Cannot install package\n'))
+          child.stderr.emit('data', Buffer.from('dsh: plugin command failed; diagnostics: operation-x/pnpm.log\n'))
+          child.emit('close', 1)
+        } else {
+          child.stdout.emit('data', Buffer.from('installing...\n'))
+          child.emit('close', 0)
+        }
+      })
+      return child
+    }
+    const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo' }, { spawnFn: flakySpawn })
+    assert.equal(res.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(task.status, 'success')
+    assert.equal(captured.calls.length, 2, 'the integrity failure must trigger exactly one retry')
+    assert.equal(task.log.some((l) => l.includes('检测到 TARBALL_INTEGRITY 失败')), true)
+    assert.equal(task.log.some((l) => l.includes('installing...')), true)
   })
 
   it('rejects plugins not present in the catalogs (no spawn)', async () => {
