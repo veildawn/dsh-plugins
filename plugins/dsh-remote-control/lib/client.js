@@ -85,10 +85,18 @@ window.__ModuleLoader__.load({
       @keyframes dsh-remote-gate-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.dsh-remote-gate-card{animation:none}}@media(max-width:520px){.dsh-remote-gate{padding:16px}.dsh-remote-gate-card{padding:20px;border-radius:var(--dsw-radius-l,12px)}}
     `;
 
+    /**
+     * 判断当前是否为远程浏览器访问。
+     * 本地环境免除远程锁屏：
+     * 1. 本机 Web 访问：localhost、127.0.0.1、IPv6 回环 [::1]；
+     * 2. Electron 桌面端原生协议：dsh-app://app/... 或 file:// 协议，以及 hostname 为 "app"。
+     */
     function isRemoteBrowser() {
+      const protocol = globalThis.location?.protocol;
+      if (protocol === "dsh-app:" || protocol === "file:") return false;
       const hostname = globalThis.location?.hostname;
       return typeof hostname === "string" && hostname.length > 0
-        && hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "[::1]";
+        && hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "[::1]" && hostname !== "app";
     }
 
     function storedSecret() {

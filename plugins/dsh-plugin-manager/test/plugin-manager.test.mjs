@@ -728,6 +728,7 @@ describe('dsh-market RPC handler (network stubbed)', () => {
 describe('dsh-market lockfile RPC (getLockfileHealth / repairLockfile)', () => {
   let home
   const originalDshHome = process.env.DSH_HOME
+  const originalDshProfile = process.env.DSH_PROFILE
   const FAKE_RELEASES = [
     {
       tag_name: 'dsh-model-roles@v0.4.8',
@@ -737,6 +738,7 @@ describe('dsh-market lockfile RPC (getLockfileHealth / repairLockfile)', () => {
   ]
 
   before(() => {
+    delete process.env.DSH_PROFILE
     home = mkdtempSync(join(tmpdir(), 'dsh-lock-rpc-'))
     process.env.DSH_HOME = home
     const profileDir = join(home, 'profiles', 'web')
@@ -768,6 +770,8 @@ describe('dsh-market lockfile RPC (getLockfileHealth / repairLockfile)', () => {
     _resetHttpFetch()
     if (originalDshHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = originalDshHome
+    if (originalDshProfile === undefined) delete process.env.DSH_PROFILE
+    else process.env.DSH_PROFILE = originalDshProfile
     rmSync(home, { recursive: true, force: true })
   })
 
@@ -1009,6 +1013,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
   const captured = { calls: [] }
   let testHome
   const originalDshHome = process.env.DSH_HOME
+  const originalDshProfile = process.env.DSH_PROFILE
 
   function fakeSpawn(cmd, args, opts) {
     captured.calls.push({ cmd, args })
@@ -1025,6 +1030,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
 
   before(() => {
     // Isolate DSH_HOME so install/repair never touches the real profile lockfile.
+    delete process.env.DSH_PROFILE
     testHome = mkdtempSync(join(tmpdir(), 'dsh-install-test-'))
     const profileDir = join(testHome, 'profiles', 'web')
     mkdirSync(profileDir, { recursive: true })
@@ -1040,6 +1046,8 @@ describe('dsh-market install tasks (fake spawn)', () => {
     _resetHttpFetch()
     if (originalDshHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = originalDshHome
+    if (originalDshProfile === undefined) delete process.env.DSH_PROFILE
+    else process.env.DSH_PROFILE = originalDshProfile
     rmSync(testHome, { recursive: true, force: true })
   })
 

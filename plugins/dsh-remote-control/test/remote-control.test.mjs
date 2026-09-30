@@ -590,6 +590,23 @@ test('local browser registers settings without a lock screen', async () => {
   }
 })
 
+test('desktop electron client recognizes dsh-app protocol and app hostname without a lock screen', async () => {
+  const previousLocation = globalThis.location
+  globalThis.location = { protocol: 'dsh-app:', hostname: 'app', host: 'app' }
+  storage.clear()
+  resetBrowser()
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+    // 桌面端不应注册根路径的全屏锁屏 gate
+    assert.equal(slots.registrations.some((item) => item.entry.name === 'root'), false)
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
 test('remote Unlock Screen authenticates, stores the secret and redirects privileged APIs', async () => {
   const previousLocation = globalThis.location
   globalThis.location = { hostname: 'remote.example', host: 'remote.example' }
