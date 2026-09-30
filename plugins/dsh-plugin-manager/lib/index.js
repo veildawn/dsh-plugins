@@ -770,7 +770,39 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
     }
   }
 
-  const attempt = async () => runDshPluginCommand(['plugin', 'add', '--profile', profile, source], {
+  let actualSource = source
+  let tempTarballPath = null
+
+  // In pnpm v11 (bundled with Desktop), installing directly from an HTTP/HTTPS URL
+  // triggers `ERR_PNPM_MISSING_TARBALL_INTEGRITY` because pnpm does not generate
+  // an integrity hash for arbitrary HTTP URLs during resolution and then blocks itself.
+  // When source is an HTTP/HTTPS URL, download it locally to profile .plugin-manager/downloads/
+  // first, and pass the local tarball path to `pnpm add`. pnpm then calculates sha512
+  // integrity automatically without any error.
+  if (/^https?:\/\//.test(source)) {
+    try {
+      const downloadDir = join(findDshHome(), 'profiles', profile, '.plugin-manager', 'downloads')
+      mkdirSync(downloadDir, { recursive: true })
+      const fileName = basename(new URL(source).pathname) || `${name}.tgz`
+      tempTarballPath = join(downloadDir, `${Date.now()}-${fileName}`)
+      push(`  ⬇ 正在预先下载插件包至本地临时缓存...`)
+      const res = await httpFetch(source, {
+        headers: { 'User-Agent': 'dsh-market-plugin', 'Accept': 'application/octet-stream' },
+        signal: AbortSignal.timeout(180_000),
+      })
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer())
+        writeFileSync(tempTarballPath, buf)
+        actualSource = tempTarballPath
+        push(`  ✓ 预下载成功 (${(buf.length / 1024).toFixed(1)} KB)`)
+      }
+    } catch (err) {
+      push(`  ⚠ 预下载失败，回退直接使用远程 URL: ${String(err && err.message ? err.message : err)}`)
+      actualSource = source
+    }
+  }
+
+  const attempt = async () => runDshPluginCommand(['plugin', 'add', '--profile', profile, actualSource], {
     onLog: push,
     spawnFn,
   })
@@ -787,6 +819,10 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   // right away so the NEXT install in this profile does not fail.
   if (result.ok) {
     await repair('安装后')
+  }
+
+  if (tempTarballPath && existsSync(tempTarballPath)) {
+    try { rmSync(tempTarballPath, { force: true }) } catch {}
   }
 
   return { ...result, steps }
