@@ -38,6 +38,12 @@ echo "   版本: $VERSION"
 echo "   Tag : $TAG"
 echo "=========================================="
 
+# 0. 宿主兼容预检：peerDependencies 必须被当前 dsh 运行时接受
+#    （范围写错时 profile 启动会直接拒载该插件："is incompatible with dsh ..."）。
+#    机器上没有 dsh 时该检查打印 SKIP 退出 0，不阻塞发布。
+echo "🧭 正在校验 $PLUGIN 的 dsh 宿主兼容声明..."
+node "$(dirname "$0")/check-plugin-compat.mjs" "$PLUGIN_DIR"
+
 # 1. 运行该插件测试
 # 插件从 profile 的共享目录解析宿主包，其位置随 HOME 变化，所以不能写死。
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
