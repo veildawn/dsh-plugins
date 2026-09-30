@@ -740,7 +740,9 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   const steps = []
   const push = (line) => { const s = String(line).replace(/\s+$/, ''); if (s && onLog) onLog(s) }
 
-  push(`$ dsh plugin add --profile ${profile} ${source}`)
+  const desktopEnv = resolveDesktopEnvironment()
+  const displayCmd = formatPluginCliCommand('add', profile, source, desktopEnv)
+  push(`$ ${displayCmd}`)
 
   // The bundled pnpm v11 writes URL-tarball lockfile entries WITHOUT an
   // integrity field and then refuses to read that same lockfile back
@@ -1022,7 +1024,9 @@ export function handleRemovePlugin(options, payload, deps = {}) {
 
   void (async () => {
     try {
-      task.log.push(`$ dsh plugin remove --profile ${profile} ${name}`)
+      const desktopEnv = resolveDesktopEnvironment()
+      const displayCmd = formatPluginCliCommand('remove', profile, name, desktopEnv)
+      task.log.push(`$ ${displayCmd}`)
       const result = await runDshPluginCommand(['plugin', 'remove', '--profile', profile, name], {
         onLog: (line) => { task.log.push(line.replace(/\s+$/, '')) },
         spawnFn: deps.spawnFn,

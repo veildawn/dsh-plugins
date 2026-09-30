@@ -1064,7 +1064,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(captured.calls.length, 1)
     assert.equal(captured.calls[0].cmd, 'dsh')
     assert.deepEqual(captured.calls[0].args, ['plugin', 'add', '--profile', 'web', 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz'])
-    assert.equal(task.log.some((l) => l.includes('$ dsh plugin add')), true)
+    assert.equal(task.log.some((l) => l.includes('plugin') && l.includes('add')), true)
     assert.equal(task.log.some((l) => l.includes('installing...')), true)
   })
 
@@ -1166,7 +1166,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(captured.calls.length, 1)
     assert.equal(captured.calls[0].cmd, 'dsh')
     assert.deepEqual(captured.calls[0].args, ['plugin', 'remove', '--profile', 'web', 'dsh-model-roles'])
-    assert.equal(task.log.some((l) => l.includes('$ dsh plugin remove')), true)
+    assert.equal(task.log.some((l) => l.includes('plugin') && l.includes('remove')), true)
   })
 
   it('rejects invalid plugin names for removePlugin', () => {
