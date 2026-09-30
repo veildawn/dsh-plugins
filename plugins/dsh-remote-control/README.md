@@ -16,6 +16,7 @@ DSH 特权 API。
 - 浏览器密钥暂存在 `localStorage` 的 `dsh-remote-control.secret`；可随时锁定并清除。
 - 自动迁移旧版 `dsh-ai-proxy.remote-control-secret` 浏览器键。
 - 官方 `/api/*` 仍走 Connection 的浏览器会话校验；本插件不绕过它，而是按需**签发**会话（见下节）。远程特权调用只经过本插件的固定白名单。
+- **桌面版（Desktop Profile）与 Web 版网络体验对齐**：在设置页实时展示服务端监听的真实端口（如桌面端默认 `19387`，Web 默认 `3080`）及所有可用的局域网 IPv4 访问地址；当开启远程控制时，自动将合法局域网来源纳入免 403 围栏，让移动端/其他局域网设备在桌面端也能顺畅访问并输入 Token 解锁。
 - `localhost`、`127.0.0.1` 和 IPv6 回环地址不显示锁屏。
 
 ## 安装
@@ -23,7 +24,9 @@ DSH 特权 API。
 插件自带 `cordis.patch.yml`，安装后会插入 `remote-control` Cordis 行，默认关闭远程访问：
 
 ```sh
-dsh plugin add --profile web ./dsh-remote-control-0.1.14.tgz
+dsh plugin add --profile web ./dsh-remote-control-0.1.17.tgz
+# 桌面端安装：
+# dsh plugin add --profile desktop ./dsh-remote-control-0.1.17.tgz
 ```
 
 ### 重启生效

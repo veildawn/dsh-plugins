@@ -78,6 +78,16 @@ window.__ModuleLoader__.load({
       .dsh-remote-input{box-sizing:border-box;width:100%;height:36px;padding:0 12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}.dsh-remote-input:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.dsh-remote-input:disabled{opacity:.6}
       .dsh-remote-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.dsh-remote-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer}.dsh-remote-button:disabled{cursor:default;opacity:.4}.dsh-remote-button-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}.dsh-remote-gate-button{width:100%}
       .dsh-remote-error{min-height:18px;margin:8px 0 0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-remote-meta,.dsh-remote-details{color:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-caption));font-size:12px;line-height:18px}.dsh-remote-meta{margin:20px 0 0;text-align:center}.dsh-remote-details{margin:0}
+      .dsh-remote-network-card{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:var(--dsw-radius-m,8px);border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));font:var(--dsw-font-s-14)}
+      .dsh-remote-network-title{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--dsw-alias-label-primary)}
+      .dsh-remote-network-list{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
+      .dsh-remote-network-item{display:flex;align-items:center;justify-content:space-between;gap:8px;font-family:var(--dsw-font-mono,monospace);font-size:12px;background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));padding:4px 8px;border-radius:var(--dsw-radius-s,4px)}
+      .dsh-remote-network-url{color:var(--dsw-alias-brand-primary,#4d6bfe);text-decoration:none;user-select:all}
+      .dsh-remote-tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:500;background:var(--dsw-alias-border-subtle,rgba(0,0,0,.06));color:var(--dsw-alias-label-secondary)}
+      .dsh-remote-host-switch{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:6px;background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));font-size:13px}
+      .dsh-remote-host-btn{padding:3px 10px;border-radius:12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));background:transparent;color:var(--dsw-alias-label-primary);font-size:12px;cursor:pointer}
+      .dsh-remote-host-btn:hover:not(:disabled){background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .dsh-remote-host-btn:disabled{opacity:.4;cursor:default}
       .dsh-remote-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:720px}.dsh-remote-settings h2{margin:0;font:var(--dsw-font-l-20)}.dsh-remote-intro{margin:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14)}
       .dsh-remote-toggle{display:flex;align-items:center;gap:8px;font:var(--dsw-font-s-14);cursor:pointer}.dsh-remote-toggle input{width:16px;height:16px;margin-left:auto}
       button:has([data-settings-nav-label="remote-control"]) > svg:first-child{display:none}
@@ -427,6 +437,10 @@ window.__ModuleLoader__.load({
           const next = await props.configRequest("setEnabled", { enabled });
           setRemote(Object.assign({}, next, { message: "远程控制设置已保存" }));
         }, "保存远程控制失败: ");
+        const switchBindHost = (targetHost) => withBusy(async () => {
+          const next = await props.configRequest("setBindHost", { host: targetHost });
+          setRemote(Object.assign({}, next, { message: "网络绑定已切换为 " + targetHost + "（重启客户端或热重载后生效）" }));
+        }, "切换网络绑定失败: ");
         return react.createElement("div", { className: "dsh-remote-settings" },
           react.createElement("style", null, uiCss),
           react.createElement("h2", null, "远程控制 (Remote Control)"),
@@ -447,6 +461,37 @@ window.__ModuleLoader__.load({
           ),
           react.createElement("p", { className: "dsh-remote-details" }, "访问环境: " + (props.remoteBrowser ? "远程访问" : "本机访问")),
           react.createElement("p", { className: "dsh-remote-details" }, "状态: " + remote.message),
+          remote.port ? react.createElement("div", { className: "dsh-remote-network-card" },
+            react.createElement("div", { className: "dsh-remote-network-title" },
+              react.createElement(IconGlobeOutline14, { size: 14 }),
+              react.createElement("span", null, "网络服务与访问端口"),
+              react.createElement("span", { className: "dsh-remote-tag" }, "Port " + remote.port)
+            ),
+            !props.remoteBrowser ? react.createElement("div", { className: "dsh-remote-host-switch" },
+              react.createElement("span", null, "监听地址: " + (remote.host || "127.0.0.1") + (remote.isAllInterfaces ? " (所有网卡)" : " (仅本机)")),
+              react.createElement("div", { style: { display: "flex", gap: "6px" } },
+                remote.host !== "0.0.0.0" ? react.createElement("button", {
+                  className: "dsh-remote-host-btn", type: "button", disabled: busy,
+                  onClick: () => switchBindHost("0.0.0.0"),
+                }, "切换为 0.0.0.0 (开放局域网)") : null,
+                remote.host !== "127.0.0.1" ? react.createElement("button", {
+                  className: "dsh-remote-host-btn", type: "button", disabled: busy,
+                  onClick: () => switchBindHost("127.0.0.1"),
+                }, "切换为 127.0.0.1 (仅本机)") : null
+              )
+            ) : react.createElement("div", { className: "dsh-remote-details" },
+              "绑定宿主: " + (remote.host || "127.0.0.1") + (remote.isAllInterfaces ? " (已监听所有网卡)" : " (仅本机回环)")
+            ),
+            Array.isArray(remote.lanIps) && remote.lanIps.length > 0 ? react.createElement("ul", { className: "dsh-remote-network-list" },
+              remote.lanIps.map((ip) => {
+                const url = "http://" + ip + ":" + remote.port;
+                return react.createElement("li", { key: ip, className: "dsh-remote-network-item" },
+                  react.createElement("span", { className: "dsh-remote-network-url" }, url),
+                  react.createElement("span", { className: "dsh-remote-tag" }, "局域网")
+                );
+              })
+            ) : null
+          ) : null,
           react.createElement("div", { className: "dsh-remote-actions" },
             props.remoteBrowser ? react.createElement("button", {
               className: "dsh-remote-button", type: "button", disabled: busy,

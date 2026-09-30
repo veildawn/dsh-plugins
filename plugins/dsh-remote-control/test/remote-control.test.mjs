@@ -146,23 +146,28 @@ test('configuration is local-only and authenticated calls use a fixed allowlist'
   const remote = connection.registrations.get(REMOTE_CONTROL_RPC_CHANNEL).handler
   const alias = connection.registrations.get(REMOTE_CONTROL_RPC_ALIASES[0]).handler
 
-  assert.deepEqual(await configure('status', {}), {
-    ok: true, value: { enabled: false, secretConfigured: false },
-  })
+  const checkConfigValue = (result, expected) => {
+    assert.equal(result.ok, true)
+    assert.equal(result.value.enabled, expected.enabled)
+    assert.equal(result.value.secretConfigured, expected.secretConfigured)
+    assert('lanIps' in result.value)
+    assert('host' in result.value)
+  }
+
+  checkConfigValue(await configure('status', {}), { enabled: false, secretConfigured: false })
   assert.equal((await configure('setEnabled', { enabled: 'yes' })).ok, false)
   assert.equal((await configure('setSecret', { secret: 'remote-test', extra: true })).ok, false)
-  assert.deepEqual(await configure('setSecret', { secret: '  remote-test  ' }), {
-    ok: true, value: { enabled: false, secretConfigured: true },
-  })
+  checkConfigValue(await configure('setSecret', { secret: '  remote-test  ' }), { enabled: false, secretConfigured: true })
   assert.equal(credentials.store.get(REMOTE_CONTROL_SECRET_REF), 'remote-test')
-  assert.deepEqual(await configure('setEnabled', { enabled: true }), {
-    ok: true, value: { enabled: true, secretConfigured: true },
-  })
+  checkConfigValue(await configure('setEnabled', { enabled: true }), { enabled: true, secretConfigured: true })
   assert.equal(settings.doc['remote-control'].enabled, true)
 
-  assert.deepEqual(await remote('status', { token: 'remote-test' }), {
-    ok: true, value: { enabled: true, secretConfigured: true, authenticated: true },
-  })
+  const remoteStatus = await remote('status', { token: 'remote-test' })
+  assert.equal(remoteStatus.ok, true)
+  assert.equal(remoteStatus.value.enabled, true)
+  assert.equal(remoteStatus.value.secretConfigured, true)
+  assert.equal(remoteStatus.value.authenticated, true)
+  assert('lanIps' in remoteStatus.value)
   assert.equal((await remote('call', { token: 'wrong', method: 'settings.describe', payload: {} })).ok, false)
   assert.equal((await remote('call', { token: 'remote-test', method: 'toString', payload: {} })).ok, false)
   assert.equal((await remote('call', { token: 'remote-test', method: 'settings.describe', payload: {}, extra: true })).ok, false)
@@ -184,9 +189,7 @@ test('configuration is local-only and authenticated calls use a fixed allowlist'
     { domain: 'llm', method: 'models' },
     { domain: 'llm', method: 'discoverModels' },
   ])
-  assert.deepEqual(await configure('setSecret', { secret: '' }), {
-    ok: true, value: { enabled: true, secretConfigured: false },
-  })
+  checkConfigValue(await configure('setSecret', { secret: '' }), { enabled: true, secretConfigured: false })
   assert.equal(credentials.store.has(REMOTE_CONTROL_SECRET_REF), false)
   assert.equal((await remote('call', { token: 'remote-test', method: 'settings.describe', payload: {} })).ok, false)
 })
@@ -259,9 +262,11 @@ test('index passthrough and 401 bypass are gated on enabled and limited to remot
   assert.equal(connection.requestRejection({ url: '/dsh-remote-control' }), 401)
   assert.equal(connection.requestRejection({ url: '/api' }), 401)
 
-  assert.deepEqual(await configure('setEnabled', { enabled: true }), {
-    ok: true, value: { enabled: true, secretConfigured: false },
-  })
+  const enabledResult = await configure('setEnabled', { enabled: true })
+  assert.equal(enabledResult.ok, true)
+  assert.equal(enabledResult.value.enabled, true)
+  assert.equal(enabledResult.value.secretConfigured, false)
+  assert('lanIps' in enabledResult.value)
   origAuthorizeIndexCalled = 0
 
   assert.equal(connection.authorizeIndex({ method: 'GET', url: '/' }, mockRes()), true)
@@ -494,7 +499,10 @@ const react = {
     previous?.cleanup?.()
     effects[slot] = { deps, cleanup: effect() }
   },
-  createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+  createElement: (type, props, ...children) => {
+    const flat = children.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false)
+    return { type, props: { ...props, children: flat.length === 1 ? flat[0] : flat } }
+  },
 }
 const BrandWordmark = (props) => react.createElement('svg', props)
 const IconGlobeOutline14 = (props) => react.createElement('svg', props)
@@ -560,8 +568,14 @@ function render(component, props = {}) {
 }
 
 function findElement(node, predicate) {
+  if (!node) return undefined
   if (predicate(node)) return node
-  for (const child of node?.props?.children ?? []) {
+  const children = Array.isArray(node?.props?.children)
+    ? node.props.children
+    : node?.props?.children
+      ? [node.props.children]
+      : []
+  for (const child of children) {
     const found = findElement(child, predicate)
     if (found) return found
   }
@@ -835,6 +849,132 @@ test('an invalid stored secret stays locked and is removed', async () => {
     assert.equal(storage.has('dsh-remote-control.secret'), false)
     const view = render(gate.component)
     assert(findElement(view, (node) => node?.type === 'p' && node.props.children.includes('保存的访问密钥已失效，请重新输入')))
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('updateWebserverHostInPatch seamlessly updates or inserts webserver host', () => {
+  const sampleEmpty = `# empty patch\n[]\n`
+  const added = internals.updateWebserverHostInPatch(sampleEmpty, '0.0.0.0', 19387)
+  assert(added.includes('host: "0.0.0.0"'))
+  assert(added.includes('port: 19387'))
+
+  const sampleExisting = `- id: webserver\n  name: "@deepseek-ai/dsh-host-webserver"\n  config:\n    host: "127.0.0.1"\n    port: 19387\n- id: other\n`
+  const updatedToAll = internals.updateWebserverHostInPatch(sampleExisting, '0.0.0.0')
+  assert(updatedToAll.includes('host: "0.0.0.0"'))
+  assert.equal(updatedToAll.includes('host: "127.0.0.1"'), false)
+  assert(updatedToAll.includes('- id: other'))
+
+  const updatedBack = internals.updateWebserverHostInPatch(updatedToAll, '127.0.0.1')
+  assert(updatedBack.includes('host: "127.0.0.1"'))
+  assert.equal(updatedBack.includes('host: "0.0.0.0"'), false)
+})
+
+test('desktop and LAN trust: getLocalLanAddresses, getServerNetworkInfo and auto-trusted LAN IP requestRejection', async () => {
+  const lanIps = internals.getLocalLanAddresses()
+  assert(Array.isArray(lanIps))
+  lanIps.forEach((ip) => {
+    assert.match(ip, /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)
+    assert.notEqual(ip.startsWith('127.'), true)
+  })
+
+  const { ctx, connection, webServer } = makeHost()
+  webServer.port = 19387
+  webServer.host = '0.0.0.0'
+  connection.trustedHosts = []
+  let authed = false
+  connection.browserAuth = {
+    isAuthenticated: () => authed,
+  }
+  connection.authorizeIndex = () => true
+  connection.requestRejection = (req) => {
+    // 模拟原生 HostConnectionService：非 loopback 且不在 connection.trustedHosts 返回 403
+    const host = req?.headers?.host || ''
+    if (!host.startsWith('127.0.0.1') && !host.startsWith('localhost')) return 403
+    return connection.browserAuth.isAuthenticated(req) ? undefined : 401
+  }
+
+  await ctx.plugin(plugin).await()
+  const info = internals.getServerNetworkInfo(ctx)
+  assert.equal(info.port, 19387)
+  assert.equal(info.host, '0.0.0.0')
+  assert.equal(info.isAllInterfaces, true)
+
+  const configure = connection.registrations.get(CONFIG_RPC_CHANNEL).handler
+  await configure('setEnabled', { enabled: true })
+
+  // 模拟从局域网 IP 发起的请求（如 192.168.x.x:19387）
+  if (lanIps.length > 0) {
+    const targetLanIp = lanIps[0]
+    const unauthLanReq = { headers: { host: `${targetLanIp}:19387` }, url: '/api/session' }
+    // 启用远程控制后，合法局域网地址自动从 403 转换为 401（未认证）
+    assert.equal(connection.requestRejection(unauthLanReq), 401)
+
+    authed = true
+    const authedLanReq = { headers: { host: `${targetLanIp}:19387` }, url: '/api/session' }
+    // 已认证则完全放行 (undefined)
+    assert.equal(connection.requestRejection(authedLanReq), undefined)
+    authed = false
+
+    const rpcLanReq = { headers: { host: `${targetLanIp}:19387` }, url: '/dsh-remote-control' }
+    // 远程控制专属 RPC 路径则完全豁免 401
+    assert.equal(connection.requestRejection(rpcLanReq), undefined)
+  }
+
+  // 非本机局域网的外来伪造 host 仍严格保持 403
+  const forgedReq = { headers: { host: 'evil-phishing.com:19387' }, url: '/api/session' }
+  assert.equal(connection.requestRejection(forgedReq), 403)
+})
+
+test('desktop and LAN status info renders in RemoteControlSettings', async () => {
+  const previousLocation = globalThis.location
+  globalThis.location = { hostname: 'localhost', host: 'localhost:19387' }
+  storage.clear()
+  resetBrowser()
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    const connection = new BrowserConnection(ctx)
+    // 模拟服务端返回完整的网络与局域网 IP 信息
+    connection.rpc.call = async (channel, method, payload) => {
+      connection.calls.push({ channel, method, payload })
+      if (channel === CONFIG_RPC_CHANNEL) {
+        return {
+          ok: true,
+          value: {
+            enabled: true,
+            secretConfigured: true,
+            port: 19387,
+            host: '0.0.0.0',
+            isAllInterfaces: true,
+            lanIps: ['192.168.50.108'],
+            trustedHosts: [],
+          },
+        }
+      }
+      return { ok: false }
+    }
+
+    await ctx.plugin(clientPlugin).await()
+    const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
+    assert(section)
+    render(section.component, section.entry.inject())
+    // 刷新 Promise 微任务使 useEffect 中的 configRequest 得到响应
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    const reRendered = render(section.component, section.entry.inject())
+    const networkCard = findElement(reRendered, (node) => node?.props?.className === 'dsh-remote-network-card')
+    assert(networkCard, '网络信息卡片应当正常渲染')
+    const portTag = findElement(networkCard, (node) => node?.props?.className === 'dsh-remote-tag' && String(node?.props?.children).includes('19387'))
+    assert(portTag, '应当显示监听端口标签')
+    const hostSwitch = findElement(networkCard, (node) => node?.props?.className === 'dsh-remote-host-switch')
+    assert(hostSwitch, '本机访问时应显示切换监听地址控件')
+    const lanUrl = findElement(networkCard, (node) => node?.props?.className === 'dsh-remote-network-url')
+    assert(lanUrl, '应当显示可供局域网直接访问的完整 URL')
+    assert.equal(lanUrl.props.children, 'http://192.168.50.108:19387')
   } finally {
     globalThis.location = previousLocation
   }

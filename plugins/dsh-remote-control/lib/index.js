@@ -9,6 +9,9 @@
  */
 import z from '@deepseek-ai/schemastery'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
+import { networkInterfaces } from 'node:os'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 
 export const name = 'remote-control'
@@ -130,12 +133,149 @@ export async function remoteControlSecret(ctx, options) {
   return stored?.value || process.env[REMOTE_CONTROL_SECRET_REF] || options().secret || undefined
 }
 
+/**
+ * 寻找当前运行 profile 的 cordis.patch.yml 文件路径。
+ */
+export function resolveProfilePatchPath(ctx) {
+  const profile = ctx.get('profileContext')
+  if (profile?.patchPath && existsSync(profile.patchPath)) return profile.patchPath
+  if (profile?.dir) {
+    const candidate = join(profile.dir, 'cordis.patch.yml')
+    if (existsSync(candidate)) return candidate
+  }
+  const home = profile?.home || process.env.DSH_HOME || join(process.env.USERPROFILE || process.env.HOME || '', '.dsh')
+  const profileName = profile?.name || 'desktop'
+  const candidate = join(home, 'profiles', profileName, 'cordis.patch.yml')
+  if (existsSync(candidate)) return candidate
+  const webCandidate = join(home, 'profiles', 'web', 'cordis.patch.yml')
+  if (existsSync(webCandidate)) return webCandidate
+  return undefined
+}
+
+/**
+ * 修改 YAML 内容中 webserver 的 host 配置。
+ * 支持 0.0.0.0 与 127.0.0.1 模式无缝互转。
+ */
+export function updateWebserverHostInPatch(yamlContent, targetHost, defaultPort = 19387) {
+  const lines = yamlContent.split(/\r?\n/)
+  let inWebserver = false
+  let inConfig = false
+  let hostReplaced = false
+  const output = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (/^\s*-\s+id:\s*['"]?webserver['"]?/.test(line)) {
+      inWebserver = true
+      inConfig = false
+      output.push(line)
+      continue
+    }
+    if (inWebserver && /^\s*-\s+id:/.test(line)) {
+      if (!hostReplaced) {
+        output.push(`    host: "${targetHost}"`)
+        hostReplaced = true
+      }
+      inWebserver = false
+      inConfig = false
+      output.push(line)
+      continue
+    }
+    if (inWebserver && /^\s+config:\s*$/.test(line)) {
+      inConfig = true
+      output.push(line)
+      continue
+    }
+    if (inWebserver && inConfig && /^\s+host:\s*.+$/.test(line)) {
+      output.push(`    host: "${targetHost}"`)
+      hostReplaced = true
+      continue
+    }
+    output.push(line)
+  }
+
+  if (inWebserver && !hostReplaced) {
+    output.push(`    host: "${targetHost}"`)
+    hostReplaced = true
+  }
+
+  if (!hostReplaced) {
+    const block = [
+      `- id: webserver`,
+      `  name: "@deepseek-ai/dsh-host-webserver"`,
+      `  config:`,
+      `    host: "${targetHost}"`,
+      `    port: ${defaultPort}`,
+      ``,
+    ]
+    return block.join('\n') + yamlContent
+  }
+
+  return output.join('\n')
+}
+
+/**
+ * 切换或设置当前 profile 的 webserver 绑定 Host（例如 0.0.0.0 或 127.0.0.1）。
+ */
+export async function setServerBindHost(ctx, targetHost) {
+  if (targetHost !== '0.0.0.0' && targetHost !== '127.0.0.1') {
+    throw new Error('Target bind host must be 0.0.0.0 or 127.0.0.1')
+  }
+  const patchPath = resolveProfilePatchPath(ctx)
+  if (!patchPath) {
+    throw new Error('未找到当前 profile 的 cordis.patch.yml 配置文件')
+  }
+  const content = readFileSync(patchPath, 'utf8')
+  const defaultPort = ctx.webServer?.port || 19387
+  const updated = updateWebserverHostInPatch(content, targetHost, defaultPort)
+  writeFileSync(patchPath, updated, 'utf8')
+  return { ok: true, host: targetHost, path: patchPath }
+}
+export function getLocalLanAddresses() {
+  try {
+    return Object.values(networkInterfaces())
+      .flat()
+      .filter((iface) => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+      .map((iface) => iface.address)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 检测当前宿主机监听端口与网络绑定信息。
+ * 兼容 desktop 与 web 两种 profile 环境。
+ */
+export function getServerNetworkInfo(ctx) {
+  const webServer = ctx.webServer
+  const connection = ctx.connection
+  const port = Number(webServer?.port || (typeof webServer?.server?.address === 'function' ? webServer.server.address()?.port : undefined)) || undefined
+  const host = webServer?.host || '127.0.0.1'
+  const isAllInterfaces = host === '0.0.0.0' || host === '::'
+  const lanIps = getLocalLanAddresses()
+  const trustedHosts = Array.isArray(connection?.trustedHosts) ? [...connection.trustedHosts] : []
+
+  return {
+    port,
+    host,
+    isAllInterfaces,
+    lanIps,
+    trustedHosts,
+  }
+}
+
 async function status(ctx, options, token) {
   const expected = await remoteControlSecret(ctx, options)
+  const network = getServerNetworkInfo(ctx)
   return {
     enabled: options().enabled,
     secretConfigured: Boolean(expected),
     authenticated: options().enabled && matchesRemoteControlSecret(expected, token),
+    port: network.port,
+    host: network.host,
+    isAllInterfaces: network.isAllInterfaces,
+    lanIps: network.lanIps,
+    trustedHosts: network.trustedHosts,
   }
 }
 
@@ -148,7 +288,18 @@ export async function handleConfigRpc(ctx, options, method, payload) {
     if (method === 'status') {
       if (keys.length !== 0) return errorResult('Remote Control status requests must carry an empty object')
       const value = await status(ctx, options, '')
-      return { ok: true, value: { enabled: value.enabled, secretConfigured: value.secretConfigured } }
+      return {
+        ok: true,
+        value: {
+          enabled: value.enabled,
+          secretConfigured: value.secretConfigured,
+          port: value.port,
+          host: value.host,
+          isAllInterfaces: value.isAllInterfaces,
+          lanIps: value.lanIps,
+          trustedHosts: value.trustedHosts,
+        },
+      }
     }
     if (method === 'setEnabled') {
       if (keys.length !== 1 || !Object.hasOwn(payload, 'enabled') || typeof payload.enabled !== 'boolean') {
@@ -156,7 +307,18 @@ export async function handleConfigRpc(ctx, options, method, payload) {
       }
       await ctx.settings.mutate(settingsNamespace(ctx, NS), [{ op: 'set', path: ['enabled'], value: payload.enabled }])
       const value = await status(ctx, options, '')
-      return { ok: true, value: { enabled: value.enabled, secretConfigured: value.secretConfigured } }
+      return {
+        ok: true,
+        value: {
+          enabled: value.enabled,
+          secretConfigured: value.secretConfigured,
+          port: value.port,
+          host: value.host,
+          isAllInterfaces: value.isAllInterfaces,
+          lanIps: value.lanIps,
+          trustedHosts: value.trustedHosts,
+        },
+      }
     }
     if (method === 'setSecret') {
       if (keys.length !== 1 || !Object.hasOwn(payload, 'secret') || typeof payload.secret !== 'string') {
@@ -166,7 +328,37 @@ export async function handleConfigRpc(ctx, options, method, payload) {
       if (secret) await ctx.credentials.set(REMOTE_CONTROL_SECRET_REF, secret)
       else await ctx.credentials.unset(REMOTE_CONTROL_SECRET_REF)
       const value = await status(ctx, options, '')
-      return { ok: true, value: { enabled: value.enabled, secretConfigured: value.secretConfigured } }
+      return {
+        ok: true,
+        value: {
+          enabled: value.enabled,
+          secretConfigured: value.secretConfigured,
+          port: value.port,
+          host: value.host,
+          isAllInterfaces: value.isAllInterfaces,
+          lanIps: value.lanIps,
+          trustedHosts: value.trustedHosts,
+        },
+      }
+    }
+    if (method === 'setBindHost') {
+      if (keys.length !== 1 || !Object.hasOwn(payload, 'host') || typeof payload.host !== 'string') {
+        return errorResult('Remote Control setBindHost requests must carry exactly one string host field')
+      }
+      await setServerBindHost(ctx, payload.host)
+      const value = await status(ctx, options, '')
+      return {
+        ok: true,
+        value: {
+          enabled: value.enabled,
+          secretConfigured: value.secretConfigured,
+          port: value.port,
+          host: value.host,
+          isAllInterfaces: value.isAllInterfaces,
+          lanIps: value.lanIps,
+          trustedHosts: value.trustedHosts,
+        },
+      }
     }
     return errorResult('Unknown Remote Control configuration method: ' + method)
   } catch (error) {
@@ -460,7 +652,19 @@ export function apply(ctx, config) {
       if (typeof connection.requestRejection === 'function') {
         const origRequestRejection = connection.requestRejection.bind(connection)
         connection.requestRejection = function (request) {
-          const res = origRequestRejection(request)
+          // 当远程控制启用时，如果 Host 未显式配置当前局域网 IP 到 trustedHosts，
+          // 在校验合法局域网来源时自动放行 403 围栏，确保桌面端局域网设备也能正常握手与认证
+          let res = origRequestRejection(request)
+          if (res === 403 && options().enabled) {
+            const hostHeader = requestHeader(request, 'host')
+            if (hostHeader) {
+              const lanIps = getLocalLanAddresses()
+              const isLocalLan = lanIps.some((ip) => hostHeader === ip || hostHeader.startsWith(ip + ':'))
+              if (isLocalLan) {
+                res = connection.browserAuth.isAuthenticated(request) ? undefined : 401
+              }
+            }
+          }
           if (res === 401 && shouldBypassBrowserAuthRejection(request, options().enabled)) return undefined
           return res
         }
@@ -485,6 +689,11 @@ export function apply(ctx, config) {
 export const internals = {
   matchesRemoteControlSecret,
   remoteControlSecret,
+  getLocalLanAddresses,
+  getServerNetworkInfo,
+  resolveProfilePatchPath,
+  updateWebserverHostInPatch,
+  setServerBindHost,
   handleConfigRpc,
   handleRemoteControlRpc,
   captureSessionCookie,
