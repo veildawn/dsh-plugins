@@ -421,16 +421,10 @@ export function resolveDesktopEnvironment() {
   ]
 
   let cliPath = null
-  let dshBin = null
   for (const resDir of candidateResources) {
     const candidateCli = join(resDir, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
     if (existsSync(candidateCli)) {
       cliPath = candidateCli
-      break
-    }
-    const candidateBin = join(resDir, 'runtime', 'cli', 'bin', process.platform === 'win32' ? 'dsh.cmd' : 'dsh')
-    if (existsSync(candidateBin)) {
-      dshBin = candidateBin
       break
     }
   }
@@ -440,7 +434,6 @@ export function resolveDesktopEnvironment() {
     platform: process.platform,
     execPath,
     cliPath,
-    dshBin,
   }
 }
 
@@ -453,10 +446,7 @@ export function formatPluginCliCommand(subcommand, profile, source, desktopEnv =
     return `dsh plugin --profile ${profile} ${subcommand} ${source}`
   }
 
-  const { platform, execPath, cliPath, dshBin } = desktopEnv
-  if (dshBin) {
-    return `"${dshBin}" plugin --profile desktop ${subcommand} ${source}`
-  }
+  const { platform, execPath, cliPath } = desktopEnv
 
   if (cliPath && execPath) {
     if (platform === 'win32') {

@@ -843,10 +843,8 @@ window.__ModuleLoader__.load({
           const source = installSourceOf(plugin, kind);
           let cmd = `dsh plugin add --profile ${profile} ${source}`;
           if (desktopEnv && desktopEnv.isDesktop && profile === "desktop") {
-            const { platform, execPath, cliPath, dshBin } = desktopEnv;
-            if (dshBin) {
-              cmd = `"${dshBin}" plugin --profile desktop add ${source}`;
-            } else if (cliPath && execPath) {
+            const { platform, execPath, cliPath } = desktopEnv;
+            if (cliPath && execPath) {
               if (platform === "win32") {
                 cmd = `$env:ELECTRON_RUN_AS_NODE="1"; & "${execPath}" --expose-internals "${cliPath}" plugin --profile desktop add "${source}"`;
               } else {
