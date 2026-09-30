@@ -399,6 +399,79 @@ export function findProfileName() {
   return 'web'
 }
 
+/**
+ * Detect whether the host is running in Desktop mode and discover its CLI paths and environment.
+ */
+export function resolveDesktopEnvironment() {
+  const argv = process.argv
+  const isDesktop = argv.some((arg) => typeof arg === 'string' && /[\\/]profiles[\\/]desktop/.test(arg))
+    || Boolean(process.env.DSH_DESKTOP_NODE_EXECUTABLE)
+    || (typeof process.execPath === 'string' && process.execPath.includes('DeepSeek Harness'))
+
+  if (!isDesktop) {
+    return { isDesktop: false, platform: process.platform }
+  }
+
+  const execPath = process.env.DSH_DESKTOP_NODE_EXECUTABLE || process.execPath
+  const execDir = dirname(execPath)
+  const candidateResources = [
+    join(execDir, 'resources'),
+    join(execDir, '..', 'Resources'),
+    join(execDir, 'Contents', 'Resources'),
+  ]
+
+  let cliPath = null
+  let dshBin = null
+  for (const resDir of candidateResources) {
+    const candidateCli = join(resDir, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
+    if (existsSync(candidateCli)) {
+      cliPath = candidateCli
+      break
+    }
+    const candidateBin = join(resDir, 'runtime', 'cli', 'bin', process.platform === 'win32' ? 'dsh.cmd' : 'dsh')
+    if (existsSync(candidateBin)) {
+      dshBin = candidateBin
+      break
+    }
+  }
+
+  return {
+    isDesktop: true,
+    platform: process.platform,
+    execPath,
+    cliPath,
+    dshBin,
+  }
+}
+
+/**
+ * Format a user-facing CLI command string for installing or managing a plugin.
+ * In desktop mode, formats the command with the proper Electron runtime invocation.
+ */
+export function formatPluginCliCommand(subcommand, profile, source, desktopEnv = resolveDesktopEnvironment()) {
+  if (!desktopEnv.isDesktop || profile !== 'desktop') {
+    return `dsh plugin --profile ${profile} ${subcommand} ${source}`
+  }
+
+  const { platform, execPath, cliPath, dshBin } = desktopEnv
+  if (dshBin) {
+    return `"${dshBin}" plugin --profile desktop ${subcommand} ${source}`
+  }
+
+  if (cliPath && execPath) {
+    if (platform === 'win32') {
+      return `$env:ELECTRON_RUN_AS_NODE="1"; & "${execPath}" --expose-internals "${cliPath}" plugin --profile desktop ${subcommand} "${source}"`
+    }
+    return `ELECTRON_RUN_AS_NODE=1 "${execPath}" --expose-internals "${cliPath}" plugin --profile desktop ${subcommand} "${source}"`
+  }
+
+  // Fallback if specific path wasn't found but isDesktop
+  if (platform === 'win32') {
+    return `$env:ELECTRON_RUN_AS_NODE="1"; & "$env:LOCALAPPDATA\\Programs\\DeepSeek Harness\\DeepSeek Harness.exe" --expose-internals "$env:LOCALAPPDATA\\Programs\\DeepSeek Harness\\resources\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js" plugin --profile desktop ${subcommand} "${source}"`
+  }
+  return `ELECTRON_RUN_AS_NODE=1 "/opt/DeepSeek Harness/deepseek-harness" --expose-internals "/opt/DeepSeek Harness/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js" plugin --profile desktop ${subcommand} "${source}"`
+}
+
 export function profilePluginDir(home, profile) {
   return join(home, 'profiles', profile, 'node_modules')
 }
@@ -669,8 +742,11 @@ function lockfileIndent(line) {
  */
 function lockfileKeyMatchesDepPath(line, depPath) {
   const text = line.trimStart()
-  if (!text.startsWith(depPath)) return false
-  const rest = text.slice(depPath.length)
+  // Strip optional quotes around YAML key: 'depPath': or "depPath":
+  const unquoted = text.replace(/^['"]/, '')
+  const cleanDep = depPath.replace(/^['"]/, '').replace(/['"]$/, '')
+  if (!unquoted.startsWith(cleanDep)) return false
+  const rest = unquoted.slice(cleanDep.length).replace(/^['"]/, '')
   return rest.startsWith(':') || rest.startsWith('(')
 }
 
@@ -769,7 +845,10 @@ export function findLockfilePackagesMissingIntegrity({ home = findDshHome(), pro
       if (lockfileIndent(next) <= 2) break
       if (next.includes('integrity:')) { hasIntegrity = true; break }
     }
-    if (!hasIntegrity) missing.push(trimmed.replace(/:$/, ''))
+    if (!hasIntegrity) {
+      const cleanKey = trimmed.replace(/:$/, '').replace(/^['"]/, '').replace(/['"]$/, '')
+      missing.push(cleanKey)
+    }
   }
 
   return missing
@@ -863,7 +942,7 @@ export function applyLockfileIntegrity(text, fixes) {
     }
     if (section !== 'packages' || indent !== 2) continue
 
-    const key = trimmed.replace(/:$/, '')
+    const key = trimmed.replace(/:$/, '').replace(/^['"]/, '').replace(/['"]$/, '')
     const integrity = byPath.get(key)
     if (integrity === undefined) continue
 
@@ -937,7 +1016,8 @@ export function stripPluginFromLockfile(pluginName, { home = findDshHome(), prof
     if (trimmed === 'packages:') { inPackages = true; continue }
     if (indent === 0 && trimmed !== 'packages:') { inPackages = false }
     if (!inPackages || indent !== 2) continue
-    if (line.trimStart().startsWith(pluginName + '@')) {
+    const unquoted = line.trimStart().replace(/^['"]/, '')
+    if (unquoted.startsWith(pluginName + '@')) {
       drop[i] = true
       removed++
       let j = i + 1
@@ -961,7 +1041,8 @@ export function stripPluginFromLockfile(pluginName, { home = findDshHome(), prof
     if (trimmed === 'snapshots:') { inSnapshots = true; continue }
     if (indent === 0 && trimmed !== 'snapshots:') { inSnapshots = false }
     if (!inSnapshots || indent !== 2) continue
-    if (line.trimStart().startsWith(pluginName + '@')) {
+    const unquoted = line.trimStart().replace(/^['"]/, '')
+    if (unquoted.startsWith(pluginName + '@')) {
       drop[i] = true
       removed++
       let j = i + 1
@@ -1042,21 +1123,22 @@ export function listLockfilePluginEntries(pluginName, { home = findDshHome(), pr
     if (trimmed === 'packages:' || trimmed === 'snapshots:') { inSection = true; continue }
     if (indent === 0 && trimmed !== 'packages:' && trimmed !== 'snapshots:') { inSection = false }
     if (!inSection || indent !== 2) continue
-    const key = line.trimStart()
-    if (key.startsWith(pluginName + '@')) {
+    const unquoted = line.trimStart().replace(/^['"]/, '')
+    if (unquoted.startsWith(pluginName + '@')) {
+      const key = unquoted.replace(/:$/, '').replace(/['"]$/, '')
       let tarballUrl = ''
       for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
         const rl = lines[j]
         if (lockfileIndent(rl) <= 2) break
         const rm = rl.match(/tarball:\s*([^\s}]+)/)
-        if (rm) { tarballUrl = rm[1]; break }
+        if (rm) { tarballUrl = rm[1].replace(/^['"]/, '').replace(/['"]$/, ''); break }
       }
       // When no resolution/tarball line exists (e.g. snapshots entries), fall
       // back to the key but strip the "<plugin>@" name prefix and the trailing
       // peer-dependency suffix like "(<url>(@peer@1.0.0):)".
       let url = tarballUrl
       if (!url) {
-        url = key.slice(pluginName.length + 1).replace(/\(@.*\):$/, '')
+        url = key.slice(pluginName.length + 1).replace(/\(@.*\):?$/, '').replace(/\(.*\)$/, '').replace(/:$/, '')
       }
       out.push({ key, url })
     }

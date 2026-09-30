@@ -408,6 +408,7 @@ window.__ModuleLoader__.load({
         const [categories, setCategories] = react.useState([]);
         const [repoOrigin, setRepoOrigin] = react.useState("veildawn/dsh-plugins");
         const [profile, setProfile] = react.useState("web");
+        const [desktopEnv, setDesktopEnv] = react.useState(null);
         const [dshUpdate, setDshUpdate] = react.useState(null);
         const [checkingDsh, setCheckingDsh] = react.useState(false);
         const [loading, setLoading] = react.useState(false);
@@ -564,6 +565,7 @@ window.__ModuleLoader__.load({
             setRepoPlugins(Array.from(byName.values()));
             if (value && value.repoOrigin) setRepoOrigin(value.repoOrigin);
             if (value && value.profile) setProfile(value.profile);
+            if (value && value.desktopEnv) setDesktopEnv(value.desktopEnv);
           } catch (err) {
             notify("获取自有插件失败，已展示内置列表：" + (err instanceof Error ? err.message : String(err)), "error");
           } finally {
@@ -590,6 +592,7 @@ window.__ModuleLoader__.load({
             const value = await callRpc("getConfig", {});
             setConfig(value);
             setDraft({ ...value });
+            if (value && value.desktopEnv) setDesktopEnv(value.desktopEnv);
           } catch { /* non-fatal */ }
         }, []);
 
@@ -838,7 +841,23 @@ window.__ModuleLoader__.load({
 
         const copyCommand = (plugin, kind) => {
           const source = installSourceOf(plugin, kind);
-          const cmd = `dsh plugin add --profile ${profile} ${source}`;
+          let cmd = `dsh plugin add --profile ${profile} ${source}`;
+          if (desktopEnv && desktopEnv.isDesktop && profile === "desktop") {
+            const { platform, execPath, cliPath, dshBin } = desktopEnv;
+            if (dshBin) {
+              cmd = `"${dshBin}" plugin --profile desktop add ${source}`;
+            } else if (cliPath && execPath) {
+              if (platform === "win32") {
+                cmd = `$env:ELECTRON_RUN_AS_NODE="1"; & "${execPath}" --expose-internals "${cliPath}" plugin --profile desktop add "${source}"`;
+              } else {
+                cmd = `ELECTRON_RUN_AS_NODE=1 "${execPath}" --expose-internals "${cliPath}" plugin --profile desktop add "${source}"`;
+              }
+            } else if (platform === "win32") {
+              cmd = `$env:ELECTRON_RUN_AS_NODE="1"; & "$env:LOCALAPPDATA\\Programs\\DeepSeek Harness\\DeepSeek Harness.exe" --expose-internals "$env:LOCALAPPDATA\\Programs\\DeepSeek Harness\\resources\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js" plugin --profile desktop add "${source}"`;
+            } else {
+              cmd = `ELECTRON_RUN_AS_NODE=1 "/opt/DeepSeek Harness/deepseek-harness" --expose-internals "/opt/DeepSeek Harness/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js" plugin --profile desktop add "${source}"`;
+            }
+          }
           const done = () => {
             notify(`已复制指令到剪贴板：${cmd}`);
             if (plugin && plugin.name) {
@@ -1121,7 +1140,7 @@ window.__ModuleLoader__.load({
                   "自有 ", react.createElement("strong", null, repoPlugins.length), " 款 · 社区 ",
                   react.createElement("strong", null, communityPlugins.length > 0 ? `${communityPlugins.length}` : (loadingCommunity ? "同步中…" : "3400+")), " 款"
                 ),
-                react.createElement("button", {
+                !(desktopEnv && desktopEnv.isDesktop) ? react.createElement("button", {
                   className: "dm-action-btn warning",
                   type: "button",
                   disabled: Boolean(restartingState),
@@ -1130,7 +1149,7 @@ window.__ModuleLoader__.load({
                 },
                   react.createElement(IconRefresh, { size: 13, className: restartingState ? "spin" : "" }),
                   react.createElement("span", null, restartingState ? "重启中…" : "立即重启服务")
-                )
+                ) : null
               )
             ),
             react.createElement("div", { className: "dm-console-row", style: { fontSize: "11.5px", color: "var(--dsw-alias-label-tertiary,#656d76)", paddingTop: "4px", borderTop: "1px dashed var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8))" } },

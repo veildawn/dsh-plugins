@@ -131,6 +131,40 @@ describe('dsh-market core & version comparison', () => {
       }
     }
   })
+
+  it('formats cli command correctly for web and desktop environments', async () => {
+    const { formatPluginCliCommand } = await import('../lib/core.js')
+
+    // Web profile
+    assert.equal(
+      formatPluginCliCommand('add', 'web', 'pkg.tgz', { isDesktop: false, platform: 'win32' }),
+      'dsh plugin --profile web add pkg.tgz'
+    )
+
+    // Desktop on Windows with found cliPath
+    const winDesktop = {
+      isDesktop: true,
+      platform: 'win32',
+      execPath: 'C:\\Users\\test\\AppData\\Local\\Programs\\DeepSeek Harness\\DeepSeek Harness.exe',
+      cliPath: 'C:\\Users\\test\\AppData\\Local\\Programs\\DeepSeek Harness\\resources\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js',
+    }
+    assert.equal(
+      formatPluginCliCommand('add', 'desktop', 'pkg.tgz', winDesktop),
+      '$env:ELECTRON_RUN_AS_NODE="1"; & "C:\\Users\\test\\AppData\\Local\\Programs\\DeepSeek Harness\\DeepSeek Harness.exe" --expose-internals "C:\\Users\\test\\AppData\\Local\\Programs\\DeepSeek Harness\\resources\\app.asar\\dsh\\node_modules\\@deepseek-ai\\dsh-desktop-host\\lib\\cli.js" plugin --profile desktop add "pkg.tgz"'
+    )
+
+    // Desktop on Linux with found cliPath
+    const linuxDesktop = {
+      isDesktop: true,
+      platform: 'linux',
+      execPath: '/opt/DeepSeek Harness/deepseek-harness',
+      cliPath: '/opt/DeepSeek Harness/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js',
+    }
+    assert.equal(
+      formatPluginCliCommand('add', 'desktop', 'pkg.tgz', linuxDesktop),
+      'ELECTRON_RUN_AS_NODE=1 "/opt/DeepSeek Harness/deepseek-harness" --expose-internals "/opt/DeepSeek Harness/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js" plugin --profile desktop add "pkg.tgz"'
+    )
+  })
 })
 
 describe('dsh-market releases formatting and updates detection', () => {

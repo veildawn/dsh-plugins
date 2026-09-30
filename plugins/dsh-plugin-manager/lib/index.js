@@ -52,6 +52,8 @@ import {
   readHostDshVersion,
   parseDshReleaseTag,
   checkDshUpdate,
+  resolveDesktopEnvironment,
+  formatPluginCliCommand,
 } from './core.js'
 
 export const name = 'plugin-manager'
@@ -418,6 +420,7 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
         catalog = resolveRepoCatalog(new Map(), resolved.repoOrigin)
       }
       const merged = mergeInstalledVersions(catalog)
+      const desktopEnv = resolveDesktopEnvironment()
       return {
         ok: true,
         value: {
@@ -425,6 +428,7 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
           repoOrigin: resolved.repoOrigin,
           profile: merged.profile,
           checkedAt: merged.checkedAt,
+          desktopEnv,
         },
       }
     }
@@ -537,7 +541,7 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
     }
 
     if (method === 'getConfig') {
-      return { ok: true, value: resolved }
+      return { ok: true, value: { ...resolved, desktopEnv: resolveDesktopEnvironment() } }
     }
 
     if (method === 'updateConfig') {
@@ -762,9 +766,9 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
 
   await repair('安装前')
 
-  const health = lockfileHealthForPlugin(name, source)
+  const health = lockfileHealthForPlugin(name, source, { home: findDshHome(), profile })
   if (!health.healthy) {
-    const res = stripPluginFromLockfile(name)
+    const res = stripPluginFromLockfile(name, { home: findDshHome(), profile })
     if (res.removed > 0) {
       push(`  ↻ lockfile 已清理 ${res.removed} 条 ${name} 旧条目（防止 TARBALL_INTEGRITY 校验失败）`)
       steps.push('pre-clean')
