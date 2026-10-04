@@ -201,7 +201,15 @@ window.__ModuleLoader__.load({
         .JObwrW_trigger>span{display:inline-block!important;line-height:1!important;white-space:nowrap!important}
         /* dock 槽位让出宽度给 meter，长统计行收缩而不是把按钮挤出卡片 */
         .uV2eYG_dock>[data-slot="conversation.composer.dock"]{flex:1 1 auto!important;width:auto!important;min-width:0!important;max-width:100%!important}
-        [data-composer-card] textarea{box-sizing:border-box;min-height:44px;max-height:160px;font-size:16px!important}
+        /* 宿主 0.2.0-rc.2 起输入区由 <textarea> 换成了 contenteditable 宿主元素
+           （[data-composer-input]），旧的 [data-composer-card] textarea 选择器已不再
+           命中，防放大规则静默失效。iOS Safari 对计算字号小于 16px 的可编辑元素
+           （input/textarea/select/contenteditable）聚焦时会强制放大整个视口，顶栏
+           按钮被挤出屏幕；这里把输入区字号抬到 16px 下限（用户设置的更大字号照常
+           生效），占位符同步字号以免与输入文字错位。
+           选择器只用宿主稳定的 data 属性：桌面版与 npm 版的 CSS Modules 哈希类名
+           并不相同，写死哈希类名会在其中一个宿主上全部失效。 */
+        [data-composer-input],[data-composer-placeholder]{font-size:max(16px,var(--dsh-content-font-size,14px))!important}
         .md-code-block button,[role="dialog"] button{min-width:44px;min-height:44px}
         .md-code-block{max-width:100%;overflow:hidden}
         .md-code-block pre{max-width:100%;overflow-x:auto!important;overscroll-behavior-x:contain;scroll-behavior:smooth;-webkit-overflow-scrolling:touch;white-space:pre!important;word-break:normal!important}
@@ -888,7 +896,10 @@ window.__ModuleLoader__.load({
         const nextVvh = viewportHeight ? `${Math.round(viewportHeight)}px` : ''
         if (nextVvh && rootStyle.getPropertyValue('--dsh-vvh') !== nextVvh) rootStyle.setProperty('--dsh-vvh', nextVvh)
         const active = doc.activeElement
-        const editing = active?.tagName === 'TEXTAREA'
+        // 宿主 0.2.0-rc.2 起输入区是 contenteditable（[data-composer-input]）而非
+        // textarea，只认 tagName === 'TEXTAREA' 会让下面的键盘内边距兜底恒为 0。
+        const editing = active != null
+          && (active.isContentEditable === true || active.tagName === 'TEXTAREA')
           && (typeof active.closest !== 'function' || active.closest('[data-composer-card]') !== null)
         const layoutHeight = win.innerHeight || doc.documentElement.clientHeight || viewportHeight || 0
         const visibleBottom = viewport == null ? layoutHeight : viewport.height + (viewport.offsetTop || 0)

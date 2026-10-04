@@ -60,6 +60,7 @@ class Element extends Events {
     this.textContent = ''
     this.className = ''
     this.parentElement = null
+    this.isContentEditable = false
   }
   append(...children) {
     for (const child of children) {
@@ -122,6 +123,10 @@ class Document extends Events {
     this.effortLabel.textContent = 'High'
     this.textarea = new Element('textarea', this)
     this.textarea.setAttribute('placeholder', '给智能体发消息')
+    // 宿主 0.2.0-rc.2 的真实输入区：contenteditable div，占位文案挂在 data-placeholder。
+    this.input = new Element('div', this)
+    this.input.isContentEditable = true
+    this.input.setAttribute('data-placeholder', '给智能体发消息')
     this.permission = new Element('button', this)
     this.permission.className = 'Sh0Q9G_trigger'
     this.permission.textContent = '只读'
@@ -188,6 +193,7 @@ class Document extends Events {
     if (selector.startsWith('.Sh0Q9G_trigger,')) return this.permission
     if (selector === '.Sh0Q9G_triggerLabel') return null
     if (selector === '[data-composer-card] textarea') return this.textarea
+    if (selector === '[data-composer-input]') return this.input
     if (selector === '[data-composer-card] .uV2eYG_tools') return this.tools
     if (selector === '[data-composer-card]') return this.card
     if (selector === '._7KE1Ra_triggerLabel') return this.modelLabel
@@ -373,7 +379,14 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
     'dock 抬高层级，否则会被 position:relative 的卡片背景盖住')
   assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock:not\(:has\(\[data-plan-review-scroll\]\)\):not\(:has\(\[data-plan-review-key\]\)\)/,
     '面板在场时保持原布局，避免与输入区重叠')
-  assert.match(css, /\[data-composer-card\] textarea\{[^}]*min-height:44px;max-height:160px;font-size:16px!important/)
+  // 宿主 0.2.0-rc.2 起输入区是 contenteditable（[data-composer-input]），不再是
+  // [data-composer-card] textarea；防 iOS 聚焦自动放大的字号下限必须落在真实元素上。
+  assert.match(css, /\[data-composer-input\],\[data-composer-placeholder\]\{font-size:max\(16px,var\(--dsh-content-font-size,14px\)\)!important\}/)
+  assert.doesNotMatch(css, /\[data-composer-card\] textarea\{[^}]*font-size:16px!important/,
+    '失效的 textarea 防放大选择器必须移除，否则留下不会命中的死规则')
+  // 桌面版与 npm 版的 CSS Modules 哈希类名不同，防放大规则只能用稳定 data 属性。
+  assert.doesNotMatch(css, /\[data-composer-input\][^{]*\.[A-Za-z0-9_-]+_placeholder/,
+    '防放大选择器不得依赖哈希类名，否则会在其中一个宿主构建上全部失效')
   assert.doesNotMatch(css, /\[data-composer-card\] button[^}]*min-width:44px/)
 
   for (const viewportWidth of [320, 375, 390, 414]) {
@@ -644,6 +657,14 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   f.viewport.offsetTop = 20
   f.viewport.emit('scroll')
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '198px')
+
+  // 宿主 0.2.0-rc.2 起输入区是 contenteditable 而非 textarea：只认 tagName 会让
+  // 键盘内边距兜底恒为 0，顶栏与输入框会被弹出的键盘盖住。
+  f.viewport.offsetTop = 0
+  f.doc.activeElement = f.doc.input
+  f.viewport.emit('resize')
+  assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '218px',
+    'contenteditable 输入区同样要算作正在编辑')
 
   f.viewport.scale = 2
   f.viewport.emit('resize')
