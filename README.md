@@ -9,8 +9,8 @@
 | 插件名称 | 目录 | 说明 | 最新独立版本 |
 | :--- | :--- | :--- | :--- |
 | **`dsh-plugin-manager`** | [`plugins/dsh-plugin-manager`](plugins/dsh-plugin-manager) | 插件管理中心与自有插件更新/卸载管理器（专属拼图图标、移动端全量响应式触控适配、自有插件一键批量更新(N)、社区21分类、静默直接复制指令、剪贴板写入全路径兜底、异步平滑重启与自动恢复） | [`v0.3.31`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-plugin-manager@v0.3.31) |
-| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.26`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.26) |
-| **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标、桌面端/Web版局域网地址自识别与端口展示） | [`v0.1.17`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.17) |
+| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.28`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.28) |
+| **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标、桌面端/Web版局域网地址自识别与端口展示、卡片化设置面板与访问地址一键复制） | [`v0.1.18`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.18) |
 | **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接插件（协议层外包给宿主官方 llm-pi-ai 适配器并自动材料化路由、Chat/completions/Anthropic messages/Responses 三格式、最高推理强度开关、OAuth 2.0 PKCE 认证、令牌过期前主动轮换与阶梯推理映射） | [`v0.3.10`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.3.10) |
 | **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、工作区工具箱整合文件查看器/本地终端/提示词历史、移动端右侧栏避让与一键返回对话、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出） | [`v0.1.40`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.40) |
 | **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.49`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.1.49) |
@@ -44,10 +44,10 @@
 dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.31/dsh-plugin-manager-0.3.31.tgz
 
 # 1. 安装模型角色分工插件 (多模型智能路由与识图子代理)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.26/dsh-model-roles-0.4.26.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.28/dsh-model-roles-0.4.28.tgz
 
 # 2. 安装远程安全通道插件 (推荐所有公网/局域网部署安装)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.15/dsh-remote-control-0.1.15.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.18/dsh-remote-control-0.1.18.tgz
 
 # 3. 安装 AI Proxy 网关插件
 dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.3.10/dsh-ai-proxy-0.3.10.tgz
@@ -99,8 +99,8 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 ```bash
 # 格式: ./scripts/release.sh <插件目录名> [版本号(可选)]
 ./scripts/release.sh dsh-plugin-manager 0.3.31
-./scripts/release.sh dsh-model-roles 0.4.26
-./scripts/release.sh dsh-remote-control 0.1.15
+./scripts/release.sh dsh-model-roles 0.4.28
+./scripts/release.sh dsh-remote-control 0.1.18
 ./scripts/release.sh dsh-ai-proxy 0.3.10
 ./scripts/release.sh dsh-mobile-adapter 0.1.40
 ./scripts/release.sh dsh-file-viewer 0.1.49
