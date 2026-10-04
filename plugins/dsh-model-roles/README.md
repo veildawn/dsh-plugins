@@ -77,7 +77,7 @@ Agent Preset 都使用 DSH 原生生命周期与事实，不要求用户手动�
 ## 安装
 
 ```sh
-dsh plugin add --profile web ./dsh-model-roles-0.4.24.tgz
+dsh plugin add --profile web ./dsh-model-roles-0.4.28.tgz
 ```
 
 ### 重启生效

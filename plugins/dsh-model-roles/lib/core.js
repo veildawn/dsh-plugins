@@ -261,9 +261,11 @@ export function isSubagent(agent) {
 export function sameModelSelection(left, right) {
   if (left === right) return true
   if (!left || !right) return false
+  const leftEffort = left.reasoningEffort ?? ''
+  const rightEffort = right.reasoningEffort ?? ''
   return left.provider === right.provider
     && left.model === right.model
-    && (left.reasoningEffort ?? '') === (right.reasoningEffort ?? '')
+    && String(leftEffort) === String(rightEffort)
 }
 
 export function toRouteConfig(entry) {
@@ -271,7 +273,7 @@ export function toRouteConfig(entry) {
   return {
     provider: entry.provider,
     model: entry.model,
-    ...(entry.reasoningEffort !== undefined && entry.reasoningEffort !== null
+    ...(entry.reasoningEffort !== undefined && entry.reasoningEffort !== null && entry.reasoningEffort !== ''
       ? { reasoningEffort: String(entry.reasoningEffort) }
       : {}),
   }
@@ -282,16 +284,17 @@ export function toRouteConfig(entry) {
  * 遵循严格防污染准则：
  * 1. 扫描 session.events 中显式的 'model/selection' 事件，
  *    优先查找用户手动选定的事件（排除内部自动还原事件 _restoredByModelRoles: true）
- * 2. 初始请求头（仅当 reason 为 'initial' 时的 request/header，绝不取中间路由后的 'change' 请求头）
- * 3. 若存在系统还原的 model/selection 事件，也可作为保底候选
- * 4. agent 启动 options
- * 5. 全局 defaultModel
+ * 2. 匹配 session 中最初且未经污染的 'initial' 请求头（绝不取中间路由后的 'change' 请求头）
+ * 3. 检查当前 session requestHeader（仅当其未经过任何路由修改或明确带有 initial 标记时）
+ * 4. 全局 defaultModel（用户全局配置的首选模型与思考等级）
+ * 5. agent 启动 options
+ * 6. 若存在系统还原的 model/selection 事件，也可作为保底候选
  */
 export function resolveBaselineModel(agent, defaultModel) {
   const events = agent?.session?.events ?? []
   let restoredFallback
 
-  // 1. 优先从后往前查找用户手动选定的 model/selection（非插件还原产生的事件）
+  // 1. 优先从后往前查找用户显式手动选定的 model/selection（非插件还原产生的事件）
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (event?.type === 'model/selection') {
@@ -315,18 +318,29 @@ export function resolveBaselineModel(agent, defaultModel) {
     }
   }
 
-  // 3. 检查当前 session requestHeader（若没有任何修改记录）
+  // 3. 检查当前 session requestHeader（若没有任何修改记录或为 initial 状态）
   const directHeader = agent?.session?.requestHeader?.()
   if (directHeader && (!directHeader.reason || directHeader.reason === 'initial')) {
     const match = toRouteConfig(directHeader.config ?? directHeader)
     if (match) return match
   }
 
-  // 4. 若之前有还原过的有效配置，则采用
+  // 4. 优先匹配系统/用户设定的全局 defaultModel
+  const defaultMatch = toRouteConfig(defaultModel)
+  if (defaultMatch) {
+    return defaultMatch
+  }
+
+  // 5. 匹配 agent 显式启动 options
+  const optionMatch = toRouteConfig(agent?.options)
+  if (optionMatch) {
+    return optionMatch
+  }
+
+  // 6. 若之前有还原过的有效配置，则采用
   if (restoredFallback) return restoredFallback
 
-  return toRouteConfig(agent?.options)
-    ?? toRouteConfig(defaultModel)
+  return undefined
 }
 
 /** Resolve the live preset id, falling back to the creation header. */

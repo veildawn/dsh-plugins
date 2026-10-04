@@ -511,9 +511,11 @@ export function apply(ctx, config = {}) {
       } else {
         agent.session.append('model/selection', selectionData)
       }
-      ctx.logger.info?.(`model-roles: restored baseline model ${baseline.provider}/${baseline.model} on ${trigger}`)
+      // 同步更新缓存，确保基准模型始终锁定
+      sessionBaselines.set(agent.session, baseline)
+      ctx.logger.info?.(`model-roles: 已在 ${trigger} 恢复为基准模型 ${baseline.provider}/${baseline.model}${baseline.reasoningEffort ? ` (${baseline.reasoningEffort})` : ''}`)
     } catch (error) {
-      ctx.logger.warn?.(`model-roles: failed to restore baseline model selection on ${trigger}`, error)
+      ctx.logger.warn?.(`model-roles: 在 ${trigger} 恢复基准模型失败`, error)
     }
   }
 
@@ -781,7 +783,9 @@ export function apply(ctx, config = {}) {
         sessionBaselines.set(session, {
           provider: event.data.provider,
           model: event.data.model,
-          ...(event.data.reasoningEffort ? { reasoningEffort: String(event.data.reasoningEffort) } : {}),
+          ...(event.data.reasoningEffort !== undefined && event.data.reasoningEffort !== null && event.data.reasoningEffort !== ''
+            ? { reasoningEffort: String(event.data.reasoningEffort) }
+            : {}),
         })
       }
     }
