@@ -56,6 +56,23 @@ window.__ModuleLoader__.load({
     }
     const IconGlobeOutline14 = primitives.IconGlobeOutline14 || primitives.IconGlobeOutlineMedium || primitives.IconGlobeOutlineRegular || DefaultIconGlobeOutline;
 
+    function CopyIcon({ size = 13, className }) {
+      return react.createElement("svg", {
+        width: size, height: size, className, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true"
+      },
+        react.createElement("rect", { x: "5.5", y: "5.5", width: "8", height: "8", rx: "1.5" }),
+        react.createElement("path", { d: "M3.5 10.5H2.5A1.5 1.5 0 0 1 1 9V2.5A1.5 1.5 0 0 1 2.5 1H9a1.5 1.5 0 0 1 1.5 1.5v1" })
+      );
+    }
+
+    function CheckIcon({ size = 13, className }) {
+      return react.createElement("svg", {
+        width: size, height: size, className, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true"
+      },
+        react.createElement("path", { d: "M3 8.5l3.5 3.5 6.5-7" })
+      );
+    }
+
     const REMOTE_CONTROL_RPC_CHANNEL = "/dsh-remote-control";
     const CONFIG_RPC_CHANNEL = "/dsh-remote-control-config";
     const SESSION_PATH = "/dsh-remote-control/session";
@@ -74,22 +91,58 @@ window.__ModuleLoader__.load({
       .dsh-remote-gate h1{margin:0 0 8px;font:var(--dsw-font-l-20)}.dsh-remote-copy{margin:0 0 20px;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14)}
       .dsh-remote-status{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14)}.dsh-remote-gate .dsh-remote-status{margin-bottom:20px}
       .dsh-remote-dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--dsw-alias-state-warn-primary)}.dsh-remote-dot[data-active=true]{background:var(--dsw-alias-state-success-primary)}
-      .dsh-remote-field{display:flex;flex-direction:column;gap:6px}.dsh-remote-gate-field{margin-bottom:12px}.dsh-remote-label{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14);font-weight:500}
-      .dsh-remote-input{box-sizing:border-box;width:100%;height:36px;padding:0 12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}.dsh-remote-input:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.dsh-remote-input:disabled{opacity:.6}
-      .dsh-remote-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.dsh-remote-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer}.dsh-remote-button:disabled{cursor:default;opacity:.4}.dsh-remote-button-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}.dsh-remote-gate-button{width:100%}
+      .dsh-remote-field{display:flex;flex-direction:column;gap:8px}.dsh-remote-gate-field{margin-bottom:12px}.dsh-remote-label{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14);font-weight:500}
+      .dsh-remote-input{box-sizing:border-box;width:100%;height:38px;padding:0 12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);transition:border-color .15s ease, box-shadow .15s ease}.dsh-remote-input:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.dsh-remote-input:disabled{opacity:.6}
+      .dsh-remote-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:4px}
+      .dsh-remote-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:34px;padding:0 16px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);font-weight:500;cursor:pointer;transition:all .15s ease}.dsh-remote-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.08));border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-default))}.dsh-remote-button:disabled{cursor:default;opacity:.4}
+      .dsh-remote-button-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}.dsh-remote-button-primary:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 88%,#000);border-color:transparent}.dsh-remote-gate-button{width:100%}
       .dsh-remote-error{min-height:18px;margin:8px 0 0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-remote-meta,.dsh-remote-details{color:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-caption));font-size:12px;line-height:18px}.dsh-remote-meta{margin:20px 0 0;text-align:center}.dsh-remote-details{margin:0}
-      .dsh-remote-network-card{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:var(--dsw-radius-m,8px);border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));font:var(--dsw-font-s-14)}
-      .dsh-remote-network-title{display:flex;align-items:center;gap:6px;font-weight:600;color:var(--dsw-alias-label-primary)}
-      .dsh-remote-network-list{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
-      .dsh-remote-network-item{display:flex;align-items:center;justify-content:space-between;gap:8px;font-family:var(--dsw-font-mono,monospace);font-size:12px;background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));padding:4px 8px;border-radius:var(--dsw-radius-s,4px)}
-      .dsh-remote-network-url{color:var(--dsw-alias-brand-primary,#4d6bfe);text-decoration:none;user-select:all}
-      .dsh-remote-tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:500;background:var(--dsw-alias-border-subtle,rgba(0,0,0,.06));color:var(--dsw-alias-label-secondary)}
-      .dsh-remote-host-switch{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:6px;background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));font-size:13px}
-      .dsh-remote-host-btn{padding:3px 10px;border-radius:12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));background:transparent;color:var(--dsw-alias-label-primary);font-size:12px;cursor:pointer}
-      .dsh-remote-host-btn:hover:not(:disabled){background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+
+      /* 远程控制设置面板样式规范化与现代卡片层级设计 */
+      .dsh-remote-settings{display:flex;flex-direction:column;gap:18px;width:100%;max-width:720px;padding:4px 0 24px}
+      .dsh-remote-header{display:flex;flex-direction:column;gap:6px}
+      .dsh-remote-settings h2{margin:0;font:var(--dsw-font-l-20);letter-spacing:-0.01em;font-weight:600}
+      .dsh-remote-intro{margin:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14);line-height:1.5}
+
+      .dsh-remote-card{display:flex;flex-direction:column;gap:14px;padding:16px;border-radius:var(--dsw-radius-l,12px);border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));box-sizing:border-box}
+      .dsh-remote-card-header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+      .dsh-remote-card-title{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:var(--dsw-alias-label-primary)}
+
+      /* 开关项 */
+      .dsh-remote-toggle-row{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));cursor:pointer;user-select:none}
+      .dsh-remote-toggle-text{display:flex;flex-direction:column;gap:2px}
+      .dsh-remote-toggle-title{font-size:14px;font-weight:500;color:var(--dsw-alias-label-primary)}
+      .dsh-remote-toggle-sub{font-size:12px;color:var(--dsw-alias-label-tertiary)}
+
+      /* iOS 风格 Switch 开关 */
+      .dsh-remote-switch{position:relative;display:inline-block;width:38px;height:22px;flex:none;cursor:pointer}
+      .dsh-remote-switch input{opacity:0;width:0;height:0;margin:0}
+      .dsh-remote-slider{position:absolute;cursor:pointer;inset:0;background-color:var(--dsw-alias-border-default,rgba(125,125,125,0.25));border-radius:22px;transition:.2s cubic-bezier(0.4, 0, 0.2, 1)}
+      .dsh-remote-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:#ffffff;border-radius:50%;transition:.2s cubic-bezier(0.4, 0, 0.2, 1);box-shadow:0 1px 3px rgba(0,0,0,0.2)}
+      .dsh-remote-switch input:checked + .dsh-remote-slider{background-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .dsh-remote-switch input:checked + .dsh-remote-slider:before{transform:translateX(16px)}
+      .dsh-remote-switch input:disabled + .dsh-remote-slider{opacity:.4;cursor:default}
+
+      /* 状态与诊断徽标条 */
+      .dsh-remote-status-banner{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));font-size:12px}
+      .dsh-remote-status-group{display:inline-flex;align-items:center;gap:6px;color:var(--dsw-alias-label-secondary)}
+
+      /* 网络信息卡片 */
+      .dsh-remote-network-card{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:var(--dsw-radius-l,12px);border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));font:var(--dsw-font-s-14)}
+      .dsh-remote-network-title{display:flex;align-items:center;gap:8px;font-weight:600;color:var(--dsw-alias-label-primary)}
+      .dsh-remote-network-list{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+      .dsh-remote-network-item{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));padding:8px 12px;border-radius:var(--dsw-radius-m,8px);border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));transition:border-color .15s ease}
+      .dsh-remote-network-item:hover{border-color:var(--dsw-alias-border-default,var(--dsw-alias-border-l2))}
+      .dsh-remote-network-url{color:var(--dsw-alias-label-primary);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:12.5px;text-decoration:none;user-select:all;word-break:break-all}
+      .dsh-remote-item-right{display:inline-flex;align-items:center;gap:6px;flex:none}
+      .dsh-remote-tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500;background:var(--dsw-alias-border-subtle,rgba(125,125,125,0.12));color:var(--dsw-alias-label-secondary)}
+      .dsh-remote-copy-btn{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:4px;background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-secondary);font-size:11px;cursor:pointer;transition:all .15s ease}
+      .dsh-remote-copy-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.12));color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .dsh-remote-copy-btn.copied{color:var(--dsw-alias-state-success-primary,#10b981);border-color:var(--dsw-alias-state-success-primary,#10b981)}
+      .dsh-remote-host-switch{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:8px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));font-size:13px}
+      .dsh-remote-host-btn{padding:4px 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease}
+      .dsh-remote-host-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.08));border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dsh-remote-host-btn:disabled{opacity:.4;cursor:default}
-      .dsh-remote-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:720px}.dsh-remote-settings h2{margin:0;font:var(--dsw-font-l-20)}.dsh-remote-intro{margin:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14)}
-      .dsh-remote-toggle{display:flex;align-items:center;gap:8px;font:var(--dsw-font-s-14);cursor:pointer}.dsh-remote-toggle input{width:16px;height:16px;margin-left:auto}
       button:has([data-settings-nav-label="remote-control"]) > svg:first-child{display:none}
       .dsh-remote-nav-label{display:inline-flex;align-items:center;gap:8px}
       @keyframes dsh-remote-gate-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.dsh-remote-gate-card{animation:none}}@media(max-width:520px){.dsh-remote-gate{padding:16px}.dsh-remote-gate-card{padding:20px;border-radius:var(--dsw-radius-l,12px)}}
@@ -398,6 +451,31 @@ window.__ModuleLoader__.load({
         const [remote, setRemote] = react.useState({ enabled: false, secretConfigured: false, authenticated: false, message: "正在检查远程控制状态…" });
         const [enabled, setEnabled] = react.useState(false);
         const [secret, setSecret] = react.useState(currentSecret);
+        const [copiedIp, setCopiedIp] = react.useState("");
+
+        const copyText = async (text, id) => {
+          let ok = false;
+          if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+            try { await navigator.clipboard.writeText(text); ok = true; } catch {}
+          }
+          if (!ok && typeof document !== "undefined") {
+            try {
+              const el = document.createElement("textarea");
+              el.value = text;
+              el.style.position = "fixed";
+              el.style.opacity = "0";
+              document.body.appendChild(el);
+              el.select();
+              ok = document.execCommand("copy");
+              document.body.removeChild(el);
+            } catch {}
+          }
+          if (ok) {
+            setCopiedIp(id);
+            setTimeout(() => setCopiedIp((curr) => curr === id ? "" : curr), 1800);
+          }
+        };
+
         react.useEffect(() => {
           let active = true;
           const request = props.remoteBrowser ? props.remoteRequest("status") : props.configRequest("status");
@@ -435,40 +513,84 @@ window.__ModuleLoader__.load({
         const save = () => withBusy(async () => {
           if (secret.trim()) await props.configRequest("setSecret", { secret: secret.trim() });
           const next = await props.configRequest("setEnabled", { enabled });
-          setRemote(Object.assign({}, next, { message: "远程控制设置已保存" }));
+          setRemote((current) => Object.assign({}, current, next, {
+            message: "远程控制设置已保存",
+          }));
         }, "保存远程控制失败: ");
         const switchBindHost = (targetHost) => withBusy(async () => {
           const next = await props.configRequest("setBindHost", { host: targetHost });
-          setRemote(Object.assign({}, next, { message: "网络绑定已切换为 " + targetHost + "（重启客户端或热重载后生效）" }));
+          const isAll = targetHost === "0.0.0.0" || targetHost === "::";
+          setRemote((current) => Object.assign({}, current, next, {
+            host: targetHost,
+            isAllInterfaces: isAll,
+            message: "网络绑定已切换为 " + targetHost + "（重启客户端或热重载后生效）",
+          }));
         }, "切换网络绑定失败: ");
         return react.createElement("div", { className: "dsh-remote-settings" },
           react.createElement("style", null, uiCss),
-          react.createElement("h2", null, "远程控制 (Remote Control)"),
-          react.createElement("p", { className: "dsh-remote-intro" }, "通过共享密钥解锁远程设置与特权操作。"),
-          react.createElement("label", { className: "dsh-remote-toggle" },
-            react.createElement("span", null, "启用远程访问"),
-            react.createElement("input", {
-              type: "checkbox", role: "switch", checked: enabled, disabled: busy || props.remoteBrowser,
-              "aria-label": "启用远程访问", onChange: (event) => setEnabled(event.target.checked),
-            })
+          react.createElement("div", { className: "dsh-remote-header" },
+            react.createElement("h2", null, "远程控制 (Remote Control)"),
+            react.createElement("p", { className: "dsh-remote-intro" }, "配置共享访问密钥，允许局域网设备通过浏览器访问当前工作区并执行受控操作。")
           ),
-          react.createElement("label", { className: "dsh-remote-field" },
-            react.createElement("span", { className: "dsh-remote-label" }, "远程访问密钥 / Token"),
-            react.createElement("input", {
-              className: "dsh-remote-input", type: "password", value: secret, autoComplete: "current-password",
-              disabled: busy, "aria-label": "远程访问密钥", onChange: (event) => setSecret(event.target.value),
-            })
+
+          /* 基础配置卡片 */
+          react.createElement("div", { className: "dsh-remote-card" },
+            react.createElement("label", { className: "dsh-remote-toggle-row", onClick: (e) => {
+              if (busy || props.remoteBrowser) return;
+              if (e.target.tagName !== "INPUT") setEnabled(!enabled);
+            } },
+              react.createElement("div", { className: "dsh-remote-toggle-text" },
+                react.createElement("span", { className: "dsh-remote-toggle-title" }, "启用远程访问"),
+                react.createElement("span", { className: "dsh-remote-toggle-sub" }, "开启后宿主机将放行已通过密钥验证的远程设备请求")
+              ),
+              react.createElement("label", { className: "dsh-remote-switch" },
+                react.createElement("input", {
+                  type: "checkbox", role: "switch", checked: enabled, disabled: busy || props.remoteBrowser,
+                  "aria-label": "启用远程访问", onChange: (event) => setEnabled(event.target.checked),
+                }),
+                react.createElement("span", { className: "dsh-remote-slider" })
+              )
+            ),
+            react.createElement("label", { className: "dsh-remote-field" },
+              react.createElement("span", { className: "dsh-remote-label" }, "远程访问密钥 / Token"),
+              react.createElement("input", {
+                className: "dsh-remote-input", type: "password", value: secret, autoComplete: "current-password",
+                placeholder: "输入用于认证的访问密码或 Token",
+                disabled: busy, "aria-label": "远程访问密钥", onChange: (event) => setSecret(event.target.value),
+              })
+            ),
+            react.createElement("div", { className: "dsh-remote-status-banner" },
+              react.createElement("div", { className: "dsh-remote-status-group" },
+                react.createElement("span", { style: { color: "var(--dsw-alias-label-tertiary)" } }, "访问环境:"),
+                react.createElement("span", { className: "dsh-remote-tag" }, props.remoteBrowser ? "远程访问" : "本机访问")
+              ),
+              react.createElement("div", { className: "dsh-remote-status-group" },
+                react.createElement("span", { style: { color: "var(--dsw-alias-label-tertiary)" } }, "状态:"),
+                react.createElement("span", { style: {
+                  fontWeight: 500,
+                  color: remote.authenticated || remote.message?.includes?.("已保存") || remote.message?.includes?.("本机配置可用")
+                    ? "var(--dsw-alias-state-success-primary,#10b981)"
+                    : "var(--dsw-alias-label-primary)"
+                } }, remote.message)
+              )
+            )
           ),
-          react.createElement("p", { className: "dsh-remote-details" }, "访问环境: " + (props.remoteBrowser ? "远程访问" : "本机访问")),
-          react.createElement("p", { className: "dsh-remote-details" }, "状态: " + remote.message),
+
+          /* 网络服务与访问端口卡片 */
           remote.port ? react.createElement("div", { className: "dsh-remote-network-card" },
-            react.createElement("div", { className: "dsh-remote-network-title" },
-              react.createElement(IconGlobeOutline14, { size: 14 }),
-              react.createElement("span", null, "网络服务与访问端口"),
+            react.createElement("div", { className: "dsh-remote-card-header" },
+              react.createElement("div", { className: "dsh-remote-network-title" },
+                react.createElement(IconGlobeOutline14, { size: 15 }),
+                react.createElement("span", null, "网络服务与访问端口")
+              ),
               react.createElement("span", { className: "dsh-remote-tag" }, "Port " + remote.port)
             ),
             !props.remoteBrowser ? react.createElement("div", { className: "dsh-remote-host-switch" },
-              react.createElement("span", null, "监听地址: " + (remote.host || "127.0.0.1") + (remote.isAllInterfaces ? " (所有网卡)" : " (仅本机)")),
+              react.createElement("span", { style: { color: "var(--dsw-alias-label-secondary)" } },
+                "监听地址: ",
+                react.createElement("strong", { style: { color: "var(--dsw-alias-label-primary)", fontFamily: "ui-monospace,monospace" } }, remote.host || "127.0.0.1"),
+                remote.isAllInterfaces ? " (所有网卡)" : " (仅本机)"
+              ),
               react.createElement("div", { style: { display: "flex", gap: "6px" } },
                 remote.host !== "0.0.0.0" ? react.createElement("button", {
                   className: "dsh-remote-host-btn", type: "button", disabled: busy,
@@ -485,13 +607,27 @@ window.__ModuleLoader__.load({
             Array.isArray(remote.lanIps) && remote.lanIps.length > 0 ? react.createElement("ul", { className: "dsh-remote-network-list" },
               remote.lanIps.map((ip) => {
                 const url = "http://" + ip + ":" + remote.port;
+                const isCopied = copiedIp === ip;
                 return react.createElement("li", { key: ip, className: "dsh-remote-network-item" },
                   react.createElement("span", { className: "dsh-remote-network-url" }, url),
-                  react.createElement("span", { className: "dsh-remote-tag" }, "局域网")
+                  react.createElement("div", { className: "dsh-remote-item-right" },
+                    react.createElement("button", {
+                      type: "button",
+                      className: "dsh-remote-copy-btn" + (isCopied ? " copied" : ""),
+                      title: "复制访问地址",
+                      onClick: () => copyText(url, ip),
+                    },
+                      isCopied ? react.createElement(CheckIcon, { size: 12 }) : react.createElement(CopyIcon, { size: 12 }),
+                      react.createElement("span", null, isCopied ? "已复制" : "复制")
+                    ),
+                    react.createElement("span", { className: "dsh-remote-tag" }, "局域网")
+                  )
                 );
               })
             ) : null
           ) : null,
+
+          /* 底部操作区 */
           react.createElement("div", { className: "dsh-remote-actions" },
             props.remoteBrowser ? react.createElement("button", {
               className: "dsh-remote-button", type: "button", disabled: busy,

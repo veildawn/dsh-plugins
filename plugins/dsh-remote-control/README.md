@@ -24,9 +24,9 @@ DSH 特权 API。
 插件自带 `cordis.patch.yml`，安装后会插入 `remote-control` Cordis 行，默认关闭远程访问：
 
 ```sh
-dsh plugin add --profile web ./dsh-remote-control-0.1.17.tgz
+dsh plugin add --profile web ./dsh-remote-control-0.1.18.tgz
 # 桌面端安装：
-# dsh plugin add --profile desktop ./dsh-remote-control-0.1.17.tgz
+# dsh plugin add --profile desktop ./dsh-remote-control-0.1.18.tgz
 ```
 
 ### 重启生效
