@@ -274,11 +274,32 @@ test('buildProviderProfile: chat/completions default spells the /v1 base', () =>
   const profile = buildProviderProfile(resolveOptions({ baseURL: 'http://gw.example/' }), [])
   assert.equal(profile.api, 'openai-completions')
   assert.equal(profile.baseURL, 'http://gw.example/v1')
-  assert.equal(profile.apiKeyEnv, 'AIPROXY_ACCESS_TOKEN', 'apiKeyEnv bridges to the OAuth ref by default')
+  assert.equal(profile.apiKeyEnv, 'AIPROXY_DSH_ACCESS_TOKEN',
+    'the access slot is namespaced by client id, not the shared legacy ref')
   assert.equal('reasoning' in profile, false)
   assert.equal('retryPolicy' in profile, false, 'unconfigured policy is omitted for the host default')
   assert.deepEqual(profile.compat, { supportsDeveloperRole: false },
     'custom OpenAI-compatible gateways must not rewrite system prompts to role=developer')
+})
+
+test('tokenRefs: one credential slot per client id, apiKeyEnv overrides only access', () => {
+  const derived = internals.tokenRefs('dsh-a1b2c3d4')
+  assert.deepEqual(derived, {
+    access: 'AIPROXY_DSH_A1B2C3D4_ACCESS_TOKEN',
+    refresh: 'AIPROXY_DSH_A1B2C3D4_REFRESH_TOKEN',
+    expiry: 'AIPROXY_DSH_A1B2C3D4_TOKEN_EXPIRY',
+  })
+  assert.notEqual(derived.access, internals.tokenRefs('dsh-other').access,
+    'two clients never share the access slot, even in one credentials file')
+
+  const overridden = internals.tokenRefs('dsh-a1b2c3d4', 'MY_STATIC_KEY')
+  assert.equal(overridden.access, 'MY_STATIC_KEY')
+  assert.equal(overridden.refresh, derived.refresh, 'rotation still follows the client')
+})
+
+test('resolveOptions: apiKeyEnv follows the client id unless explicitly set', () => {
+  assert.equal(resolveOptions({ clientId: 'dsh-pc1' }).apiKeyEnv, 'AIPROXY_DSH_PC1_ACCESS_TOKEN')
+  assert.equal(resolveOptions({ clientId: 'dsh-pc1', apiKeyEnv: 'CUSTOM' }).apiKeyEnv, 'CUSTOM')
 })
 
 test('buildProviderProfile: responses protocol also refuses the developer role', () => {

@@ -13,6 +13,9 @@ const { internals, resolveOptions, AUTH_RPC_CHANNEL, PI_AI_NS } = plugin
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** The three credential slots one client id owns, as the plugin derives them. */
+const slots = (clientId) => internals.tokenRefs(clientId)
+
 async function waitFor(cond, timeoutMs = 5000) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
@@ -264,7 +267,7 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
     assert.equal(writtenEffort.value.defaultReasoningEffort, 'lowest')
     assert.equal(settings.doc['ai-proxy'].defaultReasoningEffort, 'lowest')
 
-    creds.store.set('AIPROXY_ACCESS_TOKEN', 'sk-test')
+    creds.store.set(slots('dsh-test').access, 'sk-test')
     const refreshed = await handler('refreshModels', {})
     assert.equal(refreshed.ok, true)
     assert.equal(refreshed.value.count, 3)
@@ -392,11 +395,11 @@ test('OAuth login: PKCE loopback flow stores rotating tokens', async () => {
     assert.equal(callback.status, 200)
     assert.match(await callback.text(), /授权完成/)
 
-    assert.equal(await waitFor(() => creds.store.has('AIPROXY_ACCESS_TOKEN')), true)
+    assert.equal(await waitFor(() => creds.store.has(slots('dsh-test').access)), true)
     const status = await api.authStatus()
-    assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), 'acc-code')
-    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-code')
-    assert(Number(creds.store.get('AIPROXY_TOKEN_EXPIRY')) > Date.now())
+    assert.equal(creds.store.get(slots('dsh-test').access), 'acc-code')
+    assert.equal(creds.store.get(slots('dsh-test').refresh), 'ref-code')
+    assert(Number(creds.store.get(slots('dsh-test').expiry)) > Date.now())
     assert.equal(status.state, 'signed-in')
     assert.match(status.message, /^已登录/)
     const tokenCall = gw.requests.find((r) => r.path === '/oauth/token')
@@ -415,9 +418,9 @@ test('Host auth RPC revokes tokens and removes the materialized route', async ()
     settings.pushExternal({
       [PI_AI_NS]: { providers: { 'manual-route': { api: 'openai-completions', baseURL: 'https://manual.example/v1' } } },
     })
-    creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-code')
-    creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-code')
-    creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
+    creds.store.set(slots('dsh-test').access, 'acc-code')
+    creds.store.set(slots('dsh-test').refresh, 'ref-code')
+    creds.store.set(slots('dsh-test').expiry, String(Date.now() + 3600000))
     await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test' })
     await sleep(50)
 
@@ -431,8 +434,8 @@ test('Host auth RPC revokes tokens and removes the materialized route', async ()
     const result = await connection.registration().handler('logout', {})
     assert.deepEqual(result, { ok: true, value: { state: 'signed-out', message: '已退出登录' } })
     assert.equal(gw.requests.some((r) => r.path === '/oauth/revoke'), true, 'revoke request sent')
-    assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), undefined)
-    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), undefined)
+    assert.equal(creds.store.get(slots('dsh-test').access), undefined)
+    assert.equal(creds.store.get(slots('dsh-test').refresh), undefined)
     assert.equal(await waitFor(() => materialized(settings) === undefined), true, 'route removed after logout')
     assert.deepEqual(settings.doc[PI_AI_NS].providers['manual-route'], {
       api: 'openai-completions', baseURL: 'https://manual.example/v1',
@@ -450,9 +453,9 @@ test('401 on model discovery rotates the token once and retries', async () => {
   const { ctx, creds, connection } = makeCtx()
   try {
     enablePiAi(ctx)
-    creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-old')
-    creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-1')
-    creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
+    creds.store.set(slots('dsh-test').access, 'acc-old')
+    creds.store.set(slots('dsh-test').refresh, 'ref-1')
+    creds.store.set(slots('dsh-test').expiry, String(Date.now() + 3600000))
     await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test' })
     await sleep(50)
 
@@ -465,8 +468,8 @@ test('401 on model discovery rotates the token once and retries', async () => {
     assert.equal(modelAuths.includes('Bearer acc-old'), true, 'initial request used expired token')
     assert.equal(modelAuths.includes('Bearer acc-new'), true, 'rotated request used fresh token')
     assert.equal(modelAuths.indexOf('Bearer acc-old') < modelAuths.lastIndexOf('Bearer acc-new'), true, 'rotation happened after 401')
-    assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), 'acc-new')
-    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-new')
+    assert.equal(creds.store.get(slots('dsh-test').access), 'acc-new')
+    assert.equal(creds.store.get(slots('dsh-test').refresh), 'ref-new')
   } finally {
     gw.close()
   }
@@ -477,14 +480,14 @@ test('proactive refresh timer rotates the token before expiry and re-materialize
   const { ctx, creds, settings } = makeCtx()
   try {
     enablePiAi(ctx)
-    creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-old')
-    creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-1')
-    creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 300))
+    creds.store.set(slots('dsh-test').access, 'acc-old')
+    creds.store.set(slots('dsh-test').refresh, 'ref-1')
+    creds.store.set(slots('dsh-test').expiry, String(Date.now() + 300))
     await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test' })
 
-    assert.equal(await waitFor(() => creds.store.get('AIPROXY_ACCESS_TOKEN') === 'acc-new'), true,
+    assert.equal(await waitFor(() => creds.store.get(slots('dsh-test').access) === 'acc-new'), true,
       'timer fired at the stored expiry and rotated the token')
-    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-new')
+    assert.equal(creds.store.get(slots('dsh-test').refresh), 'ref-new')
     assert.equal(await waitFor(() => materialized(settings)?.models?.length === 3), true,
       'catalog discovered with the fresh token lands in the materialized route')
   } finally {
@@ -515,6 +518,8 @@ test('shared default clientId is replaced before any token refresh', async () =>
   const { ctx, creds, connection, settings } = makeCtx()
   try {
     await enablePiAi(ctx)
+    // A pre-namespacing build stored one shared slot; that is what a real
+    // upgrade from 0.3.10 looks like on a machine that never logged in here.
     creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-shared')
     creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-shared')
     creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
@@ -522,8 +527,10 @@ test('shared default clientId is replaced before any token refresh', async () =>
     assert.equal(await waitFor(() => /^dsh-[a-f0-9]{8}$/.test(settings.doc['ai-proxy']?.clientId)), true,
       JSON.stringify(settings.doc['ai-proxy']))
     const clientId = settings.doc['ai-proxy'].clientId
+    const own = slots(clientId)
     assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), undefined, 'shared-grant refresh token is dropped locally')
     assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), undefined)
+    assert.equal(creds.store.get(own.refresh), undefined, 'the new slot starts empty')
     assert.equal(gw.requests.some((r) => r.path === '/oauth/token'), false, 'startup must not refresh the shared grant')
 
     const status = await connection.registration().handler('status', {})
@@ -551,19 +558,21 @@ test('shared default clientId is replaced before any token refresh', async () =>
 
 test('changing clientId drops tokens issued to the previous client', async () => {
   const { ctx, creds, connection } = makeCtx()
+  const old = slots('dsh-test')
   try {
-    creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-old')
-    creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-1')
-    creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
+    creds.store.set(old.access, 'acc-old')
+    creds.store.set(old.refresh, 'ref-1')
+    creds.store.set(old.expiry, String(Date.now() + 3600000))
     await ctx.plugin(plugin, { clientId: 'dsh-test' })
-    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-1')
+    assert.equal(creds.store.get(old.refresh), 'ref-1')
 
     const written = await connection.registration().handler('setGateway', { clientId: 'dsh-other' })
     assert.equal(written.ok, true, JSON.stringify(written))
     assert.equal(written.value.clientId, 'dsh-other')
     assert.equal(written.value.reauthRequired, true)
-    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), undefined)
-    assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), undefined)
+    assert.equal(creds.store.get(old.refresh), undefined, 'previous client slot is cleared')
+    assert.equal(creds.store.get(old.access), undefined)
+    assert.equal(creds.store.get(slots('dsh-other').refresh), undefined)
 
     const rejected = await connection.registration().handler('setGateway', { clientId: 'dsh' })
     assert.equal(rejected.ok, false)

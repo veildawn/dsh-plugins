@@ -38,10 +38,11 @@ dsh-ai-proxy：
 
 - 提供方路由名仍是 `ai-proxy`（llm-pi-ai providers 字典键即路由名），升级后存量会话的
   模型地址不变。
-- `apiKeyEnv` 指向 OAuth 已在写的 `AIPROXY_ACCESS_TOKEN` 凭据引用——零配置桥接；官方
-  适配器逐请求解析该引用，token 轮换后下一个请求自动使用新值，无需重启或通知。
+- `apiKeyEnv` 指向 OAuth 已在写的凭据引用——零配置桥接；官方适配器逐请求解析该引用，
+  token 轮换后下一个请求自动使用新值，无需重启或通知。默认值按 Client ID 派生
+  （`AIPROXY_<KEY>_ACCESS_TOKEN`），使同机多个 profile 各用各的槽位。
 - 旧的流式 401 即时轮换随协议层一起移交给官方适配器；插件改用过期前主动刷新
-  （`AIPROXY_TOKEN_EXPIRY` 内嵌 30 秒余量，失败按指数退避重试）。
+  （`AIPROXY_<KEY>_TOKEN_EXPIRY` 内嵌 30 秒余量，失败按指数退避重试）。
 - 每请求动态头 `x-ai-proxy-session-id` 无法由静态路由头表达，已随协议层移除；静态头
   `x-ai-proxy-client: dsh` 保留。
 - 材料化只写 `providers.ai-proxy` 这一个键：用户手工配置的其他 llm-pi-ai 路由不受影响。
@@ -75,10 +76,10 @@ prompt 改写成 `role: "developer"`，而 DeepSeek / GLM 等上游只接受
 
 ```sh
 # 从 GitHub Release 安装指定版本
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.3.11/dsh-ai-proxy-0.3.11.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.3.12/dsh-ai-proxy-0.3.12.tgz
 
 # 或使用本地打包产物
-dsh plugin add --profile web ./dsh-ai-proxy-0.3.11.tgz
+dsh plugin add --profile web ./dsh-ai-proxy-0.3.12.tgz
 ```
 
 ### 重启生效
@@ -121,6 +122,18 @@ dsh plugin add --profile web ./dsh-ai-proxy-0.3.11.tgz
 令牌只存放在宿主凭据库，永不进入设置文档。登出会调用网关 `/oauth/revoke`，清除 OAuth 凭据
 并移除材料化路由。
 
+凭据槽位按 Client ID 命名，互不重叠（`<KEY>` 是 client id 大写、非字母数字转 `_` 后的形式）：
+
+- `AIPROXY_<KEY>_ACCESS_TOKEN`：OAuth access token，同时是材料化路由 `apiKeyEnv` 的默认值；
+- `AIPROXY_<KEY>_REFRESH_TOKEN`：轮换 refresh token；
+- `AIPROXY_<KEY>_TOKEN_EXPIRY`：提前 30 秒计算的到期时间（主动刷新定时器据此排期）；
+- 显式配置 `apiKeyEnv` 时只替换 access 槽位，另外两个仍跟随 Client ID。
+
+命名隔离是必要的：`$DSH_HOME/.credentials.yaml` 由同一台机器上的**所有** profile 共用
+（web 与桌面端的 DSH 都读它）。槽位不隔离时，第二次登录会覆盖第一次的轮换授权，两边都掉线。
+0.3.11 及更早版本写入的无后缀 `AIPROXY_ACCESS_TOKEN` / `AIPROXY_REFRESH_TOKEN` /
+`AIPROXY_TOKEN_EXPIRY` 不再被读取，可在凭据管理里手动清理。
+
 ### 多机部署：每台机器一个 Client ID
 
 网关对 `(用户, client_id)` 只维护一条活跃授权，并采用 refresh token 单向轮换（RFC 9700）。
@@ -139,6 +152,9 @@ dsh plugin add --profile web ./dsh-ai-proxy-0.3.11.tgz
 
 设置的 **AI Proxy 卡片**里可以直接查看和修改当前 Client ID。
 
+**同一台机器上的 web 与桌面端**：两个 profile 各自分配独立的 Client ID 和独立的凭据槽位，
+登录一次即可共存，不再互相覆盖。
+
 ## 模型发现
 
 插件使用 Bearer 凭据调用 `GET /v1/models`，默认缓存 5 分钟；"重新获取模型列表"按钮强制
@@ -153,7 +169,7 @@ dsh plugin add --profile web ./dsh-ai-proxy-0.3.11.tgz
 | `baseURL` | `http://localhost:18080` | OAuth、模型目录和材料化路由共用网关地址 |
 | `apiFormat` | `chat/completions` | API 格式（决定材料化路由的协议与端点拼写）：`chat/completions`、`anthropic-messages`、`responses` |
 | `clientId` | `dsh` | OAuth public client id。`dsh` 只是共享占位：启动或登录时会改成 `dsh-` 加 8 位随机后缀并丢掉旧令牌，避免多台机器共用一条 refresh 链互相踢下线。自定义值会保留 |
-| `apiKeyEnv` | `AIPROXY_ACCESS_TOKEN` | 静态密钥凭据引用（材料化路由的 apiKeyEnv 同名） |
+| `apiKeyEnv` | 按 clientId 派生 | 静态密钥凭据引用（材料化路由的 apiKeyEnv 同名）。默认 `AIPROXY_<KEY>_ACCESS_TOKEN`，`<KEY>` 是 client id 大写、非字母数字转 `_`；显式配置时只替换 access 槽位 |
 | `defaultReasoningEffort` | `'highest'` | 当前模型的默认思考档位，不写入路由级 `reasoning`。`highest` 选该模型自己 ladder 的最高档；`lowest` 用第一档；精确档位名优先精确匹配，缺失时落到最近的较低档 |
 | `maxTokens` | `65536` | 材料化为路由 `defaultMaxTokens`；模型目录未提供输出上限时生效 |
 | `defaultContextWindow` | `200000` | 材料化为路由 `defaultContextWindow` |

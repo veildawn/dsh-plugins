@@ -35,11 +35,13 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { randomBytes } from 'node:crypto'
 import {
   ACCESS_REF, REFRESH_REF, EXPIRY_REF, CLIENT_ID_PATTERN, OAuthSession,
+  LEGACY_REFS, clearCredentialSlot, tokenRefs,
   base64url, pkcePair, discoverEndpoints, tokenRequest, startCallbackListener,
 } from './oauth.js'
 
 export {
   ACCESS_REF, REFRESH_REF, EXPIRY_REF, CLIENT_ID_PATTERN,
+  LEGACY_REFS, tokenRefs, clearCredentialSlot,
   base64url, pkcePair, discoverEndpoints, tokenRequest, startCallbackListener,
 }
 
@@ -528,6 +530,7 @@ class AiProxyApi {
       mutations.push({ op: 'set', path: ['defaultReasoningEffort'], value: defaultReasoningEffort })
     }
     let clientIdChanged = false
+    let previousOptions
     if (clientId !== undefined) {
       if (!CLIENT_ID_PATTERN.test(clientId)) {
         throw new LlmError('Client ID 必须为 2-64 位小写字母、数字、点、下划线或连字符，且以字母或数字开头', 'INVALID_REQUEST')
@@ -539,6 +542,7 @@ class AiProxyApi {
       if (clientId !== previous) {
         mutations.push({ op: 'set', path: ['clientId'], value: clientId })
         clientIdChanged = true
+        previousOptions = this.options()
       }
     }
 
@@ -551,10 +555,33 @@ class AiProxyApi {
       // it under the new id is an invalid_grant, and leaving it in place lets a
       // later timer present the old shared grant.
       this.reauthMessage = 'Client ID 已更改，请重新登录'
-      await this.oauth.clearTokens()
+      await this.dropForeignTokens(previousOptions)
     }
     const gateway = this.gateway()
     return clientIdChanged ? { ...gateway, reauthRequired: true } : gateway
+  }
+
+  /**
+   * Forget every slot a previous client id — or a pre-namespacing build — wrote
+   * into the shared credentials document. Two installs that share the file (DSH
+   * web and desktop on one machine) must not read each other's tokens.
+   */
+  async dropForeignTokens(previous) {
+    const slots = [
+      tokenRefs(previous.clientId, previous.apiKeyEnv),
+      tokenRefs(this.options().clientId, this.options().apiKeyEnv),
+      LEGACY_REFS,
+    ]
+    const seen = new Set()
+    for (const slot of slots) {
+      for (const ref of [slot.access, slot.refresh, slot.expiry]) {
+        if (seen.has(ref)) continue
+        seen.add(ref)
+        await this.credentials.unset(ref)
+      }
+    }
+    // Notifies listeners, reschedules the timer, and removes the route.
+    await this.oauth.clearTokens()
   }
 
   /**
@@ -600,11 +627,11 @@ class AiProxyApi {
    * new client id and clears the login anyway.
    */
   async adoptDeviceClientId() {
-    const before = this.options().clientId
+    const before = this.options()
     const clientId = await this.ensureDeviceClientId()
-    if (clientId !== before) {
+    if (clientId !== before.clientId) {
       this.reauthMessage = '已为这台机器分配独立 Client ID ' + clientId + '，请重新登录'
-      await this.oauth.clearTokens()
+      await this.dropForeignTokens(before)
     }
     return clientId
   }
@@ -736,7 +763,7 @@ class AiProxyApi {
     void (async () => {
       let expiry = Number.NaN
       try {
-        const stored = await this.credentials.resolve(EXPIRY_REF)
+        const stored = await this.credentials.resolve(this.oauth.refs().expiry)
         expiry = Number(stored?.value ?? Number.NaN)
       } catch {
         return
@@ -962,7 +989,9 @@ export const Config = z.object({
   baseURL: liveField(z.string().default(DEFAULT_BASE_URL)),
   apiFormat: liveField(z.union(API_FORMATS).default(DEFAULT_API_FORMAT)),
   clientId: liveField(z.string().default(DEFAULT_CLIENT_ID)),
-  apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
+  // No default: the access slot is derived from the client id (see tokenRefs),
+  // so a schema-level default would pin every install to one shared ref.
+  apiKeyEnv: z.string().role('credential-ref'),
   defaultReasoningEffort: liveField(z.string().default(DEFAULT_REASONING_EFFORT)),
   maxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
@@ -995,7 +1024,9 @@ export function resolveOptions(raw) {
     baseURL: (raw.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, ''),
     apiFormat: normalizeApiFormat(raw.apiFormat),
     clientId,
-    apiKeyEnv: raw.apiKeyEnv ?? DEFAULT_API_KEY_ENV,
+    // The access slot follows the client id, so the materialized route (which
+    // resolves apiKeyEnv per request) reads exactly the slot OAuth writes to.
+    apiKeyEnv: tokenRefs(clientId, raw.apiKeyEnv).access,
     defaultReasoningEffort: raw.defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT,
     maxTokens,
     defaultContextWindow,
@@ -1279,7 +1310,7 @@ export const internals = {
   httpErrorCode, errorFromResponse, handleAuthRpc,
   pkcePair, base64url,
   discoverEndpoints, tokenRequest, startCallbackListener,
-  normalizeApiFormat, resolveModelsEndpoint, generateDefaultClientId,
+  normalizeApiFormat, resolveModelsEndpoint, generateDefaultClientId, tokenRefs,
   isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE, settingsBase,
   API_FORMAT_CHAT_COMPLETIONS, API_FORMAT_ANTHROPIC_MESSAGES, API_FORMAT_RESPONSES, API_FORMATS, DEFAULT_API_FORMAT,
   PI_AI_PROTOCOL_CHAT_COMPLETIONS, PI_AI_PROTOCOL_RESPONSES, PI_AI_PROTOCOL_ANTHROPIC,

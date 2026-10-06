@@ -10,10 +10,51 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createServer } from 'node:http'
 import { createHash, randomBytes } from 'node:crypto'
 
-/** Credential refs are stable Host-owned storage locations, never settings. */
+/**
+ * The un-namespaced refs every install shared before per-client slots. Nothing
+ * reads them any more; they stay exported so an operator can clean the leftovers.
+ */
 export const ACCESS_REF = credentialRef('AIPROXY_ACCESS_TOKEN')
 export const REFRESH_REF = credentialRef('AIPROXY_REFRESH_TOKEN')
 export const EXPIRY_REF = credentialRef('AIPROXY_TOKEN_EXPIRY')
+
+/** The pre-namespacing slot, kept only to recognise and retire it. */
+export const LEGACY_REFS = { access: ACCESS_REF, refresh: REFRESH_REF, expiry: EXPIRY_REF }
+
+/**
+ * Namespace suffix for one OAuth client's credential slot.
+ *
+ * `$DSH_HOME/.credentials.yaml` is shared by every profile of one harness
+ * install — the web profile and the desktop profile on the same machine read
+ * and write the same file. Sharing the token slot there meant the second
+ * sign-in overwrote the first one's rotating grant. Slot names therefore carry
+ * the client id, so two clients never touch each other's tokens even when they
+ * share the file.
+ */
+export function credentialKeySuffix(clientId) {
+  return String(clientId).toUpperCase().replace(/[^A-Z0-9]+/g, '_')
+}
+
+/**
+ * The three credential slots one client owns. `apiKeyEnv` overrides only the
+ * access slot — that is the ref the materialized route resolves per request —
+ * while refresh and expiry always follow the client id.
+ */
+export function tokenRefs(clientId, apiKeyEnv) {
+  const key = credentialKeySuffix(clientId)
+  return {
+    access: credentialRef(apiKeyEnv ?? `AIPROXY_${key}_ACCESS_TOKEN`),
+    refresh: credentialRef(`AIPROXY_${key}_REFRESH_TOKEN`),
+    expiry: credentialRef(`AIPROXY_${key}_TOKEN_EXPIRY`),
+  }
+}
+
+/** Forget one slot's values; an absent key is already the desired end state. */
+export async function clearCredentialSlot(credentials, refs) {
+  for (const ref of [refs.access, refs.refresh, refs.expiry]) {
+    await credentials.unset(ref)
+  }
+}
 
 /** Matches the gateway's OAuth client entity invariant. */
 export const CLIENT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/
@@ -166,12 +207,22 @@ export class OAuthSession {
     this.refreshInFlight = null
   }
 
+  /**
+   * The credential slots the current client id owns, recomputed per call so a
+   * client id change moves the whole lifecycle with it.
+   */
+  refs() {
+    const opts = this.options()
+    return tokenRefs(opts.clientId, opts.apiKeyEnv)
+  }
+
   /** Derive display state from the credential store instead of persisted UI state. */
   async status() {
+    const refs = this.refs()
     const [access, refresh, expiryRaw] = await Promise.all([
-      this.credentials.resolve(ACCESS_REF),
-      this.credentials.resolve(REFRESH_REF),
-      this.credentials.resolve(EXPIRY_REF),
+      this.credentials.resolve(refs.access),
+      this.credentials.resolve(refs.refresh),
+      this.credentials.resolve(refs.expiry),
     ])
     const expiry = Number(expiryRaw?.value ?? Number.NaN)
     const accessFresh = Boolean(access?.value) && Number.isFinite(expiry) && Date.now() < expiry
@@ -188,13 +239,14 @@ export class OAuthSession {
    * rotation when required. Absence is returned for the caller's fallback.
    */
   async resolve({ force } = {}) {
-    const access = await this.credentials.resolve(ACCESS_REF)
-    const expiryRaw = await this.credentials.resolve(EXPIRY_REF)
+    const refs = this.refs()
+    const access = await this.credentials.resolve(refs.access)
+    const expiryRaw = await this.credentials.resolve(refs.expiry)
     const expiry = Number(expiryRaw?.value ?? Number.NaN)
     if (!force && access?.value && Number.isFinite(expiry) && Date.now() < expiry) {
       return access.value
     }
-    const refresh = await this.credentials.resolve(REFRESH_REF)
+    const refresh = await this.credentials.resolve(refs.refresh)
     if (!refresh?.value) return undefined
     try {
       return await this.refreshTokens()
@@ -347,10 +399,11 @@ export class OAuthSession {
     if (this.loginFlow) this.clearLogin(this.loginFlow)
     this.loginError = null
     const opts = this.options()
+    const refs = this.refs()
     const { revocationEndpoint } = await discoverEndpoints(opts.baseURL)
     const [access, refresh] = await Promise.all([
-      this.credentials.resolve(ACCESS_REF),
-      this.credentials.resolve(REFRESH_REF),
+      this.credentials.resolve(refs.access),
+      this.credentials.resolve(refs.refresh),
     ])
     const token = refresh?.value ?? access?.value
     if (token) {
@@ -377,8 +430,9 @@ export class OAuthSession {
 
   async doRefresh() {
     const opts = this.options()
+    const refs = this.refs()
     const { tokenEndpoint } = await discoverEndpoints(opts.baseURL)
-    const refresh = await this.credentials.resolve(REFRESH_REF)
+    const refresh = await this.credentials.resolve(refs.refresh)
     if (!refresh?.value) throw new LlmError('没有可用的 refresh token', 'MISSING_CREDENTIAL')
     const body = await tokenRequest(tokenEndpoint, {
       grant_type: 'refresh_token',
@@ -390,17 +444,16 @@ export class OAuthSession {
   }
 
   async storeTokens(body) {
-    await this.credentials.set(ACCESS_REF, body.access_token)
-    if (body.refresh_token) await this.credentials.set(REFRESH_REF, body.refresh_token)
+    const refs = this.refs()
+    await this.credentials.set(refs.access, body.access_token)
+    if (body.refresh_token) await this.credentials.set(refs.refresh, body.refresh_token)
     const ttlMs = (Number(body.expires_in) || 3600) * 1000
-    await this.credentials.set(EXPIRY_REF, String(Date.now() + ttlMs - EXPIRY_MARGIN_MS))
+    await this.credentials.set(refs.expiry, String(Date.now() + ttlMs - EXPIRY_MARGIN_MS))
     this.onTokensChanged()
   }
 
   async clearTokens() {
-    await this.credentials.unset(ACCESS_REF)
-    await this.credentials.unset(REFRESH_REF)
-    await this.credentials.unset(EXPIRY_REF)
+    await clearCredentialSlot(this.credentials, this.refs())
     this.onTokensChanged()
   }
 }
