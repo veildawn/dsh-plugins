@@ -181,7 +181,8 @@ check('settings section is visible to the host', section !== undefined,
   'describe() = ' + JSON.stringify(described.map((row) => row.ns)));
 check('settings section applies live', section?.applies === 'live', 'applies=' + String(section?.applies));
 check('settings section reports the composed gateway',
-  section?.value?.baseURL === 'http://localhost:18080' && section?.value?.clientId === undefined,
+  section?.value?.baseURL === 'http://localhost:18080'
+  && (section?.value?.clientId === undefined || section?.value?.clientId === 'dsh'),
   JSON.stringify(section?.value));
 
 let mutateError;
@@ -234,13 +235,13 @@ const fields = plugin.Config.dict ?? {};
 const volatileKeys = Object.entries(fields)
   .filter(([, field]) => field.meta?.volatile === true).map(([key]) => key).sort();
 check('only the live gateway fields are volatile',
-  JSON.stringify(volatileKeys) === JSON.stringify(['apiFormat', 'baseURL', 'defaultReasoningEffort']),
+  JSON.stringify(volatileKeys) === JSON.stringify(['apiFormat', 'baseURL', 'clientId', 'defaultReasoningEffort']),
   JSON.stringify(volatileKeys));
 check('model catalog stays ordinary config', fields.models?.meta?.volatile !== true);
 check('the resolved config carries live references',
   cosmokit.isVolatile(fiber.config.baseURL) && fiber.config.baseURL.get() === 'http://127.0.0.1:18080');
-check('ordinary fields stay plain data',
-  fiber.config.clientId === 'dsh' && typeof fiber.config.clientId === 'string');
+check('clientId is also live config',
+  cosmokit.isVolatile(fiber.config.clientId) && fiber.config.clientId.get() === 'dsh');
 
 rmSync(home, { recursive: true, force: true });
 console.log('');

@@ -74,7 +74,11 @@ prompt 改写成 `role: "developer"`，而 DeepSeek / GLM 等上游只接受
 ## 安装
 
 ```sh
-dsh plugin add --profile web ./dsh-ai-proxy-0.3.9.tgz
+# 从 GitHub Release 安装指定版本
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.3.11/dsh-ai-proxy-0.3.11.tgz
+
+# 或使用本地打包产物
+dsh plugin add --profile web ./dsh-ai-proxy-0.3.11.tgz
 ```
 
 ### 重启生效
@@ -117,6 +121,24 @@ dsh plugin add --profile web ./dsh-ai-proxy-0.3.9.tgz
 令牌只存放在宿主凭据库，永不进入设置文档。登出会调用网关 `/oauth/revoke`，清除 OAuth 凭据
 并移除材料化路由。
 
+### 多机部署：每台机器一个 Client ID
+
+网关对 `(用户, client_id)` 只维护一条活跃授权，并采用 refresh token 单向轮换（RFC 9700）。
+如果多台机器共用同一个 `client_id`，其中一台刷新后，另一台在到期前发起的刷新会被判定为
+**令牌重放**，网关随即吊销整个授权，两台机器同时掉成“未登录”。
+
+因此插件把 `clientId` 的默认值 `dsh` 视为**共享占位符**，而不是可用配置：
+
+- 启动或点击登录时，若仍是 `dsh`，会自动改写为 `dsh-` 加 8 位随机后缀（例如
+  `dsh-3f9a1c02`）并持久化到设置节；同时丢掉本地旧令牌，不再拿它去刷新共享授权。
+- 自动分配失败（设置不可写、profile 把 `clientId` 固定为 `dsh`）时会停止自动刷新并报错，
+  绝不继续用 `dsh` 轮换。
+- 自定义值（如 `dsh-work` / `dsh-laptop`）会被保留，覆盖安装不会换掉它。
+- 已分配后不允许再改回 `dsh`；改成另一个自定义值会清除本地令牌并要求重新登录。
+- 升级后每台机器只需重新登录一次，之后各走各的 refresh 链，互不影响。
+
+设置的 **AI Proxy 卡片**里可以直接查看和修改当前 Client ID。
+
 ## 模型发现
 
 插件使用 Bearer 凭据调用 `GET /v1/models`，默认缓存 5 分钟；"重新获取模型列表"按钮强制
@@ -130,7 +152,7 @@ dsh plugin add --profile web ./dsh-ai-proxy-0.3.9.tgz
 | --- | --- | --- |
 | `baseURL` | `http://localhost:18080` | OAuth、模型目录和材料化路由共用网关地址 |
 | `apiFormat` | `chat/completions` | API 格式（决定材料化路由的协议与端点拼写）：`chat/completions`、`anthropic-messages`、`responses` |
-| `clientId` | `dsh` | OAuth public client id |
+| `clientId` | `dsh` | OAuth public client id。`dsh` 只是共享占位：启动或登录时会改成 `dsh-` 加 8 位随机后缀并丢掉旧令牌，避免多台机器共用一条 refresh 链互相踢下线。自定义值会保留 |
 | `apiKeyEnv` | `AIPROXY_ACCESS_TOKEN` | 静态密钥凭据引用（材料化路由的 apiKeyEnv 同名） |
 | `defaultReasoningEffort` | `'highest'` | 当前模型的默认思考档位，不写入路由级 `reasoning`。`highest` 选该模型自己 ladder 的最高档；`lowest` 用第一档；精确档位名优先精确匹配，缺失时落到最近的较低档 |
 | `maxTokens` | `65536` | 材料化为路由 `defaultMaxTokens`；模型目录未提供输出上限时生效 |

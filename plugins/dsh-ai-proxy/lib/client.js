@@ -98,6 +98,15 @@ window.__ModuleLoader__.load({
       return "";
     }
 
+    function clientIdError(value) {
+      const v = (value || "").trim();
+      if (!v) return "Client ID 不能为空";
+      if (!/^[a-z0-9][a-z0-9._-]{1,63}$/.test(v)) {
+        return "Client ID 必须为 2-64 位小写字母、数字、点、下划线或连字符，且以字母或数字开头";
+      }
+      return "";
+    }
+
     function apply(ctx) {
       if (typeof document !== "undefined" && !document.getElementById("dsh-ai-proxy-styles")) {
         const style = document.createElement("style");
@@ -112,9 +121,11 @@ window.__ModuleLoader__.load({
       };
       function AiProxySettings(props) {
         const [gateway, setGateway] = react.useState("");
+        const [clientId, setClientId] = react.useState("");
         const [apiFormat, setApiFormat] = react.useState("chat/completions");
         const [highestEffort, setHighestEffort] = react.useState(true);
         const [savedGateway, setSavedGateway] = react.useState("");
+        const [savedClientId, setSavedClientId] = react.useState("");
         const [savedApiFormat, setSavedApiFormat] = react.useState("chat/completions");
         const [savedHighestEffort, setSavedHighestEffort] = react.useState(true);
         const [loaded, setLoaded] = react.useState(false);
@@ -122,8 +133,15 @@ window.__ModuleLoader__.load({
         const [refreshingModels, setRefreshingModels] = react.useState(false);
         const [auth, setAuth] = react.useState({ state: "checking", message: "正在检查登录状态…" });
         const normalizedGateway = normalizeGateway(gateway);
+        const normalizedClientId = (clientId || "").trim();
         const invalidGateway = gatewayError(gateway);
-        const configChanged = loaded && (normalizedGateway !== savedGateway || apiFormat !== savedApiFormat || highestEffort !== savedHighestEffort);
+        const invalidClientId = clientIdError(clientId);
+        const configChanged = loaded && (
+          normalizedGateway !== savedGateway ||
+          normalizedClientId !== savedClientId ||
+          apiFormat !== savedApiFormat ||
+          highestEffort !== savedHighestEffort
+        );
         const pending = busy || auth.state === "authorizing" || auth.state === "checking";
 
         const [manualInput, setManualInput] = react.useState("");
@@ -136,6 +154,10 @@ window.__ModuleLoader__.load({
             if (!active || typeof value?.baseURL !== "string") return;
             setGateway(value.baseURL);
             setSavedGateway(normalizeGateway(value.baseURL));
+            if (typeof value?.clientId === "string") {
+              setClientId(value.clientId);
+              setSavedClientId(value.clientId.trim());
+            }
             if (value?.apiFormat) {
               setApiFormat(value.apiFormat);
               setSavedApiFormat(value.apiFormat);
@@ -147,12 +169,22 @@ window.__ModuleLoader__.load({
             }
             setLoaded(true);
           }, () => { if (active) setLoaded(true); });
+          const rememberIssuedClientId = (next) => {
+            if (typeof next?.clientId !== "string") return;
+            const issued = next.clientId.trim();
+            setClientId((current) => current === "" || current === "dsh" ? issued : current);
+            setSavedClientId((current) => current === "" || current === "dsh" ? issued : current);
+          };
           const refresh = () => props.authRequest("status").then(
-            (next) => { if (active) setAuth(next); },
+            (next) => {
+              if (!active) return;
+              setAuth(next);
+              rememberIssuedClientId(next);
+            },
             (error) => { if (active) setAuth({ state: "error", message: "无法读取登录状态: " + error.message }); },
           );
           refresh();
-          const dispose = ctx.remote.$on("credentials/updated", refresh);
+          const dispose = ctx.remote.$on("credentials/reference-updated", refresh);
           return () => { active = false; dispose(); };
         }, []);
         react.useEffect(() => {
@@ -199,12 +231,24 @@ window.__ModuleLoader__.load({
 
         const commitGateway = async () => {
           if (invalidGateway) throw new Error(invalidGateway);
+          if (invalidClientId) throw new Error(invalidClientId);
           if (!configChanged) return;
           const defaultReasoningEffort = highestEffort ? "highest" : "lowest";
-          const value = await props.authRequest("setGateway", { baseURL: normalizedGateway, apiFormat, defaultReasoningEffort });
+          // `dsh` is the shared sentinel. Omit it so a stale input cannot
+          // overwrite the per-machine id allocated at startup or login.
+          const value = await props.authRequest("setGateway", {
+            baseURL: normalizedGateway,
+            ...(normalizedClientId && normalizedClientId !== "dsh" ? { clientId: normalizedClientId } : {}),
+            apiFormat,
+            defaultReasoningEffort,
+          });
           if (typeof value?.baseURL === "string") {
             setGateway(value.baseURL);
             setSavedGateway(normalizeGateway(value.baseURL));
+          }
+          if (typeof value?.clientId === "string") {
+            setClientId(value.clientId);
+            setSavedClientId(value.clientId.trim());
           }
           if (value?.apiFormat) {
             setApiFormat(value.apiFormat);
@@ -214,6 +258,9 @@ window.__ModuleLoader__.load({
             const isHighest = value.defaultReasoningEffort === "highest" || (value.defaultReasoningEffort !== "lowest" && value.defaultReasoningEffort !== "none" && value.defaultReasoningEffort !== "off");
             setHighestEffort(isHighest);
             setSavedHighestEffort(isHighest);
+          }
+          if (value?.reauthRequired) {
+            setAuth({ state: "signed-out", message: "Client ID 已更改，请重新登录" });
           }
         };
         const withBusy = async (action, prefix) => {
@@ -246,6 +293,10 @@ window.__ModuleLoader__.load({
             if (before) await before();
             const next = await props.authRequest(method);
             setAuth(next);
+            if (typeof next?.clientId === "string") {
+              setClientId(next.clientId);
+              setSavedClientId(next.clientId.trim());
+            }
             if (method === "login" && typeof next?.authorizeUrl === "string") {
               try {
                 if (popup) popup.location.href = next.authorizeUrl;
@@ -271,6 +322,17 @@ window.__ModuleLoader__.load({
               onChange: (event) => setGateway(event.target.value),
             }),
             invalidGateway && gateway.length > 0 ? react.createElement("p", { className: "ai-proxy-error" }, invalidGateway) : null
+          ),
+          react.createElement("label", { className: "ai-proxy-field" },
+            react.createElement("span", { className: "ai-proxy-label" }, "Client ID (客户端标识)"),
+            react.createElement("input", {
+              className: "ai-proxy-input", type: "text", value: clientId,
+              placeholder: "例如 dsh-pc1, dsh-laptop", disabled: pending || !loaded,
+              "aria-label": "Client ID", "aria-invalid": invalidClientId ? "true" : "false",
+              onChange: (event) => setClientId(event.target.value),
+            }),
+            invalidClientId && clientId.length > 0 ? react.createElement("p", { className: "ai-proxy-error" }, invalidClientId) : null,
+            react.createElement("p", { className: "ai-proxy-details" }, "每台机器使用不同的 Client ID。若仍是 dsh，登录时会自动改成 dsh- 加 8 位随机后缀，避免多机互相踢下线。")
           ),
           react.createElement("label", { className: "ai-proxy-field" },
             react.createElement("span", { className: "ai-proxy-label" }, "API 格式"),
@@ -331,7 +393,7 @@ window.__ModuleLoader__.load({
             )
           ) : null,
           react.createElement("div", { className: "ai-proxy-actions" },
-            auth.state === "signed-in" && configChanged && !invalidGateway ? react.createElement("button", {
+            auth.state === "signed-in" && configChanged && !invalidGateway && !invalidClientId ? react.createElement("button", {
               className: "ai-proxy-button", type: "button", disabled: pending,
               onClick: () => withBusy(commitGateway, "保存配置失败: "),
             }, "保存") : null,
@@ -344,7 +406,7 @@ window.__ModuleLoader__.load({
               onClick: () => runAuth("logout"),
             }, "退出登录") : react.createElement("button", {
               className: "ai-proxy-button ai-proxy-button-primary", type: "button",
-              disabled: pending || Boolean(invalidGateway), onClick: () => runAuth("login", commitGateway),
+              disabled: pending || Boolean(invalidGateway) || Boolean(invalidClientId), onClick: () => runAuth("login", commitGateway),
             }, auth.state === "authorizing" ? "登录中…" : "登录")
           ),
           react.createElement("p", { className: "ai-proxy-details" }, "登录后会按账号权限同步可用模型与思考档位。"),

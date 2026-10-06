@@ -32,6 +32,7 @@ const {
   isQuotaExceededError, isContextWindowExceededError,
 } = DshLlm
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { randomBytes } from 'node:crypto'
 import {
   ACCESS_REF, REFRESH_REF, EXPIRY_REF, CLIENT_ID_PATTERN, OAuthSession,
   base64url, pkcePair, discoverEndpoints, tokenRequest, startCallbackListener,
@@ -56,6 +57,14 @@ export const PI_AI_NS = 'llm-pi-ai'
 
 export const DEFAULT_BASE_URL = 'http://localhost:18080'
 export const DEFAULT_CLIENT_ID = 'dsh'
+
+/**
+ * Per-machine OAuth client id. The shared sentinel `dsh` is one grant for every
+ * install; a stable 8-hex suffix keeps each machine on its own refresh chain.
+ */
+export function generateDefaultClientId() {
+  return 'dsh-' + randomBytes(4).toString('hex')
+}
 export const DEFAULT_MAX_TOKENS = 65536
 export const DEFAULT_CONTEXT_WINDOW = 200000
 export const DEFAULT_MODEL_CACHE_TTL_MS = 300000
@@ -465,9 +474,14 @@ class AiProxyApi {
     this.modelsCache = null
   }
 
-  /** Return credential-derived OAuth display state. */
-  authStatus() {
-    return this.oauth.status()
+  /** Return credential-derived OAuth display state, plus the client id in use. */
+  async authStatus() {
+    const status = await this.oauth.status()
+    const clientId = this.options().clientId
+    if (status.state === 'signed-out' && this.reauthMessage) {
+      return { ...status, message: this.reauthMessage, clientId }
+    }
+    return { ...status, clientId }
   }
 
   /** Current gateway facts for the settings page. */
@@ -487,6 +501,9 @@ class AiProxyApi {
     const apiFormat = typeof params === 'object' && params?.apiFormat ? normalizeApiFormat(params.apiFormat) : undefined
     const defaultReasoningEffort = typeof params === 'object' && params?.defaultReasoningEffort !== undefined
       ? (typeof params.defaultReasoningEffort === 'string' ? params.defaultReasoningEffort.trim() : '')
+      : undefined
+    const clientId = typeof params === 'object' && params?.clientId !== undefined
+      ? (typeof params.clientId === 'string' ? params.clientId.trim() : '')
       : undefined
 
     const mutations = []
@@ -510,17 +527,93 @@ class AiProxyApi {
     if (defaultReasoningEffort !== undefined) {
       mutations.push({ op: 'set', path: ['defaultReasoningEffort'], value: defaultReasoningEffort })
     }
+    let clientIdChanged = false
+    if (clientId !== undefined) {
+      if (!CLIENT_ID_PATTERN.test(clientId)) {
+        throw new LlmError('Client ID 必须为 2-64 位小写字母、数字、点、下划线或连字符，且以字母或数字开头', 'INVALID_REQUEST')
+      }
+      const previous = this.options().clientId
+      if (clientId === DEFAULT_CLIENT_ID && previous !== DEFAULT_CLIENT_ID) {
+        throw new LlmError('不能改回共享 Client ID dsh，否则多台机器会互相踢下线', 'INVALID_REQUEST')
+      }
+      if (clientId !== previous) {
+        mutations.push({ op: 'set', path: ['clientId'], value: clientId })
+        clientIdChanged = true
+      }
+    }
 
     if (mutations.length > 0) {
       await this.ctx.settings.mutate(this.settingsNs ?? NS, mutations)
       this.invalidateModels()
     }
-    return this.gateway()
+    if (clientIdChanged) {
+      // The stored refresh token was issued to the previous client_id. Refreshing
+      // it under the new id is an invalid_grant, and leaving it in place lets a
+      // later timer present the old shared grant.
+      this.reauthMessage = 'Client ID 已更改，请重新登录'
+      await this.oauth.clearTokens()
+    }
+    const gateway = this.gateway()
+    return clientIdChanged ? { ...gateway, reauthRequired: true } : gateway
+  }
+
+  /**
+   * Leave the shared `dsh` client id before any refresh or authorization.
+   * One in-flight migration is shared so two callers cannot mint two ids.
+   */
+  ensureDeviceClientId() {
+    if (!this.clientIdEnsure) {
+      this.clientIdEnsure = this.doEnsureDeviceClientId().finally(() => {
+        this.clientIdEnsure = null
+      })
+    }
+    return this.clientIdEnsure
+  }
+
+  async doEnsureDeviceClientId() {
+    const current = this.options().clientId
+    if (current !== DEFAULT_CLIENT_ID) return current
+    if (!this.ctx.settings?.writable) {
+      throw new LlmError(
+        '当前 Client ID 仍是共享默认值 dsh，且设置不可写，无法为这台机器分配独立标识',
+        'INVALID_REQUEST',
+      )
+    }
+    const generated = generateDefaultClientId()
+    await this.ctx.settings.mutate(this.settingsNs ?? NS, [
+      { op: 'set', path: ['clientId'], value: generated },
+    ])
+    const applied = this.options().clientId
+    if (applied !== generated) {
+      throw new LlmError(
+        '独立 Client ID 未能生效（当前仍是 ' + applied + '）。请确认 profile 没有把 clientId 固定为 dsh',
+        'INVALID_REQUEST',
+      )
+    }
+    return generated
+  }
+
+  /**
+   * Persist a unique client id when this install is still on the shared
+   * sentinel, and drop tokens that belong to the old grant. Those tokens must
+   * not be refreshed: doing so either replays the shared chain or fails the
+   * new client id and clears the login anyway.
+   */
+  async adoptDeviceClientId() {
+    const before = this.options().clientId
+    const clientId = await this.ensureDeviceClientId()
+    if (clientId !== before) {
+      this.reauthMessage = '已为这台机器分配独立 Client ID ' + clientId + '，请重新登录'
+      await this.oauth.clearTokens()
+    }
+    return clientId
   }
 
   /** Start browser authorization without holding the RPC open for the callback. */
-  login() {
-    return this.oauth.login()
+  async login() {
+    const clientId = await this.adoptDeviceClientId()
+    const status = await this.oauth.login({ clientId })
+    return { ...status, clientId: status.clientId ?? clientId }
   }
 
   /** Revoke the grant and return credential-derived signed-out state. */
@@ -677,15 +770,21 @@ class AiProxyApi {
     })()
   }
 
-  /** Startup probe: refresh when needed and prime the model catalog. */
+  /** Startup probe: detach from the shared client id before any refresh. */
   async bootstrap() {
     try {
+      await this.adoptDeviceClientId()
       await this.resolveCredential()
       await this.catalog()
     } catch (error) {
       if (error.code === 'MISSING_CREDENTIAL') return
       this.ctx.logger.error('dsh-ai-proxy: 启动时刷新令牌失败: ' + error.message)
     } finally {
+      // A machine still stuck on `dsh` must not rotate that shared grant.
+      if (this.options().clientId === DEFAULT_CLIENT_ID) {
+        this.ctx.logger.error(name + ': 仍在使用共享 Client ID dsh，已停止自动刷新，避免把其它机器踢下线')
+        return
+      }
       this.scheduleTokenRefresh()
     }
   }
@@ -862,7 +961,7 @@ function openSettingsScope(ctx, ns, config) {
 export const Config = z.object({
   baseURL: liveField(z.string().default(DEFAULT_BASE_URL)),
   apiFormat: liveField(z.union(API_FORMATS).default(DEFAULT_API_FORMAT)),
-  clientId: z.string().default(DEFAULT_CLIENT_ID),
+  clientId: liveField(z.string().default(DEFAULT_CLIENT_ID)),
   apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   defaultReasoningEffort: liveField(z.string().default(DEFAULT_REASONING_EFFORT)),
   maxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
@@ -1180,7 +1279,7 @@ export const internals = {
   httpErrorCode, errorFromResponse, handleAuthRpc,
   pkcePair, base64url,
   discoverEndpoints, tokenRequest, startCallbackListener,
-  normalizeApiFormat, resolveModelsEndpoint,
+  normalizeApiFormat, resolveModelsEndpoint, generateDefaultClientId,
   isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE, settingsBase,
   API_FORMAT_CHAT_COMPLETIONS, API_FORMAT_ANTHROPIC_MESSAGES, API_FORMAT_RESPONSES, API_FORMATS, DEFAULT_API_FORMAT,
   PI_AI_PROTOCOL_CHAT_COMPLETIONS, PI_AI_PROTOCOL_RESPONSES, PI_AI_PROTOCOL_ANTHROPIC,

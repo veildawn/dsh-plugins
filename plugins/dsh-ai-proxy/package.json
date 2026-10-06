@@ -1,6 +1,6 @@
 {
   "name": "dsh-ai-proxy",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "description": "DeepSeek Harness provider for the AI Proxy Service gateway: OAuth 2.0 (authorization code + PKCE) login, per-plan model discovery with reasoning effort ladders, materialized as an official llm-pi-ai route (wire protocols owned by the host adapter)",
   "type": "module",
   "main": "lib/index.js",
@@ -20,6 +20,19 @@
     "cordis.patch.yml"
   ],
   "license": "MIT",
+  "author": "veildawn",
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-ai-proxy#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-ai-proxy"
+  },
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "deepseek-harness",
     "dsh",

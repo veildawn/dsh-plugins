@@ -208,11 +208,17 @@ export class OAuthSession {
     }
   }
 
-  /** Prepare one interactive authorization and return its URL without blocking RPC. */
-  async login() {
+  /**
+   * Prepare one interactive authorization and return its URL without blocking RPC.
+   * `clientId` is pinned onto the flow so the authorize request and the later
+   * code exchange cannot drift if settings change mid-login.
+   */
+  async login({ clientId } = {}) {
+    const pinned = clientId ?? this.options().clientId
+    if (this.loginFlow && this.loginFlow.clientId !== pinned) this.clearLogin(this.loginFlow)
     if (!this.loginFlow && !this.loginStartInFlight) {
       this.loginError = null
-      this.loginStartInFlight = this.startLogin()
+      this.loginStartInFlight = this.startLogin(pinned)
         .finally(() => { this.loginStartInFlight = null })
     }
     if (this.loginStartInFlight) await this.loginStartInFlight
@@ -224,17 +230,19 @@ export class OAuthSession {
       state: 'authorizing',
       message: '等待浏览器授权中…',
       authorizeUrl: this.loginFlow?.authorizeUrl,
+      clientId: this.loginFlow?.clientId,
     }
   }
 
-  async startLogin() {
+  async startLogin(clientId) {
     const opts = this.options()
+    const pinned = clientId ?? opts.clientId
     const { authorizationEndpoint, tokenEndpoint } = await discoverEndpoints(opts.baseURL)
     const { verifier, challenge, state } = pkcePair()
     const listener = await startCallbackListener()
     const redirectUri = listener.redirectUri
     const authorize = new URL(authorizationEndpoint)
-    authorize.searchParams.set('client_id', opts.clientId)
+    authorize.searchParams.set('client_id', pinned)
     authorize.searchParams.set('response_type', 'code')
     authorize.searchParams.set('redirect_uri', redirectUri)
     authorize.searchParams.set('scope', OAUTH_SCOPE)
@@ -248,6 +256,7 @@ export class OAuthSession {
       redirectUri,
       tokenEndpoint,
       listener,
+      clientId: pinned,
       authorizeUrl: authorize.toString(),
     }
     this.loginFlow = flow
@@ -302,7 +311,7 @@ export class OAuthSession {
     try {
       const body = await tokenRequest(flow.tokenEndpoint, {
         grant_type: 'authorization_code',
-        client_id: this.options().clientId,
+        client_id: flow.clientId ?? this.options().clientId,
         code,
         code_verifier: flow.verifier,
         redirect_uri: flow.redirectUri,

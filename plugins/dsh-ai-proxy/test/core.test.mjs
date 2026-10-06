@@ -2,7 +2,7 @@
 //   node --test test/core.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Config, internals, resolveOptions } from '../lib/index.js'
+import { Config, internals, resolveOptions, CLIENT_ID_PATTERN } from '../lib/index.js'
 
 const {
   isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE, settingsBase,
@@ -29,6 +29,12 @@ test('resolveOptions: clientId follows the gateway entity invariant', () => {
   for (const clientId of ['a', '-dsh', '.dsh', 'DSH', 'a'.repeat(65)]) {
     assert.throws(() => resolveOptions({ clientId }), /clientId must be 2-64/)
   }
+})
+
+test('generateDefaultClientId: generates a valid randomized client ID starting with dsh-', () => {
+  const generated = internals.generateDefaultClientId()
+  assert.match(generated, /^dsh-[a-f0-9]{8}$/)
+  assert.equal(CLIENT_ID_PATTERN.test(generated), true)
 })
 
 test('effortName: known rungs get human names, unknown ids pass through', () => {
@@ -351,12 +357,11 @@ test('Config: the gateway fields are live whenever the schema can be', () => {
   // The local devDependency pins schemastery 3.18.1 while a fresh install (CI,
   // the host itself) resolves 3.18.4, so both shapes must be asserted honestly.
   const supportsLiveFields = typeof Config.dict.baseURL.volatile === 'function'
-  for (const key of ['baseURL', 'apiFormat', 'defaultReasoningEffort']) {
+  for (const key of ['baseURL', 'apiFormat', 'clientId', 'defaultReasoningEffort']) {
     assert.equal(Config.dict[key].meta?.volatile === true, supportsLiveFields,
       key + (supportsLiveFields ? ' must be declared live' : ' stays ordinary on this schemastery'))
   }
   assert.notEqual(Config.dict.models.meta?.volatile, true, 'the model catalog is never a live field')
-  assert.notEqual(Config.dict.clientId.meta?.volatile, true, 'clientId is composition config, not a live field')
 
   const resolved = Config({})
   assert.equal(isVolatileRef(resolved.baseURL), supportsLiveFields,

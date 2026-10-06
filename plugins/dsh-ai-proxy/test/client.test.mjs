@@ -79,7 +79,7 @@ class ConnectionService extends Service {
       return {
         ok: true,
         value: method === 'login'
-          ? { state: 'authorizing', message: '等待浏览器授权', authorizeUrl: 'https://gateway.test/oauth/authorize?state=local-state' }
+          ? { state: 'authorizing', message: '等待浏览器授权', authorizeUrl: 'https://gateway.test/oauth/authorize?state=local-state', clientId: 'dsh-a1b2c3d4' }
           : { state: 'signed-out', message: '未登录' },
       }
     } }
@@ -159,6 +159,8 @@ test('browser client registers only the AI Proxy OAuth settings section', async 
     channel: '/ai-proxy-auth', method: 'setGateway', payload: { baseURL: 'http://gateway-2.test', apiFormat: 'chat/completions', defaultReasoningEffort: 'highest' },
   })
   assert.deepEqual(connection.calls.at(-1), { channel: '/ai-proxy-auth', method: 'login', payload: {} })
+  view = render(section.component, props)
+  assert.equal(findElement(view, (node) => node?.type === 'input' && node.props['aria-label'] === 'Client ID').props.value, 'dsh-a1b2c3d4')
   assert.equal(openedWindows.at(-1).location.href, 'https://gateway.test/oauth/authorize?state=local-state')
   assert(findElement(render(section.component, props), (node) => node?.type === 'a' && node.props.target === '_blank'))
 
@@ -248,4 +250,38 @@ test("clicking refresh models button triggers refreshModels RPC call", async () 
   const authState = hooks[authSlot()]
   assert.equal(authState.state, "signed-in")
   assert.match(authState.message, /已刷新模型列表 \(共 5 个模型\)/)
+})
+
+test("editing clientId persists through setGateway RPC", async () => {
+  resetHooks()
+  const ctx = new Context()
+  const slots = new SlotsService(ctx)
+  const connection = new ConnectionService(ctx)
+  new RemoteService(ctx)
+  await ctx.plugin(plugin).await()
+  const section = slots.registrations[0]
+  const props = section.entry.inject()
+  render(section.component, props)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  // Simulate signed-in
+  hooks[authSlot()] = { state: "signed-in", message: "已登录" }
+  let view = render(section.component, props)
+
+  const clientIdInput = findElement(view, (node) => node?.type === "input" && node.props["aria-label"] === "Client ID")
+  assert(clientIdInput, "Client ID input should be rendered")
+  assert.equal(clientIdInput.props.value, "dsh")
+
+  clientIdInput.props.onChange({ target: { value: "dsh-laptop-1" } })
+  view = render(section.component, props)
+
+  const saveBtn = findElement(view, (node) => node?.type === "button" && node.props.children.includes("保存"))
+  assert(saveBtn)
+  await saveBtn.props.onClick()
+
+  assert.deepEqual(connection.calls.at(-1), {
+    channel: "/ai-proxy-auth",
+    method: "setGateway",
+    payload: { baseURL: "http://gateway.test", clientId: "dsh-laptop-1", apiFormat: "chat/completions", defaultReasoningEffort: "highest" },
+  })
 })

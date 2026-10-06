@@ -191,7 +191,7 @@ test('materializes the gateway as one llm-pi-ai route, leaving hand-written ones
       [PI_AI_NS]: { providers: { 'manual-route': { api: 'openai-completions', baseURL: 'https://manual.example/v1' } } },
     })
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
     assert.equal(await waitFor(() => materialized(settings) !== undefined), true, 'route materialized')
 
     assert(!ctx.llm.listProviders().some((p) => p.id === 'ai-proxy'), 'no self-registered adapter: the host route serves requests')
@@ -228,7 +228,7 @@ test('host without llm-pi-ai degrades to a warning without writing foreign secti
   const { ctx, creds, connection, settings } = makeCtx()
   try {
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
     await sleep(200)
     assert.equal(settings.doc[PI_AI_NS], undefined, 'nothing written to an unmounted section')
     assert.equal(settings.persisted.some((p) => p.ns === PI_AI_NS), false)
@@ -243,13 +243,13 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
   const { ctx, creds, connection, settings } = makeCtx()
   try {
     enablePiAi(ctx)
-    await ctx.plugin(plugin, { clientId: 'dsh' })
+    await ctx.plugin(plugin, { clientId: 'dsh-test' })
     const handler = connection.registration().handler
     assert.deepEqual(await handler('config', {}), {
       ok: true,
       value: {
         baseURL: 'http://localhost:18080',
-        clientId: 'dsh',
+        clientId: 'dsh-test',
         apiFormat: 'chat/completions',
         defaultReasoningEffort: 'highest',
       },
@@ -284,7 +284,7 @@ test('refreshModels re-materializes the catalog under the llm-pi-ai section', as
   try {
     enablePiAi(ctx)
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
     assert.equal(await waitFor(() => materialized(settings) !== undefined), true, 'initial materialization')
     const before = settings.persisted.filter((p) => p.ns === PI_AI_NS).length
 
@@ -331,7 +331,7 @@ test('changing the API format through settings re-materializes protocol and base
   try {
     enablePiAi(ctx)
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
     assert.equal(await waitFor(() => materialized(settings)?.api === 'openai-completions'), true)
 
     const written = await connection.registration().handler('setGateway', { baseURL: gw.url + '/v1', apiFormat: 'anthropic-messages' })
@@ -358,7 +358,7 @@ test('a gateway outage at boot never overwrites the last good materialized route
     })
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
     // Port 1 refuses every connection: discovery cannot succeed at all.
-    await ctx.plugin(plugin, { baseURL: 'http://127.0.0.1:1', clientId: 'dsh', apiKeyEnv: 'AIPROXY_API_KEY' })
+    await ctx.plugin(plugin, { baseURL: 'http://127.0.0.1:1', clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
     assert.equal(await waitFor(() => materialized(settings)?.reasoning === undefined), true,
       'a stale route-level reasoning is dropped even when discovery cannot rewrite the route')
     assert.equal(materialized(settings)?.models?.[0]?.id, 'previous-model', 'previous catalog stays intact')
@@ -372,14 +372,14 @@ test('OAuth login: PKCE loopback flow stores rotating tokens', async () => {
   const gw = await mockGateway()
   const { ctx, creds } = makeCtx()
   try {
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh' })
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test' })
 
-    const api = new internals.AiProxyApi(ctx, () => resolveOptions({ baseURL: gw.url, clientId: 'dsh' }))
+    const api = new internals.AiProxyApi(ctx, () => resolveOptions({ baseURL: gw.url, clientId: 'dsh-test' }))
     const login = await api.login()
     assert.equal(login.state, 'authorizing')
     const authorize = new URL(login.authorizeUrl)
     assert.equal(authorize.pathname, '/oauth/authorize')
-    assert.equal(authorize.searchParams.get('client_id'), 'dsh')
+    assert.equal(authorize.searchParams.get('client_id'), 'dsh-test')
     assert.equal(authorize.searchParams.get('response_type'), 'code')
     assert.equal(authorize.searchParams.get('code_challenge_method'), 'S256')
     assert.equal(authorize.searchParams.get('scope'), 'api')
@@ -418,7 +418,7 @@ test('Host auth RPC revokes tokens and removes the materialized route', async ()
     creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-code')
     creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-code')
     creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh' })
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test' })
     await sleep(50)
 
     assert.equal(connection.registration().channel, AUTH_RPC_CHANNEL)
@@ -453,7 +453,7 @@ test('401 on model discovery rotates the token once and retries', async () => {
     creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-old')
     creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-1')
     creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh' })
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test' })
     await sleep(50)
 
     const refreshed = await connection.registration().handler('refreshModels', {})
@@ -480,7 +480,7 @@ test('proactive refresh timer rotates the token before expiry and re-materialize
     creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-old')
     creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-1')
     creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 300))
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh' })
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test' })
 
     assert.equal(await waitFor(() => creds.store.get('AIPROXY_ACCESS_TOKEN') === 'acc-new'), true,
       'timer fired at the stored expiry and rotated the token')
@@ -502,10 +502,72 @@ test('startup migration removes legacy OAuth action and status fields only', asy
       modelCacheTtlMs: 120000,
     },
   })
-  await ctx.plugin(plugin, { clientId: 'dsh' })
+  await ctx.plugin(plugin, { clientId: 'dsh-test' })
   assert.equal(await waitFor(() => settings.persisted.length > 0), true)
   assert.deepEqual(settings.doc['ai-proxy'], {
     baseURL: 'http://gateway.test',
     modelCacheTtlMs: 120000,
   })
+})
+
+test('shared default clientId is replaced before any token refresh', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds, connection, settings } = makeCtx()
+  try {
+    await enablePiAi(ctx)
+    creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-shared')
+    creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-shared')
+    creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh' })
+    assert.equal(await waitFor(() => /^dsh-[a-f0-9]{8}$/.test(settings.doc['ai-proxy']?.clientId)), true,
+      JSON.stringify(settings.doc['ai-proxy']))
+    const clientId = settings.doc['ai-proxy'].clientId
+    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), undefined, 'shared-grant refresh token is dropped locally')
+    assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), undefined)
+    assert.equal(gw.requests.some((r) => r.path === '/oauth/token'), false, 'startup must not refresh the shared grant')
+
+    const status = await connection.registration().handler('status', {})
+    assert.equal(status.ok, true)
+    assert.equal(status.value.state, 'signed-out')
+    assert.equal(status.value.clientId, clientId)
+    assert.match(status.value.message, /独立 Client ID/)
+
+    const login = await connection.registration().handler('login', {})
+    assert.equal(login.ok, true, JSON.stringify(login))
+    assert.equal(login.value.clientId, clientId, 'login keeps the id allocated at startup')
+    const authorize = new URL(login.value.authorizeUrl)
+    assert.equal(authorize.searchParams.get('client_id'), clientId)
+    // Finish the loopback listener so the test process can exit.
+    await fetch(authorize.searchParams.get('redirect_uri') + '?code=x&state=nope')
+
+    const reverted = await connection.registration().handler('setGateway', { clientId: 'dsh' })
+    assert.equal(reverted.ok, false)
+    assert.match(reverted.error.message, /dsh/)
+    assert.equal(settings.doc['ai-proxy'].clientId, clientId)
+  } finally {
+    gw.close()
+  }
+})
+
+test('changing clientId drops tokens issued to the previous client', async () => {
+  const { ctx, creds, connection } = makeCtx()
+  try {
+    creds.store.set('AIPROXY_ACCESS_TOKEN', 'acc-old')
+    creds.store.set('AIPROXY_REFRESH_TOKEN', 'ref-1')
+    creds.store.set('AIPROXY_TOKEN_EXPIRY', String(Date.now() + 3600000))
+    await ctx.plugin(plugin, { clientId: 'dsh-test' })
+    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), 'ref-1')
+
+    const written = await connection.registration().handler('setGateway', { clientId: 'dsh-other' })
+    assert.equal(written.ok, true, JSON.stringify(written))
+    assert.equal(written.value.clientId, 'dsh-other')
+    assert.equal(written.value.reauthRequired, true)
+    assert.equal(creds.store.get('AIPROXY_REFRESH_TOKEN'), undefined)
+    assert.equal(creds.store.get('AIPROXY_ACCESS_TOKEN'), undefined)
+
+    const rejected = await connection.registration().handler('setGateway', { clientId: 'dsh' })
+    assert.equal(rejected.ok, false)
+  } finally {
+    // no gateway
+  }
 })
