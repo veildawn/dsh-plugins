@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { apply as applyHost, patchIndex, STYLE_ID, THEME_ATTR, THEME_SCOPE } from '../lib/index.js'
+import { apply as applyHost, patchIndex, STYLE_ID, THEME_ATTR, THEME_SCOPE, themeInjections } from '../lib/index.js'
 import { HOST_TOKEN_MAP, REQUIRED_HOST_TOKENS } from '../lib/tokens.js'
 import { loadThemeCss, STYLE_FILES } from '../lib/css.js'
 
@@ -43,6 +43,49 @@ test('Host apply 把 patchIndex 挂到 webServer.tapIndex', () => {
   assert.equal(taps.length, 1)
   assert.equal(typeof taps[0], 'function')
   assert.match(taps[0]('<html><head></head></html>'), /data-dsh-theme="zcode"/)
+})
+
+test('Host themeInjections 生成桌面端与 Web 共用的结构化注入行', () => {
+  const rows = themeInjections()
+  assert.equal(rows.length, 2)
+
+  const [scriptRow, htmlRow] = rows
+  assert.equal(scriptRow.kind, 'script')
+  assert.equal(scriptRow.placement, 'head')
+  assert.match(scriptRow.text, new RegExp(`document\\.documentElement\\.setAttribute\\('${THEME_ATTR}', '${THEME_SCOPE}'\\)`))
+
+  assert.equal(htmlRow.kind, 'html')
+  assert.equal(htmlRow.placement, 'head')
+  assert.match(htmlRow.html, new RegExp(`<style id="${STYLE_ID}">`))
+  assert.match(htmlRow.html, /--dsw-alias-brand-primary:\s*#E85D3A/)
+})
+
+test('Host apply 监听 webserver/index-inject 以支持桌面端 Electron IPC 回放', () => {
+  const listeners = new Map()
+  const taps = []
+  const ctx = {
+    on(event, fn) {
+      listeners.set(event, fn)
+    },
+    effect(fn) {
+      fn()
+    },
+    webServer: {
+      tapIndex(fn) {
+        taps.push(fn)
+      },
+    },
+  }
+
+  applyHost(ctx)
+  assert.equal(taps.length, 1)
+  assert.ok(listeners.has('webserver/index-inject'))
+
+  const table = []
+  listeners.get('webserver/index-inject')(table)
+  assert.equal(table.length, 2)
+  assert.equal(table[0].kind, 'script')
+  assert.equal(table[1].kind, 'html')
 })
 
 test('Client 注入 theme 服务，Token 映射与宿主一致', () => {
