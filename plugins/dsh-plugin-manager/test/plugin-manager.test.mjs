@@ -22,6 +22,7 @@ import {
   isAllowedRepoUrl,
   LOCAL_MONOREPO_PLUGINS,
   stripPluginFromLockfile,
+  stripPluginFromPackageJson,
   lockfileHealthForPlugin,
   profileLockfilePath,
   readProfileLockfile,
@@ -471,6 +472,38 @@ describe('dsh-market lockfile utilities', () => {
     assert.equal(after.includes('packages:'), true)
     assert.equal(after.includes('snapshots:'), true)
     assert.equal(after.includes('importers:'), true)
+  })
+
+  it('strips a plugin from package.json dependencies including case variants', () => {
+    const pkgPath = join(home, 'profiles', 'web', 'package.json')
+    writeFileSync(
+      pkgPath,
+      JSON.stringify({
+        name: 'test-profile',
+        dependencies: {
+          'dsh-model-roles': '^0.4.8',
+          'dsh-better-sidebar': '^0.24.1',
+          'DSH-other': '^1.0.0',
+        },
+      }, null, 2) + '\n',
+      'utf8'
+    )
+
+    const res = stripPluginFromPackageJson('dsh-better-sidebar', { home, profile: 'web' })
+    assert.equal(res.removed, true)
+    const after = JSON.parse(readFileSync(pkgPath, 'utf8'))
+    assert.equal(after.dependencies['dsh-better-sidebar'], undefined)
+    assert.equal(after.dependencies['dsh-model-roles'], '^0.4.8')
+
+    // Case-insensitive strip
+    const resCase = stripPluginFromPackageJson('dsh-other', { home, profile: 'web' })
+    assert.equal(resCase.removed, true)
+    const afterCase = JSON.parse(readFileSync(pkgPath, 'utf8'))
+    assert.equal(afterCase.dependencies['DSH-other'], undefined)
+
+    // Non-existent is no-op
+    const noop = stripPluginFromPackageJson('non-existent', { home, profile: 'web' })
+    assert.equal(noop.removed, false)
   })
 
   it('is a no-op when nothing to strip', () => {
@@ -1083,6 +1116,40 @@ describe('dsh-market install tasks (fake spawn)', () => {
     const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
     assert.equal(task.status, 'success')
     assert.equal(captured.calls[0].args[4], 'dsh-status-rotator')
+  })
+
+  it('updates an existing community plugin without @latest by clearing old constraints and deduplicates bundle entries', async () => {
+    captured.calls.length = 0
+    const profileDir = join(testHome, 'profiles', 'web')
+    const manifestPath = join(profileDir, 'package.json')
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        name: 'dsh-profile-web',
+        dependencies: {
+          'dsh-status-rotator': '^1.0.0',
+        },
+        dsh: {
+          profile: {
+            bundles: ['DSH-STATUS-ROTATOR', 'dsh-base'],
+          },
+        },
+      }, null, 2) + '\n',
+      'utf8'
+    )
+
+    const res = handleInstallPlugin({}, { name: 'dsh-status-rotator', kind: 'community' }, { spawnFn: fakeSpawn })
+    assert.equal(res.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(task.status, 'success')
+    // Command remains bare without @latest
+    assert.equal(captured.calls[0].args[4], 'dsh-status-rotator')
+    // Task log confirms old version constraint was stripped
+    assert.ok(task.log.some((l) => l.includes('package.json 已清理')))
+
+    const afterManifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    // Bundle entry deduplicated and normalized
+    assert.deepEqual(afterManifest.dsh.profile.bundles, ['dsh-base', 'dsh-status-rotator'])
   })
 
   it('pre-downloads the repo tarball and installs from the persistent local cache', async () => {

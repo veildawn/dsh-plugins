@@ -42,6 +42,7 @@ import {
   findProfileName,
   findDshHome,
   stripPluginFromLockfile,
+  stripPluginFromPackageJson,
   repairLockfileIntegrity,
   lockfileHealthForPlugin,
   profileLockfilePath,
@@ -725,10 +726,10 @@ async function resolveInstallSource(name, kind, resolved) {
   if (kind === 'community') {
     const raw = await fetchCommunityCatalog(resolved.communityCatalogUrl)
     const catalog = normalizeCommunityPlugins(raw)
-    const entry = catalog.find((p) => p.name === name)
+    const entry = catalog.find((p) => p.name === name || p.npm === name)
     const pkg = safePackageName(entry && entry.npm)
     if (!entry || !pkg) return { error: `社区目录中不存在可安装的插件: ${name}` }
-    return { source: pkg, kind: 'community' }
+    return { source: pkg, kind: 'community', pkgName: pkg }
   }
   return { error: `未知插件来源: ${kind}` }
 }
@@ -746,13 +747,32 @@ async function resolveInstallSource(name, kind, resolved) {
  *   2. On failure containing ERR_PNPM_TARBALL_INTEGRITY, fully strip the
  *      plugin from the lockfile and retry once.
  */
-async function runInstallWithLockfileRecovery({ name, profile, source, onLog, spawnFn }) {
+async function runInstallWithLockfileRecovery({ name, profile, source, pkgName, onLog, spawnFn }) {
   const steps = []
   const push = (line) => { const s = String(line).replace(/\s+$/, ''); if (s && onLog) onLog(s) }
 
   const desktopEnv = resolveDesktopEnvironment()
   const displayCmd = formatPluginCliCommand('add', profile, source, desktopEnv)
   push(`$ ${displayCmd}`)
+
+  const home = findDshHome()
+  const targetPkg = pkgName || name
+
+  // Backup package.json before pre-cleaning so we can restore on complete failure
+  let originalManifestText = null
+  const manifestPath = join(home, 'profiles', profile, 'package.json')
+  try {
+    if (existsSync(manifestPath)) originalManifestText = readFileSync(manifestPath, 'utf8')
+  } catch {}
+
+  // Strip stale package.json and lockfile dependencies for targetPkg before adding
+  // so that pnpm treats `add <pkg>` as a fresh install and resolves the latest version
+  // from the registry rather than skipping resolution due to existing version constraints.
+  const pkgJsonClean = stripPluginFromPackageJson(targetPkg, { home, profile })
+  if (pkgJsonClean.removed) {
+    push(`  ↻ package.json 已清理 ${targetPkg} 旧版本约束，确保安装最新版`)
+    steps.push('clean-package-json')
+  }
 
   // The bundled pnpm v11 writes URL-tarball lockfile entries WITHOUT an
   // integrity field and then refuses to read that same lockfile back
@@ -771,7 +791,7 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   }
   const repair = async (label) => {
     const res = await repairLockfileIntegrity({
-      home: findDshHome(),
+      home,
       profile,
       fetchIntegrity: fetchIntegrityWithRetry,
     })
@@ -788,11 +808,11 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
 
   await repair('安装前')
 
-  const health = lockfileHealthForPlugin(name, source, { home: findDshHome(), profile })
-  if (!health.healthy) {
-    const res = stripPluginFromLockfile(name, { home: findDshHome(), profile })
+  const health = lockfileHealthForPlugin(targetPkg, source, { home, profile })
+  if (!health.healthy || pkgJsonClean.removed) {
+    const res = stripPluginFromLockfile(targetPkg, { home, profile })
     if (res.removed > 0) {
-      push(`  ↻ lockfile 已清理 ${res.removed} 条 ${name} 旧条目（防止 TARBALL_INTEGRITY 校验失败）`)
+      push(`  ↻ lockfile 已清理 ${res.removed} 条 ${targetPkg} 旧条目（准备全新解析）`)
       steps.push('pre-clean')
     }
   }
@@ -865,6 +885,10 @@ async function runInstallWithLockfileRecovery({ name, profile, source, onLog, sp
   // user's very next attempt.
   await repair(result.ok ? '安装后' : '失败后')
 
+  if (!result.ok && originalManifestText !== null) {
+    try { writeFileSync(manifestPath, originalManifestText, 'utf8') } catch {}
+  }
+
   return { ...result, steps }
 }
 
@@ -904,13 +928,14 @@ export function handleInstallPlugin(options, payload, deps = {}) {
 
   void (async () => {
     try {
-      const { source, error } = await resolveInstallSource(name, kind, resolved)
+      const { source, error, pkgName } = await resolveInstallSource(name, kind, resolved)
       if (error) throw new Error(error)
       task.source = source
       const result = await runInstallWithLockfileRecovery({
         name,
         profile,
         source,
+        pkgName: pkgName || name,
         onLog: (line) => { task.log.push(String(line).replace(/\s+$/, '')) },
         spawnFn: deps.spawnFn,
       })
@@ -926,10 +951,17 @@ export function handleInstallPlugin(options, payload, deps = {}) {
               manifest.dsh = manifest.dsh || {}
               manifest.dsh.profile = manifest.dsh.profile || {}
               manifest.dsh.profile.bundles = Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : []
-              if (!manifest.dsh.profile.bundles.includes(name)) {
-                manifest.dsh.profile.bundles.push(name)
-                writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
-                task.log.push(`✓ 已自动将 ${name} 注册到 profile bundles`)
+              const bundleName = pkgName || name
+              // Deduplicate and remove case-mismatched variants (e.g. "DSH-better-sidebar" vs "dsh-better-sidebar")
+              const beforeLen = manifest.dsh.profile.bundles.length
+              const hadExact = manifest.dsh.profile.bundles.includes(bundleName)
+              manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
+                (b) => b.toLowerCase() !== bundleName.toLowerCase()
+              )
+              manifest.dsh.profile.bundles.push(bundleName)
+              writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+              if (!hadExact || manifest.dsh.profile.bundles.length !== beforeLen) {
+                task.log.push(`✓ 已自动将 ${bundleName} 注册到 profile bundles`)
               }
             }
           }
@@ -1016,20 +1048,36 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
       for (let i = 0; i < targets.length; i++) {
         const p = targets[i]
         task.log.push(`[${i + 1}/${targets.length}] 正在更新 ${p.name} (v${p.installedVersion} → v${p.version || p.latestVersion})...`)
-        const { source, error } = await resolveInstallSource(p.name, kind, resolved)
+        const { source, error, pkgName } = await resolveInstallSource(p.name, kind, resolved)
         if (error) {
           task.log.push(`✗ ${p.name} 解析失败: ${error}`)
           failureCount++
           continue
         }
+        const targetPkg = pkgName || p.npm || p.name
         const result = await runInstallWithLockfileRecovery({
           name: p.name,
           profile,
           source,
+          pkgName: targetPkg,
           onLog: (line) => { task.log.push(`  ${String(line).replace(/\s+$/, '')}`) },
           spawnFn: deps.spawnFn,
         })
         if (result.ok) {
+          try {
+            const home = findDshHome()
+            const manifestPath = join(home, 'profiles', profile, 'package.json')
+            if (existsSync(manifestPath)) {
+              const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+              if (manifest && typeof manifest === 'object' && manifest.dsh && manifest.dsh.profile && Array.isArray(manifest.dsh.profile.bundles)) {
+                manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
+                  (b) => b.toLowerCase() !== targetPkg.toLowerCase()
+                )
+                manifest.dsh.profile.bundles.push(targetPkg)
+                writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+              }
+            }
+          } catch {}
           task.log.push(`✓ [${i + 1}/${targets.length}] ${p.name} 更新成功`)
           successCount++
         } else {
@@ -1109,7 +1157,7 @@ export function handleRemovePlugin(options, payload, deps = {}) {
           if (existsSync(manifestPath)) {
             const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
             if (manifest && typeof manifest === 'object' && manifest.dsh && manifest.dsh.profile && Array.isArray(manifest.dsh.profile.bundles)) {
-              manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter((b) => b !== name)
+              manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter((b) => b.toLowerCase() !== name.toLowerCase())
               writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
               task.log.push(`✓ 已从 profile bundles 中移除 ${name}`)
             }

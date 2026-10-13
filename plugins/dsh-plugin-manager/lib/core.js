@@ -971,6 +971,42 @@ export function tarballUrlFromDepPath(depPath) {
 }
 
 /**
+ * Strip a plugin from the profile's package.json dependencies, so that pnpm
+ * treats `dsh plugin add <pkg>` as a fresh install and resolves the latest
+ * version rather than skipping resolution due to existing version constraints.
+ *
+ * @param pluginName - package name (e.g. "dsh-better-sidebar")
+ * @returns { removed, manifestPath }
+ */
+export function stripPluginFromPackageJson(pluginName, { home = findDshHome(), profile = findProfileName() } = {}) {
+  try {
+    const manifestPath = join(home, 'profiles', profile, 'package.json')
+    if (!existsSync(manifestPath)) return { removed: false, manifestPath }
+    const raw = readFileSync(manifestPath, 'utf8')
+    const manifest = JSON.parse(raw)
+    let removed = false
+    if (manifest && typeof manifest === 'object' && manifest.dependencies) {
+      if (manifest.dependencies[pluginName]) {
+        delete manifest.dependencies[pluginName]
+        removed = true
+      }
+      for (const key of Object.keys(manifest.dependencies)) {
+        if (key.toLowerCase() === pluginName.toLowerCase()) {
+          delete manifest.dependencies[key]
+          removed = true
+        }
+      }
+    }
+    if (removed) {
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+    }
+    return { removed, manifestPath }
+  } catch {
+    return { removed: false, manifestPath: null }
+  }
+}
+
+/**
  * Strip a plugin's references from the profile's pnpm-lock.yaml so that pnpm
  * re-resolves the package from scratch on the next install.
  *
@@ -1007,7 +1043,7 @@ export function stripPluginFromLockfile(pluginName, { home = findDshHome(), prof
     if (indent === 0 && trimmed !== 'packages:') { inPackages = false }
     if (!inPackages || indent !== 2) continue
     const unquoted = line.trimStart().replace(/^['"]/, '')
-    if (unquoted.startsWith(pluginName + '@')) {
+    if (unquoted.toLowerCase().startsWith(pluginName.toLowerCase() + '@')) {
       drop[i] = true
       removed++
       let j = i + 1
@@ -1032,7 +1068,7 @@ export function stripPluginFromLockfile(pluginName, { home = findDshHome(), prof
     if (indent === 0 && trimmed !== 'snapshots:') { inSnapshots = false }
     if (!inSnapshots || indent !== 2) continue
     const unquoted = line.trimStart().replace(/^['"]/, '')
-    if (unquoted.startsWith(pluginName + '@')) {
+    if (unquoted.toLowerCase().startsWith(pluginName.toLowerCase() + '@')) {
       drop[i] = true
       removed++
       let j = i + 1
@@ -1060,7 +1096,8 @@ export function stripPluginFromLockfile(pluginName, { home = findDshHome(), prof
     if (trimmed === 'dependencies:' && indent === 4) { inDependencies = true; continue }
     if (trimmed.endsWith(':') && indent === 4 && trimmed !== 'dependencies:') { inDependencies = false; continue }
     if (!inDependencies) continue
-    if (indent === 6 && line.trimStart() === pluginName + ':') {
+    const depKey = line.trimStart().replace(/:$/, '').replace(/^['"]/, '').replace(/['"]$/, '')
+    if (indent === 6 && depKey.toLowerCase() === pluginName.toLowerCase()) {
       drop[i] = true
       removed++
       let j = i + 1

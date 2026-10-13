@@ -881,7 +881,10 @@ window.__ModuleLoader__.load({
           return found ? (found.zh || found.en || id) : id;
         };
 
-        const busyFor = (name) => Boolean(taskState && taskState.status === "running" && taskState.name === name);
+        const busyFor = (name, npmName) => Boolean(
+          taskState && taskState.status === "running" &&
+          (taskState.name === name || (npmName && taskState.name === npmName))
+        );
 
         /**
          * Streamlined Card Component: modern ZCode-style layout with SVG avatar,
@@ -892,7 +895,7 @@ window.__ModuleLoader__.load({
           const isInstalled = Boolean(installed);
           const remoteVer = plugin.version || plugin.latestVersion || null;
           const update = isInstalled && Boolean(plugin.hasUpdate);
-          const busy = busyFor(plugin.name);
+          const busy = busyFor(plugin.name, plugin.npm);
 
           // Status badge: only show when meaningful (has update or community category tag)
           let badgeClass = null;
@@ -986,7 +989,7 @@ window.__ModuleLoader__.load({
                     className: "dm-action-btn danger",
                     type: "button",
                     disabled: busy,
-                    onClick: () => void startRemove(plugin.name),
+                    onClick: () => void startRemove(plugin.npm || plugin.name),
                   }, "卸载") : null,
                   btnLabel && canInstall ? react.createElement("button", {
                     className: btnClass,
