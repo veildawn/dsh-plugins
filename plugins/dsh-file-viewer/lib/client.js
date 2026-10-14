@@ -725,6 +725,21 @@ window.__ModuleLoader__.load({
       return null;
     }
 
+    function parseChangesReviewResource(address) {
+      if (typeof address !== "string" || !address.startsWith("dsh-resource://changes-review/session/")) return null;
+      try {
+        const end = address.search(/[?#]/);
+        const sliced = address.slice("dsh-resource://changes-review/session/".length, end === -1 ? undefined : end);
+        const parts = sliced.split("/");
+        if (parts.length >= 2) {
+          const sessionId = decodeURIComponent(parts[0] || "");
+          const seq = Number(parts[1]);
+          return { sessionId, seq };
+        }
+      } catch {}
+      return null;
+    }
+
     function wrapSidebarRight(sr, openStore, sessionStore) {
       if (!sr || typeof sr.openResource !== "function" || wiredOpenPath === null || wiredOpenPath.has(sr)) return;
       wiredOpenPath.add(sr);
@@ -736,6 +751,23 @@ window.__ModuleLoader__.load({
           openStore.set({ filePath: parsed.path, sessionId: sid, _t: Date.now() });
           return;
         }
+        const review = parseChangesReviewResource(address);
+        if (review && review.sessionId) {
+          const sid = review.sessionId;
+          // Query changes summary to locate the requested file index
+          const seq = review.seq;
+          const idx = (options && options.params && typeof options.params.index === "number") ? options.params.index : 0;
+          fetch(`/api/changes.summary?${new URLSearchParams({ sessionId: sid, seq: String(seq) })}`)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+              const file = data?.files?.[idx]?.path || data?.files?.[0]?.path;
+              if (file) {
+                openStore.set({ filePath: file, sessionId: sid, _t: Date.now() });
+              }
+            })
+            .catch(() => {});
+          return;
+        }
         return originalOpenResource(address, options);
       };
       if (typeof sr.openResourceIn === "function") {
@@ -745,6 +777,22 @@ window.__ModuleLoader__.load({
           if (parsed && parsed.path) {
             const sid = sessionId || parsed.sessionId || sessionStore.get();
             openStore.set({ filePath: parsed.path, sessionId: sid, _t: Date.now() });
+            return;
+          }
+          const review = parseChangesReviewResource(address);
+          if (review) {
+            const sid = sessionId || review.sessionId;
+            const seq = review.seq;
+            const idx = (options && options.params && typeof options.params.index === "number") ? options.params.index : 0;
+            fetch(`/api/changes.summary?${new URLSearchParams({ sessionId: sid, seq: String(seq) })}`)
+              .then((res) => (res.ok ? res.json() : null))
+              .then((data) => {
+                const file = data?.files?.[idx]?.path || data?.files?.[0]?.path;
+                if (file) {
+                  openStore.set({ filePath: file, sessionId: sid, _t: Date.now() });
+                }
+              })
+              .catch(() => {});
             return;
           }
           return originalOpenResourceIn(sessionId, address, options);
@@ -850,8 +898,15 @@ window.__ModuleLoader__.load({
       if (typeof raw !== "string") return "";
       let value = raw.trim();
       if (value === "") return "";
-      const labeled = value.match(/^(?:打开|open)\s+(.+)$/i);
-      if (labeled) value = labeled[1].trim();
+      // Strip common card action prefixes:
+      // "打开 xxx", "open xxx", "已编辑 xxx", "已修改 xxx", "修改 xxx", "新建 xxx", "edited xxx", "查看 xxx 的改动", "在侧边栏预览 xxx", "在侧边栏打开 xxx"
+      const prefixMatch = value.match(/^(?:打开|open|已编辑|已修改|修改|新建|edited|view)\s+(.+)$/i);
+      if (prefixMatch) value = prefixMatch[1].trim();
+      const diffMatch = value.match(/^(?:查看|view)\s+(.+?)\s+(?:的改动|changes)$/i);
+      if (diffMatch) value = diffMatch[1].trim();
+      const previewMatch = value.match(/^(?:在侧边栏预览|在侧边栏打开|preview in sidebar|open in sidebar)\s+(.+)$/i);
+      if (previewMatch) value = previewMatch[1].trim();
+
       value = value.replace(/^@+/, "").trim();
       if ((value.startsWith("`") && value.endsWith("`")) || (value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
         value = value.slice(1, -1).trim();
@@ -862,6 +917,31 @@ window.__ModuleLoader__.load({
 
     function extractClickedPath(element) {
       if (!element) return "";
+      // 1. If inside a card with aria-describedby pointing to hidden path description, prefer that full path
+      const describedBy = element.getAttribute("aria-describedby");
+      if (describedBy && typeof document !== "undefined") {
+        const descEl = document.getElementById(describedBy);
+        if (descEl && descEl.textContent) {
+          const p = normalizeClickedPath(descEl.textContent);
+          if (p) return p;
+        }
+      }
+      // 2. If element itself or ancestor card has hidden path description
+      const parentCard = element.closest ? element.closest("[data-changed-files], [data-presented-file]") : null;
+      if (parentCard && typeof document !== "undefined") {
+        const hiddenPathSpan = parentCard.querySelector("span[hidden]");
+        if (hiddenPathSpan && hiddenPathSpan.textContent) {
+          const p = normalizeClickedPath(hiddenPathSpan.textContent);
+          if (p) return p;
+        }
+        // In single file card, title attribute on cardPreview button has resolved full path
+        const cardPreviewBtn = parentCard.querySelector("button[title]");
+        if (cardPreviewBtn && cardPreviewBtn.title) {
+          const p = normalizeClickedPath(cardPreviewBtn.title);
+          if (p) return p;
+        }
+      }
+
       const sources = [
         element.getAttribute("data-file-path"),
         element.getAttribute("data-path"),
@@ -880,9 +960,12 @@ window.__ModuleLoader__.load({
       if (!element) return false;
       if (element.hasAttribute("data-file-path") || element.hasAttribute("data-path")) return true;
       if (element.closest("[data-produced-files-row]")) return true;
+      // Support deliverables: changed files card (ChangedFiles) and presented file cards (PresentedFileCard)
+      if (element.closest("[data-changed-files], [data-presented-file], [data-presented-files-row]")) return true;
       const cls = typeof element.className === "string" ? element.className : "";
       if (cls.includes("fileMention") || cls.includes("file-mention")) return true;
       if (cls.includes("fileLink") || cls.includes("file-link")) return true;
+      if (cls.includes("cardPreview") || cls.includes("previewCard")) return true;
       if (element.getAttribute("data-role") === "file-mention") return true;
       return false;
     }

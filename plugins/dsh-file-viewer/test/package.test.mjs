@@ -839,6 +839,11 @@ test('clicked path extraction keeps Chinese filenames and prefers title over bas
 
   assert.equal(internals.normalizeClickedPath('20万落地国产纯电SUV选车报告.md'), '20万落地国产纯电SUV选车报告.md')
   assert.equal(internals.normalizeClickedPath('打开 20万落地国产纯电SUV选车报告.md'), '20万落地国产纯电SUV选车报告.md')
+  assert.equal(internals.normalizeClickedPath('已编辑 clientip.go'), 'clientip.go')
+  assert.equal(internals.normalizeClickedPath('已修改 main.py'), 'main.py')
+  assert.equal(internals.normalizeClickedPath('查看 clientip.go 的改动'), 'clientip.go')
+  assert.equal(internals.normalizeClickedPath('在侧边栏预览 clientip.go'), 'clientip.go')
+  assert.equal(internals.normalizeClickedPath('在侧边栏打开 index.ts'), 'index.ts')
   assert.equal(internals.normalizeClickedPath('@`src/App.vue`'), 'src/App.vue')
   assert.equal(internals.normalizeClickedPath('普通按钮'), '')
   assert.equal(internals.normalizeClickedPath('application/json'), '')
@@ -922,6 +927,20 @@ test('model selector and ordinary buttons are not treated as file-open controls'
   })
   assert.equal(internals.isFileOpenControl(toolRowFileLink), true)
 
+  const changedFilesCard = fakeEl({
+    className: 'nyYjTG_header',
+    textContent: '已编辑 clientip.go 在侧边栏预览',
+    closest: (sel) => (sel.includes('data-changed-files') ? {} : null),
+  })
+  assert.equal(internals.isFileOpenControl(changedFilesCard), true)
+
+  const presentedFileCard = fakeEl({
+    className: 'nyYjTG_cardPreview',
+    title: '/root/project/clientip.go',
+    closest: (sel) => (sel.includes('data-presented-file') ? {} : null),
+  })
+  assert.equal(internals.isFileOpenControl(presentedFileCard), true)
+
   // Plain code tags are NOT file open controls
   const plainCode = fakeEl({
     tagName: 'CODE',
@@ -982,6 +1001,10 @@ test('wrapSidebarRight intercepts file addresses and routes them to openStore', 
   assert.equal(opened.length, 1)
   assert.equal(opened[0].filePath, 'src/test.js')
   assert.equal(opened[0].sessionId, 'sess-1')
+
+  // changes-review address should also be intercepted and not passed through to original
+  fakeSidebarRight.openResource('dsh-resource://changes-review/session/sess-2/12/3', { params: { index: 0 } })
+  assert.equal(originalCalled, false)
 
   // Non-file address should pass through
   fakeSidebarRight.openResource('dsh-resource://other/something')
