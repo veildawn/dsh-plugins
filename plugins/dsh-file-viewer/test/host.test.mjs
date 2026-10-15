@@ -607,6 +607,119 @@ test('a genuine binary exe with null bytes stays binary', async () => {
   assert.equal(result.value.kind, 'binary', 'exe with null bytes stays binary')
 })
 
+test('the languages RPC serves the picker catalog the host validates against', async () => {
+  const ctx = createCtx(createFs({ [ROOT]: { type: 'directory', entries: [] } }))
+  const result = await handleRpc(ctx, options(), 'languages', {})
+  assert.equal(result.ok, true)
+  const ids = result.value.languages.map((entry) => entry.id)
+  assert.equal(ids[0], 'plain')
+  assert.ok(ids.includes('yaml') && ids.includes('json'), 'the common grammars must be offered')
+  for (const entry of result.value.languages) {
+    assert.equal(typeof entry.label, 'string')
+  }
+})
+
+test('meta reports a content-detected language for an unknown suffix', async () => {
+  // The headline feature: an unrecognised suffix still gets highlighted when
+  // the content names its format unambiguously.
+  const body = 'server:\n  port: 8080\n  host: 0.0.0.0\nlog:\n  level: info\n'
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/config.yaml.prod`]: {
+      type: 'file', size: body.length, text: body,
+      bytes: new TextEncoder().encode(body),
+    },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'config.yaml.prod' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'text')
+  assert.equal(result.value.lang, 'yaml')
+  assert.equal(result.value.langSource, 'content')
+  assert.equal(result.value.langChoice, 'auto')
+})
+
+test('meta keeps a known suffix authoritative over content', async () => {
+  const body = 'server:\n  port: 8080\nlog:\n  level: info\n'
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/app.py`]: {
+      type: 'file', size: body.length, text: body,
+      bytes: new TextEncoder().encode(body),
+    },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'app.py' })
+  assert.equal(result.value.lang, 'python')
+  assert.equal(result.value.langSource, 'name')
+})
+
+test('meta honours a valid language override and ignores an invalid one', async () => {
+  const body = 'server:\n  port: 8080\nlog:\n  level: info\n'
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/app.py`]: {
+      type: 'file', size: body.length, text: body,
+      bytes: new TextEncoder().encode(body),
+    },
+  })
+  const ctx = createCtx(fs)
+
+  const chosen = await handleRpc(ctx, options(), 'meta', { path: 'app.py', lang: 'ini' })
+  assert.equal(chosen.value.lang, 'ini')
+  assert.equal(chosen.value.langSource, 'override')
+  assert.equal(chosen.value.langChoice, 'ini')
+
+  // "plain" is a real choice meaning no highlighting.
+  const plain = await handleRpc(ctx, options(), 'meta', { path: 'app.py', lang: 'plain' })
+  assert.equal(plain.value.lang, undefined)
+  assert.equal(plain.value.langSource, 'override')
+  assert.equal(plain.value.langChoice, 'plain')
+
+  // An id the host does not know must not reach the renderer; the file falls
+  // back to its name-derived language rather than erroring.
+  const bogus = await handleRpc(ctx, options(), 'meta', { path: 'app.py', lang: 'klingon' })
+  assert.equal(bogus.value.lang, 'python')
+  assert.equal(bogus.value.langSource, 'name')
+  assert.equal(bogus.value.langChoice, 'auto', 'an invalid override reports as auto, not as the junk value')
+
+  // Prototype-pollution shaped ids are refused like any other unknown id.
+  const proto = await handleRpc(ctx, options(), 'meta', { path: 'app.py', lang: '__proto__' })
+  assert.equal(proto.value.lang, 'python')
+  assert.equal(proto.value.langChoice, 'auto')
+})
+
+test('read resolves the language from the whole file, not the probe window', async () => {
+  // The read already holds the entire text, so a signature that only appears
+  // past the 8 KB probe boundary is still found here.
+  const filler = 'x'.repeat(9000)
+  const body = `# ${filler}\n[section]\nkey=value\nother=1\n`
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/settings.unknown`]: { type: 'file', size: body.length, text: body },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'read', { path: 'settings.unknown' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'text')
+  assert.equal(result.value.lang, 'ini')
+  assert.equal(result.value.langSource, 'content')
+})
+
+test('read applies the override and reports it back', async () => {
+  const body = 'server:\n  port: 8080\n'
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/config.yaml.prod`]: { type: 'file', size: body.length, text: body },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'read', { path: 'config.yaml.prod', lang: 'json' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.lang, 'json')
+  assert.equal(result.value.langSource, 'override')
+  assert.equal(result.value.langChoice, 'json')
+})
+
 test('an unrecognised-extension text file larger than the probe window is still text', async () => {
   // Regression: `config.yaml.prod` (16 KB) was reported as binary. The probe
   // asked readBytes for 8 KB, but that primitive bounds the COMPLETE file and

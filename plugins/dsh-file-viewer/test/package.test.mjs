@@ -687,6 +687,196 @@ test('reading a position survives storage that throws on access', () => {
   }
 })
 
+test('a language override is remembered per file and validated on read', () => {
+  const { internals } = loadClient()
+  const previous = globalThis.localStorage
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => { store.set(key, String(value)) },
+    removeItem: (key) => { store.delete(key) },
+  }
+  try {
+    // Nothing remembered yet: the file follows automatic detection.
+    assert.equal(internals.readLangOverride('/repo', 'a.conf'), 'auto')
+
+    internals.writeLangOverride('/repo', 'a.conf', 'yaml')
+    assert.equal(internals.readLangOverride('/repo', 'a.conf'), 'yaml')
+
+    // Per file, not per suffix or per root: a sibling is untouched, and the
+    // same path under another root is a different file.
+    assert.equal(internals.readLangOverride('/repo', 'b.conf'), 'auto')
+    assert.equal(internals.readLangOverride('/other', 'a.conf'), 'auto')
+
+    // "auto" clears the override rather than storing a literal choice.
+    internals.writeLangOverride('/repo', 'a.conf', 'auto')
+    assert.equal(internals.readLangOverride('/repo', 'a.conf'), 'auto')
+  } finally {
+    delete globalThis.localStorage
+    if (previous !== undefined) globalThis.localStorage = previous
+  }
+})
+
+test('stored language overrides are re-validated rather than trusted', () => {
+  const { internals } = loadClient()
+  const previous = globalThis.localStorage
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => { store.set(key, String(value)) },
+    removeItem: (key) => { store.delete(key) },
+  }
+  try {
+    // The catalog is what makes validation strict, so load it the way the
+    // drawer does before trusting any stored id.
+    internals.setLanguageCatalog([
+      { id: 'plain', label: '纯文本' },
+      { id: 'yaml', label: 'YAML' },
+      { id: 'json', label: 'JSON' },
+    ])
+
+    // A hand-edited or older-build payload: junk ids, junk shapes, junk types.
+    store.set(internals.LANG_OVERRIDES_KEY, JSON.stringify({
+      '/repo\u0000good.conf': { lang: 'yaml', at: 1 },
+      '/repo\u0000bad-id.conf': { lang: 'klingon', at: 2 },
+      '/repo\u0000proto.conf': { lang: '__proto__', at: 3 },
+      '/repo\u0000no-lang.conf': { at: 4 },
+      '/repo\u0000num.conf': { lang: 42, at: 5 },
+      '/repo\u0000no-at.conf': { lang: 'json' },
+    }))
+    const clean = internals.readLangOverrides()
+    assert.equal(clean['/repo\u0000good.conf'].lang, 'yaml')
+    assert.equal(clean['/repo\u0000no-at.conf'].lang, 'json')
+    assert.equal(clean['/repo\u0000no-at.conf'].at, 0, 'a missing timestamp defaults rather than dropping the entry')
+    // Everything unusable is dropped, so a bad id can never reach the renderer
+    // and leave the select showing a value that is not among its options.
+    for (const key of ['/repo\u0000bad-id.conf', '/repo\u0000proto.conf', '/repo\u0000no-lang.conf', '/repo\u0000num.conf']) {
+      assert.equal(Object.hasOwn(clean, key), false, `${key} must be dropped`)
+    }
+
+    // Wholesale junk must not throw, and must not be mistaken for entries.
+    for (const raw of ['not json', '[]', 'null', '"a string"', '42']) {
+      store.set(internals.LANG_OVERRIDES_KEY, raw)
+      assert.deepEqual(internals.readLangOverrides(), {})
+    }
+  } finally {
+    delete globalThis.localStorage
+    if (previous !== undefined) globalThis.localStorage = previous
+  }
+})
+
+test('before the catalog arrives, only the id shape is checked', () => {
+  // The drawer renders before the `languages` response lands. A shape check is
+  // the strongest thing possible then, and the host re-validates every
+  // override on the way in, so a stale id still cannot change the rendering.
+  const { internals } = loadClient()
+  assert.deepEqual(internals.getLanguageCatalog(), [], 'the catalog starts empty')
+  assert.equal(internals.isKnownLanguageId('yaml'), true, 'a well-shaped id passes')
+  assert.equal(internals.isKnownLanguageId('klingon'), true, 'membership is unknowable before the catalog')
+  assert.equal(internals.isKnownLanguageId('__proto__'), false, 'the shape check still rejects junk')
+  assert.equal(internals.isKnownLanguageId('has space'), false)
+  assert.equal(internals.isKnownLanguageId(''), false)
+
+  // Once it arrives, membership becomes strict.
+  internals.setLanguageCatalog([{ id: 'yaml', label: 'YAML' }])
+  assert.equal(internals.isKnownLanguageId('yaml'), true)
+  assert.equal(internals.isKnownLanguageId('klingon'), false, 'the loaded catalog makes the check strict')
+})
+
+test('a malformed catalog response is ignored rather than replacing a good one', () => {
+  const { internals } = loadClient()
+  internals.setLanguageCatalog([{ id: 'yaml', label: 'YAML' }])
+  // Entries missing an id or a label are not usable options.
+  internals.setLanguageCatalog([{ id: '', label: 'x' }, { id: 'yaml' }, null, 'nope'])
+  assert.deepEqual(internals.getLanguageCatalog(), [{ id: 'yaml', label: 'YAML' }], 'the previous catalog stands')
+  // A non-array response is ignored outright.
+  internals.setLanguageCatalog(undefined)
+  internals.setLanguageCatalog('nope')
+  assert.deepEqual(internals.getLanguageCatalog(), [{ id: 'yaml', label: 'YAML' }])
+})
+
+test('the override map is capped so storage cannot grow without bound', () => {
+  const { internals } = loadClient()
+  const previous = globalThis.localStorage
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => { store.set(key, String(value)) },
+    removeItem: (key) => { store.delete(key) },
+  }
+  try {
+    const map = {}
+    for (let i = 0; i < internals.LANG_OVERRIDES_MAX + 50; i += 1) {
+      map[`/repo\u0000f${i}.conf`] = { lang: 'yaml', at: i }
+    }
+    internals.writeLangOverrides(map)
+    const stored = internals.readLangOverrides()
+    assert.equal(Object.keys(stored).length, internals.LANG_OVERRIDES_MAX)
+    // The newest survive; the oldest are the ones evicted.
+    assert.ok(Object.hasOwn(stored, `/repo\u0000f${internals.LANG_OVERRIDES_MAX + 49}.conf`), 'the newest entry survives')
+    assert.equal(Object.hasOwn(stored, '/repo\u0000f0.conf'), false, 'the oldest entry is evicted')
+  } finally {
+    delete globalThis.localStorage
+    if (previous !== undefined) globalThis.localStorage = previous
+  }
+})
+
+test('language override storage survives a localStorage that throws', () => {
+  const { internals } = loadClient()
+  const previous = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    get() { throw new Error('SecurityError') },
+    configurable: true,
+  })
+  try {
+    assert.deepEqual(internals.readLangOverrides(), {})
+    assert.equal(internals.readLangOverride('/repo', 'a.conf'), 'auto')
+    assert.doesNotThrow(() => internals.writeLangOverride('/repo', 'a.conf', 'yaml'))
+  } finally {
+    delete globalThis.localStorage
+    if (previous !== undefined) globalThis.localStorage = previous
+  }
+})
+
+test('the language picker offers auto plus the host catalog', () => {
+  const source = read('lib/client.js')
+
+  // Options come from the host so the two halves cannot disagree about what is
+  // selectable, and the host is what validates a submitted override.
+  assert.match(source, /request\("languages", \{\}\)/)
+  assert.match(source, /setLanguageCatalog\(value\?\.languages\)/)
+  // "auto" is always first and is the default state.
+  assert.match(source, /const \[langChoice, setLangChoice\] = react\.useState\("auto"\)/)
+  assert.match(source, /react\.createElement\("option", \{ value: "auto" \}, "自动"\)/)
+  // A native select keeps keyboard and screen-reader support for free.
+  assert.match(source, /className: "fv-lang-select"/)
+  assert.match(source, /"aria-label": "语法高亮语言"/)
+  // The resolved language is what the read actually highlighted with, so the
+  // choice travels on the request rather than being applied client-side.
+  assert.match(source, /const langPayload = lang === undefined \|\| lang === "auto" \? \{\} : \{ lang \}/)
+  assert.match(source, /request\("read", \{ root, path: meta\.path, offset, limit: WINDOW_LINES, \.\.\.langPayload \}\)/)
+  // Choosing persists per file and re-reads immediately.
+  assert.match(source, /writeLangOverride\(root, meta\.path, next\)/)
+  assert.match(source, /setLangChoice\(readLangOverride\(root, entry\.path\)\)/)
+  // Switching root or filter clears the selection, which belonged to a file in
+  // the previous root: the picker is not even rendered while no file is
+  // selected, so a lingering value would silently apply to the next file.
+  assert.match(source, /setLangChoice\("auto"\);/)
+  // The picker is contextual to a source view; an image or sheet has no grammar.
+  assert.match(source, /meta\.kind === "text" \|\| meta\.kind === "markdown" \|\| meta\.kind === "json"\)/)
+})
+
+test('the picker reports how the language was decided', () => {
+  const source = read('lib/client.js')
+
+  // A guess must be visible as a guess, or the user cannot tell that the
+  // highlighting is automatic — which is the whole point of the override.
+  assert.match(source, /source === "content" \? "按内容识别"/)
+  assert.match(source, /source === "name" \? "按后缀识别"/)
+  assert.match(source, /: "未识别"/)
+  assert.match(source, /choice !== "auto"/)
+})
+
 test('the entry can be dragged without the release opening the drawer', () => {
   const source = read('lib/client.js')
 

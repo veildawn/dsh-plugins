@@ -20,11 +20,13 @@ import path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 
 import {
+  LANGUAGE_CATALOG,
   MAX_BYTES,
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   TEXT_PROBE_BYTES,
   baseNameOf,
+  detectLanguageFromText,
   extensionOf,
   formatDocTextToMarkdown,
   parentOf,
@@ -33,15 +35,16 @@ import {
   isTextContent,
   isUtf8TextContent,
   isWholeDocumentKind,
+  isKnownLanguage,
   joinPath,
   kindOf,
   langOf,
-  langOf as languageOf,
   normalizeSafePaths,
   parseGitStatus,
   parsePatchToDiffs,
   parsePatchToRows,
   rebaseGitPaths,
+  resolveLanguage,
   resolveWindow,
   sanitizeDocHtml,
   sortEntries,
@@ -51,11 +54,13 @@ import {
 } from './core.js'
 
 export {
+  LANGUAGE_CATALOG,
   MAX_BYTES,
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   TEXT_PROBE_BYTES,
   baseNameOf,
+  detectLanguageFromText,
   extensionOf,
   formatDocTextToMarkdown,
   parentOf,
@@ -65,6 +70,7 @@ export {
   isTextContent,
   isUtf8TextContent,
   isWholeDocumentKind,
+  isKnownLanguage,
   joinPath,
   kindOf,
   langOf,
@@ -73,6 +79,7 @@ export {
   parsePatchToDiffs,
   parsePatchToRows,
   rebaseGitPaths,
+  resolveLanguage,
   resolveWindow,
   sortEntries,
   splitLines,
@@ -104,8 +111,8 @@ export const Config = z.object({
 })
 
 /**
- * Resolve the viewer kind for a file, falling back to content-based detection
- * when the name alone classifies it as binary.
+ * Resolve the viewer kind for a file and, when the name said nothing, the
+ * leading text a language guess can read.
  *
  * Path-based heuristics (kindOf) classify every known format, but files with
  * unrecognised extensions — `env.dev`, `env.staging`, `config.yaml.prod`,
@@ -121,26 +128,35 @@ export const Config = z.object({
  * A window is bounded by its own length regardless of file size, which is
  * what makes this a probe rather than a read.
  *
+ * The same window answers the language guess, so an unknown file costs one
+ * read, not two. The sample is returned only when the probe actually ran and
+ * the bytes decoded as UTF-8; a name-classified file carries none, because
+ * its extension already decided the language.
+ *
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
  * @param {object} target - a resolved fs target from resolveInRoot.
  * @param {string} naming - the display name / relative path.
  * @param {AbortSignal} [signal] - caller cancellation.
- * @returns {Promise<string>} the resolved viewer kind.
+ * @returns {Promise<{kind: string, sample: string | undefined}>} the viewer kind and optional sample.
  */
 async function resolveKind(ctx, target, naming, signal) {
   const kind = kindOf(naming)
-  if (kind !== 'binary') return kind
+  if (kind !== 'binary') return { kind, sample: undefined }
   // Content-based detection for any file classified as binary by name alone.
   // The null-byte heuristic (same as git and file(1)) is reliable: genuine
   // binary formats (ELF, PE, PNG, MP4, etc.) almost always contain a null
   // byte within the first 8 KB, while text files rarely do.
   try {
     const bytes = await readProbe(ctx, target, signal)
-    if (isTextContent(bytes) && isUtf8TextContent(bytes)) return 'text'
+    if (isTextContent(bytes) && isUtf8TextContent(bytes)) {
+      // Decoded non-fatally: the sample already passed the UTF-8 check, and a
+      // character split by the window boundary must not lose the whole probe.
+      return { kind: 'text', sample: new TextDecoder('utf-8').decode(bytes) }
+    }
   } catch {
     // Read failure is not a classification failure — stay 'binary'.
   }
-  return kind
+  return { kind, sample: undefined }
 }
 
 /**
@@ -315,8 +331,12 @@ export async function describeFile(ctx, options, payload, signal) {
 
   const size = typeof info.size === 'number' ? info.size : undefined
   const naming = relative === '' ? target.displayPath : relative
-  const kind = await resolveKind(ctx, target, naming, signal)
-  const lang = languageOf(naming)
+  const probe = await resolveKind(ctx, target, naming, signal)
+  const kind = probe.kind
+  // The override travels with the request so the picker's choice survives a
+  // reload without the host having to store per-file preferences.
+  const detected = resolveLanguage({ override: payload?.lang, path: naming, sample: probe.sample })
+  const lang = detected.lang
   const textual = kind === 'text' || isWholeDocumentKind(kind)
   const limit = textual ? MAX_TEXT_BYTES : options().maxBytes
   return {
@@ -327,6 +347,13 @@ export async function describeFile(ctx, options, payload, signal) {
     kind,
     ...(size === undefined ? {} : { size }),
     ...(lang === undefined ? {} : { lang }),
+    langSource: detected.source,
+    // What the picker should show. "auto" whenever the user has not pinned a
+    // grammar: a content-detected language is the host's decision, not the
+    // user's, and showing it as the selected option would misrepresent an
+    // automatic guess as an explicit choice. The resolved id is reported
+    // separately in `lang`, and `langSource` explains how it was reached.
+    langChoice: isKnownLanguage(payload?.lang) ? payload.lang : 'auto',
     tooLarge: size !== undefined && size > limit,
     limit,
   }
@@ -353,8 +380,12 @@ export async function readText(ctx, options, payload, signal) {
   const { lines, eol } = splitLines(text)
   const window = resolveWindow(lines.length, payload?.offset, payload?.limit)
   const naming = relative === '' ? target.displayPath : relative
-  const fileKind = await resolveKind(ctx, target, naming, signal)
-  const lang = languageOf(naming)
+  const probe = await resolveKind(ctx, target, naming, signal)
+  const fileKind = probe.kind
+  // The whole file is in hand here, so the language guess reads the real text
+  // rather than the 8 KB probe window — the richest sample available.
+  const detected = resolveLanguage({ override: payload?.lang, path: naming, sample: text })
+  const lang = detected.lang
   return {
     root: root.id,
     path: relative,
@@ -362,6 +393,9 @@ export async function readText(ctx, options, payload, signal) {
     displayPath: target.displayPath,
     kind: fileKind,
     ...(lang === undefined ? {} : { lang }),
+    langSource: detected.source,
+    // See describeFile: "auto" unless the user pinned a grammar themselves.
+    langChoice: isKnownLanguage(payload?.lang) ? payload.lang : 'auto',
     eol,
     totalLines: lines.length,
     offset: window.offset,
@@ -989,6 +1023,10 @@ const METHODS = Object.freeze({
   bytes: readBytes,
   sheet: readSheet,
   doc: readDoc,
+  // The picker's option list comes from the host so both halves cannot drift:
+  // the catalog is the same allow-list a submitted override is validated
+  // against, so the UI can only ever offer a choice the host accepts.
+  languages: () => ({ languages: LANGUAGE_CATALOG }),
 })
 
 /**

@@ -5,8 +5,10 @@ import {
   appendMention,
   MAX_BYTES,
   WINDOW_LINES,
+  LANGUAGE_CATALOG,
   ancestorsOf,
   baseNameOf,
+  detectLanguageFromText,
   flattenTree,
   extensionOf,
   formatBytes,
@@ -17,6 +19,8 @@ import {
   isTextContent,
   isUtf8TextContent,
   isWholeDocumentKind,
+  isKnownLanguage,
+  isLanguageIdShaped,
   joinPath,
   kindOf,
   langOf,
@@ -26,6 +30,7 @@ import {
   parsePatchToDiffs,
   parsePatchToRows,
   rebaseGitPaths,
+  resolveLanguage,
   resolveWindow,
   sortEntries,
   splitLines,
@@ -65,6 +70,139 @@ test('language hints cover grammars the client can load and skip the rest', () =
   assert.equal(langOf('api.proto'), 'cpp')
   assert.equal(langOf('notes.txt'), undefined)
   assert.equal(langOf('photo.png'), undefined)
+  // The suffix-based table still says nothing for an unknown suffix — that is
+  // exactly the gap the content guess and the picker exist to fill.
+  assert.equal(langOf('config.yaml.prod'), undefined)
+})
+
+test('the language catalog offers every grammar the highlighter can load', () => {
+  const ids = LANGUAGE_CATALOG.map((entry) => entry.id)
+  // "plain" is the explicit no-highlighting choice, not a grammar.
+  assert.equal(ids[0], 'plain', 'plain leads so "no highlighting" is the first escape hatch')
+  assert.equal(new Set(ids).size, ids.length, 'ids must be unique or the select has duplicate options')
+  for (const entry of LANGUAGE_CATALOG) {
+    assert.equal(typeof entry.label, 'string')
+    assert.notEqual(entry.label, '', `${entry.id} needs a label`)
+  }
+  // Every offered grammar must be a real id: handing shiki an unknown one
+  // renders plain text while the UI claims otherwise.
+  const grammarIds = ids.filter((id) => id !== 'plain')
+  assert.ok(grammarIds.length > 50, 'the catalog should cover the highlighter breadth')
+  for (const id of grammarIds) {
+    assert.ok(isLanguageIdShaped(id), `${id} must be shaped like an id`)
+  }
+  // The specific ids the picker is most likely to be used for.
+  for (const expected of ['yaml', 'json', 'ini', 'toml', 'dotenv', 'shellscript', 'python', 'typescript']) {
+    assert.ok(ids.includes(expected), `${expected} must be selectable`)
+  }
+})
+
+test('isKnownLanguage accepts catalog ids plus plain and rejects everything else', () => {
+  assert.equal(isKnownLanguage('yaml'), true)
+  assert.equal(isKnownLanguage('plain'), true)
+  // Unknown to the highlighter: must be refused rather than silently ignored.
+  assert.equal(isKnownLanguage('constructor'), false)
+  assert.equal(isKnownLanguage('__proto__'), false)
+  assert.equal(isKnownLanguage('klingon'), false)
+  assert.equal(isKnownLanguage(''), false)
+  assert.equal(isKnownLanguage(undefined), false)
+  assert.equal(isKnownLanguage(null), false)
+  assert.equal(isKnownLanguage(42), false)
+})
+
+test('isLanguageIdShaped screens junk before it reaches the catalog', () => {
+  assert.equal(isLanguageIdShaped('yaml'), true)
+  assert.equal(isLanguageIdShaped('system-verilog'), true)
+  assert.equal(isLanguageIdShaped('YAML'), false, 'ids are lowercase')
+  assert.equal(isLanguageIdShaped('-leading'), false)
+  assert.equal(isLanguageIdShaped('has space'), false)
+  assert.equal(isLanguageIdShaped('a'.repeat(33)), false, 'absurd length is refused')
+  assert.equal(isLanguageIdShaped(undefined), false)
+})
+
+test('detectLanguageFromText names a language only on positive evidence', () => {
+  // Shebangs are authoritative: the interpreter is named outright.
+  assert.equal(detectLanguageFromText('#!/bin/bash\nset -e\n'), 'shellscript')
+  assert.equal(detectLanguageFromText('#!/usr/bin/env python3\nimport os\n'), 'python')
+  assert.equal(detectLanguageFromText('#!/usr/bin/env node\nconsole.log(1)\n'), 'typescript')
+  assert.equal(detectLanguageFromText('#!/usr/bin/env fish\n'), 'fish')
+  assert.equal(detectLanguageFromText('#!/usr/bin/env ruby\n'), 'ruby')
+
+  // Declaration-led markup.
+  assert.equal(detectLanguageFromText('<?xml version="1.0"?>\n<root/>\n'), 'xml')
+  assert.equal(detectLanguageFromText('<!DOCTYPE html>\n<html></html>\n'), 'html')
+  assert.equal(detectLanguageFromText('\\documentclass{article}\n'), 'latex')
+  assert.equal(detectLanguageFromText('syntax = "proto3";\nmessage Foo {\n  string a = 1;\n}\n'), 'proto')
+  assert.equal(detectLanguageFromText('resource "aws_instance" "web" {\n  ami = "x"\n}\n'), 'hcl')
+  assert.equal(detectLanguageFromText('query GetUser {\n  user { id }\n}\n'), 'graphql')
+
+  // JSON must actually parse; a truncated sample is not evidence.
+  assert.equal(detectLanguageFromText('{"a": 1, "b": [2, 3]}\n'), 'json')
+  assert.equal(detectLanguageFromText('{"a": 1, "b": [2, 3'), undefined)
+
+  // Loose key/value shapes.
+  assert.equal(detectLanguageFromText('server:\n  port: 8080\nlog:\n  level: info\n'), 'yaml')
+  assert.equal(detectLanguageFromText('- one\n- two\n- three\n'), 'yaml')
+  assert.equal(detectLanguageFromText('[database]\nhost=localhost\nport=5432\n'), 'ini')
+  assert.equal(detectLanguageFromText('name,age,city\nalice,30,nyc\nbob,25,la\n'), 'csv')
+  assert.equal(detectLanguageFromText('FROM node:20\nRUN npm ci\nCOPY . .\n'), 'shellscript')
+})
+
+test('detectLanguageFromText refuses to guess without evidence', () => {
+  // Guessing wrong colours a file misleadingly, so these must stay plain.
+  assert.equal(detectLanguageFromText('This is just a note about the deploy.\n'), undefined)
+  assert.equal(detectLanguageFromText('hello world\n'), undefined)
+  assert.equal(detectLanguageFromText(''), undefined)
+  assert.equal(detectLanguageFromText('   \n\n  '), undefined)
+  assert.equal(detectLanguageFromText(undefined), undefined)
+  assert.equal(detectLanguageFromText(null), undefined)
+  // A single `key=value` is far too common to claim as INI.
+  assert.equal(detectLanguageFromText('FOO=bar\n'), undefined)
+  // Ragged comma-separated text is prose, not CSV.
+  assert.equal(detectLanguageFromText('a, b, c\njust one field\nx, y\n'), undefined)
+  // JSON braces must not be mistaken for CSV.
+  assert.equal(detectLanguageFromText('{"a": 1, "b": 2'), undefined)
+})
+
+test('resolveLanguage prefers an override, then the name, then content', () => {
+  const yamlText = 'server:\n  port: 8080\nlog:\n  level: info\n'
+
+  // No override, unknown suffix: content decides.
+  assert.deepEqual(
+    resolveLanguage({ path: 'config.yaml.prod', sample: yamlText }),
+    { lang: 'yaml', source: 'content' },
+  )
+  // A known suffix outranks content: an extension is stronger evidence than a
+  // heuristic over the first 8 KB.
+  assert.deepEqual(
+    resolveLanguage({ path: 'app.py', sample: yamlText }),
+    { lang: 'python', source: 'name' },
+  )
+  // The override outranks both, because it reflects intent.
+  assert.deepEqual(
+    resolveLanguage({ override: 'ini', path: 'app.py', sample: yamlText }),
+    { lang: 'ini', source: 'override' },
+  )
+  assert.deepEqual(
+    resolveLanguage({ override: 'ini', path: 'config.yaml.prod', sample: yamlText }),
+    { lang: 'ini', source: 'override' },
+  )
+  // "plain" is an override that means no highlighting at all.
+  assert.deepEqual(
+    resolveLanguage({ override: 'plain', path: 'app.py', sample: yamlText }),
+    { lang: undefined, source: 'override' },
+  )
+  // An unvalidated override is ignored, not trusted.
+  assert.deepEqual(
+    resolveLanguage({ override: '__proto__', path: 'app.py', sample: yamlText }),
+    { lang: 'python', source: 'name' },
+  )
+  assert.deepEqual(
+    resolveLanguage({ override: 'klingon', path: 'notes.unknown', sample: 'plain prose\n' }),
+    { lang: undefined, source: 'none' },
+  )
+  // Nothing to go on at all.
+  assert.deepEqual(resolveLanguage({}), { lang: undefined, source: 'none' })
 })
 
 test('kind classification routes every requested format to one viewer', () => {

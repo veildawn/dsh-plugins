@@ -227,6 +227,314 @@ export function langOf(path) {
 }
 
 /**
+ * Every grammar the client's highlighter can actually load, as
+ * `{ id, label }` pairs.
+ *
+ * This is the picker's option list and the allow-list for a user override: an
+ * id outside it would be handed to shiki, which silently renders plain text,
+ * so the UI would appear to accept a choice that does nothing. `plain` is
+ * deliberately first — it is the "no highlighting" escape hatch, and it is
+ * the only entry that is not a grammar id.
+ *
+ * Kept in sync with `@deepseek-ai/dsh-client-ui-primitives`'s `LANG_ALIASES`
+ * (the canonical ids, not the aliases) by the `language catalog matches the
+ * highlighter` test.
+ */
+export const LANGUAGE_CATALOG = Object.freeze([
+  Object.freeze({ id: 'plain', label: '纯文本' }),
+  Object.freeze({ id: 'typescript', label: 'TypeScript' }),
+  Object.freeze({ id: 'json', label: 'JSON' }),
+  Object.freeze({ id: 'yaml', label: 'YAML' }),
+  Object.freeze({ id: 'toml', label: 'TOML' }),
+  Object.freeze({ id: 'ini', label: 'INI / Properties' }),
+  Object.freeze({ id: 'dotenv', label: '.env' }),
+  Object.freeze({ id: 'xml', label: 'XML' }),
+  Object.freeze({ id: 'html', label: 'HTML' }),
+  Object.freeze({ id: 'css', label: 'CSS' }),
+  Object.freeze({ id: 'scss', label: 'SCSS' }),
+  Object.freeze({ id: 'less', label: 'Less' }),
+  Object.freeze({ id: 'markdown', label: 'Markdown' }),
+  Object.freeze({ id: 'mdx', label: 'MDX' }),
+  Object.freeze({ id: 'vue', label: 'Vue' }),
+  Object.freeze({ id: 'svelte', label: 'Svelte' }),
+  Object.freeze({ id: 'python', label: 'Python' }),
+  Object.freeze({ id: 'ruby', label: 'Ruby' }),
+  Object.freeze({ id: 'go', label: 'Go' }),
+  Object.freeze({ id: 'rust', label: 'Rust' }),
+  Object.freeze({ id: 'java', label: 'Java' }),
+  Object.freeze({ id: 'kotlin', label: 'Kotlin' }),
+  Object.freeze({ id: 'scala', label: 'Scala' }),
+  Object.freeze({ id: 'groovy', label: 'Groovy' }),
+  Object.freeze({ id: 'c', label: 'C' }),
+  Object.freeze({ id: 'cpp', label: 'C++' }),
+  Object.freeze({ id: 'csharp', label: 'C#' }),
+  Object.freeze({ id: 'swift', label: 'Swift' }),
+  Object.freeze({ id: 'php', label: 'PHP' }),
+  Object.freeze({ id: 'perl', label: 'Perl' }),
+  Object.freeze({ id: 'lua', label: 'Lua' }),
+  Object.freeze({ id: 'r', label: 'R' }),
+  Object.freeze({ id: 'julia', label: 'Julia' }),
+  Object.freeze({ id: 'dart', label: 'Dart' }),
+  Object.freeze({ id: 'elixir', label: 'Elixir' }),
+  Object.freeze({ id: 'erlang', label: 'Erlang' }),
+  Object.freeze({ id: 'clojure', label: 'Clojure' }),
+  Object.freeze({ id: 'haskell', label: 'Haskell' }),
+  Object.freeze({ id: 'fsharp', label: 'F#' }),
+  Object.freeze({ id: 'vb', label: 'Visual Basic' }),
+  Object.freeze({ id: 'nix', label: 'Nix' }),
+  Object.freeze({ id: 'shellscript', label: 'Shell' }),
+  Object.freeze({ id: 'powershell', label: 'PowerShell' }),
+  Object.freeze({ id: 'bat', label: 'Batch' }),
+  Object.freeze({ id: 'fish', label: 'Fish' }),
+  Object.freeze({ id: 'make', label: 'Makefile' }),
+  Object.freeze({ id: 'cmake', label: 'CMake' }),
+  Object.freeze({ id: 'sql', label: 'SQL' }),
+  Object.freeze({ id: 'graphql', label: 'GraphQL' }),
+  Object.freeze({ id: 'proto', label: 'Protocol Buffers' }),
+  Object.freeze({ id: 'hcl', label: 'HCL / Terraform' }),
+  Object.freeze({ id: 'http', label: 'HTTP' }),
+  Object.freeze({ id: 'log', label: 'Log' }),
+  Object.freeze({ id: 'csv', label: 'CSV' }),
+  Object.freeze({ id: 'diff', label: 'Diff' }),
+  Object.freeze({ id: 'rst', label: 'reStructuredText' }),
+  Object.freeze({ id: 'latex', label: 'LaTeX' }),
+  Object.freeze({ id: 'bibtex', label: 'BibTeX' }),
+  Object.freeze({ id: 'asciidoc', label: 'AsciiDoc' }),
+  Object.freeze({ id: 'verilog', label: 'Verilog' }),
+  Object.freeze({ id: 'system-verilog', label: 'SystemVerilog' }),
+])
+
+/** Every selectable id, as a Set for O(1) validation of a user override. */
+const LANGUAGE_IDS = Object.freeze(new Set(LANGUAGE_CATALOG.map((entry) => entry.id)))
+
+/**
+ * Whether a language id may be handed to the highlighter.
+ *
+ * `plain` is accepted because it is the picker's explicit "no highlighting"
+ * choice; it is normalized to `undefined` before reaching the renderer.
+ * @param {unknown} id - a candidate id, typically from storage or the RPC.
+ * @returns {boolean} true when the id is one the picker offers.
+ */
+export function isKnownLanguage(id) {
+  return typeof id === 'string' && LANGUAGE_IDS.has(id)
+}
+
+/**
+ * Whether a name is shaped like a language id at all.
+ *
+ * Used to reject junk before it reaches the catalog: an arbitrary string from
+ * storage or the wire must not become a highlight request. Deliberately
+ * permissive about membership (that is {@link isKnownLanguage}'s job) so the
+ * two checks stay independent.
+ * @param {unknown} value - a candidate value.
+ * @returns {boolean} true when the value is a plausible id.
+ */
+export function isLanguageIdShaped(value) {
+  return typeof value === 'string' && value.length > 0 && value.length <= 32 && /^[a-z][a-z0-9-]*$/.test(value)
+}
+
+/**
+ * Guess a language from a text sample when the file name says nothing.
+ *
+ * Only content with an unambiguous, cheaply checkable signature is claimed;
+ * everything else returns `undefined` and renders as plain text. Guessing
+ * wrong is worse than not guessing, because the highlight lands on tokens the
+ * grammar does not expect and colours the file misleadingly — so each rule
+ * here demands a positive structural marker, not merely "no contradiction".
+ *
+ * Ordered most-specific first: a shebang names its interpreter outright, then
+ * exact first-token formats, then declaration-led markup, then loose
+ * key/value shapes last.
+ *
+ * @param {string} sample - the decoded leading text of the file.
+ * @returns {string | undefined} a grammar id from {@link LANGUAGE_CATALOG}, or undefined.
+ */
+export function detectLanguageFromText(sample) {
+  if (typeof sample !== 'string') return undefined
+  // A sample cut mid-line is still fine: every rule below reads whole leading
+  // lines, and a truncated trailing line simply fails to match.
+  const text = sample.replace(/^\uFEFF/, '')
+  if (text.trim() === '') return undefined
+
+  const firstLine = text.slice(0, text.indexOf('\n') === -1 ? text.length : text.indexOf('\n')).trim()
+
+  // 1. Shebang names the interpreter directly, and is authoritative.
+  if (firstLine.startsWith('#!')) {
+    if (/\b(?:ba|z|k|c)?sh\b/.test(firstLine)) return 'shellscript'
+    if (/\bfish\b/.test(firstLine)) return 'fish'
+    if (/\b(?:python|python3)\b/.test(firstLine)) return 'python'
+    if (/\bnode\b/.test(firstLine)) return 'typescript'
+    if (/\bruby\b/.test(firstLine)) return 'ruby'
+    if (/\bperl\b/.test(firstLine)) return 'perl'
+    return undefined
+  }
+
+  // 2. Exact leading tokens that only one format uses.
+  if (/^<\?xml\b/.test(text)) {
+    // An SVG root is XML too, but the XML grammar renders it correctly.
+    return 'xml'
+  }
+  if (/^<!DOCTYPE html\b/i.test(text) || /^<html[\s>]/i.test(text)) return 'html'
+  if (/^%PDF-/.test(text)) return undefined // binary, handled by the caller
+  if (/^%!PS/.test(text)) return undefined
+  if (/^\\documentclass\b/.test(text) || /^\\begin\{document\}/.test(text)) return 'latex'
+  if (/^@(?:article|book|inproceedings|misc|string)\s*\{/i.test(text)) return 'bibtex'
+  if (/^=+[^=\n]+=+\s*$/m.test(text) && /^\S.*\n[-=]{3,}\s*$/m.test(text)) return 'rst'
+
+  // 3. Declaration-led markup.
+  if (/^\s*(?:syntax\s*=\s*"?proto3"?|package\s+[\w.]+\s*;)/m.test(text) && /\b(?:message|service|rpc)\s+\w+/.test(text)) return 'proto'
+  if (/^\s*(?:terraform|resource|variable|provider|module|output|locals)\s+["{]/.test(text) || /^\s*terraform\s*\{/m.test(text)) return 'hcl'
+  if (/^\s*(?:query|mutation|subscription|fragment)\s+\w+/.test(text) || /^\s*type\s+\w+\s*\{/m.test(text)) return 'graphql'
+
+  // 4. JSON: must actually parse, not merely start with a brace. A truncated
+  //    sample is common, so a failed parse falls through rather than deciding.
+  const trimmed = text.trim()
+  if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && looksLikeCompleteJson(trimmed)) return 'json'
+
+  // 5. Loose key/value shapes, weakest evidence, checked last.
+  if (looksLikeYaml(text)) return 'yaml'
+  if (looksLikeIni(text)) return 'ini'
+  if (looksLikeDockerfile(text)) return 'shellscript'
+  if (looksLikeCsv(text)) return 'csv'
+
+  return undefined
+}
+
+/**
+ * Whether a sample parses as a whole JSON document.
+ * @param {string} text - the trimmed sample.
+ * @returns {boolean} true when it parses.
+ */
+function looksLikeCompleteJson(text) {
+  try {
+    JSON.parse(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether a sample has YAML's shape: `key: value` lines, with no `=`-led
+ * assignments (which would suggest INI) and no XML/HTML angle brackets.
+ * @param {string} text - the sample.
+ * @returns {boolean} true when the sample looks like YAML.
+ */
+function looksLikeYaml(text) {
+  const lines = text.split('\n').filter((line) => line.trim() !== '' && !line.trimStart().startsWith('#'))
+  if (lines.length === 0) return false
+  let mappings = 0
+  for (const line of lines.slice(0, 40)) {
+    // A YAML mapping is `key:` possibly followed by a value; a list item or a
+    // document marker is also strong evidence.
+    if (/^\s*-\s/.test(line) || /^\s*---\s*$/.test(line)) {
+      mappings += 1
+      continue
+    }
+    if (/^\s*[A-Za-z_][\w.-]*\s*:(?:\s|$)/.test(line)) {
+      mappings += 1
+      continue
+    }
+    // A bare `=` assignment points at INI, not YAML.
+    if (/^\s*[A-Za-z_][\w.-]*\s*=/.test(line)) return false
+  }
+  // Require most lines to be mappings; prose would otherwise drift in.
+  return mappings >= 2 && mappings >= Math.ceil(lines.slice(0, 40).length * 0.6)
+}
+
+/**
+ * Whether a sample has INI's shape: at least one `[section]` and `key=value`
+ * assignments.
+ * @param {string} text - the sample.
+ * @returns {boolean} true when the sample looks like INI.
+ */
+function looksLikeIni(text) {
+  const lines = text.split('\n').filter((line) => line.trim() !== '' && !line.trimStart().startsWith('#') && !line.trimStart().startsWith(';'))
+  if (lines.length === 0) return false
+  let sections = 0
+  let assignments = 0
+  for (const line of lines.slice(0, 40)) {
+    if (/^\s*\[[^\]]+\]\s*$/.test(line)) sections += 1
+    else if (/^\s*[A-Za-z_][\w.-]*\s*=/.test(line)) assignments += 1
+  }
+  // A lone `key=value` is far too common to claim; require a section header or
+  // several assignments before calling it INI.
+  return sections >= 1 || assignments >= 3
+}
+
+/**
+ * Whether a sample is a CSV document: several lines sharing one field count.
+ *
+ * A single comma-bearing line is not enough — JSON, prose and code all contain
+ * commas — so this requires a rectangular shape across at least two rows, and
+ * rejects anything with the braces or brackets of a structured format.
+ * @param {string} text - the sample.
+ * @returns {boolean} true when the sample looks like CSV.
+ */
+function looksLikeCsv(text) {
+  if (/[{}[\]<>]/.test(text)) return false
+  const rows = text.split('\n').filter((line) => line.trim() !== '')
+  if (rows.length < 2) return false
+  const split = (line) => line.split(',').map((field) => field.trim())
+  const header = split(rows[0])
+  if (header.length < 2 || header.length > 64) return false
+  // Every row must share the header's field count; a ragged shape is prose.
+  let matching = 0
+  for (const row of rows.slice(1, 21)) {
+    if (split(row).length === header.length) matching += 1
+    else return false
+  }
+  if (matching < 1) return false
+  // Fields must look like data, not sentences: prose has spaces and stops.
+  return header.every((field) => field.length <= 64 && !/[.!?;]/.test(field))
+}
+
+/**
+ * Whether a sample is a Dockerfile: its instructions are a closed vocabulary
+ * and the file conventionally starts with FROM or a parser directive.
+ * @param {string} text - the sample.
+ * @returns {boolean} true when the sample looks like a Dockerfile.
+ */
+function looksLikeDockerfile(text) {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'))
+  if (lines.length === 0) return false
+  if (!/^FROM\s+\S+/i.test(lines[0])) return false
+  const INSTRUCTIONS = /^(?:FROM|RUN|CMD|LABEL|MAINTAINER|EXPOSE|ENV|ADD|COPY|ENTRYPOINT|VOLUME|USER|WORKDIR|ARG|ONBUILD|STOPSIGNAL|HEALTHCHECK|SHELL)\b/i
+  // Every remaining line must be an instruction or a continuation, or this is
+  // some other file that merely happens to start with FROM.
+  return lines.slice(1, 40).every((line) => INSTRUCTIONS.test(line) || /^[&|]/.test(line) || /\$\{?[A-Z_]+\}?/.test(line))
+}
+
+/**
+ * Resolve the language to highlight a file with, given every source of truth
+ * in precedence order: an explicit user override, then the file name, then a
+ * content guess.
+ *
+ * The override wins outright because it is the only signal that reflects
+ * intent; the name beats content because a correct extension is stronger
+ * evidence than a heuristic over 8 KB.
+ *
+ * @param {object} input - the resolution inputs.
+ * @param {string} [input.override] - a validated user choice, or undefined.
+ * @param {string} [input.path] - the file path.
+ * @param {string} [input.sample] - decoded leading text, when content may be consulted.
+ * @returns {{lang: string | undefined, source: 'override'|'name'|'content'|'none'}} the id and where it came from.
+ */
+export function resolveLanguage({ override, path, sample } = {}) {
+  if (isKnownLanguage(override)) {
+    return { lang: override === 'plain' ? undefined : override, source: 'override' }
+  }
+  const byName = typeof path === 'string' ? langOf(path) : undefined
+  if (byName !== undefined) return { lang: byName, source: 'name' }
+  const byContent = detectLanguageFromText(sample)
+  if (byContent !== undefined) return { lang: byContent, source: 'content' }
+  return { lang: undefined, source: 'none' }
+}
+
+/**
  * The media type to stamp on a blob URL, for the formats the browser renders
  * natively. Text formats deliberately have none — they never become blobs.
  * @param {string} path - the file path.

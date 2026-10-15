@@ -272,6 +272,12 @@ window.__ModuleLoader__.load({
     // settings; the key follows the `<plugin>.<setting>` form used elsewhere.
     const ENTRY_POSITION_KEY = "dsh-file-viewer.entry-position";
     const TREE_WIDTH_KEY = "dsh-file-viewer.tree-width";
+    // Per-file language overrides, keyed by the file's path within its root.
+    // Per-file rather than per-extension because the user chose this file, and
+    // a whole suffix could be shared by files that genuinely differ.
+    const LANG_OVERRIDES_KEY = "dsh-file-viewer.lang-overrides";
+    /** Overrides past this are dropped oldest-first, so storage cannot grow without bound. */
+    const LANG_OVERRIDES_MAX = 200;
     const DEFAULT_TREE_WIDTH = 280;
     const MIN_TREE_WIDTH = 160;
     const MAX_TREE_WIDTH = 700;
@@ -330,6 +336,11 @@ window.__ModuleLoader__.load({
       .fv-main{display:flex;flex:1 1 auto;flex-direction:column;min-width:0;min-height:0}
       .fv-main-head{display:flex;flex:none;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:12px}
       .fv-main-name{flex:1 1 auto;min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-weight:500;white-space:nowrap;text-overflow:ellipsis}
+      .fv-lang{display:inline-flex;flex:none;align-items:center;gap:4px;min-width:0}
+      .fv-lang-hint{flex:none;color:var(--dsw-alias-label-caption);font-size:11px;white-space:nowrap}
+      .fv-lang-select{box-sizing:border-box;max-width:132px;height:24px;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:22px;cursor:pointer}
+      .fv-lang-select:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-l2))}
+      .fv-lang-select:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
       .fv-content{flex:1 1 auto;min-height:0;overflow:auto;padding:12px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
       .fv-content>*{max-width:100%}
       .fv-doc-article{max-width:880px;margin:0 auto;padding:12px 16px;line-height:1.8;font-size:14px;word-break:break-word}
@@ -458,6 +469,10 @@ window.__ModuleLoader__.load({
       .fv-shell[data-mobile="true"] .fv-body[data-pane="tree"] .fv-main{display:none!important}
       .fv-shell[data-mobile="true"] .fv-crumbs{font-size:11px}
       .fv-shell[data-mobile="true"] .fv-file-path{display:none!important}
+      /* The head is cramped on a phone: drop the provenance hint, keep the
+         control, and give the select a full touch target. */
+      .fv-shell[data-mobile="true"] .fv-lang-hint{display:none!important}
+      .fv-shell[data-mobile="true"] .fv-lang-select{max-width:104px;height:32px;font-size:13px;line-height:30px}
       @media(max-width:960px), (pointer:coarse) and (max-width:1100px){
         .fv-shell{width:100%!important;border-left:none!important}
         .fv-btn-fullscreen{display:none!important}
@@ -667,6 +682,103 @@ window.__ModuleLoader__.load({
           globalThis.localStorage?.setItem(TREE_WIDTH_KEY, String(Math.round(width)));
         }
       } catch { /* storage is unavailable */ }
+    }
+
+    /**
+     * Read the per-file language overrides.
+     *
+     * Every entry is re-validated on read: storage survives upgrades and can be
+     * hand-edited, and an id the highlighter does not know would silently
+     * render plain while the picker claimed otherwise. Entries are stored as
+     * `{ [key]: { lang, at } }` so the oldest can be evicted.
+     */
+    function readLangOverrides() {
+      try {
+        const raw = globalThis.localStorage?.getItem(LANG_OVERRIDES_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+        const clean = {};
+        for (const [key, value] of Object.entries(parsed)) {
+          if (typeof key !== "string" || key === "") continue;
+          const lang = value?.lang;
+          if (!isKnownLanguageId(lang)) continue;
+          const at = Number(value?.at);
+          clean[key] = { lang, at: Number.isFinite(at) ? at : 0 };
+        }
+        return clean;
+      } catch { return {}; }
+    }
+
+    /** Persist the override map, evicting the oldest entries past the cap. */
+    function writeLangOverrides(map) {
+      try {
+        const entries = Object.entries(map || {});
+        if (entries.length > LANG_OVERRIDES_MAX) {
+          entries.sort((a, b) => (b[1]?.at ?? 0) - (a[1]?.at ?? 0));
+          map = Object.fromEntries(entries.slice(0, LANG_OVERRIDES_MAX));
+        }
+        globalThis.localStorage?.setItem(LANG_OVERRIDES_KEY, JSON.stringify(map));
+      } catch { /* storage is unavailable; the choice simply is not remembered */ }
+    }
+
+    /**
+     * The selectable languages, as the host reports them.
+     *
+     * Module-scoped because the storage helpers below are plain functions, not
+     * component hooks. Starts empty: until the host answers, only the id shape
+     * is checked, and the host re-validates every override regardless.
+     */
+    let languageCatalog = [];
+
+    /** Replace the cached catalog from a `languages` response, ignoring a malformed one. */
+    function setLanguageCatalog(value) {
+      if (!Array.isArray(value)) return;
+      const clean = value.filter((entry) => entry !== null && typeof entry === "object"
+        && typeof entry.id === "string" && entry.id !== ""
+        && typeof entry.label === "string");
+      if (clean.length > 0) languageCatalog = clean;
+    }
+
+    /**
+     * Whether an id is one the picker offers.
+     *
+     * The catalog arrives from the host, so this consults the live list rather
+     * than a second copy that could drift.
+     */
+    function isKnownLanguageId(id) {
+      if (typeof id !== "string" || id === "") return false;
+      if (languageCatalog.length === 0) {
+        // Before the catalog arrives, accept only the shape; the host
+        // re-validates every override anyway, so a stale id cannot take effect.
+        return /^[a-z][a-z0-9-]{0,31}$/.test(id);
+      }
+      return languageCatalog.some((entry) => entry.id === id);
+    }
+
+    /** The storage key for one file: root plus path, so equal paths in different roots differ. */
+    function langOverrideKey(root, path) {
+      return `${root ?? ""}\u0000${path ?? ""}`;
+    }
+
+    /** The remembered language choice for a file, or "auto" when none is stored. */
+    function readLangOverride(root, path) {
+      const stored = readLangOverrides()[langOverrideKey(root, path)];
+      return stored === undefined ? "auto" : stored.lang;
+    }
+
+    /**
+     * Remember, or forget, the language choice for one file.
+     * @param {string} root - the workspace root id.
+     * @param {string} path - the file's path within that root.
+     * @param {string} lang - the chosen id, or "auto" to clear the override.
+     */
+    function writeLangOverride(root, path, lang) {
+      const key = langOverrideKey(root, path);
+      const map = readLangOverrides();
+      if (lang === "auto") delete map[key];
+      else map[key] = { lang, at: Date.now() };
+      writeLangOverrides(map);
     }
 
     /**
@@ -1176,6 +1288,44 @@ window.__ModuleLoader__.load({
     }
 
     /** Render root selector options, grouping safe access paths separately if present. */
+    /**
+     * The syntax-language picker.
+     *
+     * A native `<select>` on purpose: it is keyboard- and screen-reader-
+     * accessible for free, and on a phone it opens the platform's own
+     * picker, which a hand-rolled listbox would only imitate badly.
+     *
+     * "自动" is always first and is the default. The entry shows how the
+     * current language was decided, so a guess is visible as a guess rather
+     * than looking like a fact about the file.
+     */
+    function LanguagePicker({ choice, catalog, source, resolved, onChange }) {
+      const options = catalog.length > 0
+        ? catalog
+        : [{ id: "plain", label: "纯文本" }];
+      // How the language was decided, shown beside the control. Only "auto"
+      // can be a guess, so only "auto" explains itself.
+      const hint = choice !== "auto"
+        ? "已指定"
+        : source === "content" ? "按内容识别"
+          : source === "name" ? "按后缀识别"
+            : "未识别";
+      return react.createElement("label", { className: "fv-lang" },
+        react.createElement("span", { className: "fv-lang-hint", title: "语言识别来源" }, hint),
+        react.createElement("select", {
+          className: "fv-lang-select",
+          value: choice,
+          "aria-label": "语法高亮语言",
+          title: resolved === undefined ? "语法高亮语言" : `语法高亮：${resolved}`,
+          onChange: (event) => onChange(event.target.value),
+        },
+          react.createElement("option", { value: "auto" }, "自动"),
+          options.map((entry) => react.createElement("option", {
+            key: entry.id, value: entry.id,
+          }, entry.label))));
+    }
+
+
     function renderRootOptions(roots) {
       const hasSafe = Array.isArray(roots) && roots.some((row) => row.kind === "safe-path");
       if (!hasSafe) {
@@ -1767,7 +1917,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Text, Markdown and JSON: one windowed read, three renderings. */
-      function TextView({ meta, root, wrap }) {
+      function TextView({ meta, root, wrap, lang }) {
         // Callers mount this with a per-file key, so paging state starts fresh
         // for every file instead of leaking the previous file's window into the
         // first request.
@@ -1781,7 +1931,10 @@ window.__ModuleLoader__.load({
           let live = true;
           setState((current) => ({ status: "loading", data: current.data, error: null }));
           setDiffMode(false);
-          request("read", { root, path: meta.path, offset, limit: WINDOW_LINES }).then((value) => {
+          // The override rides on the request, so the host resolves the
+          // language and the client never highlights on its own authority.
+          const langPayload = lang === undefined || lang === "auto" ? {} : { lang };
+          request("read", { root, path: meta.path, offset, limit: WINDOW_LINES, ...langPayload }).then((value) => {
             if (live) setState({ status: "ready", data: value, error: null });
           }).catch((error) => {
             if (live) setState({ status: "error", data: null, error });
@@ -1792,7 +1945,7 @@ window.__ModuleLoader__.load({
             if (live) setDiffData(null);
           });
           return () => { live = false; };
-        }, [root, meta.path, offset]);
+        }, [root, meta.path, offset, lang]);
 
         if (state.status === "error") {
           return react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error));
@@ -1939,7 +2092,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Pick the viewer for a file and keep unsupported formats useful. */
-      function FileView({ meta, root, api, wrap }) {
+      function FileView({ meta, root, api, wrap, lang }) {
         if (meta === null) {
           return react.createElement("div", { className: "fv-note" }, "从左侧选择一个文件。");
         }
@@ -1968,7 +2121,7 @@ window.__ModuleLoader__.load({
         if (meta.kind === "doc") {
           return react.createElement("div", { className: "fv-content" }, react.createElement(DocView, { key, meta, root }));
         }
-        return react.createElement(TextView, { key, meta, root, wrap });
+        return react.createElement(TextView, { key, meta, root, wrap, lang });
       }
 
       /** Right-click context menu for file and directory items. */
@@ -2303,6 +2456,9 @@ window.__ModuleLoader__.load({
         // Soft wrap for source views. Off by default: code is written with
         // meaningful line breaks and wrapping obscures them.
         const [wrap, setWrap] = react.useState(false);
+        // The language override for the selected file: "auto" follows the
+        // host's name-then-content resolution, any other id pins a grammar.
+        const [langChoice, setLangChoice] = react.useState("auto");
         const [fullscreen, setFullscreen] = react.useState(false);
         const [isMobile, setIsMobile] = react.useState(() => {
           if (typeof window === "undefined") return false;
@@ -2405,6 +2561,8 @@ window.__ModuleLoader__.load({
               setError(null);
               if (typeof value.selectFile === "string" && value.selectFile !== "") {
                 setPane("content");
+                // Arriving on a file from a link: honour its remembered choice.
+                setLangChoice(readLangOverride(resolvedRoot, value.selectFile));
                 const ticket = ++metaTicket.current;
                 request("meta", { root: resolvedRoot, path: value.selectFile }).then((metaVal) => {
                   if (metaTicket.current !== ticket) return;
@@ -2416,6 +2574,17 @@ window.__ModuleLoader__.load({
             });
           return () => { live = false; };
         }, [request_]);
+
+        // The picker's options come from the host, which also validates every
+        // override, so the two halves cannot disagree about what is selectable.
+        react.useEffect(() => {
+          if (!open) return undefined;
+          let live = true;
+          request("languages", {}).then((value) => {
+            if (live) setLanguageCatalog(value?.languages);
+          }).catch(() => {});
+          return () => { live = false; };
+        }, [open]);
 
         /**
          * Request one directory listing and file it into the node cache.
@@ -2449,6 +2618,11 @@ window.__ModuleLoader__.load({
           treeGeneration.current += 1;
           setNodes(new Map());
           setMeta(null);
+          // The override belonged to a file in the previous root; carrying it
+          // over would silently apply one file's grammar to the next file
+          // opened, and the picker is not even rendered while no file is
+          // selected. The per-file choice is restored in selectFile.
+          setLangChoice("auto");
           const chain = reveal === "" ? [] : [...ancestorsOf(reveal), reveal];
           setExpanded(new Set(chain));
           for (const dirPath of ["", ...chain]) loadDirectory(dirPath);
@@ -2527,6 +2701,9 @@ window.__ModuleLoader__.load({
         // the newest request may write state.
         const selectFile = (entry) => {
           setPane("content");
+          // The remembered choice for this file takes effect immediately, so
+          // the read that follows is already resolved with it.
+          setLangChoice(readLangOverride(root, entry.path));
           const ticket = metaTicket.current + 1;
           metaTicket.current = ticket;
           request("meta", { root, path: entry.path }).then((value) => {
@@ -2538,6 +2715,18 @@ window.__ModuleLoader__.load({
             setMeta(null);
             setError(problem);
           });
+        };
+
+        /**
+         * Pin, or unpin, the language for the selected file.
+         *
+         * The choice is remembered per file and sent with every read, so the
+         * host stays the only thing that decides what grammar applies.
+         */
+        const chooseLang = (next) => {
+          if (meta === null) return;
+          setLangChoice(next);
+          writeLangOverride(root, meta.path, next);
         };
 
         const activeRoot = roots.find((row) => row.id === root);
@@ -2648,6 +2837,18 @@ window.__ModuleLoader__.load({
                   react.createElement("span", { className: "fv-main-name" }, meta === null ? "未选择文件" : meta.name),
                   meta !== null && typeof meta.size === "number"
                     ? react.createElement("span", null, formatBytes(meta.size))
+                    : null,
+                  // The language picker sits with the file it applies to, and
+                  // is offered only for source views: an image, sheet or
+                  // document has no grammar to choose.
+                  meta !== null && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
+                    ? react.createElement(LanguagePicker, {
+                      choice: langChoice,
+                      catalog: languageCatalog,
+                      source: meta.langSource,
+                      resolved: meta.lang,
+                      onChange: chooseLang,
+                    })
                     : null),
                 error !== null && meta === null
                   ? react.createElement("div", { className: "fv-note fv-error" },
@@ -2666,7 +2867,7 @@ window.__ModuleLoader__.load({
                       : null)
                   : react.createElement(ErrorBoundary, {
                     resetKey: meta ? meta.path : "",
-                  }, react.createElement(FileView, { meta, root, api: props.api, wrap })))),
+                  }, react.createElement(FileView, { meta, root, api: props.api, wrap, lang: langChoice })))),
             contextMenu !== null
               ? react.createElement(ContextMenu, {
                 menu: contextMenu,
@@ -2995,6 +3196,8 @@ window.__ModuleLoader__.load({
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
+      LANG_OVERRIDES_KEY, LANG_OVERRIDES_MAX, readLangOverrides, writeLangOverrides, readLangOverride, writeLangOverride,
+      langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
     };
