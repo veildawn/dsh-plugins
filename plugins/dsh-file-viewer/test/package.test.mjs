@@ -191,7 +191,7 @@ test('client helpers agree with the host about paths and formats', () => {
   assert.equal(internals.formatBytes(1536), '1.5 KB')
 
   // Every host error code needs copy, or the user sees a raw code.
-  for (const code of ['no-roots', 'unknown-root', 'outside-root', 'not-found', 'too-large', 'read-failed', 'unsupported']) {
+  for (const code of ['no-roots', 'unknown-root', 'outside-root', 'not-found', 'too-large', 'read-failed', 'not-text', 'unsupported']) {
     assert.equal(typeof internals.ERROR_COPY[code], 'string', `${code} needs user-facing copy`)
   }
   assert.equal(internals.messageOf({ code: 'outside-root' }), internals.ERROR_COPY['outside-root'])

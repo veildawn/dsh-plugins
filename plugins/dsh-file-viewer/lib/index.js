@@ -23,6 +23,7 @@ import {
   MAX_BYTES,
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
+  TEXT_PROBE_BYTES,
   baseNameOf,
   extensionOf,
   formatDocTextToMarkdown,
@@ -30,6 +31,7 @@ import {
   isHiddenEntry,
   isSafeRelativePath,
   isTextContent,
+  isUtf8TextContent,
   isWholeDocumentKind,
   joinPath,
   kindOf,
@@ -52,6 +54,7 @@ export {
   MAX_BYTES,
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
+  TEXT_PROBE_BYTES,
   baseNameOf,
   extensionOf,
   formatDocTextToMarkdown,
@@ -60,6 +63,7 @@ export {
   isHiddenEntry,
   isSafeRelativePath,
   isTextContent,
+  isUtf8TextContent,
   isWholeDocumentKind,
   joinPath,
   kindOf,
@@ -104,20 +108,26 @@ export const Config = z.object({
  * when the name alone classifies it as binary.
  *
  * Path-based heuristics (kindOf) classify every known format, but files with
- * unrecognised extensions — `env.dev`, `env.staging`, shell scripts without a
- * known suffix, config files without a recognised basename, dotfiles, etc. —
- * fall through to `'binary'`. This function peeks at the first bytes of such
- * files and promotes them to `'text'` when they contain no null bytes,
- * matching the heuristic used by git and `file(1)`. Genuine binary formats
- * almost always contain a null byte within the first 8 KB, so the probe is
- * reliable and read failure degrades gracefully back to `'binary'`.
+ * unrecognised extensions — `env.dev`, `env.staging`, `config.yaml.prod`,
+ * shell scripts without a known suffix, config files without a recognised
+ * basename, dotfiles, etc. — fall through to `'binary'`. This function peeks
+ * at the first bytes of such files and promotes them to `'text'` when they
+ * contain no null bytes, matching the heuristic used by git and `file(1)`.
+ *
+ * The probe reads a *window* through `readByteRange`, deliberately not
+ * `readBytes`: that primitive's `maxBytes` bounds the complete file and it
+ * fails with `FS_TOO_LARGE` instead of truncating, so probing an unknown
+ * 16 KB file with an 8 KB cap threw and every such file stayed `'binary'`.
+ * A window is bounded by its own length regardless of file size, which is
+ * what makes this a probe rather than a read.
  *
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
  * @param {object} target - a resolved fs target from resolveInRoot.
  * @param {string} naming - the display name / relative path.
+ * @param {AbortSignal} [signal] - caller cancellation.
  * @returns {Promise<string>} the resolved viewer kind.
  */
-async function resolveKind(ctx, target, naming) {
+async function resolveKind(ctx, target, naming, signal) {
   const kind = kindOf(naming)
   if (kind !== 'binary') return kind
   // Content-based detection for any file classified as binary by name alone.
@@ -125,12 +135,31 @@ async function resolveKind(ctx, target, naming) {
   // binary formats (ELF, PE, PNG, MP4, etc.) almost always contain a null
   // byte within the first 8 KB, while text files rarely do.
   try {
-    const bytes = await ctx.fs.readBytes(target, undefined, 8192)
-    if (isTextContent(bytes)) return 'text'
+    const bytes = await readProbe(ctx, target, signal)
+    if (isTextContent(bytes) && isUtf8TextContent(bytes)) return 'text'
   } catch {
     // Read failure is not a classification failure — stay 'binary'.
   }
   return kind
+}
+
+/**
+ * Read the leading bytes of a file for text/binary classification.
+ *
+ * Prefers `readByteRange`, whose window is the bound. Falls back to
+ * `readBytes` for hosts that predate that primitive, where the cap must be
+ * the probe size and an oversized file therefore stays classified by name.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {object} target - a resolved fs target.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<Uint8Array>} at most TEXT_PROBE_BYTES leading bytes.
+ */
+async function readProbe(ctx, target, signal) {
+  if (typeof ctx.fs.readByteRange === 'function') {
+    return ctx.fs.readByteRange(target, { offset: 0, length: TEXT_PROBE_BYTES }, signal)
+  }
+  return ctx.fs.readBytes(target, signal, TEXT_PROBE_BYTES)
 }
 
 /** Structured failures the client switches on; messages never echo a path. */
@@ -286,7 +315,7 @@ export async function describeFile(ctx, options, payload, signal) {
 
   const size = typeof info.size === 'number' ? info.size : undefined
   const naming = relative === '' ? target.displayPath : relative
-  const kind = await resolveKind(ctx, target, naming)
+  const kind = await resolveKind(ctx, target, naming, signal)
   const lang = languageOf(naming)
   const textual = kind === 'text' || isWholeDocumentKind(kind)
   const limit = textual ? MAX_TEXT_BYTES : options().maxBytes
@@ -324,7 +353,7 @@ export async function readText(ctx, options, payload, signal) {
   const { lines, eol } = splitLines(text)
   const window = resolveWindow(lines.length, payload?.offset, payload?.limit)
   const naming = relative === '' ? target.displayPath : relative
-  const fileKind = await resolveKind(ctx, target, naming)
+  const fileKind = await resolveKind(ctx, target, naming, signal)
   const lang = languageOf(naming)
   return {
     root: root.id,
@@ -985,6 +1014,12 @@ export async function handleRpc(ctx, options, method, payload, signal) {
     }
     const code = typeof error?.code === 'string' ? error.code : 'internal'
     ctx.logger?.warn?.(`file-viewer: ${method} failed with ${code}`)
+    // A file that passed the text probe but failed the text read is not a
+    // permissions problem: the backend rejects non-UTF-8 and binary content
+    // with FS_NOT_TEXT. Report that honestly so the client can explain it.
+    if (code === 'FS_NOT_TEXT') {
+      return { ok: false, error: { code: 'not-text', message: 'the file is not UTF-8 text', details: { reason: code } } }
+    }
     return { ok: false, error: { code: 'read-failed', message: 'the file could not be read', details: { reason: code } } }
   }
 }

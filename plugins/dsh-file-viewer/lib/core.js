@@ -26,6 +26,13 @@ export function isWholeDocumentKind(kind) {
   return kind === 'markdown' || kind === 'json'
 }
 
+/**
+ * Bytes sampled to tell text from binary when the name says nothing. The same
+ * 8 KB window git and `file(1)` inspect, and the window a probe must read
+ * through `readByteRange` — not `readBytes`, whose cap is the whole file.
+ */
+export const TEXT_PROBE_BYTES = 8192
+
 /** Lines per text window. ReadBlock has no virtual scrolling, so the client pages. */
 export const WINDOW_LINES = 500
 
@@ -153,6 +160,32 @@ export function isTextContent(buffer) {
     if (buffer[i] === 0) return false
   }
   return true
+}
+
+/**
+ * Whether a byte sample decodes as UTF-8 text.
+ *
+ * Complements {@link isTextContent}: a sample can be null-free and still not
+ * be UTF-8 (GBK, Latin-1, raw binary that happens to avoid NUL). Promoting
+ * such a file to `'text'` only moves the failure to the read, which rejects
+ * non-UTF-8 content — so the probe checks decodability here and classifies
+ * honestly instead.
+ *
+ * Decoded in streaming mode so a multi-byte character straddling the end of
+ * the sample is held back rather than reported as malformed: a truncated
+ * probe is not evidence of a non-text file.
+ *
+ * @param {Uint8Array} buffer - the sampled leading bytes.
+ * @returns {boolean} true when the sample is valid, possibly truncated, UTF-8.
+ */
+export function isUtf8TextContent(buffer) {
+  if (!buffer || buffer.length === 0) return true
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buffer, { stream: true })
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

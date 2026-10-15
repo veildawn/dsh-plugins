@@ -1119,6 +1119,7 @@ window.__ModuleLoader__.load({
       "is-a-directory": "该路径是目录。",
       "too-large": "文件超过查看器大小上限。",
       "read-failed": "读取失败，可能没有访问权限。",
+      "not-text": "该文件不是 UTF-8 文本（可能是其他编码或二进制内容），查看器无法显示。",
       "unsupported": "宿主端缺少解析该格式所需的依赖。",
     };
 

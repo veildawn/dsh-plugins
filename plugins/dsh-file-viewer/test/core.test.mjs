@@ -15,6 +15,7 @@ import {
   isHiddenEntry,
   isSafeRelativePath,
   isTextContent,
+  isUtf8TextContent,
   isWholeDocumentKind,
   joinPath,
   kindOf,
@@ -337,6 +338,28 @@ test('isTextContent detects null bytes as binary', () => {
   // UTF-8 text with multi-byte sequences.
   const utf8 = new Uint8Array([72, 101, 108, 108, 111, 32, 240, 159, 140, 142, 33])
   assert.equal(isTextContent(utf8), true)
+})
+
+test('isUtf8TextContent accepts text and rejects bytes that cannot decode', () => {
+  // Empty and null samples carry no evidence of binary.
+  assert.equal(isUtf8TextContent(new Uint8Array(0)), true)
+  assert.equal(isUtf8TextContent(null), true)
+  assert.equal(isUtf8TextContent(undefined), true)
+
+  // Plain ASCII and multi-byte UTF-8 both decode.
+  assert.equal(isUtf8TextContent(new Uint8Array([72, 105, 10])), true)
+  assert.equal(isUtf8TextContent(new Uint8Array([0xe4, 0xb8, 0xad, 0xe6, 0x96, 0x87])), true)
+
+  // A multi-byte character truncated by the sample boundary is held back by
+  // streaming decode rather than reported malformed — a truncated probe is
+  // not evidence of a non-text file.
+  assert.equal(isUtf8TextContent(new Uint8Array([0x41, 0xe4, 0xb8])), true)
+
+  // Genuinely invalid sequences are rejected: GBK bytes, a lone continuation
+  // byte, and an overlong-looking stray lead byte.
+  assert.equal(isUtf8TextContent(new Uint8Array([0xc5, 0xe4, 0xd6, 0xc3])), false)
+  assert.equal(isUtf8TextContent(new Uint8Array([0x41, 0x80, 0x42])), false)
+  assert.equal(isUtf8TextContent(new Uint8Array([0xff, 0xfe])), false)
 })
 
 test('appendMention appends a file reference to the draft', () => {

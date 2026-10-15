@@ -59,7 +59,19 @@ function createFs(tree, { links = {} } = {}) {
     },
     async readBytes(target, _signal, maxBytes) {
       this.calls.push(['readBytes', target.targetKey, maxBytes])
-      return canonicalTree[target.targetKey]?.bytes ?? new Uint8Array()
+      // The real seam bounds the COMPLETE file and fails rather than
+      // truncating; a mock that returned a short buffer regardless of size
+      // hid the bug where an 8 KB probe of a larger unknown file threw.
+      const bytes = canonicalTree[target.targetKey]?.bytes ?? new Uint8Array()
+      if (bytes.length > maxBytes) {
+        throw new ViewerError('too-large', `${bytes.length} bytes exceeds the ${maxBytes}-byte limit`)
+      }
+      return bytes
+    },
+    async readByteRange(target, range, _signal) {
+      this.calls.push(['readByteRange', target.targetKey, range.offset, range.length])
+      const bytes = canonicalTree[target.targetKey]?.bytes ?? new Uint8Array()
+      return bytes.subarray(range.offset, range.offset + range.length)
     },
   }
 }
@@ -595,6 +607,118 @@ test('a genuine binary exe with null bytes stays binary', async () => {
   assert.equal(result.value.kind, 'binary', 'exe with null bytes stays binary')
 })
 
+test('an unrecognised-extension text file larger than the probe window is still text', async () => {
+  // Regression: `config.yaml.prod` (16 KB) was reported as binary. The probe
+  // asked readBytes for 8 KB, but that primitive bounds the COMPLETE file and
+  // fails with FS_TOO_LARGE instead of truncating — so the throw was swallowed
+  // and every unknown-extension file above 8 KB stayed classified by name.
+  const body = 'server:\n  port: 8080\n'
+  const big = new Uint8Array(16 * 1024)
+  for (let i = 0; i < big.length; i += 1) big[i] = body.charCodeAt(i % body.length)
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/config.yaml.prod': { type: 'file', size: big.length, bytes: big, text: body },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'config.yaml.prod' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'text', '16 KB unknown-extension text file must be text')
+  // The probe must read a window, never the whole file.
+  assert.ok(
+    fs.calls.some((call) => call[0] === 'readByteRange'),
+    'classification must probe through readByteRange',
+  )
+  assert.ok(
+    !fs.calls.some((call) => call[0] === 'readBytes'),
+    'classification must not use the whole-file readBytes primitive',
+  )
+})
+
+test('the probe window is bounded even for a very large text file', async () => {
+  // The window is the bound, not the file: a 20 MB unknown-extension text file
+  // must classify as text without the host ever buffering it whole.
+  const big = new Uint8Array(20 * 1024 * 1024)
+  big.fill(65)
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/huge.cfg.local': { type: 'file', size: big.length, bytes: big },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'huge.cfg.local' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'text')
+  const probe = fs.calls.find((call) => call[0] === 'readByteRange')
+  assert.ok(probe, 'must probe by window')
+  assert.equal(probe[3], 8192, 'probe reads exactly the 8 KB sample window')
+})
+
+test('a null-free but non-UTF-8 file is not promoted to text', async () => {
+  // GBK-encoded content has no null bytes, so the null-byte heuristic alone
+  // would call it text — but the text read rejects non-UTF-8, moving the
+  // failure from classification to read. The probe must classify honestly.
+  const gbk = new Uint8Array([0xc5, 0xe4, 0xd6, 0xc3, 0x0a, 0xc5, 0xe4, 0xd6, 0xc3])
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/legacy.conf.bak': { type: 'file', size: gbk.length, bytes: gbk },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'legacy.conf.bak' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'binary', 'non-UTF-8 content stays binary rather than failing at read')
+})
+
+test('a multi-byte character straddling the probe boundary still reads as text', async () => {
+  // A 3-byte character split by the 8 KB window must not look malformed: a
+  // truncated sample is not evidence of a non-text file.
+  const big = new Uint8Array(16 * 1024)
+  big.fill(0x41)
+  big[8191] = 0xe4
+  big[8192] = 0xb8
+  big[8193] = 0xad
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/notes.zh.txt.bak': { type: 'file', size: big.length, bytes: big },
+  })
+  const ctx = createCtx(fs)
+  const result = await handleRpc(ctx, options(), 'meta', { path: 'notes.zh.txt.bak' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.kind, 'text', 'a split multi-byte char must not force a binary verdict')
+})
+
+test('a text read rejected as non-UTF-8 reports not-text, not a permissions failure', async () => {
+  // The backend rejects non-UTF-8 and binary content with FS_NOT_TEXT. That is
+  // a content verdict, not an access failure, so it must not surface as the
+  // generic read-failed ("可能没有访问权限") message.
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/legacy.conf.bak': { type: 'file', size: 6, bytes: new Uint8Array([0xc5, 0xe4, 0xd6, 0xc3, 0x0a, 0x41]) },
+  })
+  const failure = new Error('cannot read: binary file')
+  failure.code = 'FS_NOT_TEXT'
+  fs.readText = async () => { throw failure }
+  const ctx = createCtx(fs)
+
+  const result = await handleRpc(ctx, options(), 'read', { path: 'legacy.conf.bak' })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'not-text')
+  assert.equal(result.error.details.reason, 'FS_NOT_TEXT')
+})
+
+test('an ordinary read failure still reports read-failed', async () => {
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/secret.txt': { type: 'file', size: 5, text: 'hello' },
+  })
+  const failure = new Error('permission denied')
+  failure.code = 'EACCES'
+  fs.readText = async () => { throw failure }
+  const ctx = createCtx(fs)
+
+  const result = await handleRpc(ctx, options(), 'read', { path: 'secret.txt' })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'read-failed')
+})
+
 test('diff RPC returns hasDiff false when git is not applicable or file has no diff', async () => {
   const fs = createFs({
     'D:/repo': { type: 'directory', entries: [] },
@@ -605,7 +729,6 @@ test('diff RPC returns hasDiff false when git is not applicable or file has no d
   assert.equal(result.ok, true)
   assert.equal(typeof result.value.hasDiff, 'boolean')
 })
-
 test('status RPC returns modified and untracked lists gracefully', async () => {
   const fs = createFs({
     'D:/repo': { type: 'directory', entries: [] },
