@@ -12,6 +12,13 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
+import {
+  DEFAULT_PROXY_HOSTS,
+  formatProxyForDisplay,
+  parseProxyUrl,
+  proxyTargetsUrl,
+  requestViaProxy,
+} from './proxy.js';
 
 /** Cordis 插件名称。 */
 export const name = 'tool-jev';
@@ -36,14 +43,20 @@ function rpcOk(value) {
  * 处理前端设置 RPC 调用
  */
 async function handleSettingsRpc(ctx, resolved, method, payload) {
-  const userKeyPath = join(homedir(), '.config', 'typesafe', 'key');
+  // 遵循配置里的 keyFile：前端保存的密钥必须写到与读取时相同的位置。
+  const userKeyPath = resolved.keyFile;
 
   if (method === 'getConfig') {
     const currentKey = await resolveApiKey(resolved);
+    const proxy = await resolveProxy(resolved);
     return rpcOk({
       configured: Boolean(currentKey),
       apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
       model: resolved.model,
+      // 代理地址回显给前端；密码已掩码，绝不把明文凭据送回浏览器。
+      proxy: proxy ? formatProxyForDisplay(proxy) : '',
+      // 由 Profile 配置固定的代理不允许在界面修改，前端据此禁用输入框。
+      proxyLocked: resolved.configProxy !== undefined,
     });
   }
 
@@ -56,6 +69,24 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       }
       if (typeof payload?.model === 'string' && payload.model.trim()) {
         resolved.model = payload.model.trim();
+      }
+      // 代理地址：空字符串表示清除代理（恢复直连）。保存前先校验，避免写入坏值。
+      if (typeof payload?.proxy === 'string') {
+        if (resolved.configProxy !== undefined) {
+          return rpcFailure(
+            'proxy-locked',
+            '代理地址已由插件配置（proxy）固定，无法在界面修改：请修改 Profile 配置后重启',
+          );
+        }
+        const trimmed = payload.proxy.trim();
+        if (trimmed === '') {
+          await writeSettingsFile(resolved, { proxy: '' });
+        } else {
+          // 校验失败会抛出可读错误，由下方 catch 统一转为 RPC 失败。
+          parseProxyUrl(trimmed, 'proxy');
+          await writeSettingsFile(resolved, { proxy: trimmed });
+        }
+        resolved.proxy = undefined;
       }
       return rpcOk(true);
     } catch (err) {
@@ -73,21 +104,28 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       if (!testKey) {
         return rpcFailure('unconfigured', '未配置 API Key');
       }
+      // 使用界面上尚未保存的代理地址进行测试（掩码值或空值则回退到已保存的代理）。
+      const testProxy = await resolveTestProxy(payload, resolved);
       const start = Date.now();
-      const testRes = await fetch(`${resolved.baseURL}/v1/systemone`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${testKey}`,
-        },
-        body: JSON.stringify({
-          state: 'Ping check from DSH',
-          model: payload?.model || resolved.model || 'jev-latest',
-          questions: {
-            ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
+      const testRes = await httpRequest(
+        `${resolved.baseURL}/v1/systemone`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${testKey}`,
           },
-        }),
-      });
+          body: JSON.stringify({
+            state: 'Ping check from DSH',
+            model: payload?.model || resolved.model || 'jev-latest',
+            questions: {
+              ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
+            },
+          }),
+        },
+        resolved,
+        testProxy,
+      );
       const testData = await testRes.json();
       const durationMs = Date.now() - start;
       if (testRes.ok) {
@@ -124,6 +162,11 @@ const DEFAULTS = {
   retries: 0,
   maxStateBytes: 262144,
   maxQuestions: 64,
+  // 代理：为空表示不使用代理（直连）；非空时，命中 proxyHosts 的请求全部经代理转发。
+  proxy: undefined,
+  proxyHosts: DEFAULT_PROXY_HOSTS,
+  /** 代理设置持久化文件（供前端保存，避免把代理密码写进 Profile 配置）。 */
+  settingsFile: join(homedir(), '.config', 'typesafe', 'settings.json'),
 };
 
 /**
@@ -201,6 +244,23 @@ function normalizePolicySection(raw) {
 }
 
 /**
+ * 规范化代理主机模式列表。
+ *
+ * 支持数组或逗号分隔字符串；'*' 表示匹配全部主机。解析结果为空时回退到默认的
+ * typesafe.ai，避免出现"配置了代理却谁都不走代理"的静默失效状态。
+ *
+ * @param raw - 原始配置值。
+ * @returns 规范化后的主机模式数组。
+ */
+function normalizeProxyHosts(raw) {
+  if (raw === undefined || raw === null) return [...DEFAULT_PROXY_HOSTS];
+  const list = (Array.isArray(raw) ? raw : String(raw).split(','))
+    .map((item) => String(item).trim().toLowerCase())
+    .filter((item) => item !== '');
+  return list.length === 0 ? [...DEFAULT_PROXY_HOSTS] : list;
+}
+
+/**
  * 规范化插件配置：填充默认值、校验传输协议与 URL，自动清理路径尾部斜杠。
  * @param config - 原始传入配置。
  * @returns 规范化后的完整配置对象。
@@ -217,6 +277,8 @@ function normalizeConfig(config) {
   const timeoutMs = positiveNumber(raw.timeoutMs, DEFAULTS.timeoutMs, 'timeoutMs');
   const retries = nonNegativeInteger(raw.retries, DEFAULTS.retries, 'retries');
   const apiKey = raw.apiKey === undefined || raw.apiKey === null ? undefined : String(raw.apiKey).trim();
+  // 配置里显式给出的代理优先于前端保存的代理；为空表示直连。
+  const configProxy = parseProxyUrl(raw.proxy, 'proxy');
   return {
     transport,
     baseURL: endpoint(raw.baseURL === undefined ? DEFAULTS.baseURL : raw.baseURL, 'baseURL'),
@@ -233,6 +295,12 @@ function normalizeConfig(config) {
     maxStateBytes: positiveNumber(raw.maxStateBytes, DEFAULTS.maxStateBytes, 'maxStateBytes'),
     maxQuestions: positiveNumber(raw.maxQuestions, DEFAULTS.maxQuestions, 'maxQuestions'),
     policySection: normalizePolicySection(raw.policySection),
+    proxyHosts: normalizeProxyHosts(raw.proxyHosts),
+    /** 由插件配置固定下来的代理（undefined 表示允许前端覆盖）。 */
+    configProxy,
+    /** 当前生效的代理描述对象，undefined 表示直连。 */
+    proxy: configProxy,
+    settingsFile: String(raw.settingsFile === undefined ? DEFAULTS.settingsFile : raw.settingsFile),
   };
 }
 
@@ -257,6 +325,100 @@ async function readKeyFile(path) {
  */
 function keyEnvNames(config) {
   return Array.from(new Set([config.apiKeyEnv, 'JEV_API_KEY']));
+}
+
+/**
+ * 读取前端保存的设置文件（代理地址等）。
+ *
+ * 文件缺失、为空或 JSON 损坏时一律返回空对象：设置文件只是便利层，
+ * 任何读取问题都不应让插件加载失败。
+ *
+ * @param config - 规范化配置。
+ * @returns 解析后的设置对象。
+ */
+async function readSettingsFile(config) {
+  try {
+    const text = await readFile(config.settingsFile, 'utf8');
+    const parsed = JSON.parse(text);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 将前端设置写入设置文件（合并写入，保留其它字段）。
+ * @param config - 规范化配置。
+ * @param patch - 需要写入的字段。
+ */
+async function writeSettingsFile(config, patch) {
+  const current = await readSettingsFile(config);
+  const next = { ...current, ...patch };
+  await mkdir(dirname(config.settingsFile), { recursive: true });
+  await writeFile(config.settingsFile, JSON.stringify(next, null, 2) + '\n', 'utf8');
+}
+
+/**
+ * 解析当前生效的代理配置。
+ *
+ * 优先级：插件配置里的 proxy > 前端保存的 proxy > 无代理（直连）。
+ * 插件配置优先是为了让 Profile 里写死的代理不会被界面误改。
+ *
+ * @param config - 规范化配置。
+ * @returns 生效的代理描述对象，或 undefined 表示直连。
+ */
+async function resolveProxy(config) {
+  if (config.configProxy !== undefined) return config.configProxy;
+  const settings = await readSettingsFile(config);
+  if (typeof settings.proxy !== 'string' || settings.proxy.trim() === '') return undefined;
+  try {
+    return parseProxyUrl(settings.proxy, 'proxy');
+  } catch {
+    // 保存时已校验过；此处兜底，避免手工编辑设置文件写坏后整个工具不可用。
+    return undefined;
+  }
+}
+
+/**
+ * 统一的 HTTP 请求入口：命中代理规则时经代理转发，否则直连。
+ *
+ * 代理地址为空（或目标主机不在代理范围内）时走原生 fetch，行为与升级前完全一致。
+ *
+ * @param targetUrl - 目标请求地址。
+ * @param init - 请求初始化参数。
+ * @param config - 规范化配置。
+ * @param proxy - 已解析的代理；省略（undefined）时按配置解析，显式传 null 表示强制直连。
+ * @returns fetch 兼容的响应对象。
+ */
+async function httpRequest(targetUrl, init, config, proxy) {
+  const active = proxy === undefined ? await resolveProxy(config) : proxy;
+  if (active === undefined || active === null || !proxyTargetsUrl(targetUrl, config.proxyHosts)) {
+    return fetch(targetUrl, init);
+  }
+  return requestViaProxy(targetUrl, init, active);
+}
+
+/**
+ * 解析前端传来的代理测试值（用于 testConnection）。
+ *
+ * 三种语义必须区分清楚：
+ *   - 字段缺省：沿用已保存的代理；
+ *   - 空字符串：用户清空了输入框，按"直连"测试（返回 null）；
+ *   - 含 *** 的掩码值：是 getConfig 回显的展示值，不能当作真实地址，沿用已保存的代理。
+ *
+ * @param payload - 前端请求载荷。
+ * @param config - 规范化配置。
+ * @returns 代理描述对象、null（直连）或 undefined（沿用已保存值）。
+ */
+async function resolveTestProxy(payload, config) {
+  // 配置固定的代理不可被界面绕过，否则"测试连接"会与实际调用行为不一致。
+  if (config.configProxy !== undefined) return config.configProxy;
+  if (typeof payload?.proxy !== 'string') return resolveProxy(config);
+  const candidate = payload.proxy.trim();
+  if (candidate === '') return null;
+  if (candidate.includes('***')) return resolveProxy(config);
+  return parseProxyUrl(candidate, 'proxy');
 }
 
 /**
@@ -462,18 +624,23 @@ function rateLimitHint(status) {
  * @param config - 插件配置。
  * @returns API 返回数据。
  */
-async function attemptRequest(request, headers, body, exec, config) {
+async function attemptRequest(request, headers, body, exec, config, proxy) {
   const signals = [AbortSignal.timeout(config.timeoutMs)];
   if (exec !== undefined && exec !== null && exec.signal) signals.push(exec.signal);
 
   let response;
   try {
-    response = await fetch(request.url, {
-      method: 'POST',
-      headers,
-      body,
-      signal: AbortSignal.any(signals),
-    });
+    response = await httpRequest(
+      request.url,
+      {
+        method: 'POST',
+        headers,
+        body,
+        signal: AbortSignal.any(signals),
+      },
+      config,
+      proxy,
+    );
   } catch (error) {
     if (isCallerAborted(exec)) throw callerAbortError();
     const errorName = error instanceof Error ? error.name : '';
@@ -541,6 +708,10 @@ async function requestSystemOne(args, exec, config) {
   const headers = { ...request.headers, authorization: 'Bearer ' + apiKey };
   const body = JSON.stringify(request.body);
 
+  // 代理只在一次工具调用开始时解析一次：重试轮次之间保持一致，
+  // 也避免每轮都去读设置文件。
+  const proxy = await resolveProxy(config);
+
   if (isCallerAborted(exec)) throw callerAbortError();
 
   const attempts = config.retries + 1;
@@ -549,7 +720,7 @@ async function requestSystemOne(args, exec, config) {
     if (attempt > 1) await sleep(500 * (attempt - 1));
     if (isCallerAborted(exec)) throw callerAbortError();
     try {
-      return await attemptRequest(request, headers, body, exec, config);
+      return await attemptRequest(request, headers, body, exec, config, proxy);
     } catch (error) {
       if (isCallerAborted(exec)) throw callerAbortError();
       lastError = error;
@@ -728,15 +899,19 @@ function setupWebRoutes(ctx, resolved) {
     const ws = webServerCtx?.webServer;
     if (!ws || typeof ws.get !== 'function') return;
 
-    const userKeyPath = join(homedir(), '.config', 'typesafe', 'key');
+    // 与 RPC 路径保持一致：保存位置必须与读取位置相同（遵循 keyFile 配置）。
+    const userKeyPath = resolved.keyFile;
 
     ws.get('/api/dsh-jev/config', async (_req, res) => {
       const currentKey = await resolveApiKey(resolved);
+      const proxy = await resolveProxy(resolved);
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
         configured: Boolean(currentKey),
         apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
         model: resolved.model,
+        proxy: proxy ? formatProxyForDisplay(proxy) : '',
+        proxyLocked: resolved.configProxy !== undefined,
       }));
     });
 
@@ -753,6 +928,25 @@ function setupWebRoutes(ctx, resolved) {
           }
           if (typeof body.model === 'string' && body.model.trim()) {
             resolved.model = body.model.trim();
+          }
+          if (typeof body.proxy === 'string') {
+            if (resolved.configProxy !== undefined) {
+              res.statusCode = 409;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                ok: false,
+                error: '代理地址已由插件配置（proxy）固定，无法在界面修改',
+              }));
+              return;
+            }
+            const trimmed = body.proxy.trim();
+            if (trimmed === '') {
+              await writeSettingsFile(resolved, { proxy: '' });
+            } else {
+              parseProxyUrl(trimmed, 'proxy');
+              await writeSettingsFile(resolved, { proxy: trimmed });
+            }
+            resolved.proxy = undefined;
           }
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ ok: true }));
@@ -777,21 +971,27 @@ function setupWebRoutes(ctx, resolved) {
             res.end(JSON.stringify({ ok: false, error: '未配置 API Key' }));
             return;
           }
+          const testProxy = await resolveTestProxy(body, resolved);
           const start = Date.now();
-          const testRes = await fetch(`${resolved.baseURL}/v1/systemone`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${testKey}`,
-            },
-            body: JSON.stringify({
-              state: 'Ping check from DSH',
-              model: body.model || resolved.model || 'jev-latest',
-              questions: {
-                ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
+          const testRes = await httpRequest(
+            `${resolved.baseURL}/v1/systemone`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${testKey}`,
               },
-            }),
-          });
+              body: JSON.stringify({
+                state: 'Ping check from DSH',
+                model: body.model || resolved.model || 'jev-latest',
+                questions: {
+                  ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
+                },
+              }),
+            },
+            resolved,
+            testProxy,
+          );
           const testData = await testRes.json();
           const durationMs = Date.now() - start;
           if (testRes.ok) {

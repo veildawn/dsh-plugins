@@ -34,12 +34,16 @@ window.__ModuleLoader__.load({
       .jev-status{padding:10px 12px;border-radius:8px;font-size:12px;line-height:18px}
       .jev-status.ok{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#22c55e) 10%,transparent);color:var(--dsw-alias-state-success-primary,#22c55e)}
       .jev-status.err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
+      .jev-hint{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}
+      .jev-input:disabled{opacity:.6;cursor:default}
     `;
 
     function JevSettings(props) {
       const { rpcCall } = props || {};
       const [apiKey, setApiKey] = react.useState("");
       const [model, setModel] = react.useState("jev-latest");
+      const [proxy, setProxy] = react.useState("");
+      const [proxyLocked, setProxyLocked] = react.useState(false);
       const [status, setStatus] = react.useState(null);
       const [loading, setLoading] = react.useState(false);
       const [testing, setTesting] = react.useState(false);
@@ -53,6 +57,8 @@ window.__ModuleLoader__.load({
             if (!active) return;
             if (data.apiKey) setApiKey(data.apiKey);
             if (data.model) setModel(data.model);
+            if (typeof data.proxy === "string") setProxy(data.proxy);
+            setProxyLocked(data.proxyLocked === true);
             if (data.configured) {
               setStatus({ ok: true, msg: "已从系统环境或配置文件成功加载密钥" });
             }
@@ -70,7 +76,7 @@ window.__ModuleLoader__.load({
         if (!rpcCall) return;
         setLoading(true);
         try {
-          const res = await rpcCall("saveConfig", { apiKey: apiKey.trim(), model });
+          const res = await rpcCall("saveConfig", { apiKey: apiKey.trim(), model, proxy: proxy.trim() });
           if (res === true || (res && res.ok)) {
             setStatus({ ok: true, msg: "设置已保存成功！已写入本地配置" });
           } else {
@@ -88,9 +94,10 @@ window.__ModuleLoader__.load({
         setTesting(true);
         setStatus(null);
         try {
-          const res = await rpcCall("testConnection", { apiKey: apiKey.trim(), model });
+          const res = await rpcCall("testConnection", { apiKey: apiKey.trim(), model, proxy: proxy.trim() });
           if (res && res.durationMs !== undefined) {
-            setStatus({ ok: true, msg: `✓ 连接成功！Jev 模型响应正常 (${res.durationMs}ms)` });
+            const via = proxy.trim() ? "（经代理）" : "（直连）";
+            setStatus({ ok: true, msg: `✓ 连接成功！Jev 模型响应正常 ${via} (${res.durationMs}ms)` });
           } else {
             setStatus({ ok: false, msg: `连接失败：${res?.error || "未能连通 TypeSafe API"}` });
           }
@@ -126,6 +133,24 @@ window.__ModuleLoader__.load({
               value: model,
               onChange: (e) => setModel(e.target.value),
             })
+          ),
+          react.createElement("label", { className: "jev-field" },
+            react.createElement("span", { className: "jev-label" }, "代理地址"),
+            react.createElement("input", {
+              className: "jev-input",
+              type: "text",
+              value: proxy,
+              disabled: proxyLocked,
+              placeholder: "http://127.0.0.1:7890",
+              onChange: (e) => setProxy(e.target.value),
+            }),
+            react.createElement("p", { className: "jev-hint" },
+              proxyLocked
+                ? "代理地址已由插件配置（proxy）固定，如需修改请编辑 Profile 配置后重启。"
+                : "留空表示直连。填写后，发往 *.typesafe.ai 的请求将全部经该代理转发。" +
+                  "支持 http://、https://、socks5://、socks5h://；省略协议时按 http 处理；" +
+                  "需要认证时写成 http://user:password@host:port。"
+            )
           ),
           status ? react.createElement("div", { className: `jev-status ${status.ok ? "ok" : "err"}` }, status.msg) : null,
           react.createElement("div", { className: "jev-actions" },

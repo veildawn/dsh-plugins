@@ -1,8 +1,8 @@
 {
   "name": "dsh-jev",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
-  "description": "TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key。",
+  "description": "TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key 与代理访问。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -38,7 +38,9 @@
     "system-one"
   ],
   "scripts": {
-    "test": "node test/smoke.mjs",
+    "test": "node test/smoke.mjs && node test/proxy.mjs && node test/client-render.mjs",
+    "test:proxy": "node test/proxy.mjs",
+    "test:client": "node test/client-render.mjs",
     "test:policy": "node test/policy-section.mjs",
     "test:loader": "node test/loader-overlay.mjs",
     "test:fixture": "node test/fixture-check.mjs"

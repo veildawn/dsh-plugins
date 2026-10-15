@@ -30,3 +30,10 @@
         model: jev-latest
         apiKeyEnv: TYPESAFE_API_KEY
         timeoutMs: 60000
+        # Optional egress proxy. Leave it out (or empty) to connect directly;
+        # when set, every request to *.typesafe.ai goes through this proxy.
+        # Accepts http://, https://, socks5:// and socks5h:// (credentials as
+        # http://user:password@host:port). A proxy saved from the settings UI
+        # lives in ~/.config/typesafe/settings.json and is overridden by this.
+        # proxy: 'http://127.0.0.1:7890'
+        # proxyHosts: ['typesafe.ai']   # which targets use the proxy ('*' = all)
