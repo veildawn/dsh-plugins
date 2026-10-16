@@ -62,12 +62,23 @@ const origin = createServer((req, res) => {
     let parsed = null;
     try { parsed = JSON.parse(raw); } catch { parsed = null; }
     originLog.push({ url: req.url, method: req.method, headers: req.headers, body: parsed });
-    const state = parsed && parsed.state;
+    const state = parsed && (parsed.state || parsed.input);
     if (state === 'FAIL') { res.writeHead(401, { 'content-type': 'text/plain' }).end('invalid api key'); return; }
     if (state === 'HTTP500') { res.writeHead(500, { 'content-type': 'text/plain' }).end('upstream boom'); return; }
     if (state === 'OPENAI-CHOICES') {
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
         choices: [{ message: { content: JSON.stringify(CANNED) } }],
+        usage: { input_tokens: 3, output_tokens: 1 }
+      }));
+      return;
+    }
+    if (state === 'DECISIONS-ARRAY') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        model: 'typesafe-ai/jev',
+        answers: [
+          { type: 'predicate', name: 'urgent', probability: 0.99 },
+          { type: 'choice', name: 'dept', choice: 'billing', confidence: 0.81, probabilities: [{ value: 'billing', probability: 0.81 }] }
+        ],
         usage: { input_tokens: 3, output_tokens: 1 }
       }));
       return;
@@ -388,6 +399,13 @@ reset();
 await baseURLSession.rpc('saveConfig', { baseURL: 'http://127.0.0.1:' + originPort });
 await baseURLSession.tool.execute(state(), {});
 check('tool call with /v1/decisions routes to /v1/decisions', originLog[0]?.url === '/v1/decisions', originLog[0]?.url);
+check('tool call with /v1/decisions formats body with input string', typeof originLog[0]?.body?.input === 'string', JSON.stringify(originLog[0]?.body));
+check('tool call with /v1/decisions formats questions as an array', Array.isArray(originLog[0]?.body?.questions), JSON.stringify(originLog[0]?.body?.questions));
+
+// supports Vercel / OpenAI decisions array response format
+reset();
+const arrayRes = await baseURLSession.tool.execute({ state: 'DECISIONS-ARRAY', questions: { urgent: { type: 'noul', instructions: 'u' } } }, {});
+check('tool call parses Vercel decisions array response', arrayRes?.answers?.urgent?.noul === 0.99 && arrayRes?.answers?.dept?.choice === 'billing', JSON.stringify(arrayRes));
 
 // supports OpenAI-compatible response format ({ choices: [...] })
 reset();

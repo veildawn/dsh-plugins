@@ -153,6 +153,32 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       const testProxy = await resolveTestProxy(payload, resolved);
       const testBaseURL = await resolveTestBaseURL(payload, resolved);
       const testEndpoint = await resolveTestEndpoint(payload, resolved);
+      const isDecisions = testEndpoint === '/v1/decisions';
+      let testModel = payload?.model || resolved.model || 'jev-latest';
+      if (isDecisions && (testModel === 'jev-latest' || !testModel)) {
+        testModel = 'typesafe-ai/jev';
+      }
+
+      const pingBody = isDecisions
+        ? {
+            model: testModel,
+            input: 'Ping check from DSH',
+            questions: [
+              {
+                type: 'predicate',
+                name: 'ping',
+                instructions: 'Is this a valid test ping?',
+              },
+            ],
+          }
+        : {
+            state: 'Ping check from DSH',
+            model: testModel,
+            questions: {
+              ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
+            },
+          };
+
       const start = Date.now();
       const testRes = await httpRequest(
         buildEndpointUrl(testBaseURL, testEndpoint),
@@ -162,13 +188,7 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${testKey}`,
           },
-          body: JSON.stringify({
-            state: 'Ping check from DSH',
-            model: payload?.model || resolved.model || 'jev-latest',
-            questions: {
-              ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
-            },
-          }),
+          body: JSON.stringify(pingBody),
         },
         resolved,
         testProxy,
@@ -772,10 +792,131 @@ function assertQuestions(questions, config) {
  * @param config - 插件配置。
  * @returns 请求 URL、请求头与载荷。
  */
+/**
+ * 将兼容 OpenAI 格式或 /v1/decisions 返回的 answers 数组规范化为以问题 key 为键的标准字典结构。
+ * @param answersArray - 决策回答列表。
+ * @returns 规范化后的回答字典。
+ */
+function normalizeDecisionAnswers(answersArray) {
+  const answersMap = {};
+  for (const item of answersArray) {
+    if (!item || typeof item !== 'object') continue;
+    const name = item.name;
+    if (!name) continue;
+    if (item.type === 'predicate') {
+      answersMap[name] = {
+        type: 'noul',
+        noul: typeof item.probability === 'number' ? item.probability : (item.noul ?? 0),
+      };
+    } else if (item.type === 'choice') {
+      let probs = item.probabilities;
+      if (Array.isArray(probs)) {
+        probs = Object.fromEntries(
+          probs
+            .filter((p) => p && typeof p === 'object' && p.value !== undefined)
+            .map((p) => [p.value, p.probability ?? 0]),
+        );
+      }
+      answersMap[name] = {
+        type: 'choice',
+        choice: item.choice,
+        confidence: item.confidence,
+        probabilities: probs,
+      };
+    } else if (item.type === 'score') {
+      let probs = item.probabilities;
+      if (Array.isArray(probs) && probs.length > 0 && typeof probs[0] === 'object') {
+        probs = probs.map((p) => p.probability ?? 0);
+      }
+      answersMap[name] = {
+        type: 'score',
+        score: item.score,
+        confidence: item.confidence,
+        probabilities: probs,
+      };
+    } else {
+      answersMap[name] = item;
+    }
+  }
+  return answersMap;
+}
+
+/**
+ * 构建发送给决策 API 的标准 HTTP 请求载荷。
+ * 根据所选端点（/v1/systemone 或 /v1/decisions）自动适配协议请求体结构。
+ *
+ * @param args - 模型传入参数。
+ * @param questions - 规范化后的 questions。
+ * @param config - 插件配置。
+ * @param baseURL - 接口基地址。
+ * @param endpoint - 接口端点。
+ * @returns 请求 URL、请求头与载荷。
+ */
 function buildRequest(args, questions, config, baseURL, endpoint) {
-  const model = typeof args.model === 'string' && args.model.trim() !== '' ? args.model.trim() : config.model;
+  let model = typeof args.model === 'string' && args.model.trim() !== '' ? args.model.trim() : config.model;
   const base = baseURL || config.baseURL || DEFAULTS.baseURL;
   const ep = endpoint || config.endpoint || DEFAULT_ENDPOINT;
+
+  // 针对 /v1/decisions 端点，若使用默认模型 jev-latest 则自动映射为网关模型标识 typesafe-ai/jev
+  if (ep === '/v1/decisions' && (model === 'jev-latest' || !model)) {
+    model = 'typesafe-ai/jev';
+  }
+
+  // 适配 OpenAI-compatible /v1/decisions 协议规范
+  if (ep === '/v1/decisions') {
+    const wireQuestions = Object.entries(questions).map(([key, spec]) => {
+      const type = spec.type;
+      if (type === 'noul' || type === 'boolean') {
+        return {
+          type: 'predicate',
+          name: key,
+          instructions: spec.instructions,
+        };
+      }
+      if (type === 'choice') {
+        const choices = Array.isArray(spec.criteria)
+          ? spec.criteria.map((c) => (typeof c === 'string' ? { value: c } : c))
+          : Object.entries(spec.criteria || {}).map(([val, desc]) => ({
+              value: val,
+              description: String(desc),
+            }));
+        return {
+          type: 'choice',
+          name: key,
+          instructions: spec.instructions,
+          choices,
+        };
+      }
+      if (type === 'score') {
+        const levels = Array.isArray(spec.criteria)
+          ? spec.criteria.map((lvl) => (typeof lvl === 'string' ? { label: lvl } : lvl))
+          : Object.entries(spec.criteria || {}).map(([_, label]) => ({
+              label: String(label),
+            }));
+        return {
+          type: 'score',
+          name: key,
+          instructions: spec.instructions,
+          levels,
+        };
+      }
+      return { ...spec, name: key };
+    });
+
+    return {
+      url: buildEndpointUrl(base, ep),
+      headers: { 'content-type': 'application/json' },
+      body: {
+        model,
+        input: args.state,
+        questions: wireQuestions,
+      },
+      model,
+      endpoint: ep,
+    };
+  }
+
+  // /v1/systemone 官方原生协议
   return {
     url: buildEndpointUrl(base, ep),
     headers: { 'content-type': 'application/json' },
@@ -882,15 +1023,23 @@ async function attemptRequest(request, headers, body, exec, config, proxy) {
       'tool-jev: the endpoint response must be an object with an "answers" property, got ' + describeShape(data),
     );
   }
-  // 兼容 OpenAI /v1/decisions 格式或 decisions 字段的响应
-  if (data.answers === undefined || data.answers === null) {
-    if (data.decisions && typeof data.decisions === 'object' && !Array.isArray(data.decisions)) {
-      data.answers = data.decisions;
+  // 规范化兼容 OpenAI /v1/decisions 数组格式响应
+  if (Array.isArray(data.answers)) {
+    data.answers = normalizeDecisionAnswers(data.answers);
+  } else if (data.answers === undefined || data.answers === null) {
+    if (data.decisions && typeof data.decisions === 'object') {
+      data.answers = Array.isArray(data.decisions)
+        ? normalizeDecisionAnswers(data.decisions)
+        : data.decisions;
     } else if (Array.isArray(data.choices) && data.choices[0]?.message?.content) {
       try {
         const parsed = JSON.parse(data.choices[0].message.content);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          data.answers = parsed.answers || parsed;
+        if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.answers)) {
+            data.answers = normalizeDecisionAnswers(parsed.answers);
+          } else {
+            data.answers = parsed.answers || parsed;
+          }
         }
       } catch {
         // 忽略非 JSON 内容
@@ -1247,6 +1396,32 @@ function setupWebRoutes(ctx, resolved) {
           const testProxy = await resolveTestProxy(body, resolved);
           const testBaseURL = await resolveTestBaseURL(body, resolved);
           const testEndpoint = await resolveTestEndpoint(body, resolved);
+          const isDecisions = testEndpoint === '/v1/decisions';
+          let testModel = body.model || resolved.model || 'jev-latest';
+          if (isDecisions && (testModel === 'jev-latest' || !testModel)) {
+            testModel = 'typesafe-ai/jev';
+          }
+
+          const pingBody = isDecisions
+            ? {
+                model: testModel,
+                input: 'Ping check from DSH',
+                questions: [
+                  {
+                    type: 'predicate',
+                    name: 'ping',
+                    instructions: 'Is this a valid test ping?',
+                  },
+                ],
+              }
+            : {
+                state: 'Ping check from DSH',
+                model: testModel,
+                questions: {
+                  ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
+                },
+              };
+
           const start = Date.now();
           const testRes = await httpRequest(
             buildEndpointUrl(testBaseURL, testEndpoint),
@@ -1256,13 +1431,7 @@ function setupWebRoutes(ctx, resolved) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${testKey}`,
               },
-              body: JSON.stringify({
-                state: 'Ping check from DSH',
-                model: body.model || resolved.model || 'jev-latest',
-                questions: {
-                  ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
-                },
-              }),
+              body: JSON.stringify(pingBody),
             },
             resolved,
             testProxy,
