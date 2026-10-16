@@ -498,6 +498,12 @@ test('Settings becomes a native full-screen mobile page with pill tabs and card 
   assert.match(css, /\.VOzbGW_options \.oY77xG_rowText\{flex:1 1 120px;padding-right:8px!important\}/)
   assert.match(css, /\.VOzbGW_options :where\(input[^}]*min-height:44px!important;[^}]*border-radius:12px!important;font-size:16px!important/)
   assert.match(css, /\.VOzbGW_options :where\(button,\[role="button"\],\[role="switch"\],summary\)\{min-width:44px;min-height:44px;touch-action:manipulation\}/)
+  assert.match(css, /body>div\[role="presentation"\]:has\(>\.VOzbGW_panel\)\{[^}]*width:100vw!important;height:var\(--dsh-vvh,100dvh\)!important;padding:0!important/)
+  assert.match(css, /body>div\[role="presentation"\]>\[role="dialog"\]\[aria-modal="true"\]\.VOzbGW_panel\{[^}]*width:100vw!important;height:100%!important;max-width:none!important;[^}]*margin:0!important/)
+  assert.match(css, /\.wCInkW_panel,\[data-shortcut-modal="settings"\]/)
+  assert.match(css, /\.wCInkW_navList,\[data-shortcut-modal="settings"\] \[class\*="_navList"\]\{[^}]*height:44px;min-height:44px;[^}]*display:inline-flex!important;flex-direction:row!important/)
+  assert.match(css, /\.VOzbGW_options \.dm-container :where\(button,\[role="button"\],\.dm-action-btn,\.dm-tab-btn,\.dm-filter-btn,\.dm-chip,\.dm-icon-mini-btn\)\{min-width:0;min-height:0\}/)
+  assert.match(css, /\.wCInkW_options \.dm-container :where\(button,\[role="button"\],\.dm-action-btn,\.dm-tab-btn,\.dm-filter-btn,\.dm-chip,\.dm-icon-mini-btn\)/)
 })
 
 test('Agent preset is extracted from active headers and new-session hero seats', () => {

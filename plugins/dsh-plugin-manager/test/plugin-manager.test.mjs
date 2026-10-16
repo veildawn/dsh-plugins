@@ -924,6 +924,10 @@ describe('dsh-plugin-manager client bundle verification', () => {
     assert.equal(okGuardCount, askConfirmCount, 'Every askConfirm must guard cancellation with `if (!ok) return;`')
     // Portal to document.body to bypass transformed drawer container clipping
     assert.equal(clientCode.includes('createPortal(modalNode, document.body)'), true)
+    // Mobile responsive adaptations: card actions wrap, head wraps, and min dimensions are reset
+    assert.match(clientCode, /\.dm-card-actions\{[^}]*flex-wrap:\s*wrap/)
+    assert.match(clientCode, /\.dm-card-head\{[^}]*flex-direction:\s*column/)
+    assert.match(clientCode, /\.dm-container\s+button[^}]*min-width:\s*0/)
   })
 
   it('cordis patch row id stays distinct from the host plugin-manager row', () => {
