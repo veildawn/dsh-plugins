@@ -318,6 +318,12 @@ test('refreshModels re-materializes the catalog under the llm-pi-ai section', as
     const resolvedCall = await ctx.llm.resolveCallConfig({ provider: 'ai-proxy', model: 'claude-sonnet-4-5' })
     assert.equal(resolvedCall.reasoningEffort, 'high', 'resolveCallConfig defaults reasoningEffort to highest available rung')
 
+    const clampedCall = await ctx.llm.resolveCallConfig({ provider: 'ai-proxy', model: 'claude-sonnet-4-5', reasoningEffort: 'max' })
+    assert.equal(clampedCall.reasoningEffort, 'high', 'resolveCallConfig clamps out-of-range effort to model ladder')
+
+    const keptCall = await ctx.llm.resolveCallConfig({ provider: 'ai-proxy', model: 'claude-sonnet-4-5', reasoningEffort: 'low' })
+    assert.equal(keptCall.reasoningEffort, 'low', 'resolveCallConfig preserves in-range effort')
+
     const refreshed = await connection.registration().handler('refreshModels', {})
     assert.equal(refreshed.ok, true)
     assert.equal(await waitFor(() =>

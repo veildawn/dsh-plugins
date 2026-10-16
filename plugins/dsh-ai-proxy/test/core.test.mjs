@@ -2,7 +2,8 @@
 //   node --test test/core.test.mjs
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Config, internals, resolveOptions, CLIENT_ID_PATTERN } from '../lib/index.js'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { Config, internals, resolveOptions, CLIENT_ID_PATTERN, clampEffortToLadder } from '../lib/index.js'
 
 const {
   isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE, settingsBase,
@@ -12,6 +13,7 @@ const {
   httpErrorCode, normalizeApiFormat, resolveModelsEndpoint,
   piAiProtocolFor, piAiBaseURL,
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey, buildProviderProfile,
+  extractEffortRungs,
   routeCompatFor,
 } = internals
 
@@ -182,6 +184,56 @@ test('streamOptionsWithPreferredEffort: direct streams get this model\'s rung on
   const other = { provider: 'other', model: 'x' }
   assert.equal(streamOptionsWithPreferredEffort(other, efforts, 'highest'), other, 'another provider is untouched')
   assert.equal(streamOptionsWithPreferredEffort(plain, [], 'off'), plain, 'a disabled preference sends no effort')
+})
+
+test('streamOptionsWithPreferredEffort: a stale out-of-range effort is recomputed', () => {
+  const stale = { provider: 'ai-proxy', reasoningEffort: ReasoningEffortId('max') }
+  const geminiEfforts = { low: 'low', medium: 'medium', high: 'high' }
+  const fixed = streamOptionsWithPreferredEffort(stale, geminiEfforts, 'highest')
+  assert.notEqual(fixed.reasoningEffort, stale.reasoningEffort, 'the carried-over max must not survive onto gemini')
+  assert.equal(fixed.reasoningEffort, 'high')
+  // an explicit, in-range effort is still kept verbatim
+  const ok = { provider: 'ai-proxy', reasoningEffort: ReasoningEffortId('high') }
+  assert.equal(streamOptionsWithPreferredEffort(ok, geminiEfforts, 'highest'), ok)
+})
+
+test('clampEffortToLadder: a carried-over effort is clamped to the new model', () => {
+  // the bug: deepseek(max) -> gemini(low/medium/high) sent "max" and 400'd
+  assert.equal(clampEffortToLadder('max', ['low', 'medium', 'high']), 'high')
+  assert.equal(clampEffortToLadder('xhigh', ['low', 'medium', 'high']), 'high')
+  assert.equal(clampEffortToLadder('max', ['minimal', 'low']), 'low')
+  assert.equal(clampEffortToLadder('ultra', ['high', 'max']), 'max')   // unknown rung -> nearest up when nothing lower
+})
+
+test('clampEffortToLadder: an in-range effort is never rewritten', () => {
+  assert.equal(clampEffortToLadder('high', ['low', 'medium', 'high']), 'high')
+  assert.equal(clampEffortToLadder('medium', ['low', 'medium', 'high']), 'medium')
+  assert.equal(clampEffortToLadder('low', ['low', 'medium', 'high']), 'low')
+})
+
+test('clampEffortToLadder: no selectable rung omits the field', () => {
+  assert.equal(clampEffortToLadder('max', []), undefined)
+  assert.equal(clampEffortToLadder('max', ['off']), undefined)
+  assert.equal(clampEffortToLadder('off', ['low', 'high']), undefined)
+  assert.equal(clampEffortToLadder(undefined, ['low', 'high']), undefined)
+})
+
+test('extractEffortRungs: array and dict, off filtered, none preserved', () => {
+  assert.deepEqual(extractEffortRungs(['low', 'off', 'high']), ['low', 'high'])
+  assert.deepEqual(extractEffortRungs([{ id: 'low' }, { id: 'none' }]), ['low', 'none'])
+  assert.deepEqual(extractEffortRungs({ low: 'low', off: null, high: 'high' }), ['low', 'high'])
+  assert.deepEqual(extractEffortRungs(undefined), [])
+  assert.deepEqual(extractEffortRungs('low'), [])
+})
+
+test('clampEffortToLadder: dict ladder works, none is not a selectable rung', () => {
+  const gemini = { low: 'low', medium: 'medium', high: 'high' }
+  assert.equal(clampEffortToLadder('max', gemini), 'high')
+  assert.equal(clampEffortToLadder('low', gemini), 'low')
+  // 'none' in a dict ladder is not a thinking rung; clamp ignores it
+  const withNone = { none: null, low: 'low', high: 'high' }
+  assert.equal(clampEffortToLadder('max', withNone), 'high')
+  assert.equal(clampEffortToLadder('none', withNone), undefined)
 })
 
 test('preferredEffort: one model\'s own ladder, never a catalog-wide rung', () => {

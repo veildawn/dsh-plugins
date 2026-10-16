@@ -134,6 +134,48 @@ export function resolveDefaultEffort(ladder, configured) {
   return ladder[0]
 }
 
+/** Extract non-empty, non-off reasoning rung identifiers from an array or dict. */
+export function extractEffortRungs(ladder) {
+  if (Array.isArray(ladder)) {
+    return ladder
+      .map((r) => typeof r === 'string' ? r : r?.id)
+      .filter((r) => typeof r === 'string' && r.length > 0 && r !== 'off')
+  }
+  if (ladder && typeof ladder === 'object') {
+    return Object.keys(ladder)
+      .filter((k) => typeof k === 'string' && k.length > 0 && k !== 'off')
+  }
+  return []
+}
+
+/**
+ * Clamp an effort onto a model's own ladder, nearest-down preferring lower rungs.
+ * Returns the effort unchanged when the ladder already contains it (an explicit,
+ * in-range choice is never rewritten). Returns undefined when the ladder has no
+ * selectable rung, so the caller omits the field rather than sending one the
+ * model cannot serve — an out-of-range effort is a hard 400 upstream.
+ *
+ * @param {string|undefined} effort  the effort carried over from the previous model
+ * @param {string[]|object|undefined} ladder  the target model's rungs (its reasoningEfforts keys)
+ */
+export function clampEffortToLadder(effort, ladder) {
+  const rungs = extractEffortRungs(ladder).filter((r) => r !== 'none')
+  if (rungs.length === 0) return undefined
+  if (typeof effort !== 'string' || effort === '' || effort === 'off' || effort === 'none') return undefined
+  if (rungs.includes(effort)) return effort
+  // nearest rung, preferring lower (do not silently upgrade the user's choice)
+  const idx = EFFORT_ORDER.indexOf(effort)
+  if (idx !== -1) {
+    for (let i = idx; i < EFFORT_ORDER.length; i++) {
+      if (rungs.includes(EFFORT_ORDER[i])) return EFFORT_ORDER[i]
+    }
+    for (let i = idx - 1; i >= 0; i--) {
+      if (rungs.includes(EFFORT_ORDER[i])) return EFFORT_ORDER[i]
+    }
+  }
+  return rungs[0]
+}
+
 /** Normalize API format string to canonical identifier. */
 export function normalizeApiFormat(raw) {
   if (!raw || typeof raw !== 'string') return DEFAULT_API_FORMAT
@@ -260,12 +302,23 @@ export function ladderToReasoningEfforts(effortLevels) {
 }
 
 /**
- * Attach the route preference to a direct stream that named no effort.
- * Returns the original options when the provider is not ours, an effort is
- * already selected, or this model has no selectable rung for the preference.
+ * Attach the route preference to a direct stream that named no effort, or
+ * clamp a stale carried-over effort onto this model's own ladder when out of range.
+ * Returns the original options when the provider is not ours, an in-range effort
+ * is already selected, or this model has no selectable rung for the preference.
  */
 export function streamOptionsWithPreferredEffort(streamOptions, efforts, configured) {
-  if (streamOptions?.provider !== PROVIDER || streamOptions.reasoningEffort !== undefined) return streamOptions
+  if (streamOptions?.provider !== PROVIDER) return streamOptions
+  if (streamOptions.reasoningEffort !== undefined) {
+    const clamped = clampEffortToLadder(streamOptions.reasoningEffort, efforts)
+    if (clamped === streamOptions.reasoningEffort) return streamOptions
+    if (clamped !== undefined) {
+      return { ...streamOptions, reasoningEffort: ReasoningEffortId(clamped) }
+    }
+    const rest = { ...streamOptions }
+    delete rest.reasoningEffort
+    return rest
+  }
   const target = preferredEffort(efforts, configured)
   if (target === undefined) return streamOptions
   return { ...streamOptions, reasoningEffort: ReasoningEffortId(target) }
@@ -1252,11 +1305,25 @@ export function apply(ctx, config) {
     if (origResolveModelInfo !== undefined && typeof ctx.llm.resolveCallConfig === 'function') {
       const origResolveCallConfig = ctx.llm.resolveCallConfig.bind(ctx.llm)
       ctx.llm.resolveCallConfig = async function (config, signal) {
-        if (config?.provider === PROVIDER && config.reasoningEffort === undefined) {
+        if (config?.provider === PROVIDER) {
           try {
             const info = await origResolveModelInfo(config.provider, config.model, signal)
-            const target = preferredFor(info)
-            if (target !== undefined) config = { ...config, reasoningEffort: ReasoningEffortId(target) }
+            const efforts = info?.reasoning?.efforts
+            if (config.reasoningEffort === undefined) {
+              const target = preferredFor(info)
+              if (target !== undefined) config = { ...config, reasoningEffort: ReasoningEffortId(target) }
+            } else {
+              const clamped = clampEffortToLadder(config.reasoningEffort, efforts)
+              if (clamped !== config.reasoningEffort) {
+                if (clamped !== undefined) {
+                  config = { ...config, reasoningEffort: ReasoningEffortId(clamped) }
+                } else {
+                  const rest = { ...config }
+                  delete rest.reasoningEffort
+                  config = rest
+                }
+              }
+            }
           } catch {}
         }
         return origResolveCallConfig(config, signal)
@@ -1265,13 +1332,17 @@ export function apply(ctx, config) {
 
     ctx.on('llm/stream', (streamOptions, next) => {
       if (origResolveModelInfo === undefined) return next()
-      if (streamOptions?.provider !== PROVIDER || streamOptions.reasoningEffort !== undefined) return next()
+      if (streamOptions?.provider !== PROVIDER) return next()
       return (async function* () {
         try {
           const info = await origResolveModelInfo(streamOptions.provider, streamOptions.model, streamOptions.signal)
           const resolved = streamOptionsWithPreferredEffort(streamOptions, info?.reasoning?.efforts, preference())
-          if (resolved.reasoningEffort !== undefined) {
-            streamOptions.reasoningEffort = resolved.reasoningEffort
+          if (resolved !== streamOptions) {
+            if (resolved.reasoningEffort !== undefined) {
+              streamOptions.reasoningEffort = resolved.reasoningEffort
+            } else if (streamOptions.reasoningEffort !== undefined) {
+              delete streamOptions.reasoningEffort
+            }
           }
         } catch {}
         yield* next()
@@ -1306,6 +1377,7 @@ export const internals = {
   AiProxyApi, RouteMaterializer, OAuthSession,
   buildProviderProfile, piAiProtocolFor, piAiBaseURL, routeCompatFor,
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey,
+  clampEffortToLadder, extractEffortRungs,
   effortName, resolveDefaultEffort, inputModalitiesOf,
   httpErrorCode, errorFromResponse, handleAuthRpc,
   pkcePair, base64url,
