@@ -798,6 +798,35 @@ export function appendMention(draft, displayPath) {
 }
 
 /**
+ * Insert a file reference at a specific character offset (caret position) in the text,
+ * ensuring words are properly separated without destroying existing text.
+ *
+ * @param {string} currentText - the current draft text in the composer.
+ * @param {string} displayPath - workspace-relative path of the file or folder.
+ * @param {number} [caretIndex] - insertion offset. Defaults to the end of the text.
+ * @returns {string} the text with the reference inserted at the caret position.
+ */
+export function insertMentionAtCaret(currentText, displayPath, caretIndex) {
+  const path = typeof displayPath === 'string' ? displayPath.trim() : ''
+  if (path === '') return typeof currentText === 'string' ? currentText : ''
+
+  const quoted = /[\s`]/.test(path) ? '`' + path.replace(/`/g, '') + '`' : path
+  const reference = '@' + quoted
+  const current = typeof currentText === 'string' ? currentText : ''
+  if (current === '') return reference + ' '
+
+  const idx = typeof caretIndex === 'number' && Number.isFinite(caretIndex)
+    ? Math.max(0, Math.min(current.length, Math.round(caretIndex)))
+    : current.length
+
+  const before = current.slice(0, idx)
+  const after = current.slice(idx)
+  const needPreSpace = before.length > 0 && !/\s$/.test(before)
+  const needPostSpace = after.length === 0 || !/^\s/.test(after)
+  return before + (needPreSpace ? ' ' : '') + reference + (needPostSpace ? ' ' : '') + after
+}
+
+/**
  * Parse a unified diff patch string (e.g. from git diff) into DiffBlock diff entries.
  * @param {string} patch - unified diff output.
  * @param {string} filePath - relative display path.

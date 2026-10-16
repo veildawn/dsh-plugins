@@ -371,14 +371,11 @@ test('registering in a conversation slot is declared in the manifest', () => {
   assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-conversation'], '>=0.1.0-rc.6')
 })
 
-test('the phone entry is drawn outside the header the narrow layout hides', () => {
+test('the floating entry button is drawn outside the header and visible across platforms', () => {
   const source = read('lib/client.js')
 
-  // dsh-mobile-adapter replaces the whole session header with its own bar, so a
-  // button registered in that header still mounts but renders inside a hidden
-  // subtree. Reaching into that header from the adapter was tried and rejected:
-  // it exposed controls the phone layout deliberately hides and broke the bar's
-  // own layout. The viewer draws its own entry instead.
+  // Rendered from the overlay seat outside the header so it is visible in both
+  // new/empty sessions where the header is hidden, and on mobile.
   assert.match(source, /function ViewerFloatingAction\(\)/)
   assert.match(source, /className: "fv-float-entry"/)
 
@@ -391,10 +388,10 @@ test('the phone entry is drawn outside the header the narrow layout hides', () =
   assert.match(source, /const sessionStore = createStore\(undefined\)/)
   assert.match(source, /sessionStore\.set\(sessionId\)/)
 
-  // Only one of the two is ever on screen, decided by the same breakpoint the
-  // adapter uses, and the phone entry yields once the drawer is open.
-  assert.match(source, /\.fv-float-entry\{display:none\}/)
-  assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-float-entry\{[^}]*position:fixed/)
+  // Always visible across PC and mobile instead of hidden on wide screens,
+  // yielding only when the drawer itself is open.
+  assert.doesNotMatch(source, /\.fv-float-entry\{display:none\}/)
+  assert.match(source, /\.fv-float-entry\{box-sizing:border-box;position:fixed/)
   // Not gated on a known session: the host falls back to workspace roots, and
   // requiring one tied the button to a slot that is not always rendered.
   assert.match(source, /if \(isOpen\) return null/)
@@ -538,7 +535,7 @@ test('tree rows can reference a file into the composer', () => {
   // action object. Reading setDraft off the snapshot silently yields undefined.
   assert.match(source, /props\.input \? props\.input\.draft : undefined/)
   assert.match(source, /props\.inputActions \? props\.inputActions\.setDraft : undefined/)
-  assert.match(source, /composerStore\.set\(\{ draft: typeof draft === "string" \? draft : "", setDraft \}\)/)
+  assert.match(source, /composerStore\.set\(\{[\s\S]*?draft:[\s\S]*?setDraft[\s\S]*?insertText[\s\S]*?captureInsertion/)
   assert.match(source, /\}, ComposerBridge\)\)/)
 
   // Rows became wrappers because a button cannot nest inside another button.
@@ -552,8 +549,9 @@ test('tree rows can reference a file into the composer', () => {
   // Folders are referenceable too, so the button is not gated on entry type.
   assert.doesNotMatch(source, /onMention[\s\S]{0,120}isDirectory \? null/)
 
-  // Closing after inserting leaves the draft visible and sendable.
-  assert.match(source, /target\.setDraft\(appendMention\(target\.draft, shown\)\);\s*openStore\.set\(null\);/)
+  // Inserting at caret uses host inputActions.insertText without clobbering, closing drawer afterwards.
+  assert.match(source, /target\.inputActions\.insertText\(textToInsert, span\)/)
+  assert.match(source, /openStore\.set\(null\);/)
 
   // Never gated behind hover. Hiding it that way made it unreachable wherever
   // hover is unreliable, including phones with a paired mouse where
@@ -1585,6 +1583,35 @@ test('client bundle contains ImageView with zoom pan rotate toolbar and dimensio
   assert.match(source, /向右旋转/)
   assert.match(source, /水平翻转/)
   assert.match(source, /fv-image-dims/)
+})
+
+test('client mention inserts reference at caret position without clobbering input', () => {
+  const { internals } = loadClient()
+  assert.equal(typeof internals.insertMentionAtCaret, 'function')
+  assert.equal(
+    internals.insertMentionAtCaret('你好 世界', 'a.txt', 2),
+    '你好 @a.txt 世界',
+  )
+  assert.equal(
+    internals.insertMentionAtCaret('', 'a.txt'),
+    '@a.txt ',
+  )
+  assert.equal(
+    internals.insertMentionAtCaret('Existing content', 'src/app.ts', 16),
+    'Existing content @src/app.ts ',
+  )
+})
+
+test('floating button remains always visible on PC and empty sessions without display:none', () => {
+  const source = read('lib/client.js')
+  // Must not contain .fv-float-entry{display:none}
+  assert.doesNotMatch(source, /\.fv-float-entry\{display:none\}/)
+  // Must be declared at base level with fixed position
+  assert.match(source, /\.fv-float-entry\{box-sizing:border-box;position:fixed;z-index:39/)
+  // Must support drag on pointerdown/move/up
+  assert.match(source, /onPointerDown/)
+  assert.match(source, /onPointerMove/)
+  assert.match(source, /onPointerUp: finishDrag/)
 })
 
 

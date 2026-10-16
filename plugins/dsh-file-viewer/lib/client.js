@@ -453,7 +453,15 @@ window.__ModuleLoader__.load({
       .fv-context-path{font-size:11px;color:var(--dsw-alias-label-tertiary);word-break:break-all;line-height:1.3}
       .fv-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:110;padding:8px 18px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-button-floating-fill,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;box-shadow:var(--dsw-shadow-lv3);pointer-events:none;animation:fv-toast-in .15s ease-out}
       @keyframes fv-toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
-      .fv-float-entry{display:none}
+      /* Floating action entry button: visible on both PC and mobile across all session
+         states (including newly created blank sessions where the header is hidden). */
+      .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;left:var(--fv-entry-left,auto);right:var(--fv-entry-right,calc(14px + var(--dsh-sar,0px)));bottom:var(--fv-entry-bottom,calc(148px + var(--dsh-sab,0px)));width:48px;height:48px;border:1px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-button-floating-fill);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv2);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family);touch-action:none;-webkit-tap-highlight-color:transparent;transition:transform var(--ds-transition-duration-fast,.1s) var(--ds-ease-in-out)}
+      .fv-float-entry:active{background:var(--dsw-alias-button-floating-hover,var(--dsw-alias-button-floating-fill));transform:scale(.94)}
+      .fv-float-entry:hover{background:var(--dsw-alias-button-floating-hover,var(--dsw-alias-button-floating-fill));color:var(--dsw-alias-label-primary)}
+      .fv-float-entry[data-dragging="true"]{box-shadow:var(--dsw-shadow-lv3);transform:scale(1.04);transition:none;cursor:grabbing}
+      @media(prefers-reduced-motion:reduce){
+        .fv-float-entry,.fv-float-entry:active,.fv-float-entry[data-dragging="true"]{transition:none;transform:none}
+      }
       @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
       .fv-shell[data-mobile="true"]{width:100%!important;border-left:none!important}
       .fv-shell[data-mobile="true"] .fv-btn-fullscreen{display:none!important}
@@ -495,31 +503,6 @@ window.__ModuleLoader__.load({
         .fv-root-select{flex:1 1 90px!important;min-width:70px!important;max-width:none!important}
         .fv-icon-button{width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none!important}
         .fv-btn-close{flex:none!important;margin-left:auto!important}
-        /* The narrow layout replaces the session header, so the header entry is
-           unreachable there and this floating one takes over. It clears the
-           composer and the safe area, and sits under the drawer's z-index.
-
-           Styled after the host's own round floating button (its scroll-to-bottom
-           control): a floating fill, a hairline border and shadow-lv2. The
-           previous rule named --dsw-alias-bg-inverse and --dsw-alias-label-inverse,
-           neither of which the theme defines, so it always rendered the literal
-           fallbacks and stayed dark under a light theme.
-
-           Placement comes from the two custom properties rather than fixed
-           offsets, so a dragged position needs no inline right/bottom and the
-           default still reads from the safe area. touch-action is none because a
-           drag would otherwise be claimed by the page scroller. */
-        .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;left:var(--fv-entry-left,auto);right:var(--fv-entry-right,calc(14px + var(--dsh-sar,0px)));bottom:var(--fv-entry-bottom,calc(148px + var(--dsh-sab,0px)));width:48px;height:48px;border:1px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-button-floating-fill);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv2);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family);touch-action:none;-webkit-tap-highlight-color:transparent;transition:transform var(--ds-transition-duration-fast,.1s) var(--ds-ease-in-out)}
-        .fv-float-entry:active{background:var(--dsw-alias-button-floating-hover,var(--dsw-alias-button-floating-fill));transform:scale(.94)}
-        /* Lifted while dragging so it reads as picked up, and the transition is
-           dropped so the button tracks the finger exactly instead of lagging. */
-        .fv-float-entry[data-dragging="true"]{box-shadow:var(--dsw-shadow-lv3);transform:scale(1.04);transition:none;cursor:grabbing}
-        /* Nested inside this breakpoint rather than beside the other reduce rule
-           near the top: at equal specificity the later rule wins, and the entry's
-           own transition is declared here, so an earlier one had no effect. */
-        @media(prefers-reduced-motion:reduce){
-          .fv-float-entry,.fv-float-entry:active,.fv-float-entry[data-dragging="true"]{transition:none;transform:none}
-        }
         /* 44px is the smallest comfortable touch target. */
         .fv-mention{width:44px;height:44px;margin-right:2px;opacity:1}
         .fv-row-seat .fv-mention{align-self:center}
@@ -580,17 +563,74 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Write the draft straight to the composer's textarea.
-     *
-     * The bridge on the composer seat is the clean path, but it only works when
-     * the host hands that seat the input props. Where it does not, the button
-     * would disappear entirely, so fall back to the element itself: React tracks
-     * the value on the node, hence the prototype setter plus a synthetic event
-     * rather than a plain assignment, which React would overwrite on the next
-     * render.
+     * Track the last focused caret/selection inside the composer input.
+     * When the user clicks the file viewer drawer, the composer loses focus.
+     * Tracking this ensures "@" mentions insert at the exact caret position
+     * instead of clobbering existing text or appending blindly to the end.
+     */
+    let lastComposerSelection = null;
+
+    if (typeof document !== "undefined") {
+      const recordSelection = () => {
+        try {
+          const activeEl = document.activeElement;
+          if (activeEl && (activeEl.tagName === "TEXTAREA" || activeEl.tagName === "INPUT")) {
+            if (activeEl.closest("[data-composer-card]") || activeEl.getAttribute("data-composer-input") !== null) {
+              lastComposerSelection = {
+                type: "textarea",
+                element: activeEl,
+                start: activeEl.selectionStart,
+                end: activeEl.selectionEnd,
+                value: activeEl.value,
+                time: Date.now(),
+              };
+              return;
+            }
+          }
+          const sel = typeof window !== "undefined" && window.getSelection ? window.getSelection() : null;
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            const container = range.commonAncestorContainer;
+            const inputEl = container.nodeType === 1
+              ? container.closest("[data-composer-input]")
+              : (container.parentElement ? container.parentElement.closest("[data-composer-input]") : null);
+            if (inputEl) {
+              lastComposerSelection = {
+                type: "contenteditable",
+                element: inputEl,
+                range: range.cloneRange(),
+                time: Date.now(),
+              };
+            }
+          }
+        } catch (_) {}
+      };
+      document.addEventListener("selectionchange", recordSelection, true);
+      document.addEventListener("keyup", recordSelection, true);
+      document.addEventListener("mouseup", recordSelection, true);
+      document.addEventListener("touchend", recordSelection, true);
+    }
+
+    /**
+     * Write text to the composer DOM element, supporting both textarea and Lexical contenteditable.
      */
     function writeDraftToDom(doc, text) {
-      const area = doc && doc.querySelector("[data-composer-card] textarea, textarea");
+      if (!doc) return false;
+      const inputEl = doc.querySelector("[data-composer-input]");
+      if (inputEl && inputEl.isContentEditable) {
+        try {
+          inputEl.focus();
+          if (doc.execCommand) {
+            doc.execCommand("selectAll", false, null);
+            doc.execCommand("insertText", false, text);
+          } else {
+            inputEl.textContent = text;
+            inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+          return true;
+        } catch (_) {}
+      }
+      const area = doc.querySelector("[data-composer-card] textarea, textarea");
       if (!area) return false;
       const proto = Object.getPrototypeOf(area);
       const setter = Object.getOwnPropertyDescriptor(proto, "value");
@@ -1149,6 +1189,30 @@ window.__ModuleLoader__.load({
       if (current === "") return reference + " ";
       const separator = /\s$/.test(current) ? "" : " ";
       return current + separator + reference + " ";
+    }
+
+    /**
+     * Insert a file reference at a specific character offset (caret position) in the text,
+     * ensuring words are properly separated without destroying existing text.
+     */
+    function insertMentionAtCaret(currentText, displayPath, caretIndex) {
+      const path = typeof displayPath === "string" ? displayPath.trim() : "";
+      if (path === "") return typeof currentText === "string" ? currentText : "";
+
+      const quoted = /[\s`]/.test(path) ? "`" + path.replace(/`/g, "") + "`" : path;
+      const reference = "@" + quoted;
+      const current = typeof currentText === "string" ? currentText : "";
+      if (current === "") return reference + " ";
+
+      const idx = typeof caretIndex === "number" && Number.isFinite(caretIndex)
+        ? Math.max(0, Math.min(current.length, Math.round(caretIndex)))
+        : current.length;
+
+      const before = current.slice(0, idx);
+      const after = current.slice(idx);
+      const needPreSpace = before.length > 0 && !/\s$/.test(before);
+      const needPostSpace = after.length === 0 || !/^\s/.test(after);
+      return before + (needPreSpace ? " " : "") + reference + (needPostSpace ? " " : "") + after;
     }
 
     function formatBytes(bytes) {
@@ -2513,22 +2577,101 @@ window.__ModuleLoader__.load({
         useStore(composerStore);
 
         /**
-         * Append a reference to the composer and close the drawer, so the draft
-         * is visible and can be sent without a second gesture.
+         * Insert a file reference at the composer's caret position without overwriting existing content.
          */
         const mention = (entry) => {
           const shown = entry.displayPath === undefined ? entry.path : entry.displayPath;
+          const quoted = /[\s`]/.test(shown) ? "`" + shown.replace(/`/g, "") + "`" : shown;
+          const refToken = "@" + quoted;
           const target = composerStore.get();
-          if (target !== null) {
-            target.setDraft(appendMention(target.draft, shown));
-            openStore.set(null);
-            return;
-          }
-          // No bridge on this host, so read the current text off the element and
-          // append to that instead of the snapshot the bridge would have carried.
           const doc = typeof document === "undefined" ? null : document;
-          const area = doc && doc.querySelector("[data-composer-card] textarea, textarea");
-          if (!writeDraftToDom(doc, appendMention(area ? area.value : "", shown))) return;
+          let inserted = false;
+
+          // 1. Primary: use official host inputActions.insertText at the caret
+          if (target && target.inputActions && typeof target.inputActions.insertText === "function") {
+            try {
+              const span = typeof target.inputActions.captureInsertion === "function"
+                ? target.inputActions.captureInsertion()
+                : null;
+              if (span) {
+                const draftStr = typeof target.draft === "string" ? target.draft : "";
+                const at = typeof span.start === "number" ? span.start : draftStr.length;
+                const before = draftStr.slice(0, at);
+                const needPreSpace = before.length > 0 && !/\s$/.test(before);
+                const textToInsert = (needPreSpace ? " " : "") + refToken + " ";
+                if (target.inputActions.insertText(textToInsert, span)) {
+                  inserted = true;
+                }
+              }
+            } catch (_) {}
+          }
+
+          // 2. Fallback: DOM insertion for Lexical contenteditable
+          if (!inserted && doc) {
+            const inputEl = (lastComposerSelection?.type === "contenteditable" && lastComposerSelection.element)
+              || doc.querySelector("[data-composer-input]");
+            if (inputEl) {
+              try {
+                inputEl.focus();
+                const sel = window.getSelection ? window.getSelection() : null;
+                if (sel) {
+                  if (lastComposerSelection?.type === "contenteditable" && lastComposerSelection.range) {
+                    sel.removeAllRanges();
+                    sel.addRange(lastComposerSelection.range);
+                  }
+                  const text = inputEl.textContent || "";
+                  const needSpace = text.length > 0 && !/\s$/.test(text);
+                  const insertStr = (needSpace ? " " : "") + refToken + " ";
+                  if (doc.execCommand && doc.execCommand("insertText", false, insertStr)) {
+                    inserted = true;
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+
+          // 3. Fallback: DOM insertion for textarea at caret
+          if (!inserted && doc) {
+            const area = (lastComposerSelection?.type === "textarea" && lastComposerSelection.element)
+              || doc.querySelector("[data-composer-card] textarea, textarea");
+            if (area && typeof area.value === "string") {
+              try {
+                const val = area.value;
+                const hasSel = typeof area.selectionStart === "number";
+                const start = hasSel ? area.selectionStart : (lastComposerSelection?.start ?? val.length);
+                const end = hasSel ? area.selectionEnd : (lastComposerSelection?.end ?? start);
+                const before = val.slice(0, start);
+                const after = val.slice(end);
+                const needPreSpace = before.length > 0 && !/\s$/.test(before);
+                const needPostSpace = after.length === 0 || !/^\s/.test(after);
+                const insertStr = (needPreSpace ? " " : "") + refToken + (needPostSpace ? " " : "");
+                const nextVal = before + insertStr + after;
+                if (writeDraftToDom(doc, nextVal)) {
+                  try {
+                    area.focus();
+                    area.selectionStart = area.selectionEnd = start + insertStr.length;
+                  } catch (_) {}
+                  inserted = true;
+                }
+              } catch (_) {}
+            }
+          }
+
+          // 4. Safe fallback: setDraft using DOM or draft text, NEVER clobber with empty
+          if (!inserted && target && typeof target.setDraft === "function") {
+            const domText = doc ? (doc.querySelector("[data-composer-input]")?.textContent || doc.querySelector("[data-composer-card] textarea, textarea")?.value) : "";
+            const currentDraft = (domText !== undefined && domText !== null && domText !== "") ? domText : (target.draft || "");
+            target.setDraft(appendMention(currentDraft, shown));
+            inserted = true;
+          }
+
+          // 5. Ultimate DOM fallback
+          if (!inserted && doc) {
+            const area = doc.querySelector("[data-composer-card] textarea, textarea");
+            const domText = area ? area.value : "";
+            writeDraftToDom(doc, appendMention(domText, shown));
+          }
+
           openStore.set(null);
         };
         const [error, setError] = react.useState(null);
@@ -2942,9 +3085,16 @@ window.__ModuleLoader__.load({
         const setDraft = props && props.inputActions ? props.inputActions.setDraft : undefined;
         react.useEffect(() => {
           if (typeof setDraft !== "function") return undefined;
-          composerStore.set({ draft: typeof draft === "string" ? draft : "", setDraft });
+          composerStore.set({
+            draft: typeof draft === "string" ? draft : "",
+            setDraft,
+            insertText: props.inputActions ? props.inputActions.insertText : undefined,
+            captureInsertion: props.inputActions ? props.inputActions.captureInsertion : undefined,
+            inputActions: props.inputActions,
+            input: props.input,
+          });
           return () => { composerStore.set(null); };
-        }, [draft, setDraft]);
+        }, [draft, setDraft, props && props.inputActions]);
         return null;
       }
 
@@ -3192,7 +3342,7 @@ window.__ModuleLoader__.load({
     exports.inject = inject;
     exports.internals = {
       RPC_CHANNEL, OVERLAY_SLOT, HEADER_SLOT, SESSION_SLOT, COMPOSER_SLOT, STYLE_ID, WINDOW_LINES, css,
-      ERROR_COPY, appendMention, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
+      ERROR_COPY, appendMention, insertMentionAtCaret, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,

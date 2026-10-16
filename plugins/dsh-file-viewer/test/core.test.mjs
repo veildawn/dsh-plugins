@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   appendMention,
+  insertMentionAtCaret,
   MAX_BYTES,
   WINDOW_LINES,
   LANGUAGE_CATALOG,
@@ -524,6 +525,54 @@ test('appendMention appends a file reference to the draft', () => {
   assert.equal(appendMention('保留', ''), '保留')
   assert.equal(appendMention('保留', '   '), '保留')
   assert.equal(appendMention(undefined, 'a.txt'), '@a.txt ')
+})
+
+test('insertMentionAtCaret inserts reference at caret position without clobbering', () => {
+  // Empty text defaults to reference plus trailing space
+  assert.equal(insertMentionAtCaret('', 'src/index.js'), '@src/index.js ')
+
+  // Insertion at end behaves like appendMention
+  assert.equal(insertMentionAtCaret('请看这个', 'a/b.txt'), '请看这个 @a/b.txt ')
+  assert.equal(insertMentionAtCaret('请看这个', 'a/b.txt', 4), '请看这个 @a/b.txt ')
+
+  // Insertion in the middle: preserves text before and after caret
+  assert.equal(
+    insertMentionAtCaret('请查看这个文件再继续', 'src/test.ts', 5),
+    '请查看这个 @src/test.ts 文件再继续',
+  )
+
+  // Insertion at the very beginning (caret 0)
+  assert.equal(
+    insertMentionAtCaret('请分析逻辑', 'main.go', 0),
+    '@main.go 请分析逻辑',
+  )
+
+  // Automatic spacing around insertion
+  assert.equal(
+    insertMentionAtCaret('前缀 后缀', 'a.txt', 3),
+    '前缀 @a.txt 后缀',
+  )
+
+  // Spacing already present before and after
+  assert.equal(
+    insertMentionAtCaret('前缀  后缀', 'a.txt', 3),
+    '前缀 @a.txt 后缀',
+  )
+
+  // Quoting paths with spaces
+  assert.equal(
+    insertMentionAtCaret('分析代码：', 'my docs/spec.md', 5),
+    '分析代码： @`my docs/spec.md` ',
+  )
+
+  // Empty or invalid paths leave original text completely intact
+  assert.equal(insertMentionAtCaret('原有珍贵内容', '', 2), '原有珍贵内容')
+  assert.equal(insertMentionAtCaret('原有珍贵内容', '   ', 2), '原有珍贵内容')
+  assert.equal(insertMentionAtCaret('原有珍贵内容', undefined, 2), '原有珍贵内容')
+
+  // Out of bounds caret clamps gracefully to text boundaries
+  assert.equal(insertMentionAtCaret('测试', 'a.txt', -10), '@a.txt 测试')
+  assert.equal(insertMentionAtCaret('测试', 'a.txt', 999), '测试 @a.txt ')
 })
 
 test('parsePatchToDiffs converts unified diff into DiffBlock hunks and calculates stats', () => {
