@@ -88,6 +88,11 @@ window.__ModuleLoader__.load({
           });
           if (res === true || (res && res.ok)) {
             setStatus({ ok: true, msg: "设置已保存成功！已写入本地配置" });
+            rpcCall("getConfig", {}).then((data) => {
+              if (data && typeof data.baseURL === "string") {
+                setBaseURL(data.baseURL);
+              }
+            }).catch(() => {});
           } else {
             setStatus({ ok: false, msg: res?.error || "保存失败" });
           }
@@ -111,9 +116,10 @@ window.__ModuleLoader__.load({
           });
           if (res && res.durationMs !== undefined) {
             const via = proxy.trim() ? "（经代理）" : "（直连）";
-            setStatus({ ok: true, msg: `✓ 连接成功！Jev 模型响应正常 ${via} (${res.durationMs}ms)` });
+            const target = baseURL.trim() || "https://api.typesafe.ai";
+            setStatus({ ok: true, msg: `✓ 连接成功！[${target}] Jev 模型响应正常 ${via} (${res.durationMs}ms)` });
           } else {
-            setStatus({ ok: false, msg: `连接失败：${res?.error || "未能连通 TypeSafe API"}` });
+            setStatus({ ok: false, msg: `连接失败：${res?.error || "未能连通接口服务"}` });
           }
         } catch (err) {
           setStatus({ ok: false, msg: "测试请求失败：" + err.message });

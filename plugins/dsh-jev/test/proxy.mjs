@@ -347,6 +347,19 @@ check('testConnection cannot bypass a config-pinned baseURL', lockedBaseTest.ok 
 const testBadBase = await baseURLSession.rpc('testConnection', { baseURL: 'not a valid url' });
 check('testConnection reports an invalid baseURL instead of throwing', testBadBase.ok === false, JSON.stringify(testBadBase));
 
+// supports omitting protocol (e.g. 127.0.0.1:port)
+const noSchemeBase = '127.0.0.1:' + originPort;
+await baseURLSession.rpc('saveConfig', { baseURL: noSchemeBase });
+const baseAfterNoScheme = await baseURLSession.rpc('getConfig', {});
+check('saveConfig normalizes a schemeless baseURL to http://', baseAfterNoScheme.value.baseURL === 'http://127.0.0.1:' + originPort, baseAfterNoScheme.value.baseURL);
+
+// handles trailing /v1 without duplicating
+reset();
+await baseURLSession.rpc('saveConfig', { baseURL: 'http://127.0.0.1:' + originPort + '/v1' });
+await baseURLSession.tool.execute(state(), {});
+check('baseURL with trailing /v1 hits /v1/systemone correctly', originLog[0]?.url === '/v1/systemone', originLog[0]?.url);
+await baseURLSession.rpc('saveConfig', { baseURL: '' });
+
 // ---------------------------------------------------------------------------
 // 7. the real key file is never touched by these tests
 // ---------------------------------------------------------------------------

@@ -66,7 +66,7 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
 
   if (method === 'saveConfig') {
     try {
-      if (typeof payload?.apiKey === 'string' && payload.apiKey.trim()) {
+      if (typeof payload?.apiKey === 'string' && payload.apiKey.trim() && !payload.apiKey.includes('...')) {
         await mkdir(dirname(userKeyPath), { recursive: true });
         await writeFile(userKeyPath, payload.apiKey.trim(), 'utf8');
         resolved.apiKey = payload.apiKey.trim();
@@ -131,7 +131,7 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       const testBaseURL = await resolveTestBaseURL(payload, resolved);
       const start = Date.now();
       const testRes = await httpRequest(
-        `${testBaseURL}/v1/systemone`,
+        resolveEndpointUrl(testBaseURL),
         {
           method: 'POST',
           headers: {
@@ -229,17 +229,39 @@ function nonNegativeInteger(value, fallback, label) {
  * @returns 规范化后的 URL。
  */
 function endpoint(value, label) {
-  const url = String(value).replace(/[/]+$/, '');
+  let url = String(value).trim().replace(/[/]+$/, '');
+  // 省略协议时智能补全 http://
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) {
+    url = 'http://' + url;
+  }
   let parsed;
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error('tool-jev: ' + label + ' is not a valid URL: ' + url);
+    throw new Error('tool-jev: ' + label + ' is not a valid URL: ' + value);
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new Error('tool-jev: ' + label + ' must be http(s), got ' + parsed.protocol);
   }
   return url;
+}
+
+/**
+ * 将接口服务基地址规整为完整的 System One 请求端点 URL。
+ * 兼容处理尾部 /v1、/v1/systemone 等多余后缀，避免拼接出 /v1/v1/systemone。
+ *
+ * @param baseURL - 接口服务基地址。
+ * @returns 完整的请求端点 URL。
+ */
+function resolveEndpointUrl(baseURL) {
+  const url = String(baseURL).trim().replace(/[/]+$/, '');
+  if (url.endsWith('/v1/systemone')) {
+    return url;
+  }
+  if (url.endsWith('/v1')) {
+    return url + '/systemone';
+  }
+  return url + '/v1/systemone';
 }
 
 /**
@@ -654,7 +676,7 @@ function buildRequest(args, questions, config, baseURL) {
   const model = typeof args.model === 'string' && args.model.trim() !== '' ? args.model.trim() : config.model;
   const base = baseURL || config.baseURL || DEFAULTS.baseURL;
   return {
-    url: base + '/v1/systemone',
+    url: resolveEndpointUrl(base),
     headers: { 'content-type': 'application/json' },
     body: { state: args.state, questions, model },
     model,
@@ -1009,7 +1031,7 @@ function setupWebRoutes(ctx, resolved) {
       req.on('end', async () => {
         try {
           const body = JSON.parse(bodyStr || '{}');
-          if (typeof body.apiKey === 'string' && body.apiKey.trim()) {
+          if (typeof body.apiKey === 'string' && body.apiKey.trim() && !body.apiKey.includes('...')) {
             await mkdir(dirname(userKeyPath), { recursive: true });
             await writeFile(userKeyPath, body.apiKey.trim(), 'utf8');
             resolved.apiKey = body.apiKey.trim();
@@ -1083,7 +1105,7 @@ function setupWebRoutes(ctx, resolved) {
           const testBaseURL = await resolveTestBaseURL(body, resolved);
           const start = Date.now();
           const testRes = await httpRequest(
-            `${testBaseURL}/v1/systemone`,
+            resolveEndpointUrl(testBaseURL),
             {
               method: 'POST',
               headers: {
