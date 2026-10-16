@@ -453,15 +453,14 @@ window.__ModuleLoader__.load({
       .fv-context-path{font-size:11px;color:var(--dsw-alias-label-tertiary);word-break:break-all;line-height:1.3}
       .fv-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:110;padding:8px 18px;border:1px solid var(--dsw-alias-border-l2);border-radius:20px;background:var(--dsw-alias-button-floating-fill,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;box-shadow:var(--dsw-shadow-lv3);pointer-events:none;animation:fv-toast-in .15s ease-out}
       @keyframes fv-toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
-      /* Floating action entry button: visible on both PC and mobile across all session
-         states (including newly created blank sessions where the header is hidden). */
-      .fv-float-entry{box-sizing:border-box;position:fixed;z-index:39;left:var(--fv-entry-left,auto);right:var(--fv-entry-right,calc(14px + var(--dsh-sar,0px)));bottom:var(--fv-entry-bottom,calc(148px + var(--dsh-sab,0px)));width:48px;height:48px;border:1px solid var(--dsw-alias-border-l2);border-radius:50%;background:var(--dsw-alias-button-floating-fill);color:var(--dsw-alias-label-primary);box-shadow:var(--dsw-shadow-lv2);display:grid;place-items:center;cursor:pointer;font-family:var(--dsw-font-family);touch-action:none;-webkit-tap-highlight-color:transparent;transition:transform var(--ds-transition-duration-fast,.1s) var(--ds-ease-in-out)}
-      .fv-float-entry:active{background:var(--dsw-alias-button-floating-hover,var(--dsw-alias-button-floating-fill));transform:scale(.94)}
-      .fv-float-entry:hover{background:var(--dsw-alias-button-floating-hover,var(--dsw-alias-button-floating-fill));color:var(--dsw-alias-label-primary)}
-      .fv-float-entry[data-dragging="true"]{box-shadow:var(--dsw-shadow-lv3);transform:scale(1.04);transition:none;cursor:grabbing}
-      @media(prefers-reduced-motion:reduce){
-        .fv-float-entry,.fv-float-entry:active,.fv-float-entry[data-dragging="true"]{transition:none;transform:none}
-      }
+      /* Floating entry button is strictly disabled across both PC and mobile. */
+      .fv-float-entry{display:none!important}
+      /* Composer toolbar entry (PC): seated in conversation.input.left beside the + command button */
+      .fv-composer-entry{box-sizing:border-box;display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:none;border-radius:999px;background:var(--dsw-specific-selector,transparent);color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none;line-height:1;transition:color .12s,background-color .12s,transform .1s}
+      .fv-composer-entry:hover{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary)}
+      .fv-composer-entry:active{transform:scale(.95)}
+      .fv-composer-entry svg{display:block;flex:none}
+      @media(max-width:768px){.fv-composer-entry{display:none!important}}
       @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
       .fv-shell[data-mobile="true"]{width:100%!important;border-left:none!important}
       .fv-shell[data-mobile="true"] .fv-btn-fullscreen{display:none!important}
@@ -3074,9 +3073,9 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Publishes the composer's draft accessors without drawing anything. Only
-       * a component seated on the composer receives them, and the drawer that
-       * needs them renders in a different subtree.
+       * Seated on the composer toolbar (conversation.input.left).
+       * 1. Publishes the composer's draft accessors so tree row mentions can insert at caret;
+       * 2. Renders the native 28x28 icon button to open/toggle the file viewer drawer.
        */
       function ComposerBridge(props) {
         // The draft text lives on the input state snapshot; writing it back is a
@@ -3095,7 +3094,19 @@ window.__ModuleLoader__.load({
           });
           return () => { composerStore.set(null); };
         }, [draft, setDraft, props && props.inputActions]);
-        return null;
+
+        return react.createElement("button", {
+          type: "button",
+          className: "fv-composer-entry",
+          title: "查看项目文件",
+          "aria-label": "查看项目文件",
+          onClick: () => {
+            const sid = (props && props.sessionId) || sessionStore.get();
+            openStore.set(openStore.get() === null ? { sessionId: sid } : null);
+          },
+        }, FolderIcon === null
+          ? react.createElement("span", { "aria-hidden": "true" }, "\u{1F4C1}")
+          : react.createElement(FolderIcon, { size: 16 }));
       }
 
       /**
@@ -3232,38 +3243,13 @@ window.__ModuleLoader__.load({
           }
         };
 
-        // Not gated on knowing a session: the host falls back to the workspace
-        // roots when none is given, and requiring one made the button depend on
-        // a slot that is not always rendered — an empty session drops the
-        // conversation header, and the button vanished with it.
-        if (isOpen) return null;
-        return react.createElement("button", {
-          type: "button",
-          ref: node,
-          className: "fv-float-entry",
-          title: "查看项目文件（可拖动）",
-          "aria-label": "查看项目文件",
-          onPointerDown,
-          onPointerMove,
-          onPointerUp: finishDrag,
-          onPointerCancel,
-          // A release that ended a drag still fires a click, which would open the
-          // drawer the user was only repositioning.
-          onClick: () => {
-            if (dragged.current) return;
-            openStore.set({ sessionId });
-          },
-        }, FolderIcon === null
-          ? react.createElement("span", { "aria-hidden": "true" }, "\u{1F4C1}")
-          : react.createElement(FolderIcon, { size: 20 }));
+        // Floating button is strictly disabled; return null across all platforms.
+        return null;
       }
 
-      // The overlay seat carries both the drawer and the phone entry: it sits
-      // outside the session header, which the narrow layout hides wholesale.
+      // The overlay seat carries the drawer.
       function ViewerSurfaces(props) {
-        return react.createElement(react.Fragment, null,
-          react.createElement(ViewerOverlay, props),
-          react.createElement(ViewerFloatingAction, null));
+        return react.createElement(ViewerOverlay, props);
       }
 
       ctx.slots.inject(OVERLAY_SLOT, () => ctx.slots.register({
@@ -3273,6 +3259,8 @@ window.__ModuleLoader__.load({
         inject: () => ({ api: ctx.connection.api }),
       }, ViewerSurfaces));
 
+      // Seated exclusively on the composer toolbar (conversation.input.left).
+      // Available both during blank new sessions (centered hero composer) and regular sessions.
       ctx.slots.inject(COMPOSER_SLOT, () => ctx.slots.register({
         name: COMPOSER_SLOT,
         id: "file-viewer-composer",
@@ -3284,14 +3272,6 @@ window.__ModuleLoader__.load({
         id: "file-viewer-session",
         order: 0,
       }, SessionReporter));
-
-      // Ahead of the session-log download, which registers without an order
-      // and so sorts at 0; the list is ordered ascending.
-      ctx.slots.inject(HEADER_SLOT, () => ctx.slots.register({
-        name: HEADER_SLOT,
-        id: "file-viewer",
-        order: -10,
-      }, ViewerHeaderAction));
 
       // Global capture click listener catches file mentions before host handlers
       setupGlobalFileClickInterceptor(openStore, sessionStore);

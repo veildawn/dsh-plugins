@@ -340,18 +340,18 @@ test('the tree expands in place and loads children lazily', () => {
   assert.match(source, /paddingLeft: 8 \+ row\.depth \* 14/)
 })
 
-test('the conversation header carries a session-scoped entry', () => {
+test('the viewer entry is seated exclusively on the composer toolbar (conversation.input.left)', () => {
   const source = read('lib/client.js')
 
-  // The contract reserves `header.actions` for context and lineage controls;
-  // optional session tools go in `utilities` so they cannot reorder those.
-  assert.match(source, /const HEADER_SLOT = "conversation\.session\.header\.utilities"/)
-  assert.match(source, /ctx\.slots\.inject\(HEADER_SLOT/)
+  // Seated exclusively on the composer toolbar so it is visible in both new/blank sessions
+  // (hero composer centered) and regular sessions, while keeping the top header clean.
+  assert.match(source, /const COMPOSER_SLOT = "conversation\.input\.left"/)
+  assert.match(source, /ctx\.slots\.inject\(COMPOSER_SLOT/)
+  assert.match(source, /className: "fv-composer-entry"/)
 
-  // Session scope means the component receives sessionId, which is what lets
-  // the host resolve that session's project directory.
-  assert.match(source, /props === undefined \? undefined : props\.sessionId/)
-  assert.match(source, /openStore\.set\(openStore\.get\(\) === null \? \{ sessionId \} : null\)/)
+  // Session scope or sessionStore lets the host resolve that session's project directory.
+  assert.match(source, /const sid = \(props && props\.sessionId\) \|\| sessionStore\.get\(\)/)
+  assert.match(source, /openStore\.set\(openStore\.get\(\) === null \? \{ sessionId: sid \} : null\)/)
 
   // Open state is a payload, not a boolean, so the overlay knows which session
   // asked; a fresh object per open re-runs root resolution.
@@ -366,44 +366,29 @@ test('the conversation header carries a session-scoped entry', () => {
 
 test('registering in a conversation slot is declared in the manifest', () => {
   // The slot must exist before registration runs, which is what `dsh.client.inject`
-  // guarantees; without this the header entry silently never appears.
+  // guarantees; without this the composer entry silently never appears.
   assert(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-conversation'))
   assert.equal(manifest.peerDependencies['@deepseek-ai/dsh-client-ui-conversation'], '>=0.1.0-rc.6')
 })
 
-test('the floating entry button is drawn outside the header and visible across platforms', () => {
+test('floating button is strictly disabled and PC entry is seated on composer toolbar', () => {
   const source = read('lib/client.js')
 
-  // Rendered from the overlay seat outside the header so it is visible in both
-  // new/empty sessions where the header is hidden, and on mobile.
-  assert.match(source, /function ViewerFloatingAction\(\)/)
-  assert.match(source, /className: "fv-float-entry"/)
+  // Floating button is disabled across both PC and mobile platforms
+  assert.match(source, /\.fv-float-entry\{display:none!important\}/)
 
-  // It renders from the overlay seat, which is outside that header.
-  assert.match(source, /react\.createElement\(ViewerFloatingAction, null\)/)
-  assert.match(source, /\}, ViewerSurfaces\)\)/)
+  // ViewerSurfaces does NOT render ViewerFloatingAction anymore
+  assert.doesNotMatch(source, /react\.createElement\(ViewerFloatingAction, null\)/)
+  assert.match(source, /function ViewerFloatingAction\(\)[\s\S]*?return null;/)
 
-  // The header component publishes the session id, since the phone entry cannot
-  // receive that header's props.
+  // Session reporting continues to track active sessionId
   assert.match(source, /const sessionStore = createStore\(undefined\)/)
   assert.match(source, /sessionStore\.set\(sessionId\)/)
 
-  // Always visible across PC and mobile instead of hidden on wide screens,
-  // yielding only when the drawer itself is open.
-  assert.doesNotMatch(source, /\.fv-float-entry\{display:none\}/)
-  assert.match(source, /\.fv-float-entry\{box-sizing:border-box;position:fixed/)
-  // Not gated on a known session: the host falls back to workspace roots, and
-  // requiring one tied the button to a slot that is not always rendered.
-  assert.match(source, /if \(isOpen\) return null/)
-  assert.doesNotMatch(source, /if \(sessionId === undefined \|\| isOpen\)/)
-
-  // It must clear the composer and the safe area, and stay under the drawer.
-  // Clears the composer (100px) and the adapter's info strip (20px) below it,
-  // measured on a 390x844 viewport, plus the safe area. That default is now the
-  // fallback of the placement property a drag overrides.
-  assert.match(source, /\.fv-float-entry\{[^}]*bottom:var\(--fv-entry-bottom,calc\(148px \+ var\(--dsh-sab,0px\)\)\)/)
-  assert.match(source, /\.fv-float-entry\{[^}]*z-index:39/)
-  assert.match(source, /\.fv-float-entry\{[^}]*width:48px;height:48px/)
+  // Composer button is styled with 28x28 circular button matching native input tools
+  assert.match(source, /\.fv-composer-entry\{[^}]*width:28px;height:28px/)
+  assert.match(source, /\.fv-composer-entry\{[^}]*border-radius:999px/)
+  assert.match(source, /@media\(max-width:768px\)\{\.fv-composer-entry\{display:none!important\}\}/)
 })
 
 test('the drawer can be dismissed on a phone', () => {
@@ -423,33 +408,23 @@ test('the drawer can be dismissed on a phone', () => {
   assert.match(source, /"aria-label": "关闭",[^}]*onClick: \(\) => openStore\.set\(null\)/)
 })
 
-test('the entry reads clearly and precedes the session log download', () => {
+test('the entry reads clearly and renders a native folder icon in composer toolbar', () => {
   const source = read('lib/client.js')
 
   // The outline folder is faint at icon sizes; the filled variant is used with
   // outline kept only as a fallback.
   assert.match(source, /const FolderIcon = IconFolderOpen16 \?\? IconFolderOutline16 \?\? null/)
   assert.match(source, /react\.createElement\(FolderIcon, \{ size: 16 \}\)/)
-  assert.match(source, /react\.createElement\(FolderIcon, \{ size: 20 \}\)/)
 
-  // The utilities list sorts ascending and session-log-download registers with
-  // no order, so it sits at 0; a negative order puts this button to its left.
-  assert.match(source, /order: -10,\s*\}, ViewerHeaderAction\)\)/)
+  // Floating button is permanently suppressed
+  assert.match(source, /\.fv-float-entry\{display:none!important\}/)
 
-  // The phone entry follows the host's own round floating button: a floating
-  // fill, a hairline border and shadow-lv2. The earlier rule named
-  // --dsw-alias-bg-inverse and --dsw-alias-label-inverse, which the theme does
-  // not define, so it always rendered its literal fallbacks and stayed dark
-  // under a light theme.
-  assert.match(source, /\.fv-float-entry\{[^}]*background:var\(--dsw-alias-button-floating-fill\)/)
-  assert.match(source, /\.fv-float-entry\{[^}]*color:var\(--dsw-alias-label-primary\)/)
-  assert.match(source, /\.fv-float-entry\{[^}]*box-shadow:var\(--dsw-shadow-lv2\)/)
-  assert.match(source, /\.fv-float-entry\{[^}]*border:1px solid var\(--dsw-alias-border-l2\)/)
-  // Matched as var() references, since the comment above the rule names both
-  // tokens to explain why they are gone.
-  assert.doesNotMatch(source, /var\(--dsw-alias-bg-inverse/)
-  assert.doesNotMatch(source, /var\(--dsw-alias-label-inverse/)
-  assert.doesNotMatch(source, /box-shadow:0 4px 14px/)
+  // The composer entry follows native styling: 28x28 circular button,
+  // matching DSH input toolbar add button.
+  assert.match(source, /\.fv-composer-entry\{[^}]*width:28px;height:28px/)
+  assert.match(source, /\.fv-composer-entry\{[^}]*border-radius:999px/)
+  assert.match(source, /className: "fv-composer-entry"/)
+  assert.match(source, /"aria-label": "查看项目文件"/)
 })
 
 test('source views can be soft wrapped from the toolbar', () => {
@@ -504,21 +479,18 @@ test('the selected file path is hidden in the mobile header', () => {
   assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-file-path\{display:none!important\}/)
 })
 
-test('the phone entry survives a session with no messages', () => {
+test('session reporter survives a session with no messages and publishes sessionId', () => {
   const source = read('lib/client.js')
 
-  // Regression: the header entry was the only reporter of the active session,
-  // but the host renders no session header at all for an empty session — every
-  // plugin registered there vanishes, the built-in session log included. On a
-  // phone that left no entry, which looked like the button disappearing after a
-  // refresh that landed on an existing empty session.
+  // The session reporter hangs off SESSION_SLOT so empty/blank sessions
+  // reliably publish the active sessionId to sessionStore.
   assert.match(source, /const SESSION_SLOT = "conversation\.input\.overlay"/)
   assert.match(source, /function SessionReporter\(props\)/)
   assert.match(source, /sessionStore\.set\(sessionId\)/)
   assert.match(source, /\}, SessionReporter\)\)/)
 
   // It draws nothing; it exists only to publish the id.
-  assert.match(source, /return null;\s*\}\s*\/\*\*\s*\*\s*Phone entry/)
+  assert.match(source, /function SessionReporter[\s\S]*?return null;/)
 
   // The header entry no longer reports, so there is one source of truth.
   assert.doesNotMatch(source, /function ViewerHeaderAction[\s\S]{0,400}sessionStore\.set/)
@@ -875,40 +847,16 @@ test('the picker reports how the language was decided', () => {
   assert.match(source, /choice !== "auto"/)
 })
 
-test('the entry can be dragged without the release opening the drawer', () => {
+test('floating entry is disabled with display:none!important and composer entry supports active hover state', () => {
   const source = read('lib/client.js')
 
-  // Capture keeps the move and release events coming once the finger leaves the
-  // button, which happens almost at once when dragging.
-  assert.match(source, /element\.setPointerCapture\(event\.pointerId\)/)
-  assert.match(source, /releasePointerCapture\(event\.pointerId\)/)
-  // A gesture the system interrupts must not leave the drag armed.
-  assert.match(source, /onPointerCancel/)
-  // Otherwise the page scroller claims the drag.
-  assert.match(source, /\.fv-float-entry\{[^}]*touch-action:none/)
-  // Secondary touches during a pinch must not hijack an active drag.
-  assert.match(source, /event\.isPrimary === false \|\| event\.button > 0/)
+  // Floating button is strictly disabled across both PC and mobile platforms
+  assert.match(source, /\.fv-float-entry\{display:none!important\}/)
 
-  // A release that ended a drag still fires a click, which would open the
-  // drawer the user was only repositioning.
-  assert.match(source, /if \(dragged\.current\) return;/)
-  // Cleared when the next press begins, not in the click handler: a touch drag
-  // does not reliably emit a click, and a flag left armed swallowed the next
-  // genuine tap instead of the release that set it.
-  assert.match(source, /dragged\.current = false;\s*drag\.current = \{/)
-  // Below the slop a press stays a tap.
-  assert.match(source, /travelled < DRAG_SLOP/)
-
-  // Placement travels through custom properties so the stylesheet keeps the
-  // default corner and its safe-area maths.
-  assert.match(source, /setProperty\("--fv-entry-left"/)
-  assert.match(source, /setProperty\("--fv-entry-bottom"/)
-  assert.match(source, /\.fv-float-entry\{[^}]*left:var\(--fv-entry-left,auto\)/)
-
-  // Lifted while dragging, and the transition is dropped so it tracks exactly.
-  assert.match(source, /\.fv-float-entry\[data-dragging="true"\]\{[^}]*transition:none/)
-  // The reduce block has to cover transitions too, not just animations.
-  assert.match(source, /prefers-reduced-motion:reduce\)\{[\s\S]*?\.fv-float-entry[^{]*\{transition:none/)
+  // Composer entry styles
+  assert.match(source, /\.fv-composer-entry:hover\{/)
+  assert.match(source, /\.fv-composer-entry:active\{/)
+  assert.match(source, /\.fv-composer-entry svg\{/)
 })
 
 test('tree rows support right-click context menu with relative/absolute path copy and mention', () => {
@@ -1602,16 +1550,14 @@ test('client mention inserts reference at caret position without clobbering inpu
   )
 })
 
-test('floating button remains always visible on PC and empty sessions without display:none', () => {
+test('floating button is strictly banned and composer entry provides the clean PC entry point', () => {
   const source = read('lib/client.js')
-  // Must not contain .fv-float-entry{display:none}
-  assert.doesNotMatch(source, /\.fv-float-entry\{display:none\}/)
-  // Must be declared at base level with fixed position
-  assert.match(source, /\.fv-float-entry\{box-sizing:border-box;position:fixed;z-index:39/)
-  // Must support drag on pointerdown/move/up
-  assert.match(source, /onPointerDown/)
-  assert.match(source, /onPointerMove/)
-  assert.match(source, /onPointerUp: finishDrag/)
+  // Must contain .fv-float-entry{display:none!important}
+  assert.match(source, /\.fv-float-entry\{display:none!important\}/)
+  // Must render composer entry inside conversation.input.left
+  assert.match(source, /className: "fv-composer-entry"/)
+  assert.match(source, /"aria-label": "查看项目文件"/)
+  assert.match(source, /const sid = \(props && props\.sessionId\) \|\| sessionStore\.get\(\)/)
 })
 
 
