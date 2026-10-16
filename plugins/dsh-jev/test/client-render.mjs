@@ -161,9 +161,27 @@ const labelOf = (tree, text) => findAll(tree, (n) => n.type === 'span' && n.chil
 // --- default render -------------------------------------------------------
 let tree = render({ rpcCall });
 check('renders the panel heading', findAll(tree, (n) => n.type === 'h2')[0]?.children[0] === 'TypeSafe Jev 设置');
+
+// --- 接口地址 input checks ---
+const baseURLLabel = labelOf(tree, '接口地址');
+check('renders a 接口地址 label', baseURLLabel !== undefined);
+const baseURLInput = findAll(tree, isInput)[1];
+check('renders a baseURL input', baseURLInput !== undefined && baseURLInput.props.type === 'text', JSON.stringify(baseURLInput && baseURLInput.props));
+check('the baseURL input starts with official address', baseURLInput.props.value === 'https://api.typesafe.ai', JSON.stringify(baseURLInput.props.value));
+check('the baseURL input is enabled by default', baseURLInput.props.disabled === false, String(baseURLInput.props.disabled));
+check('the baseURL input offers a placeholder', typeof baseURLInput.props.placeholder === 'string' && baseURLInput.props.placeholder.includes('https://api.typesafe.ai'), String(baseURLInput.props.placeholder));
+const baseURLHint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('默认为官方地址'))[0];
+check('the hint explains the default and custom addresses', baseURLHint !== undefined);
+
+// typing into the baseURL field updates state
+baseURLInput.props.onChange({ target: { value: 'http://127.0.0.1:8000' } });
+tree = render({ rpcCall });
+check('typing updates the baseURL input value', findAll(tree, isInput)[1].props.value === 'http://127.0.0.1:8000', findAll(tree, isInput)[1].props.value);
+
+// --- proxy input checks ---
 const proxyLabel = labelOf(tree, '代理地址');
 check('renders a 代理地址 label', proxyLabel !== undefined);
-const proxyInput = findAll(tree, isInput)[2];
+const proxyInput = findAll(tree, isInput)[3];
 check('renders a proxy input', proxyInput !== undefined && proxyInput.props.type === 'text', JSON.stringify(proxyInput && proxyInput.props));
 check('the proxy input starts empty (direct connection)', proxyInput.props.value === '', JSON.stringify(proxyInput.props.value));
 check('the proxy input is enabled by default', proxyInput.props.disabled === false, String(proxyInput.props.disabled));
@@ -171,49 +189,75 @@ check('the proxy input offers a placeholder', typeof proxyInput.props.placeholde
 const hint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('留空表示直连'))[0];
 check('the hint explains that an empty value means direct', hint !== undefined);
 
-// typing into the field updates state
+// typing into the proxy field updates state
 proxyInput.props.onChange({ target: { value: 'http://127.0.0.1:7890' } });
 tree = render({ rpcCall });
-check('typing updates the proxy input value', findAll(tree, isInput)[2].props.value === 'http://127.0.0.1:7890', findAll(tree, isInput)[2].props.value);
+check('typing updates the proxy input value', findAll(tree, isInput)[3].props.value === 'http://127.0.0.1:7890', findAll(tree, isInput)[3].props.value);
 
-// --- save sends the proxy -------------------------------------------------
+// --- save sends baseURL and proxy ------------------------------------------
 const saveButton = findAll(tree, (n) => n.type === 'button' && n.children?.[0] === '保存设置')[0];
 check('renders the save button', saveButton !== undefined);
 ctx.lastCall = null;
 await saveButton.props.onClick();
-check('save sends the typed proxy', ctx.lastCall?.method === 'saveConfig' && ctx.lastCall.payload.proxy === 'http://127.0.0.1:7890', JSON.stringify(ctx.lastCall));
+check('save sends the typed baseURL and proxy', ctx.lastCall?.method === 'saveConfig' && ctx.lastCall.payload.baseURL === 'http://127.0.0.1:8000' && ctx.lastCall.payload.proxy === 'http://127.0.0.1:7890', JSON.stringify(ctx.lastCall));
 
-// --- test sends the proxy -------------------------------------------------
+// --- test sends baseURL and proxy ------------------------------------------
 tree = render({ rpcCall });
 const testButton = findAll(tree, (n) => n.type === 'button' && n.children?.[0] === '测试连接')[0];
 check('renders the test button', testButton !== undefined);
 ctx.lastCall = null;
 ctx.rpcResult = { ok: true, value: { durationMs: 42 } };
 await testButton.props.onClick();
-check('test sends the typed proxy', ctx.lastCall?.method === 'testConnection' && ctx.lastCall.payload.proxy === 'http://127.0.0.1:7890', JSON.stringify(ctx.lastCall));
+check('test sends the typed baseURL and proxy', ctx.lastCall?.method === 'testConnection' && ctx.lastCall.payload.baseURL === 'http://127.0.0.1:8000' && ctx.lastCall.payload.proxy === 'http://127.0.0.1:7890', JSON.stringify(ctx.lastCall));
 
-// --- getConfig populates the field, and reports the route used ------------
-ctx.rpcResult = { ok: true, value: { apiKey: 'ts-abc...1234', model: 'jev-latest', proxy: 'http://user:***@127.0.0.1:7890', proxyLocked: false } };
+// --- getConfig populates fields --------------------------------------------
+ctx.rpcResult = {
+  ok: true,
+  value: {
+    apiKey: 'ts-abc...1234',
+    baseURL: 'http://127.0.0.1:9000',
+    baseURLLocked: false,
+    model: 'jev-latest',
+    proxy: 'http://user:***@127.0.0.1:7890',
+    proxyLocked: false,
+  },
+};
 tree = render({ rpcCall });
 await effectCleanups[0]();
 await flush();
 tree = render({ rpcCall });
-check('getConfig populates the proxy field', findAll(tree, isInput)[2].props.value === 'http://user:***@127.0.0.1:7890', findAll(tree, isInput)[2].props.value);
-check('a locked proxy is reported as unlocked here', findAll(tree, isInput)[2].props.disabled === false);
+check('getConfig populates the baseURL field', findAll(tree, isInput)[1].props.value === 'http://127.0.0.1:9000', findAll(tree, isInput)[1].props.value);
+check('a locked baseURL is reported as unlocked here', findAll(tree, isInput)[1].props.disabled === false);
+check('getConfig populates the proxy field', findAll(tree, isInput)[3].props.value === 'http://user:***@127.0.0.1:7890', findAll(tree, isInput)[3].props.value);
+check('a locked proxy is reported as unlocked here', findAll(tree, isInput)[3].props.disabled === false);
 
-// --- a config-pinned proxy disables the field -----------------------------
-ctx.rpcResult = { ok: true, value: { configured: true, apiKey: 'ts-abc...1234', model: 'jev-latest', proxy: 'http://127.0.0.1:7890', proxyLocked: true } };
+// --- config-pinned fields disable the inputs ------------------------------
+ctx.rpcResult = {
+  ok: true,
+  value: {
+    configured: true,
+    apiKey: 'ts-abc...1234',
+    baseURL: 'http://127.0.0.1:9000',
+    baseURLLocked: true,
+    model: 'jev-latest',
+    proxy: 'http://127.0.0.1:7890',
+    proxyLocked: true,
+  },
+};
 tree = render({ rpcCall });
 await effectCleanups[0]();
 await flush();
 tree = render({ rpcCall });
-check('a config-pinned proxy disables the input', findAll(tree, isInput)[2].props.disabled === true, String(findAll(tree, isInput)[2].props.disabled));
-const lockedHint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('已由插件配置'))[0];
-check('the hint explains why the field is locked', lockedHint !== undefined);
+check('a config-pinned baseURL disables the input', findAll(tree, isInput)[1].props.disabled === true, String(findAll(tree, isInput)[1].props.disabled));
+const lockedBaseURLHint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('baseURL）固定'))[0];
+check('the hint explains why baseURL is locked', lockedBaseURLHint !== undefined);
+check('a config-pinned proxy disables the input', findAll(tree, isInput)[3].props.disabled === true, String(findAll(tree, isInput)[3].props.disabled));
+const lockedHint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('proxy）固定'))[0];
+check('the hint explains why the proxy field is locked', lockedHint !== undefined);
 
 // --- success message names the route -------------------------------------
 tree = render({ rpcCall });
-proxyInput.props.onChange({ target: { value: 'http://127.0.0.1:7890' } });
+findAll(tree, isInput)[3].props.onChange({ target: { value: 'http://127.0.0.1:7890' } });
 tree = render({ rpcCall });
 ctx.rpcResult = { ok: true, value: { durationMs: 7 } };
 await findAll(tree, (n) => n.type === 'button' && n.children?.[0] === '测试连接')[0].props.onClick();

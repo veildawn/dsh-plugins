@@ -49,10 +49,14 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
   if (method === 'getConfig') {
     const currentKey = await resolveApiKey(resolved);
     const proxy = await resolveProxy(resolved);
+    const baseURL = await resolveBaseURL(resolved);
     return rpcOk({
       configured: Boolean(currentKey),
       apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
       model: resolved.model,
+      baseURL,
+      baseURLDefault: DEFAULTS.baseURL,
+      baseURLLocked: resolved.configBaseURL !== undefined,
       // 代理地址回显给前端；密码已掩码，绝不把明文凭据送回浏览器。
       proxy: proxy ? formatProxyForDisplay(proxy) : '',
       // 由 Profile 配置固定的代理不允许在界面修改，前端据此禁用输入框。
@@ -69,6 +73,24 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       }
       if (typeof payload?.model === 'string' && payload.model.trim()) {
         resolved.model = payload.model.trim();
+      }
+      // 接口服务地址：支持自定义为其它地址（如本地接口服务）。空字符串表示恢复官方默认地址。
+      if (typeof payload?.baseURL === 'string') {
+        if (resolved.configBaseURL !== undefined) {
+          return rpcFailure(
+            'base-url-locked',
+            '接口地址已由插件配置（baseURL）固定，无法在界面修改：请修改 Profile 配置后重启',
+          );
+        }
+        const trimmed = payload.baseURL.trim();
+        if (trimmed === '') {
+          await writeSettingsFile(resolved, { baseURL: '' });
+          resolved.baseURL = DEFAULTS.baseURL;
+        } else {
+          const validated = endpoint(trimmed, 'baseURL');
+          await writeSettingsFile(resolved, { baseURL: validated });
+          resolved.baseURL = validated;
+        }
       }
       // 代理地址：空字符串表示清除代理（恢复直连）。保存前先校验，避免写入坏值。
       if (typeof payload?.proxy === 'string') {
@@ -104,11 +126,12 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       if (!testKey) {
         return rpcFailure('unconfigured', '未配置 API Key');
       }
-      // 使用界面上尚未保存的代理地址进行测试（掩码值或空值则回退到已保存的代理）。
+      // 使用界面上尚未保存的代理地址与接口服务地址进行测试。
       const testProxy = await resolveTestProxy(payload, resolved);
+      const testBaseURL = await resolveTestBaseURL(payload, resolved);
       const start = Date.now();
       const testRes = await httpRequest(
-        `${resolved.baseURL}/v1/systemone`,
+        `${testBaseURL}/v1/systemone`,
         {
           method: 'POST',
           headers: {
@@ -279,9 +302,16 @@ function normalizeConfig(config) {
   const apiKey = raw.apiKey === undefined || raw.apiKey === null ? undefined : String(raw.apiKey).trim();
   // 配置里显式给出的代理优先于前端保存的代理；为空表示直连。
   const configProxy = parseProxyUrl(raw.proxy, 'proxy');
+  // 配置里显式给出的接口地址优先于前端保存的地址；未指定时为 undefined（允许界面自定义与环境变量覆盖）。
+  const configBaseURL =
+    raw.baseURL !== undefined && raw.baseURL !== null
+      ? endpoint(raw.baseURL, 'baseURL')
+      : undefined;
   return {
     transport,
-    baseURL: endpoint(raw.baseURL === undefined ? DEFAULTS.baseURL : raw.baseURL, 'baseURL'),
+    baseURL: configBaseURL ?? DEFAULTS.baseURL,
+    /** 由插件配置固定下来的接口服务地址（undefined 表示允许前端覆盖）。 */
+    configBaseURL,
     model: String(raw.model === undefined ? DEFAULTS.model : raw.model),
     apiKey: apiKey === '' ? undefined : apiKey,
     apiKeyEnv: String(raw.apiKeyEnv === undefined ? DEFAULTS.apiKeyEnv : raw.apiKeyEnv),
@@ -419,6 +449,58 @@ async function resolveTestProxy(payload, config) {
   if (candidate === '') return null;
   if (candidate.includes('***')) return resolveProxy(config);
   return parseProxyUrl(candidate, 'proxy');
+}
+
+/**
+ * 解析当前生效的接口服务地址 (baseURL)。
+ *
+ * 优先级：插件配置固定地址 (configBaseURL) > 环境变量 ($TYPESAFE_BASE_URL / $JEV_BASE_URL) > 前端保存的 baseURL > 官方默认地址。
+ *
+ * @param config - 规范化配置。
+ * @returns 规范化后的接口服务地址 URL。
+ */
+async function resolveBaseURL(config) {
+  if (config.configBaseURL !== undefined) return config.configBaseURL;
+  for (const name of ['TYPESAFE_BASE_URL', 'JEV_BASE_URL']) {
+    const value = process.env[name];
+    if (typeof value === 'string' && value.trim() !== '') {
+      try {
+        return endpoint(value.trim(), name);
+      } catch {
+        // 环境变量格式非法时忽略并继续兜底
+      }
+    }
+  }
+  const settings = await readSettingsFile(config);
+  if (typeof settings.baseURL === 'string' && settings.baseURL.trim() !== '') {
+    try {
+      return endpoint(settings.baseURL.trim(), 'baseURL');
+    } catch {
+      // 容错兜底：若设置文件损坏则回退
+    }
+  }
+  return DEFAULTS.baseURL;
+}
+
+/**
+ * 解析前端传来的接口地址测试值（用于 testConnection）。
+ *
+ * 语义：
+ *   - 字段缺省（undefined）：沿用已保存或默认生效的接口地址；
+ *   - 空字符串：用户清空了输入框，回退到官方默认地址测试；
+ *   - 非空字符串：校验并使用该候选地址进行测试。
+ *
+ * @param payload - 前端请求载荷。
+ * @param config - 规范化配置。
+ * @returns 接口地址 URL。
+ */
+async function resolveTestBaseURL(payload, config) {
+  // 配置固定的接口地址不可被界面绕过
+  if (config.configBaseURL !== undefined) return config.configBaseURL;
+  if (typeof payload?.baseURL !== 'string') return resolveBaseURL(config);
+  const candidate = payload.baseURL.trim();
+  if (candidate === '') return DEFAULTS.baseURL;
+  return endpoint(candidate, 'baseURL');
 }
 
 /**
@@ -568,10 +650,11 @@ function assertQuestions(questions, config) {
  * @param config - 插件配置。
  * @returns 请求 URL、请求头与载荷。
  */
-function buildRequest(args, questions, config) {
+function buildRequest(args, questions, config, baseURL) {
   const model = typeof args.model === 'string' && args.model.trim() !== '' ? args.model.trim() : config.model;
+  const base = baseURL || config.baseURL || DEFAULTS.baseURL;
   return {
-    url: config.baseURL + '/v1/systemone',
+    url: base + '/v1/systemone',
     headers: { 'content-type': 'application/json' },
     body: { state: args.state, questions, model },
     model,
@@ -704,7 +787,8 @@ async function requestSystemOne(args, exec, config) {
   const apiKey = await resolveApiKey(config);
   if (apiKey === undefined) throw new Error(missingKeyMessage(config));
 
-  const request = buildRequest(args, questions, config);
+  const baseURL = await resolveBaseURL(config);
+  const request = buildRequest(args, questions, config, baseURL);
   const headers = { ...request.headers, authorization: 'Bearer ' + apiKey };
   const body = JSON.stringify(request.body);
 
@@ -905,11 +989,15 @@ function setupWebRoutes(ctx, resolved) {
     ws.get('/api/dsh-jev/config', async (_req, res) => {
       const currentKey = await resolveApiKey(resolved);
       const proxy = await resolveProxy(resolved);
+      const baseURL = await resolveBaseURL(resolved);
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
         configured: Boolean(currentKey),
         apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
         model: resolved.model,
+        baseURL,
+        baseURLDefault: DEFAULTS.baseURL,
+        baseURLLocked: resolved.configBaseURL !== undefined,
         proxy: proxy ? formatProxyForDisplay(proxy) : '',
         proxyLocked: resolved.configProxy !== undefined,
       }));
@@ -928,6 +1016,26 @@ function setupWebRoutes(ctx, resolved) {
           }
           if (typeof body.model === 'string' && body.model.trim()) {
             resolved.model = body.model.trim();
+          }
+          if (typeof body.baseURL === 'string') {
+            if (resolved.configBaseURL !== undefined) {
+              res.statusCode = 409;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                ok: false,
+                error: '接口地址已由插件配置（baseURL）固定，无法在界面修改',
+              }));
+              return;
+            }
+            const trimmed = body.baseURL.trim();
+            if (trimmed === '') {
+              await writeSettingsFile(resolved, { baseURL: '' });
+              resolved.baseURL = DEFAULTS.baseURL;
+            } else {
+              const validated = endpoint(trimmed, 'baseURL');
+              await writeSettingsFile(resolved, { baseURL: validated });
+              resolved.baseURL = validated;
+            }
           }
           if (typeof body.proxy === 'string') {
             if (resolved.configProxy !== undefined) {
@@ -972,9 +1080,10 @@ function setupWebRoutes(ctx, resolved) {
             return;
           }
           const testProxy = await resolveTestProxy(body, resolved);
+          const testBaseURL = await resolveTestBaseURL(body, resolved);
           const start = Date.now();
           const testRes = await httpRequest(
-            `${resolved.baseURL}/v1/systemone`,
+            `${testBaseURL}/v1/systemone`,
             {
               method: 'POST',
               headers: {

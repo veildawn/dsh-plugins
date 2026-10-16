@@ -291,6 +291,63 @@ const maskedTest = await maskedSession.rpc('testConnection', { proxy: 'http://al
 check('testConnection falls back to the saved proxy for a masked value', maskedTest.ok === true && proxyConnects === 1, 'connects=' + proxyConnects);
 
 // ---------------------------------------------------------------------------
+// 6b. baseURL configuration and persistence
+// ---------------------------------------------------------------------------
+const baseURLSession = register({ apiKeyEnv: 'PROXY_SMOKE_KEY' });
+const baseInitial = await baseURLSession.rpc('getConfig', {});
+check('getConfig reports default official baseURL when unpinned', baseInitial.value.baseURL === 'https://api.typesafe.ai', baseInitial.value.baseURL);
+check('getConfig reports baseURLLocked false when config has no baseURL', baseInitial.value.baseURLLocked === false, String(baseInitial.value.baseURLLocked));
+
+// save custom baseURL
+const customBaseURL = 'http://127.0.0.1:' + originPort;
+const baseSaved = await baseURLSession.rpc('saveConfig', { baseURL: customBaseURL });
+check('saveConfig accepts a valid custom baseURL', baseSaved.ok === true, JSON.stringify(baseSaved));
+const onDiskBase = JSON.parse(await readFile(settingsFile, 'utf8'));
+check('saveConfig persists the baseURL to the settings file', onDiskBase.baseURL === customBaseURL, JSON.stringify(onDiskBase));
+
+const baseAfterSave = await baseURLSession.rpc('getConfig', {});
+check('getConfig reads the saved baseURL back', baseAfterSave.value.baseURL === customBaseURL, baseAfterSave.value.baseURL);
+
+// subsequent tool calls use the saved baseURL
+reset();
+await baseURLSession.tool.execute(state(), {});
+check('a custom baseURL saved from UI is used by subsequent tool calls', originLog.length === 1 && originLog[0].url === '/v1/systemone', 'originLog=' + originLog.length);
+
+// testConnection with unsaved baseURL
+reset();
+const testCustom = await baseURLSession.rpc('testConnection', { baseURL: customBaseURL });
+check('testConnection succeeds with custom baseURL', testCustom.ok === true, JSON.stringify(testCustom));
+check('testConnection actually reached the custom baseURL origin', originLog.length === 1 && originLog[0].url === '/v1/systemone', 'originLog=' + originLog.length);
+
+// invalid baseURL is rejected
+const beforeBadBase = await readFile(settingsFile, 'utf8');
+const badBaseRes = await baseURLSession.rpc('saveConfig', { baseURL: 'ftp://127.0.0.1:8000' });
+check('saveConfig rejects an unsupported baseURL protocol', badBaseRes.ok === false, JSON.stringify(badBaseRes));
+check('a rejected baseURL is not written to disk', (await readFile(settingsFile, 'utf8')) === beforeBadBase);
+
+// clearing custom baseURL restores official default
+const baseCleared = await baseURLSession.rpc('saveConfig', { baseURL: '' });
+check('saveConfig clears the baseURL when given an empty string', baseCleared.ok === true, JSON.stringify(baseCleared));
+const baseAfterClear = await baseURLSession.rpc('getConfig', {});
+check('clearing baseURL restores default official address', baseAfterClear.value.baseURL === 'https://api.typesafe.ai', baseAfterClear.value.baseURL);
+
+// config-pinned baseURL locks the field and prevents override
+const lockedBase = register({ baseURL: customBaseURL, apiKeyEnv: 'PROXY_SMOKE_KEY' });
+const lockedBaseConfig = await lockedBase.rpc('getConfig', {});
+check('a config-pinned baseURL is reported as locked', lockedBaseConfig.value.baseURLLocked === true, JSON.stringify(lockedBaseConfig.value));
+const lockedBaseSave = await lockedBase.rpc('saveConfig', { baseURL: 'http://127.0.0.1:9999' });
+check('saveConfig refuses to override a config-pinned baseURL', lockedBaseSave.ok === false && lockedBaseSave.error.code === 'base-url-locked', JSON.stringify(lockedBaseSave));
+
+// testConnection cannot bypass config-pinned baseURL
+reset();
+const lockedBaseTest = await lockedBase.rpc('testConnection', { baseURL: 'http://127.0.0.1:9999' });
+check('testConnection cannot bypass a config-pinned baseURL', lockedBaseTest.ok === true && originLog.length === 1, 'originLog=' + originLog.length);
+
+// testConnection reports invalid baseURL gracefully
+const testBadBase = await baseURLSession.rpc('testConnection', { baseURL: 'not a valid url' });
+check('testConnection reports an invalid baseURL instead of throwing', testBadBase.ok === false, JSON.stringify(testBadBase));
+
+// ---------------------------------------------------------------------------
 // 7. the real key file is never touched by these tests
 // ---------------------------------------------------------------------------
 check('tests never wrote the real ~/.config/typesafe/key', !keyFile.startsWith(process.env.HOME + '/.config/typesafe'), keyFile);

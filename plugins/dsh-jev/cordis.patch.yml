@@ -30,6 +30,11 @@
         model: jev-latest
         apiKeyEnv: TYPESAFE_API_KEY
         timeoutMs: 60000
+        # Optional API base URL. Defaults to the official endpoint https://api.typesafe.ai.
+        # Can be set to a custom or local server endpoint, e.g. 'http://127.0.0.1:8000'.
+        # A baseURL saved from the settings UI lives in ~/.config/typesafe/settings.json
+        # and is overridden by this config.
+        # baseURL: https://api.typesafe.ai
         # Optional egress proxy. Leave it out (or empty) to connect directly;
         # when set, every request to *.typesafe.ai goes through this proxy.
         # Accepts http://, https://, socks5:// and socks5h:// (credentials as

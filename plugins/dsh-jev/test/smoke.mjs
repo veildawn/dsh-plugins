@@ -290,6 +290,19 @@ await expectError(
   'no API key',
 );
 
+// --- baseURL resolution from environment variables -----------------------
+process.env.TYPESAFE_BASE_URL = baseURL;
+const envBaseTool = register({ apiKeyEnv: 'SMOKE_KEY' })[0];
+await envBaseTool.execute({ state: 'x', questions: { q: { type: 'noul', instructions: 'y?' } } }, {});
+check('honors TYPESAFE_BASE_URL env variable', lastNative().body.state === 'x');
+delete process.env.TYPESAFE_BASE_URL;
+
+process.env.JEV_BASE_URL = baseURL;
+const envJevBaseTool = register({ apiKeyEnv: 'SMOKE_KEY' })[0];
+await envJevBaseTool.execute({ state: 'x', questions: { q: { type: 'noul', instructions: 'y?' } } }, {});
+check('honors JEV_BASE_URL env variable', lastNative().body.state === 'x');
+delete process.env.JEV_BASE_URL;
+
 // --- validation and transport errors --------------------------------------
 process.env.SMOKE_KEY = 'ts_smoke';
 await expectError(

@@ -41,6 +41,8 @@ window.__ModuleLoader__.load({
     function JevSettings(props) {
       const { rpcCall } = props || {};
       const [apiKey, setApiKey] = react.useState("");
+      const [baseURL, setBaseURL] = react.useState("https://api.typesafe.ai");
+      const [baseURLLocked, setBaseURLLocked] = react.useState(false);
       const [model, setModel] = react.useState("jev-latest");
       const [proxy, setProxy] = react.useState("");
       const [proxyLocked, setProxyLocked] = react.useState(false);
@@ -56,6 +58,8 @@ window.__ModuleLoader__.load({
           .then((data) => {
             if (!active) return;
             if (data.apiKey) setApiKey(data.apiKey);
+            if (typeof data.baseURL === "string" && data.baseURL) setBaseURL(data.baseURL);
+            setBaseURLLocked(data.baseURLLocked === true);
             if (data.model) setModel(data.model);
             if (typeof data.proxy === "string") setProxy(data.proxy);
             setProxyLocked(data.proxyLocked === true);
@@ -76,7 +80,12 @@ window.__ModuleLoader__.load({
         if (!rpcCall) return;
         setLoading(true);
         try {
-          const res = await rpcCall("saveConfig", { apiKey: apiKey.trim(), model, proxy: proxy.trim() });
+          const res = await rpcCall("saveConfig", {
+            apiKey: apiKey.trim(),
+            baseURL: baseURL.trim(),
+            model,
+            proxy: proxy.trim(),
+          });
           if (res === true || (res && res.ok)) {
             setStatus({ ok: true, msg: "设置已保存成功！已写入本地配置" });
           } else {
@@ -94,7 +103,12 @@ window.__ModuleLoader__.load({
         setTesting(true);
         setStatus(null);
         try {
-          const res = await rpcCall("testConnection", { apiKey: apiKey.trim(), model, proxy: proxy.trim() });
+          const res = await rpcCall("testConnection", {
+            apiKey: apiKey.trim(),
+            baseURL: baseURL.trim(),
+            model,
+            proxy: proxy.trim(),
+          });
           if (res && res.durationMs !== undefined) {
             const via = proxy.trim() ? "（经代理）" : "（直连）";
             setStatus({ ok: true, msg: `✓ 连接成功！Jev 模型响应正常 ${via} (${res.durationMs}ms)` });
@@ -124,6 +138,22 @@ window.__ModuleLoader__.load({
               placeholder: "ts-...",
               onChange: (e) => setApiKey(e.target.value),
             })
+          ),
+          react.createElement("label", { className: "jev-field" },
+            react.createElement("span", { className: "jev-label" }, "接口地址"),
+            react.createElement("input", {
+              className: "jev-input",
+              type: "text",
+              value: baseURL,
+              disabled: baseURLLocked,
+              placeholder: "https://api.typesafe.ai",
+              onChange: (e) => setBaseURL(e.target.value),
+            }),
+            react.createElement("p", { className: "jev-hint" },
+              baseURLLocked
+                ? "接口地址已由插件配置（baseURL）固定，如需修改请编辑 Profile 配置后重启。"
+                : "默认为官方地址 https://api.typesafe.ai。可自定义配置为其它地址，如：本地接口服务地址（http://127.0.0.1:8000）。"
+            )
           ),
           react.createElement("label", { className: "jev-field" },
             react.createElement("span", { className: "jev-label" }, "默认决策模型"),
