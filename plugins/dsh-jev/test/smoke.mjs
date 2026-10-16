@@ -87,7 +87,7 @@ const server = createServer((req, res) => {
       else write();
     };
 
-    if (req.method === 'POST' && req.url === '/v1/systemone') {
+    if (req.method === 'POST' && (req.url === '/v1/systemone' || req.url === '/v1/decisions')) {
       const state = parsed && parsed.state;
       if (state === 'FAIL') {
         send(401, 'invalid api key');
@@ -134,7 +134,7 @@ const server = createServer((req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const baseURL = 'http://127.0.0.1:' + server.address().port;
 
-const nativeRequests = () => requestLog.filter((entry) => entry.url === '/v1/systemone');
+const nativeRequests = () => requestLog.filter((entry) => entry.url === '/v1/systemone' || entry.url === '/v1/decisions');
 const lastNative = () => nativeRequests().at(-1) ?? { headers: {}, body: null };
 const callsWithState = (state) => nativeRequests().filter((entry) => entry.body && entry.body.state === state).length;
 
@@ -302,6 +302,17 @@ const envJevBaseTool = register({ apiKeyEnv: 'SMOKE_KEY' })[0];
 await envJevBaseTool.execute({ state: 'x', questions: { q: { type: 'noul', instructions: 'y?' } } }, {});
 check('honors JEV_BASE_URL env variable', lastNative().body.state === 'x');
 delete process.env.JEV_BASE_URL;
+
+// --- endpoint resolution -------------------------------------------------
+const epDecisionsTool = register({ baseURL, endpoint: '/v1/decisions', apiKeyEnv: 'SMOKE_KEY' })[0];
+await epDecisionsTool.execute({ state: 'x', questions: { q: { type: 'noul', instructions: 'y?' } } }, {});
+check('honors endpoint /v1/decisions', lastNative().url === '/v1/decisions', lastNative().url);
+
+process.env.TYPESAFE_ENDPOINT = '/v1/decisions';
+const envEpTool = register({ baseURL, apiKeyEnv: 'SMOKE_KEY' })[0];
+await envEpTool.execute({ state: 'x', questions: { q: { type: 'noul', instructions: 'y?' } } }, {});
+check('honors TYPESAFE_ENDPOINT env variable', lastNative().url === '/v1/decisions', lastNative().url);
+delete process.env.TYPESAFE_ENDPOINT;
 
 // --- validation and transport errors --------------------------------------
 process.env.SMOKE_KEY = 'ts_smoke';

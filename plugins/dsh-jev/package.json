@@ -1,8 +1,8 @@
 {
   "name": "dsh-jev",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
-  "description": "TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key、接口地址与代理访问。",
+  "description": "TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key、接口地址与可选端点（/v1/systemone 与 /v1/decisions）。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

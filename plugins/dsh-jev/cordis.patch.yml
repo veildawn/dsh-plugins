@@ -35,6 +35,8 @@
         # A baseURL saved from the settings UI lives in ~/.config/typesafe/settings.json
         # and is overridden by this config.
         # baseURL: https://api.typesafe.ai
+        # Optional API endpoint. Options: '/v1/systemone' (default) or '/v1/decisions' (OpenAI-compatible).
+        # endpoint: /v1/systemone
         # Optional egress proxy. Leave it out (or empty) to connect directly;
         # when set, every request to *.typesafe.ai goes through this proxy.
         # Accepts http://, https://, socks5:// and socks5h:// (credentials as

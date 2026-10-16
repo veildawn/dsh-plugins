@@ -50,6 +50,7 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
     const currentKey = await resolveApiKey(resolved);
     const proxy = await resolveProxy(resolved);
     const baseURL = await resolveBaseURL(resolved);
+    const endpoint = await resolveEndpoint(resolved);
     return rpcOk({
       configured: Boolean(currentKey),
       apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
@@ -57,6 +58,10 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       baseURL,
       baseURLDefault: DEFAULTS.baseURL,
       baseURLLocked: resolved.configBaseURL !== undefined,
+      endpoint,
+      endpointDefault: DEFAULT_ENDPOINT,
+      endpointLocked: resolved.configEndpoint !== undefined,
+      availableEndpoints: AVAILABLE_ENDPOINTS,
       // 代理地址回显给前端；密码已掩码，绝不把明文凭据送回浏览器。
       proxy: proxy ? formatProxyForDisplay(proxy) : '',
       // 由 Profile 配置固定的代理不允许在界面修改，前端据此禁用输入框。
@@ -90,6 +95,24 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
           const validated = endpoint(trimmed, 'baseURL');
           await writeSettingsFile(resolved, { baseURL: validated });
           resolved.baseURL = validated;
+        }
+      }
+      // 接口端点：提供 /v1/systemone（默认）与 /v1/decisions（兼容 OpenAI）
+      if (typeof payload?.endpoint === 'string') {
+        if (resolved.configEndpoint !== undefined) {
+          return rpcFailure(
+            'endpoint-locked',
+            '接口端点已由插件配置（endpoint）固定，无法在界面修改：请修改 Profile 配置后重启',
+          );
+        }
+        const trimmed = payload.endpoint.trim();
+        if (trimmed === '') {
+          await writeSettingsFile(resolved, { endpoint: '' });
+          resolved.endpoint = DEFAULT_ENDPOINT;
+        } else {
+          const validated = normalizeEndpoint(trimmed);
+          await writeSettingsFile(resolved, { endpoint: validated });
+          resolved.endpoint = validated;
         }
       }
       // 代理地址：空字符串表示清除代理（恢复直连）。保存前先校验，避免写入坏值。
@@ -126,12 +149,13 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
       if (!testKey) {
         return rpcFailure('unconfigured', '未配置 API Key');
       }
-      // 使用界面上尚未保存的代理地址与接口服务地址进行测试。
+      // 使用界面上尚未保存的代理地址、接口服务地址与端点进行测试。
       const testProxy = await resolveTestProxy(payload, resolved);
       const testBaseURL = await resolveTestBaseURL(payload, resolved);
+      const testEndpoint = await resolveTestEndpoint(payload, resolved);
       const start = Date.now();
       const testRes = await httpRequest(
-        resolveEndpointUrl(testBaseURL),
+        buildEndpointUrl(testBaseURL, testEndpoint),
         {
           method: 'POST',
           headers: {
@@ -173,9 +197,14 @@ async function handleSettingsRpc(ctx, resolved, method, payload) {
  */
 const QUESTION_TYPES = new Set(['choice', 'score', 'noul']);
 
+/** 可选的接口服务端点列表：官方 /v1/systemone 与 兼容 OpenAI 的 /v1/decisions。 */
+export const AVAILABLE_ENDPOINTS = ['/v1/systemone', '/v1/decisions'];
+export const DEFAULT_ENDPOINT = '/v1/systemone';
+
 const DEFAULTS = {
   transport: 'typesafe',
   baseURL: 'https://api.typesafe.ai',
+  endpoint: DEFAULT_ENDPOINT,
   model: 'jev-latest',
   apiKey: undefined,
   apiKeyEnv: 'TYPESAFE_API_KEY',
@@ -247,21 +276,38 @@ function endpoint(value, label) {
 }
 
 /**
- * 将接口服务基地址规整为完整的 System One 请求端点 URL。
- * 兼容处理尾部 /v1、/v1/systemone 等多余后缀，避免拼接出 /v1/v1/systemone。
+ * 校验并规范化接口服务端点路径。
+ * 支持 /v1/systemone（官方默认）与 /v1/decisions（兼容 OpenAI）。
  *
- * @param baseURL - 接口服务基地址。
+ * @param value - 候选端点路径。
+ * @param fallback - 缺省默认端点。
+ * @returns 规范化后的端点字符串。
+ */
+function normalizeEndpoint(value, fallback = DEFAULT_ENDPOINT) {
+  if (value === undefined || value === null) return fallback;
+  const text = String(value).trim().toLowerCase();
+  if (text === '' || text === 'default') return fallback;
+  if (text === '/v1/systemone' || text === 'systemone') return '/v1/systemone';
+  if (text === '/v1/decisions' || text === 'decisions') return '/v1/decisions';
+  throw new Error('tool-jev: endpoint must be one of "/v1/systemone" or "/v1/decisions" (got "' + value + '")');
+}
+
+/**
+ * 将基地址与端点合并为完整的请求端点 URL。
+ * 兼容处理 base 尾部已有的 /v1、/v1/systemone 或 /v1/decisions 后缀，防止拼接错误。
+ *
+ * @param baseURL - 接口基地址。
+ * @param endpointPath - 端点路径（默认 /v1/systemone）。
  * @returns 完整的请求端点 URL。
  */
-function resolveEndpointUrl(baseURL) {
-  const url = String(baseURL).trim().replace(/[/]+$/, '');
-  if (url.endsWith('/v1/systemone')) {
-    return url;
+function buildEndpointUrl(baseURL, endpointPath = DEFAULT_ENDPOINT) {
+  let base = String(baseURL).trim().replace(/[/]+$/, '');
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(base)) {
+    base = 'http://' + base;
   }
-  if (url.endsWith('/v1')) {
-    return url + '/systemone';
-  }
-  return url + '/v1/systemone';
+  base = base.replace(/\/v1\/(?:systemone|decisions)\/?$/i, '').replace(/\/v1\/?$/i, '');
+  const ep = normalizeEndpoint(endpointPath);
+  return base + ep;
 }
 
 /**
@@ -329,11 +375,19 @@ function normalizeConfig(config) {
     raw.baseURL !== undefined && raw.baseURL !== null
       ? endpoint(raw.baseURL, 'baseURL')
       : undefined;
+  // 配置里显式给出的端点优先于前端保存的端点；未指定时为 undefined。
+  const configEndpoint =
+    raw.endpoint !== undefined && raw.endpoint !== null
+      ? normalizeEndpoint(raw.endpoint)
+      : undefined;
   return {
     transport,
     baseURL: configBaseURL ?? DEFAULTS.baseURL,
     /** 由插件配置固定下来的接口服务地址（undefined 表示允许前端覆盖）。 */
     configBaseURL,
+    endpoint: configEndpoint ?? DEFAULT_ENDPOINT,
+    /** 由插件配置固定下来的接口端点（undefined 表示允许前端覆盖）。 */
+    configEndpoint,
     model: String(raw.model === undefined ? DEFAULTS.model : raw.model),
     apiKey: apiKey === '' ? undefined : apiKey,
     apiKeyEnv: String(raw.apiKeyEnv === undefined ? DEFAULTS.apiKeyEnv : raw.apiKeyEnv),
@@ -526,6 +580,52 @@ async function resolveTestBaseURL(payload, config) {
 }
 
 /**
+ * 解析当前生效的接口服务端点 (endpoint)。
+ *
+ * 优先级：插件配置固定端点 (configEndpoint) > 环境变量 ($TYPESAFE_ENDPOINT / $JEV_ENDPOINT) > 前端保存的 endpoint > 默认端点 (/v1/systemone)。
+ *
+ * @param config - 规范化配置。
+ * @returns 规范化后的端点字符串（/v1/systemone 或 /v1/decisions）。
+ */
+async function resolveEndpoint(config) {
+  if (config.configEndpoint !== undefined) return config.configEndpoint;
+  for (const name of ['TYPESAFE_ENDPOINT', 'JEV_ENDPOINT']) {
+    const value = process.env[name];
+    if (typeof value === 'string' && value.trim() !== '') {
+      try {
+        return normalizeEndpoint(value.trim());
+      } catch {
+        // 忽略非法环境变量
+      }
+    }
+  }
+  const settings = await readSettingsFile(config);
+  if (typeof settings.endpoint === 'string' && settings.endpoint.trim() !== '') {
+    try {
+      return normalizeEndpoint(settings.endpoint.trim());
+    } catch {
+      // 容错兜底
+    }
+  }
+  return config.endpoint || DEFAULT_ENDPOINT;
+}
+
+/**
+ * 解析前端传来的接口端点测试值（用于 testConnection）。
+ *
+ * @param payload - 前端请求载荷。
+ * @param config - 规范化配置。
+ * @returns 端点字符串。
+ */
+async function resolveTestEndpoint(payload, config) {
+  if (config.configEndpoint !== undefined) return config.configEndpoint;
+  if (typeof payload?.endpoint !== 'string') return resolveEndpoint(config);
+  const candidate = payload.endpoint.trim();
+  if (candidate === '') return DEFAULT_ENDPOINT;
+  return normalizeEndpoint(candidate);
+}
+
+/**
  * 多级安全解析 API Key（避免密钥传入模型上下文造成泄露）：
  * 1. 插件显式配置项 (apiKey)
  * 2. 指定的环境变量名，随后检查 JEV_API_KEY
@@ -672,14 +772,16 @@ function assertQuestions(questions, config) {
  * @param config - 插件配置。
  * @returns 请求 URL、请求头与载荷。
  */
-function buildRequest(args, questions, config, baseURL) {
+function buildRequest(args, questions, config, baseURL, endpoint) {
   const model = typeof args.model === 'string' && args.model.trim() !== '' ? args.model.trim() : config.model;
   const base = baseURL || config.baseURL || DEFAULTS.baseURL;
+  const ep = endpoint || config.endpoint || DEFAULT_ENDPOINT;
   return {
-    url: resolveEndpointUrl(base),
+    url: buildEndpointUrl(base, ep),
     headers: { 'content-type': 'application/json' },
     body: { state: args.state, questions, model },
     model,
+    endpoint: ep,
   };
 }
 
@@ -780,6 +882,21 @@ async function attemptRequest(request, headers, body, exec, config, proxy) {
       'tool-jev: the endpoint response must be an object with an "answers" property, got ' + describeShape(data),
     );
   }
+  // 兼容 OpenAI /v1/decisions 格式或 decisions 字段的响应
+  if (data.answers === undefined || data.answers === null) {
+    if (data.decisions && typeof data.decisions === 'object' && !Array.isArray(data.decisions)) {
+      data.answers = data.decisions;
+    } else if (Array.isArray(data.choices) && data.choices[0]?.message?.content) {
+      try {
+        const parsed = JSON.parse(data.choices[0].message.content);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          data.answers = parsed.answers || parsed;
+        }
+      } catch {
+        // 忽略非 JSON 内容
+      }
+    }
+  }
   if (data.answers === null || typeof data.answers !== 'object' || Array.isArray(data.answers)) {
     throw new Error(
       'tool-jev: the endpoint response is missing the required "answers" object (answers must be an object)',
@@ -810,7 +927,8 @@ async function requestSystemOne(args, exec, config) {
   if (apiKey === undefined) throw new Error(missingKeyMessage(config));
 
   const baseURL = await resolveBaseURL(config);
-  const request = buildRequest(args, questions, config, baseURL);
+  const endpoint = await resolveEndpoint(config);
+  const request = buildRequest(args, questions, config, baseURL, endpoint);
   const headers = { ...request.headers, authorization: 'Bearer ' + apiKey };
   const body = JSON.stringify(request.body);
 
@@ -1012,6 +1130,7 @@ function setupWebRoutes(ctx, resolved) {
       const currentKey = await resolveApiKey(resolved);
       const proxy = await resolveProxy(resolved);
       const baseURL = await resolveBaseURL(resolved);
+      const endpoint = await resolveEndpoint(resolved);
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
         configured: Boolean(currentKey),
@@ -1020,6 +1139,10 @@ function setupWebRoutes(ctx, resolved) {
         baseURL,
         baseURLDefault: DEFAULTS.baseURL,
         baseURLLocked: resolved.configBaseURL !== undefined,
+        endpoint,
+        endpointDefault: DEFAULT_ENDPOINT,
+        endpointLocked: resolved.configEndpoint !== undefined,
+        availableEndpoints: AVAILABLE_ENDPOINTS,
         proxy: proxy ? formatProxyForDisplay(proxy) : '',
         proxyLocked: resolved.configProxy !== undefined,
       }));
@@ -1057,6 +1180,26 @@ function setupWebRoutes(ctx, resolved) {
               const validated = endpoint(trimmed, 'baseURL');
               await writeSettingsFile(resolved, { baseURL: validated });
               resolved.baseURL = validated;
+            }
+          }
+          if (typeof body.endpoint === 'string') {
+            if (resolved.configEndpoint !== undefined) {
+              res.statusCode = 409;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({
+                ok: false,
+                error: '接口端点已由插件配置（endpoint）固定，无法在界面修改',
+              }));
+              return;
+            }
+            const trimmed = body.endpoint.trim();
+            if (trimmed === '') {
+              await writeSettingsFile(resolved, { endpoint: '' });
+              resolved.endpoint = DEFAULT_ENDPOINT;
+            } else {
+              const validated = normalizeEndpoint(trimmed);
+              await writeSettingsFile(resolved, { endpoint: validated });
+              resolved.endpoint = validated;
             }
           }
           if (typeof body.proxy === 'string') {
@@ -1103,9 +1246,10 @@ function setupWebRoutes(ctx, resolved) {
           }
           const testProxy = await resolveTestProxy(body, resolved);
           const testBaseURL = await resolveTestBaseURL(body, resolved);
+          const testEndpoint = await resolveTestEndpoint(body, resolved);
           const start = Date.now();
           const testRes = await httpRequest(
-            resolveEndpointUrl(testBaseURL),
+            buildEndpointUrl(testBaseURL, testEndpoint),
             {
               method: 'POST',
               headers: {

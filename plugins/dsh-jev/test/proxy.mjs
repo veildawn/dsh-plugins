@@ -65,6 +65,13 @@ const origin = createServer((req, res) => {
     const state = parsed && parsed.state;
     if (state === 'FAIL') { res.writeHead(401, { 'content-type': 'text/plain' }).end('invalid api key'); return; }
     if (state === 'HTTP500') { res.writeHead(500, { 'content-type': 'text/plain' }).end('upstream boom'); return; }
+    if (state === 'OPENAI-CHOICES') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(CANNED) } }],
+        usage: { input_tokens: 3, output_tokens: 1 }
+      }));
+      return;
+    }
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(CANNED));
   });
 });
@@ -359,6 +366,56 @@ await baseURLSession.rpc('saveConfig', { baseURL: 'http://127.0.0.1:' + originPo
 await baseURLSession.tool.execute(state(), {});
 check('baseURL with trailing /v1 hits /v1/systemone correctly', originLog[0]?.url === '/v1/systemone', originLog[0]?.url);
 await baseURLSession.rpc('saveConfig', { baseURL: '' });
+
+// ---------------------------------------------------------------------------
+// 6c. endpoint configuration (/v1/systemone vs /v1/decisions)
+// ---------------------------------------------------------------------------
+const epInitial = await baseURLSession.rpc('getConfig', {});
+check('getConfig reports default endpoint /v1/systemone', epInitial.value.endpoint === '/v1/systemone', epInitial.value.endpoint);
+check('getConfig reports endpointLocked false when config has no endpoint', epInitial.value.endpointLocked === false, String(epInitial.value.endpointLocked));
+
+// save /v1/decisions endpoint
+const epSaved = await baseURLSession.rpc('saveConfig', { endpoint: '/v1/decisions' });
+check('saveConfig accepts /v1/decisions', epSaved.ok === true, JSON.stringify(epSaved));
+const epOnDisk = JSON.parse(await readFile(settingsFile, 'utf8'));
+check('saveConfig persists endpoint to settings file', epOnDisk.endpoint === '/v1/decisions', JSON.stringify(epOnDisk));
+
+const epAfterSave = await baseURLSession.rpc('getConfig', {});
+check('getConfig reads saved endpoint back', epAfterSave.value.endpoint === '/v1/decisions', epAfterSave.value.endpoint);
+
+// tool call routes to /v1/decisions
+reset();
+await baseURLSession.rpc('saveConfig', { baseURL: 'http://127.0.0.1:' + originPort });
+await baseURLSession.tool.execute(state(), {});
+check('tool call with /v1/decisions routes to /v1/decisions', originLog[0]?.url === '/v1/decisions', originLog[0]?.url);
+
+// supports OpenAI-compatible response format ({ choices: [...] })
+reset();
+const openAiRes = await baseURLSession.tool.execute({ state: 'OPENAI-CHOICES', questions: { dept: { type: 'choice', instructions: 'dept', criteria: { billing: 'b' } } } }, {});
+check('tool call parses OpenAI-compatible choices response', openAiRes?.answers?.dept?.choice === 'billing', JSON.stringify(openAiRes));
+
+// testConnection honours custom endpoint
+reset();
+const epTest = await baseURLSession.rpc('testConnection', { endpoint: '/v1/decisions' });
+check('testConnection succeeds with /v1/decisions', epTest.ok === true, JSON.stringify(epTest));
+check('testConnection ping hits /v1/decisions', originLog[0]?.url === '/v1/decisions', originLog[0]?.url);
+
+// rejects invalid endpoint
+const epBad = await baseURLSession.rpc('saveConfig', { endpoint: '/v1/unknown' });
+check('saveConfig rejects an unsupported endpoint', epBad.ok === false, JSON.stringify(epBad));
+
+// clearing endpoint restores default /v1/systemone
+await baseURLSession.rpc('saveConfig', { endpoint: '' });
+const epAfterClear = await baseURLSession.rpc('getConfig', {});
+check('clearing endpoint restores default /v1/systemone', epAfterClear.value.endpoint === '/v1/systemone', epAfterClear.value.endpoint);
+await baseURLSession.rpc('saveConfig', { baseURL: '' });
+
+// config-pinned endpoint
+const lockedEp = register({ endpoint: '/v1/decisions', apiKeyEnv: 'PROXY_SMOKE_KEY' });
+const lockedEpConfig = await lockedEp.rpc('getConfig', {});
+check('a config-pinned endpoint is reported as locked', lockedEpConfig.value.endpointLocked === true, JSON.stringify(lockedEpConfig.value));
+const lockedEpSave = await lockedEp.rpc('saveConfig', { endpoint: '/v1/systemone' });
+check('saveConfig refuses to override a config-pinned endpoint', lockedEpSave.ok === false && lockedEpSave.error.code === 'endpoint-locked', JSON.stringify(lockedEpSave));
 
 // ---------------------------------------------------------------------------
 // 7. the real key file is never touched by these tests

@@ -178,6 +178,20 @@ baseURLInput.props.onChange({ target: { value: 'http://127.0.0.1:8000' } });
 tree = render({ rpcCall });
 check('typing updates the baseURL input value', findAll(tree, isInput)[1].props.value === 'http://127.0.0.1:8000', findAll(tree, isInput)[1].props.value);
 
+// --- 接口端点 select checks ---
+const endpointLabel = labelOf(tree, '接口端点');
+check('renders a 接口端点 label', endpointLabel !== undefined);
+const isSelect = (node) => node.type === 'select';
+const endpointSelect = findAll(tree, isSelect)[0];
+check('renders an endpoint select', endpointSelect !== undefined, JSON.stringify(endpointSelect && endpointSelect.props));
+check('the endpoint select starts with /v1/systemone', endpointSelect.props.value === '/v1/systemone', String(endpointSelect.props.value));
+check('the endpoint select is enabled by default', endpointSelect.props.disabled === false, String(endpointSelect.props.disabled));
+
+// changing the endpoint select updates state
+endpointSelect.props.onChange({ target: { value: '/v1/decisions' } });
+tree = render({ rpcCall });
+check('selecting /v1/decisions updates the endpoint value', findAll(tree, isSelect)[0].props.value === '/v1/decisions', findAll(tree, isSelect)[0].props.value);
+
 // --- proxy input checks ---
 const proxyLabel = labelOf(tree, '代理地址');
 check('renders a 代理地址 label', proxyLabel !== undefined);
@@ -194,21 +208,21 @@ proxyInput.props.onChange({ target: { value: 'http://127.0.0.1:7890' } });
 tree = render({ rpcCall });
 check('typing updates the proxy input value', findAll(tree, isInput)[3].props.value === 'http://127.0.0.1:7890', findAll(tree, isInput)[3].props.value);
 
-// --- save sends baseURL and proxy ------------------------------------------
+// --- save sends baseURL, endpoint and proxy -------------------------------
 const saveButton = findAll(tree, (n) => n.type === 'button' && n.children?.[0] === '保存设置')[0];
 check('renders the save button', saveButton !== undefined);
 ctx.lastCall = null;
 await saveButton.props.onClick();
-check('save sends the typed baseURL and proxy', ctx.lastCall?.method === 'saveConfig' && ctx.lastCall.payload.baseURL === 'http://127.0.0.1:8000' && ctx.lastCall.payload.proxy === 'http://127.0.0.1:7890', JSON.stringify(ctx.lastCall));
+check('save sends the typed baseURL, endpoint and proxy', ctx.lastCall?.method === 'saveConfig' && ctx.lastCall.payload.baseURL === 'http://127.0.0.1:8000' && ctx.lastCall.payload.endpoint === '/v1/decisions' && ctx.lastCall.payload.proxy === 'http://127.0.0.1:7890', JSON.stringify(ctx.lastCall));
 
-// --- test sends baseURL and proxy ------------------------------------------
+// --- test sends baseURL, endpoint and proxy -------------------------------
 tree = render({ rpcCall });
 const testButton = findAll(tree, (n) => n.type === 'button' && n.children?.[0] === '测试连接')[0];
 check('renders the test button', testButton !== undefined);
 ctx.lastCall = null;
 ctx.rpcResult = { ok: true, value: { durationMs: 42 } };
 await testButton.props.onClick();
-check('test sends the typed baseURL and proxy', ctx.lastCall?.method === 'testConnection' && ctx.lastCall.payload.baseURL === 'http://127.0.0.1:8000' && ctx.lastCall.payload.proxy === 'http://127.0.0.1:7890', JSON.stringify(ctx.lastCall));
+check('test sends the typed baseURL, endpoint and proxy', ctx.lastCall?.method === 'testConnection' && ctx.lastCall.payload.baseURL === 'http://127.0.0.1:8000' && ctx.lastCall.payload.endpoint === '/v1/decisions' && ctx.lastCall.payload.proxy === 'http://127.0.0.1:7890', JSON.stringify(ctx.lastCall));
 
 // --- getConfig populates fields --------------------------------------------
 ctx.rpcResult = {
@@ -217,6 +231,8 @@ ctx.rpcResult = {
     apiKey: 'ts-abc...1234',
     baseURL: 'http://127.0.0.1:9000',
     baseURLLocked: false,
+    endpoint: '/v1/decisions',
+    endpointLocked: false,
     model: 'jev-latest',
     proxy: 'http://user:***@127.0.0.1:7890',
     proxyLocked: false,
@@ -228,6 +244,8 @@ await flush();
 tree = render({ rpcCall });
 check('getConfig populates the baseURL field', findAll(tree, isInput)[1].props.value === 'http://127.0.0.1:9000', findAll(tree, isInput)[1].props.value);
 check('a locked baseURL is reported as unlocked here', findAll(tree, isInput)[1].props.disabled === false);
+check('getConfig populates the endpoint field', findAll(tree, isSelect)[0].props.value === '/v1/decisions', findAll(tree, isSelect)[0].props.value);
+check('a locked endpoint is reported as unlocked here', findAll(tree, isSelect)[0].props.disabled === false);
 check('getConfig populates the proxy field', findAll(tree, isInput)[3].props.value === 'http://user:***@127.0.0.1:7890', findAll(tree, isInput)[3].props.value);
 check('a locked proxy is reported as unlocked here', findAll(tree, isInput)[3].props.disabled === false);
 
@@ -239,6 +257,8 @@ ctx.rpcResult = {
     apiKey: 'ts-abc...1234',
     baseURL: 'http://127.0.0.1:9000',
     baseURLLocked: true,
+    endpoint: '/v1/decisions',
+    endpointLocked: true,
     model: 'jev-latest',
     proxy: 'http://127.0.0.1:7890',
     proxyLocked: true,
@@ -251,6 +271,9 @@ tree = render({ rpcCall });
 check('a config-pinned baseURL disables the input', findAll(tree, isInput)[1].props.disabled === true, String(findAll(tree, isInput)[1].props.disabled));
 const lockedBaseURLHint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('baseURL）固定'))[0];
 check('the hint explains why baseURL is locked', lockedBaseURLHint !== undefined);
+check('a config-pinned endpoint disables the select', findAll(tree, isSelect)[0].props.disabled === true, String(findAll(tree, isSelect)[0].props.disabled));
+const lockedEndpointHint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('endpoint）固定'))[0];
+check('the hint explains why endpoint is locked', lockedEndpointHint !== undefined);
 check('a config-pinned proxy disables the input', findAll(tree, isInput)[3].props.disabled === true, String(findAll(tree, isInput)[3].props.disabled));
 const lockedHint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('proxy）固定'))[0];
 check('the hint explains why the proxy field is locked', lockedHint !== undefined);
