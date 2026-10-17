@@ -420,7 +420,7 @@ window.__ModuleLoader__.load({
         }
         const result = await rpc.call(RPC_CHANNEL, method, payload || {});
         if (result && result.ok === true) return result.value;
-        throw new Error((result && result.error) || "请求失败");
+        throw new Error(result?.error?.message || (typeof result?.error === 'string' ? result.error : "请求失败"));
       };
 
       const label = () => react.createElement("span", {
