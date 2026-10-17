@@ -315,7 +315,7 @@ window.__ModuleLoader__.load({
       .dm-modal-foot{display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:12px 20px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));border-top:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-subtle,#e1e4e8))}
       .dm-modal-foot .dm-action-btn{height:32px;padding:0 14px;font-size:12.5px;border-radius:6px}
       .dm-config{display:flex;flex-direction:column;gap:12px;max-width:640px}
-      .dm-field{display:flex;flex-direction:column;gap:5px}.dm-label{color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;font-weight:500}
+      .dm-field{display:flex;flex-direction:column;gap:5px}.dm-label{color:var(--dsw-alias-label-secondary,#57606a);font-size:12px;font-weight:500}.dm-hint{margin:0;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#656d76);line-height:16px}
       .dm-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));border-radius:8px;outline:none;background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));color:var(--dsw-alias-label-primary,#1f2328);font-size:13px}
       .dm-input:focus{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}
       .dm-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));border-radius:10px;background:var(--dsw-alias-bg-base,var(--dsw-alias-background-base,#fff));cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;transition:border-color .15s ease}
@@ -1342,6 +1342,19 @@ window.__ModuleLoader__.load({
               react.createElement("label", { className: "dm-field" },
                 react.createElement("span", { className: "dm-label" }, "插件仓库 (GitHub origin)"),
                 react.createElement("input", { className: "dm-input", value: draft?.repoOrigin || "", placeholder: "owner/repo", onChange: (e) => setDraft((d) => ({ ...d, repoOrigin: e.target.value })) })),
+              react.createElement("label", { className: "dm-field" },
+                react.createElement("span", { className: "dm-label" }, "GitHub Token (可选，提高 API 速率限制)"),
+                react.createElement("input", {
+                  className: "dm-input",
+                  type: "password",
+                  value: draft?.githubToken || "",
+                  placeholder: config?.githubToken ? "已配置（可直接输入覆盖）" : "ghp_... 或 github_pat_... (留空使用匿名配额)",
+                  onChange: (e) => setDraft((d) => ({ ...d, githubToken: e.target.value }))
+                }),
+                react.createElement("p", { className: "dm-hint" },
+                  "配置个人访问令牌可将 GitHub API 配额从 60次/小时 提升至 5000次/小时，避免频繁检查更新触发 403 限流；支持经典 Token (ghp_) 与 Fine-grained Token，无需任何敏感权限。亦可在系统环境变量中设置 GITHUB_TOKEN。"
+                )
+              ),
               react.createElement("label", { className: "dm-field" },
                 react.createElement("span", { className: "dm-label" }, "社区插件目录 URL"),
                 react.createElement("input", { className: "dm-input", value: draft?.communityCatalogUrl || "", placeholder: "https://…/plugins.json", onChange: (e) => setDraft((d) => ({ ...d, communityCatalogUrl: e.target.value })) })),

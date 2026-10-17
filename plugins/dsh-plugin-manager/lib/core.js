@@ -101,6 +101,35 @@ export function parseReleaseTag(tag) {
 }
 
 /**
+ * Parse GitHub repository releases.atom XML feed into release objects.
+ * Used as a zero-rate-limit fallback when anonymous GitHub REST API (60 req/hr) is exhausted.
+ */
+export function parseReleasesAtom(atomText) {
+  if (typeof atomText !== 'string' || !atomText) return []
+  const entries = []
+  const entryRegex = /<entry>([\s\S]*?)<\/entry>/g
+  let match
+  while ((match = entryRegex.exec(atomText)) !== null) {
+    const block = match[1]
+    const tagMatch = block.match(/\/releases\/tag\/([^"/?#\s]+)/)
+    const publishedMatch = block.match(/<updated>([^<]+)<\/updated>/)
+    const contentMatch = block.match(/<content[^>]*>([\s\S]*?)<\/content>/)
+    if (tagMatch) {
+      const tag_name = decodeURIComponent(tagMatch[1])
+      entries.push({
+        tag_name,
+        published_at: publishedMatch ? publishedMatch[1] : null,
+        body: contentMatch ? contentMatch[1].replace(/<[^>]+>/g, '').trim() : '',
+        draft: false,
+        prerelease: false,
+        assets: [],
+      })
+    }
+  }
+  return entries
+}
+
+/**
  * Build standard Monorepo Release download URL
  */
 export function buildReleaseDownloadUrl(repo, pluginName, version) {

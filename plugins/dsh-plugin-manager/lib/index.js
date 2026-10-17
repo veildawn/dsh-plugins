@@ -47,6 +47,7 @@ import {
   lockfileHealthForPlugin,
   profileLockfilePath,
   readProfileLockfile,
+  parseReleasesAtom,
   DSH_PACKAGE_NAME,
   DSH_REPO_SLUG,
   DEFAULT_NPM_REGISTRY,
@@ -119,14 +120,21 @@ export const Config = z.object({
   communityCatalogUrl: liveField(z.string().default(DEFAULT_COMMUNITY_CATALOG_URL)),
   autoCheckUpdates: liveField(z.boolean().default(true)),
   mirrorUrl: liveField(z.string().default('')),
+  githubToken: liveField(z.string().default('')),
 })
 
 export function resolveOptions(raw = {}) {
+  const envToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || ''
+  const configuredToken = typeof raw.githubToken === 'string' ? raw.githubToken.trim() : ''
+  const githubToken = configuredToken || envToken
   return {
     repoOrigin: typeof raw.repoOrigin === 'string' && raw.repoOrigin ? raw.repoOrigin : DEFAULT_REPO_ORIGIN,
     communityCatalogUrl: typeof raw.communityCatalogUrl === 'string' && raw.communityCatalogUrl ? raw.communityCatalogUrl : DEFAULT_COMMUNITY_CATALOG_URL,
     autoCheckUpdates: typeof raw.autoCheckUpdates === 'boolean' ? raw.autoCheckUpdates : true,
     mirrorUrl: typeof raw.mirrorUrl === 'string' ? raw.mirrorUrl : '',
+    githubToken,
+    configuredGithubToken: configuredToken,
+    githubTokenSource: configuredToken ? 'config' : (envToken ? 'env' : 'none'),
   }
 }
 
@@ -164,9 +172,13 @@ export function _resetHttpFetch() {
   httpFetch = defaultHttpFetch
 }
 
-async function fetchJson(url, timeoutMs = 4_000) {
+async function fetchJson(url, timeoutMs = 8_000, token = '') {
+  const headers = { 'User-Agent': 'dsh-market-plugin', 'Accept': 'application/vnd.github.v3+json' }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
   const res = await httpFetch(url, {
-    headers: { 'User-Agent': 'dsh-market-plugin', 'Accept': 'application/vnd.github.v3+json' },
+    headers,
     signal: AbortSignal.timeout(timeoutMs),
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -210,7 +222,7 @@ const CACHE_TTL_MS = 60 * 1000
 /**
  * Fetch GitHub releases for repo (with cache fallback on network errors).
  */
-export async function fetchGitHubReleases(repoOrigin) {
+export async function fetchGitHubReleases(repoOrigin, token = '') {
   const now = Date.now()
   if (cachedReleases && now - lastReleasesFetchTime < CACHE_TTL_MS) return cachedReleases
 
@@ -218,14 +230,33 @@ export async function fetchGitHubReleases(repoOrigin) {
   const apiUrl = `https://api.github.com/repos/${cleanRepo}/releases?per_page=100`
 
   try {
-    const data = await fetchJson(apiUrl)
-    if (!Array.isArray(data)) return cachedReleases || []
-    cachedReleases = data
-    lastReleasesFetchTime = now
-    return data
-  } catch (err) {
-    return cachedReleases || []
+    const data = await fetchJson(apiUrl, 8_000, token)
+    if (Array.isArray(data) && data.length > 0) {
+      cachedReleases = data
+      lastReleasesFetchTime = now
+      return data
+    }
+  } catch {
+    // REST API 请求失败（例如 403 匿名速率受限或网络故障）：尝试通过 releases.atom 兜底
+    try {
+      const atomUrl = `https://github.com/${cleanRepo}/releases.atom`
+      const atomRes = await httpFetch(atomUrl, {
+        headers: { 'User-Agent': 'dsh-market-plugin' },
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (atomRes.ok) {
+        const atomText = await atomRes.text()
+        const atomReleases = parseReleasesAtom(atomText)
+        if (atomReleases.length > 0) {
+          cachedReleases = atomReleases
+          lastReleasesFetchTime = now
+          return atomReleases
+        }
+      }
+    } catch {}
   }
+
+  return cachedReleases || []
 }
 
 let cachedCommunity = null
@@ -240,12 +271,12 @@ let lastDshNpmFetchTime = 0
 /**
  * Fetch GitHub releases for deepseek-ai/deepseek-harness.
  */
-export async function fetchDshGitHubReleases(repoSlug = DSH_REPO_SLUG) {
+export async function fetchDshGitHubReleases(repoSlug = DSH_REPO_SLUG, token = '') {
   const now = Date.now()
   if (cachedDshReleases && now - lastDshReleasesFetchTime < CACHE_TTL_MS) return cachedDshReleases
   const apiUrl = `https://api.github.com/repos/${repoSlug}/releases?per_page=30`
   try {
-    const data = await fetchJson(apiUrl)
+    const data = await fetchJson(apiUrl, 8_000, token)
     if (!Array.isArray(data)) return cachedDshReleases || []
     cachedDshReleases = data
     lastDshReleasesFetchTime = now
@@ -277,7 +308,7 @@ export async function fetchDshNpmMeta(pkgName = DSH_PACKAGE_NAME, registry = DEF
 /**
  * Query latest DSH version and determine update availability.
  */
-export async function queryDshUpdate({ spawnFn = null, repoSlug = DSH_REPO_SLUG, registry = DEFAULT_NPM_REGISTRY } = {}) {
+export async function queryDshUpdate({ spawnFn = null, repoSlug = DSH_REPO_SLUG, registry = DEFAULT_NPM_REGISTRY, githubToken = '' } = {}) {
   const currentVersion = readHostDshVersion({ spawnFn })
 
   let latestVersion = null
@@ -300,7 +331,7 @@ export async function queryDshUpdate({ spawnFn = null, repoSlug = DSH_REPO_SLUG,
 
   // 2. Fall back to or enrich from GitHub Releases
   try {
-    const ghReleases = await fetchDshGitHubReleases(repoSlug)
+    const ghReleases = await fetchDshGitHubReleases(repoSlug, githubToken)
     if (Array.isArray(ghReleases) && ghReleases.length > 0) {
       const valid = ghReleases.filter((r) => r && !r.draft)
       const top = valid[0]
@@ -395,6 +426,7 @@ const CONFIG_KEYS = {
   communityCatalogUrl: (v) => typeof v === 'string' && v !== '',
   autoCheckUpdates: (v) => typeof v === 'boolean',
   mirrorUrl: (v) => typeof v === 'string',
+  githubToken: (v) => typeof v === 'string',
 }
 
 /**
@@ -410,7 +442,7 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
       const shouldCheck = resolved.autoCheckUpdates || Boolean(payload && payload.force)
       if (shouldCheck) {
         try {
-          const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
+          const ghReleases = await fetchGitHubReleases(resolved.repoOrigin, resolved.githubToken)
           const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
           catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
           catalog = applyMirror(catalog, resolved.mirrorUrl)
@@ -468,7 +500,7 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
       let plugins = null
       let staleCount = 0
       try {
-        const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
+        const ghReleases = await fetchGitHubReleases(resolved.repoOrigin, resolved.githubToken)
         const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
         const catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
         plugins = catalog.map((p) => {
@@ -543,12 +575,12 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
     }
 
     if (method === 'checkDshUpdate') {
-      const info = await queryDshUpdate({ spawnFn: deps.spawnFn })
+      const info = await queryDshUpdate({ spawnFn: deps.spawnFn, githubToken: resolved.githubToken })
       return { ok: true, value: info }
     }
 
     if (method === 'checkUpdates') {
-      const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
+      const ghReleases = await fetchGitHubReleases(resolved.repoOrigin, resolved.githubToken)
       const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
       let repoCatalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
       repoCatalog = applyMirror(repoCatalog, resolved.mirrorUrl)
@@ -574,9 +606,11 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
       if (ctx && ctx.settings && typeof ctx.settings.mutate === 'function') {
         await ctx.settings.mutate(settingsNamespace(ctx, NS), entries.map(([key, value]) => ({ op: 'set', path: [key], value })))
       }
-      if (Object.hasOwn(payload, 'repoOrigin')) {
+      if (Object.hasOwn(payload, 'repoOrigin') || Object.hasOwn(payload, 'githubToken')) {
         cachedReleases = null
         lastReleasesFetchTime = 0
+        cachedDshReleases = null
+        lastDshReleasesFetchTime = 0
       }
       if (Object.hasOwn(payload, 'communityCatalogUrl')) {
         cachedCommunity = null

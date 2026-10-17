@@ -63,7 +63,7 @@ rm ~/Library/LaunchAgents/com.deepseek.dsh-web.plist
 使用 DSH 官方 CLI 安装本插件：
 
 ```bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.41/dsh-plugin-manager-0.3.41.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.42/dsh-plugin-manager-0.3.42.tgz
 ```
 
 或使用本地打包安装：
@@ -71,8 +71,16 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 ```bash
 cd plugins/dsh-plugin-manager
 npm pack
-dsh plugin add --profile web ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3.40.tgz
+dsh plugin add --profile web ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3.42.tgz
 ```
+
+### ⚙️ GitHub Token 配置（提高 API 速率限制）
+
+默认情况下使用 GitHub 匿名 API 请求，每个 IP 限制 **60 次/小时**。若频繁检查更新或同一网络下共享 IP，容易触发 HTTP 403 速率限制。
+
+- **界面配置**：在「插件管理 → 设置」面板中填写 **GitHub Token** 并点击「保存配置」，API 配额将立即提升至 **5000 次/小时**；
+- **环境变量配置**：亦可在系统环境变量中直接设置 `GITHUB_TOKEN=ghp_...` 或 `GH_TOKEN=ghp_...`，插件会自动识别并优先使用；
+- **自动兜底保障**：若未配置 Token 且匿名 API 触发了 403 限流，插件会自动切换至无需认证的 `releases.atom` 源无感兜底，确保始终能检测到最新版本。
 
 > **0.3.25 起 bundle 行 id 改为 `dsh-plugin-manager`**（此前是 `plugin-manager`）。旧 id 与宿主 base bundle 里的
 > 官方 `@deepseek-ai/dsh-plugin-manager` 冲突：profile 层按 id 覆盖、后写者胜，市场插件顶掉了官方插件，导致

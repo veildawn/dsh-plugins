@@ -34,6 +34,7 @@ import {
   repairLockfileIntegrity,
   parseDshReleaseTag,
   checkDshUpdate,
+  parseReleasesAtom,
 } from '../lib/core.js'
 import {
   handleMarketRpc,
@@ -727,13 +728,87 @@ describe('dsh-market RPC handler (network stubbed)', () => {
     assert.equal(missing.ok, false)
   })
 
-  it('resolveOptions sanitizes malformed configuration', () => {
-    const resolved = resolveOptions({ repoOrigin: '', autoCheckUpdates: 'yes' })
+  it('resolveOptions sanitizes malformed configuration and resolves githubToken', () => {
+    const resolved = resolveOptions({ repoOrigin: '', autoCheckUpdates: 'yes', githubToken: '  ghp_test123  ' })
     assert.equal(resolved.repoOrigin, 'veildawn/dsh-plugins')
     assert.equal(resolved.autoCheckUpdates, true)
+    assert.equal(resolved.githubToken, 'ghp_test123')
+    assert.equal(resolved.configuredGithubToken, 'ghp_test123')
+    assert.equal(resolved.githubTokenSource, 'config')
+
+    const prevEnv = process.env.GITHUB_TOKEN
+    try {
+      process.env.GITHUB_TOKEN = 'ghp_env_fallback'
+      const fromEnv = resolveOptions({})
+      assert.equal(fromEnv.githubToken, 'ghp_env_fallback')
+      assert.equal(fromEnv.githubTokenSource, 'env')
+
+      // Configured token wins over environment variable
+      const override = resolveOptions({ githubToken: 'ghp_explicit' })
+      assert.equal(override.githubToken, 'ghp_explicit')
+      assert.equal(override.githubTokenSource, 'config')
+    } finally {
+      if (prevEnv !== undefined) process.env.GITHUB_TOKEN = prevEnv
+      else delete process.env.GITHUB_TOKEN
+    }
+  })
+
+  it('sends Authorization: Bearer <token> when githubToken is present', async () => {
+    let capturedHeaders = null
+    _setHttpFetch(async (url, init) => {
+      capturedHeaders = init?.headers
+      return { ok: true, json: async () => [] }
+    })
+    resetMarketCaches()
+
+    await fetchGitHubReleases('veildawn/dsh-plugins', 'ghp_secret_token')
+    assert.ok(capturedHeaders)
+    assert.equal(capturedHeaders.Authorization, 'Bearer ghp_secret_token')
+
+    capturedHeaders = null
+    resetMarketCaches()
+    await fetchGitHubReleases('veildawn/dsh-plugins', '')
+    assert.equal(capturedHeaders?.Authorization, undefined)
+  })
+
+  it('parses releases.atom and falls back to atom feed when REST API fails with HTTP 403', async () => {
+    const sampleAtom = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>tag:github.com,2008:Repository/1337950578/dsh-jev@v0.2.2</id>
+    <link rel="alternate" type="text/html" href="https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev%40v0.2.2"/>
+    <title>dsh-jev v0.2.2</title>
+    <updated>2026-10-17T12:00:00Z</updated>
+    <content type="html">&lt;p&gt;Release notes&lt;/p&gt;</content>
+  </entry>
+</feed>`
+
+    const parsed = parseReleasesAtom(sampleAtom)
+    assert.equal(parsed.length, 1)
+    assert.equal(parsed[0].tag_name, 'dsh-jev@v0.2.2')
+    assert.equal(parsed[0].published_at, '2026-10-17T12:00:00Z')
+
+    // Test fallback: REST API throws 403, atom returns 200
+    _setHttpFetch(async (url) => {
+      const u = String(url)
+      if (u.includes('api.github.com')) {
+        return { ok: false, status: 403 }
+      }
+      if (u.includes('releases.atom')) {
+        return { ok: true, text: async () => sampleAtom }
+      }
+      return { ok: false, status: 404 }
+    })
+    resetMarketCaches()
+
+    const fallbackReleases = await fetchGitHubReleases('veildawn/dsh-plugins', '')
+    assert.equal(fallbackReleases.length, 1)
+    assert.equal(fallbackReleases[0].tag_name, 'dsh-jev@v0.2.2')
+    resetMarketCaches()
   })
 
   it('respects autoCheckUpdates: false and obeys force: true', async () => {
+    resetMarketCaches()
     let fetchCalled = false
     _setHttpFetch(async (url) => {
       if (String(url).includes('api.github.com')) {
