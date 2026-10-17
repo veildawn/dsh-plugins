@@ -1,0 +1,45 @@
+{
+  "name": "dsh-image-gen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH 原生生图插件：把文生图作为原生工具暴露，支持手动配置 baseUrl/key/模型，也可直接下拉选择 dsh 已配置的提供商与模型，并支持尺寸与画质下拉选择。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./provider": "./lib/provider.js",
+    "./image": "./lib/image.js",
+    "./settings": "./lib/settings.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-connection"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=20.3"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "image",
+    "image-generation",
+    "text-to-image"
+  ],
+  "scripts": {
+    "test": "node test/providers.mjs && node test/settings.mjs && node test/image.mjs && node test/smoke.mjs && node test/client-render.mjs"
+  }
+}

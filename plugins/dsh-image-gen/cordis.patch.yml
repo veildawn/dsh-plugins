@@ -1,0 +1,41 @@
+# dsh-image-gen —— 原生生图插件（cordis patch 层）
+#
+# 在 Profile 的 patch 层里以一行插入即可启用：
+#
+#   - insert:
+#       - id: tool-image-gen
+#         name: './lib/index.js'
+#         inject:
+#           - tools
+#           - connection
+#           - webServer        # 可选：提供 GET/POST /api/dsh-image-gen/config 与 /test
+#         config:
+#           # 二选一：
+#           #   provider: 'ai-proxy'   # 直接用 dsh 已配置的提供商（推荐）
+#           #   baseURL: 'http://192.168.1.253:8319/v1'   # 或手写一个 OpenAI 兼容地址
+#           provider: ai-proxy
+#           model: gemini-3.1-flash-image
+#           apiKeyEnv: AIPROXY_DSH_WEB_ACCESS_TOKEN
+#           # 手动模式才需要：把 key 写在这里（不推荐）或设置 apiKeyEnv 指向的环境变量。
+#           # apiKey: ''
+#           size: 1024x1024
+#           quality: auto
+#           # 代理：留空表示直连。支持 http://、https://、socks5://、socks5h://。
+#           # proxy: 'http://127.0.0.1:7890'
+#           # proxyHosts: ['*']
+#           settingsFile: ~/.dsh/image-gen/settings.json
+#
+# 未写任何 config 时，插件会自动扫描 dsh 自身配置推断默认生图模型。
+# 下方配置作为启动默认值，可在 Web 设置面板中自由切换保存；
+# 若需管理员级锁定不可在前端更改，可添加 `locked: { provider: true, model: true }`。
+- insert:
+    - id: tool-image-gen
+      name: './lib/index.js'
+      inject:
+        - tools
+        - connection
+      config:
+        provider: ai-proxy
+        model: gemini-3.1-flash-image
+        size: 1024x1024
+        quality: auto
