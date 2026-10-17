@@ -29,7 +29,7 @@
 
 ```bash
 # 安装终端插件
-dsh plugin --profile web add ./plugins/dsh-terminal/dsh-terminal-0.1.14.tgz
+dsh plugin --profile web add ./plugins/dsh-terminal/dsh-terminal-0.1.15.tgz
 ```
 
 ### 2. 重启 DSH 服务生效

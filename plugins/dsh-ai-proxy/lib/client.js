@@ -115,9 +115,22 @@ window.__ModuleLoader__.load({
         document.head.appendChild(style);
       }
       const authRequest = async (method, payload = {}) => {
-        const result = await ctx.connection.rpc.call(AUTH_RPC_CHANNEL, method, payload);
-        if (!result || result.ok !== true) throw new Error(result?.error?.message || "OAuth request failed");
-        return result.value;
+        try {
+          const result = await ctx.connection.rpc.call(AUTH_RPC_CHANNEL, method, payload);
+          if (!result || result.ok !== true) throw new Error(result?.error?.message || "OAuth request failed");
+          return result.value;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (/transport failure.*HTTP 405/.test(message)) {
+            throw new Error(
+              "AI Proxy RPC channel is not registered on this DSH host. " +
+              "This usually means the desktop webserver failed to start " +
+              "(check that webserver.host in cordis.patch.yml is a concrete IP, not 0.0.0.0). " +
+              "Original: " + message
+            );
+          }
+          throw error;
+        }
       };
       function AiProxySettings(props) {
         const [gateway, setGateway] = react.useState("");

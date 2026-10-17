@@ -248,8 +248,8 @@ test('core: physicalDeleteSessions moves artifacts to trash, records tombstone, 
 
   // files moved to trash
   assert.equal(files.has('/logs/work/a/s1.jsonl'), false);
-  assert.equal(files.has('/trash/s1.jsonl'), true);
-  assert.equal(files.has('/trash/s2.jsonl'), true);
+  assert.equal(files.has('/trash/s1.jsonl') || files.has('\\trash\\s1.jsonl'), true);
+  assert.equal(files.has('/trash/s2.jsonl') || files.has('\\trash\\s2.jsonl'), true);
   // s3 untouched (live)
   assert.equal(files.has('/logs/work/c/s3.jsonl'), true);
 
@@ -258,7 +258,7 @@ test('core: physicalDeleteSessions moves artifacts to trash, records tombstone, 
   assert.equal(tombstones.length, 2);
   assert.deepEqual(tombstones.map((t) => t.id), ['s1', 's2']);
   assert.equal(tombstones[0].kind, 'physical');
-  assert.equal(tombstones[0].trashPath, '/trash/s1.jsonl');
+  assert.equal(tombstones[0].trashPath?.replace(/\\/g, '/'), '/trash/s1.jsonl');
   assert.equal(tombstones[0].originalPath, '/logs/work/a/s1.jsonl');
 
   // archive set updated: s1/s2 removed, s3 stays

@@ -1,6 +1,15 @@
-# Ensure @deepseek-ai/dsh-client-connection has webServer injected so rpc.handle can register HTTP routes
+# Ensure @deepseek-ai/dsh-client-connection has webStartup + webServer injected
+# so rpc.handle can register HTTP routes.
+# NOTE: webRuntime is intentionally NOT injected: the dsh-web-app web-runtime
+# row that provides it no longer activates on DSH desktop 0.2.1+, so injecting
+# it makes `connection` wait forever and no RPC channel gets registered --
+# the SPA fallback then answers POST with HTTP 405.
+# webStartup must stay listed because a patch row's `inject` REPLACES the
+# previous one wholesale (last write wins), and the connection row's own
+# config reads ctx.webStartup.trustedHosts.
 - id: connection
   inject:
+    - webStartup
     - webServer
 
 # Mount role routing with no forced model assignments. Configure mappings in
