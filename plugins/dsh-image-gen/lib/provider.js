@@ -302,7 +302,11 @@ export function collectProviderBlocks(node, out = {}) {
 export function providerConfigSources(opts = {}) {
   const dshHome = opts.dshHome ?? DSH_HOME;
   const profile = opts.profile ?? activeProfile();
-  const sources = [];
+  // 旧来源放在前面作为兜底；profile 层放在后面，确保当前生效的 profile 优先（后面的覆盖前面的）
+  const sources = [
+    join(dshHome, 'settings.yaml'),
+    join(dshHome, 'settings.yaml.imported'),
+  ];
   try {
     const profileDir = join(dshHome, 'profiles', profile);
     for (const file of readdirSync(profileDir).sort()) {
@@ -311,9 +315,6 @@ export function providerConfigSources(opts = {}) {
   } catch {
     /* profile 目录不存在时跳过 */
   }
-  // profile 层优先（后面的覆盖前面的）；旧来源放在前面作为兜底
-  sources.push(join(dshHome, 'settings.yaml.imported'));
-  sources.push(join(dshHome, 'settings.yaml'));
   return sources;
 }
 
