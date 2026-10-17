@@ -19,10 +19,10 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 
 ```bash
 # 1. 使用 GitHub Release 在线安装
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.44/dsh-mobile-adapter-0.1.44.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.44/dsh-mobile-adapter-0.1.44.tgz
 
 # 2. 或在本地打包安装
-dsh plugin add --profile web ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.44.tgz
+dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.44.tgz
 ```
 
 ## 重启生效

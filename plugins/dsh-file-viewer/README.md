@@ -18,7 +18,7 @@
 ## 安装
 
 ```bash
-dsh plugin add --profile web <release-tgz-url>
+dsh plugin --profile web add <release-tgz-url>
 ```
 
 ### 重启生效

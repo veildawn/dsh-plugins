@@ -32,7 +32,7 @@ npm test          # 或仓库根目录: pnpm --filter <plugin> test
 npm pack
 
 # 3. 通过官方 CLI 安装/更新到目标 profile
-dsh plugin add --profile web ./plugins/<plugin>/<plugin>-<version>.tgz
+dsh plugin --profile web add ./plugins/<plugin>/<plugin>-<version>.tgz
 
 # 4. 重启服务生效（Windows 下使用 scripts/dsh-web.cmd 或 scripts/dsh-web.ps1，见下文）
 ```

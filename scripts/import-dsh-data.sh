@@ -20,7 +20,7 @@ echo "[+] 核心配置、会话记录、附件及角色预设已就绪"
 
 # 2. 安装 6 个远程插件
 echo "[*] 正在通过 GitHub 远程源安装全量插件..."
-dsh plugin add --profile web \
+dsh plugin --profile web add \
   github:veildawn/dsh-plugins#path:/plugins/dsh-ai-proxy \
   github:veildawn/dsh-plugins#path:/plugins/dsh-file-viewer \
   github:veildawn/dsh-plugins#path:/plugins/dsh-mobile-adapter \

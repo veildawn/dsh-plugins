@@ -42,40 +42,40 @@
 
 ```bash
 # 0. 安装插件管理中心 (自有插件更新与社区市场)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.42/dsh-plugin-manager-0.3.42.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.42/dsh-plugin-manager-0.3.42.tgz
 
 # 1. 安装模型角色分工插件 (多模型智能路由与识图子代理)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.29/dsh-model-roles-0.4.29.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.29/dsh-model-roles-0.4.29.tgz
 
 # 2. 安装远程安全通道插件 (推荐所有公网/局域网部署安装)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.20/dsh-remote-control-0.1.20.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.20/dsh-remote-control-0.1.20.tgz
 
 # 3. 安装 AI Proxy 网关插件
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.3.15/dsh-ai-proxy-0.3.15.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.3.15/dsh-ai-proxy-0.3.15.tgz
 
 # 4. 安装移动端适配插件 (手机浏览器访问必备)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.44/dsh-mobile-adapter-0.1.44.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.44/dsh-mobile-adapter-0.1.44.tgz
 
 # 5. 安装文件查看器插件 (会话头部抽屉浏览工作区文件)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.2.3/dsh-file-viewer-0.2.3.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.2.3/dsh-file-viewer-0.2.3.tgz
 
 # 6. 安装本地终端插件 (跨平台原生终端调用与移动端适配)
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.14/dsh-terminal-0.1.14.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.14/dsh-terminal-0.1.14.tgz
 
 # 7. 安装会话归档管理器
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.2.12/dsh-archive-manager-0.2.12.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.2.12/dsh-archive-manager-0.2.12.tgz
 
 # 8. 安装提示词历史与跨端漫游
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-prompt-history@v0.4.8/dsh-prompt-history-0.4.8.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-prompt-history@v0.4.8/dsh-prompt-history-0.4.8.tgz
 
 # 9. 安装 ZCode 主题
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.1.37/dsh-zcode-theme-0.1.37.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.1.37/dsh-zcode-theme-0.1.37.tgz
 
 # 10. 安装决策模型（默认 TypeSafe Jev，也可选 dsh 已配置的提供商）
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.2.2/dsh-jev-0.2.2.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.2.2/dsh-jev-0.2.2.tgz
 
 # 11. 安装文生图 (生图模型) 插件
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-image-gen@v0.1.2/dsh-image-gen-0.1.2.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-image-gen@v0.1.2/dsh-image-gen-0.1.2.tgz
 ```
 
 ### 重启 DSH Web 服务生效

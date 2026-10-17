@@ -116,7 +116,7 @@ jobs:
             #### 💻 一键安装命令 (Installation)
             ```bash
             # 使用 DSH 官方 CLI 安装
-            dsh plugin add --profile web https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.pack.outputs.tgz_name }}
+            dsh plugin --profile web add https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.pack.outputs.tgz_name }}
 
             # 重启服务生效
             dsh service restart

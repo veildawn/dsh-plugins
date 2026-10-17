@@ -80,7 +80,7 @@ gh release create "$TAG" "$TGZ_FILE" \
 
 #### 💻 安装命令 (Installation)
 \`\`\`bash
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/$TAG/$(basename "$TGZ_FILE")
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/$TAG/$(basename "$TGZ_FILE")
 \`\`\`
 
 #### 🔄 重启服务 (Restart Service)

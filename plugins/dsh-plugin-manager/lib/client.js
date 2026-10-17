@@ -853,7 +853,7 @@ window.__ModuleLoader__.load({
 
         const copyCommand = (plugin, kind) => {
           const source = installSourceOf(plugin, kind);
-          let cmd = `dsh plugin add --profile ${profile} ${source}`;
+          let cmd = `dsh plugin --profile ${profile} add ${source}`;
           if (desktopEnv && desktopEnv.isDesktop && profile === "desktop") {
             const { platform, execPath, cliPath } = desktopEnv;
             if (cliPath && execPath) {

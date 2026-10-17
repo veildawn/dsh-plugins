@@ -122,7 +122,7 @@ sandbox with direct Node fs access, which is what `deletePhysical` uses.
 pnpm install
 npm test        # node --test test/*.test.mjs
 npm pack        # produces dsh-archive-manager-<version>.tgz
-# deploy per repo policy: dsh plugin add --profile web ./dsh-archive-manager-<version>.tgz
+# deploy per repo policy: dsh plugin --profile web add ./dsh-archive-manager-<version>.tgz
 ```
 
 ## License
