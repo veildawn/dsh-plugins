@@ -103,6 +103,7 @@ await writeFile(join(profileDir, 'cordis.patch.yml'), `
             contextWindow: 1000000
       static-only:
         displayName: Static Only
+        apiKeyEnv: STATIC_ONLY_KEY
         baseURL: http://127.0.0.1:1/v1
         models:
           - id: fully-custom
@@ -119,6 +120,9 @@ refs:
 process.env.DSH_HOME = workDir;
 process.env.DSH_PROFILE = 'web';
 process.env.AIPROXY_DSH_WEB_ACCESS_TOKEN = 'env-token';
+// 静态 modality 用例需要一个确定的 Key 才会发起 /v1/models 探测；
+// 不能依赖开发机上恰好存在的 TYPESAFE_API_KEY / keyFile。
+process.env.STATIC_ONLY_KEY = 'static-only-key';
 
 const { apply, buildModelsUrl, parseModelsApi, mergeModelsApi } = await import('../lib/index.js');
 
