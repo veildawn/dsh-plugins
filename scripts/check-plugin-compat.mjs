@@ -89,6 +89,7 @@ const bundledScope = join(hostRoot, 'node_modules', '@deepseek-ai');
 
 const bootPackage = join(bundledScope, 'dsh-app-boot', 'package.json');
 const bootEntry = join(bundledScope, 'dsh-app-boot', 'lib', 'index.js');
+const frontendDist = join(bundledScope, 'dsh-web-frontend', 'dist', 'assets');
 let evaluateHostCompatibility;
 let runtimeVersion = runtimeOverride;
 if (existsSync(bootEntry)) {
@@ -112,9 +113,34 @@ function dshPeersOf(manifest) {
     .filter(([name]) => typeof name === 'string' && (name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-')));
 }
 
+/**
+ * Modules the running host's **web bundle** exposes to plugin client bundles.
+ *
+ * Some `@deepseek-ai/*` packages are build-time libraries of the host's own
+ * frontend: `dsh-web-frontend` inlines them (vite) into `dist/assets/*.js` and
+ * publishes them through `window.__ModuleLoader__` as shared seeds. Since
+ * 0.2.1-rc.2 the host no longer installs `@deepseek-ai/dsh-client-ui-slots` or
+ * `@deepseek-ai/dsh-client-ui-primitives` under its own `node_modules` — a
+ * plugin client bundle still `require()`s them, and the ModuleLoader resolves
+ * that require against the seed table, so "no such directory in node_modules"
+ * is NOT a compatibility failure for these names.
+ *
+ * The seed table is the only place the frontend spells a package as
+ * `"@deepseek-ai/name":<identifier>`; an arbitrary mention in an error message
+ * is a string, not a `name:` pair, so it cannot match.
+ */
+const bundleSeeds = new Set();
+for (const entry of existsSync(frontendDist) ? readdirSync(frontendDist) : []) {
+  if (!entry.endsWith('.js')) continue;
+  for (const match of readFileSync(join(frontendDist, entry), 'utf8').matchAll(/["'](@deepseek-ai\/[a-z0-9-]+)["']:\s*[A-Za-z_$]/g)) {
+    bundleSeeds.add(match[1]);
+  }
+}
+
 function hostShipsPeer(name) {
   const shortName = name.split('/')[1];
-  return existsSync(join(bundledScope, shortName)) || existsSync(join(hostScope, shortName));
+  if (existsSync(join(bundledScope, shortName)) || existsSync(join(hostScope, shortName))) return true;
+  return bundleSeeds.has(name);
 }
 
 const pluginDirs = targets.length > 0

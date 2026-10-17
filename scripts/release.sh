@@ -44,6 +44,18 @@ echo "=========================================="
 echo "🧭 正在校验 $PLUGIN 的 dsh 宿主兼容声明..."
 node "$(dirname "$0")/check-plugin-compat.mjs" "$PLUGIN_DIR"
 
+# 0.1 宿主加载预检：入口能被真实宿主 import，且 bundle patch 只注入宿主
+#     确实提供的服务（0.2.1-rc.2 删掉 webRuntime 后，旧 patch 会让 profile
+#     启动直接失败："1 required plugin did not activate"）。同样无 dsh 时 SKIP。
+echo "🔌 正在校验 $PLUGIN 能被当前 dsh 宿主加载..."
+node "$(dirname "$0")/check-host-load.mjs" "$PLUGIN_DIR"
+
+# 0.2 样式预检：插件 CSS 里的宿主哈希类名必须仍在宿主 bundle 中存在。
+#     宿主改名后旧哈希不会报错，只会静默失效（0.2.1-rc.2 就是这样让移动端
+#     统计行重新冒出、并把 ∨ 箭头带回权限按钮）。同样无 dsh 时 SKIP。
+echo "🎨 正在校验 $PLUGIN 的样式哈希仍匹配当前 dsh 宿主..."
+node "$(dirname "$0")/check-host-hashes.mjs" "$PLUGIN_DIR"
+
 # 1. 运行该插件测试
 # 插件从 profile 的共享目录解析宿主包，其位置随 HOME 变化，所以不能写死。
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
