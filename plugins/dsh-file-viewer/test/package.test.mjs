@@ -1560,5 +1560,118 @@ test('floating button is strictly banned and composer entry provides the clean P
   assert.match(source, /const sid = \(props && props\.sessionId\) \|\| sessionStore\.get\(\)/)
 })
 
+test('triggerDownload and performDownload handle client-side file downloads with toast feedback', async () => {
+  const { internals } = loadClient()
+  assert.equal(typeof internals.triggerDownload, 'function')
+  assert.equal(typeof internals.performDownload, 'function')
+
+  // Mock DOM
+  const prevWindow = globalThis.window
+  const prevDocument = globalThis.document
+  const createdUrls = []
+  const revokedUrls = []
+  const clickedAnchors = []
+
+  globalThis.window = {
+    URL: {
+      createObjectURL(blob) {
+        const u = 'blob:test/' + Math.random().toString(36).slice(2)
+        createdUrls.push({ url: u, blob })
+        return u
+      },
+      revokeObjectURL(u) {
+        revokedUrls.push(u)
+      },
+    },
+  }
+
+  const appendedChildren = []
+  globalThis.document = {
+    createElement(tag) {
+      return {
+        tagName: tag.toUpperCase(),
+        style: {},
+        click() {
+          clickedAnchors.push({ href: this.href, download: this.download })
+        },
+      }
+    },
+    body: {
+      appendChild(node) {
+        appendedChildren.push(node)
+      },
+      removeChild(node) {
+        const idx = appendedChildren.indexOf(node)
+        if (idx !== -1) appendedChildren.splice(idx, 1)
+      },
+    },
+  }
+
+  try {
+    const testBlob = new Blob(['hello world'], { type: 'text/plain' })
+    const ok = internals.triggerDownload(testBlob, 'hello.txt')
+    assert.equal(ok, true)
+    assert.equal(clickedAnchors.length, 1)
+    assert.equal(clickedAnchors[0].download, 'hello.txt')
+    assert.match(clickedAnchors[0].href, /^blob:/)
+
+    // performDownload success case
+    const toasts = []
+    const fakeRequest = async (method, payload) => {
+      assert.equal(method, 'bytes')
+      assert.equal(payload.root, 'root-1')
+      assert.equal(payload.path, 'src/test.txt')
+      return {
+        path: 'src/test.txt',
+        name: 'test.txt',
+        base64: Buffer.from('file-content').toString('base64'),
+      }
+    }
+
+    const downloadOk = await internals.performDownload(fakeRequest, 'root-1', 'src/test.txt', 'test.txt', (msg) => {
+      toasts.push(msg)
+    })
+    assert.equal(downloadOk, true)
+    assert.ok(toasts.some((t) => t.includes('正在准备下载')))
+    assert.ok(toasts.some((t) => t.includes('已开始下载 test.txt')))
+
+    // performDownload too-large error case
+    const failToasts = []
+    const tooLargeRequest = async () => {
+      const err = new Error('too large')
+      err.code = 'too-large'
+      throw err
+    }
+    const failOk = await internals.performDownload(tooLargeRequest, 'root-1', 'big.bin', 'big.bin', (msg) => {
+      failToasts.push(msg)
+    })
+    assert.equal(failOk, false)
+    assert.ok(failToasts.some((t) => t.includes('文件超过下载限制（上限 20MB）')))
+  } finally {
+    globalThis.window = prevWindow
+    globalThis.document = prevDocument
+  }
+})
+
+test('client bundle UI wires download button in head, context menu item, and binary note fallback', () => {
+  const source = read('lib/client.js')
+
+  // Top header download button
+  assert.match(source, /className: "fv-icon-button fv-btn-download"/)
+  assert.match(source, /title: "下载文件"/)
+  assert.match(source, /onClick: \(\) => handleDownloadItem\(meta\)/)
+
+  // Context menu download item
+  assert.match(source, /className: "fv-context-item fv-context-item-download"/)
+  assert.match(source, /react\.createElement\("span", \{ className: "fv-context-item-label" \}, "下载文件"\)/)
+
+  // Binary/oversize fallback card download button
+  assert.match(source, /className: "fv-button fv-btn-download-note"/)
+  assert.match(source, /下载到本地/)
+
+  // SvgIconDownload
+  assert.match(source, /function SvgIconDownload/)
+})
+
 
 

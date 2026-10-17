@@ -1,6 +1,6 @@
 {
   "name": "dsh-file-viewer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Workspace file viewer for DeepSeek Harness: file tree, syntax-highlighted code with language detection and manual override, images, PDF, Excel and Word",
   "type": "module",
   "main": "lib/index.js",
@@ -52,8 +52,7 @@
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-ui-primitives",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-runtime"
+        "@deepseek-ai/dsh-client-connection"
       ],
       "platform": "web"
     }

@@ -76,10 +76,10 @@ prompt 改写成 `role: "developer"`，而 DeepSeek / GLM 等上游只接受
 
 ```sh
 # 从 GitHub Release 安装指定版本
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.3.12/dsh-ai-proxy-0.3.12.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.3.14/dsh-ai-proxy-0.3.14.tgz
 
 # 或使用本地打包产物
-dsh plugin add --profile web ./dsh-ai-proxy-0.3.12.tgz
+dsh plugin add --profile web ./dsh-ai-proxy-0.3.14.tgz
 ```
 
 ### 重启生效

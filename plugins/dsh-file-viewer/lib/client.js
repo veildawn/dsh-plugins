@@ -113,6 +113,17 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function SvgIconDownload({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        react.createElement("path", { d: "M8 2.5v7.5" }),
+        react.createElement("path", { d: "M4.5 7L8 10.5 11.5 7" }),
+        react.createElement("path", { d: "M2.5 13.5h11" })
+      );
+    }
+
     const Component = react.Component || class Component { constructor(props) { this.props = props; this.state = {}; } setState(s) { Object.assign(this.state, typeof s === "function" ? s(this.state) : s); } };
     class ErrorBoundary extends Component {
       constructor(props) {
@@ -1339,6 +1350,59 @@ window.__ModuleLoader__.load({
       return Object.hasOwn(MEDIA_TYPES, ext) ? MEDIA_TYPES[ext] : undefined;
     }
 
+    /**
+     * Trigger browser file download from a Blob using an ephemeral anchor tag.
+     */
+    function triggerDownload(blob, filename) {
+      if (typeof window === "undefined" || typeof document === "undefined") return false;
+      try {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = filename || "download";
+        anchor.style.display = "none";
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        setTimeout(() => {
+          try { URL.revokeObjectURL(url); } catch (_) {}
+        }, 1500);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    /**
+     * Request raw bytes from host via RPC and trigger browser download.
+     */
+    function performDownload(requestFn, root, path, name, onToast) {
+      if (!root || !path || typeof requestFn !== "function") {
+        if (onToast) onToast("未指定下载文件路径");
+        return Promise.resolve(false);
+      }
+      const filename = name || baseNameOf(path);
+      if (onToast) onToast(`正在准备下载 ${filename}...`);
+      return requestFn("bytes", { root, path })
+        .then((res) => {
+          if (!res || typeof res.base64 !== "string") {
+            throw new Error("服务端未返回有效文件数据");
+          }
+          const mime = mediaTypeOf(res.path || path) || "application/octet-stream";
+          const blob = blobOf(res.base64, mime);
+          const ok = triggerDownload(blob, res.name || filename);
+          if (onToast) onToast(ok ? `已开始下载 ${res.name || filename}` : "浏览器拦截了下载操作");
+          return ok;
+        })
+        .catch((err) => {
+          const msg = err?.code === "too-large"
+            ? "文件超过下载限制（上限 20MB）"
+            : `下载失败: ${err?.message || "网络异常"}`;
+          if (onToast) onToast(msg);
+          return false;
+        });
+    }
+
     /** Spreadsheet column letters: 0 -> A, 26 -> AA. */
     function columnLabel(index) {
       let label = "";
@@ -2155,7 +2219,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Pick the viewer for a file and keep unsupported formats useful. */
-      function FileView({ meta, root, api, wrap, lang }) {
+      function FileView({ meta, root, api, wrap, lang, onDownload }) {
         if (meta === null) {
           return react.createElement("div", { className: "fv-note" }, "从左侧选择一个文件。");
         }
@@ -2165,13 +2229,19 @@ window.__ModuleLoader__.load({
             react.createElement("span", null, meta.tooLarge
               ? `文件大小 ${formatBytes(meta.size)}，超过查看器上限 ${formatBytes(meta.limit)}。`
               : "这是二进制文件，查看器无法显示其内容。"),
-            api && api.host
-              ? react.createElement("button", {
+            react.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "4px" } },
+              api && api.host
+                ? react.createElement("button", {
+                  type: "button",
+                  className: "fv-button",
+                  onClick: () => api.host.openPath({ path: meta.displayPath }),
+                }, "用本地程序打开")
+                : null,
+              react.createElement("button", {
                 type: "button",
-                className: "fv-button",
-                onClick: () => api.host.openPath({ path: meta.displayPath }),
-              }, "用本地程序打开")
-              : null);
+                className: "fv-button fv-btn-download-note",
+                onClick: () => onDownload && onDownload(meta),
+              }, "下载到本地")));
         }
         // The key remounts each viewer per file so no per-file state (paging,
         // active sheet, blob URL) survives a switch.
@@ -2188,7 +2258,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Right-click context menu for file and directory items. */
-      function ContextMenu({ menu, rootPath, onClose, onMention, onToast }) {
+      function ContextMenu({ menu, rootPath, onClose, onMention, onToast, onDownload }) {
         const ref = react.useRef(null);
         const mountTimeRef = react.useRef(Date.now());
         react.useEffect(() => {
@@ -2245,6 +2315,12 @@ window.__ModuleLoader__.load({
           e.stopPropagation();
           if (onMention) onMention(entry);
           onClose();
+        };
+
+        const handleDownload = (e) => {
+          e.stopPropagation();
+          onClose();
+          if (onDownload) onDownload(entry);
         };
 
         const winW = typeof window !== "undefined" ? window.innerWidth : 1000;
@@ -2304,7 +2380,17 @@ window.__ModuleLoader__.load({
               onClick: handleMention,
             },
               react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "@"),
-              react.createElement("span", { className: "fv-context-item-label" }, "引用到输入框 (@)"))));
+              react.createElement("span", { className: "fv-context-item-label" }, "引用到输入框 (@)")),
+            entry.type !== "directory" && !entry.isDirectory
+              ? react.createElement("button", {
+                type: "button",
+                className: "fv-context-item fv-context-item-download",
+                role: "menuitem",
+                onClick: handleDownload,
+              },
+                react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "⬇️"),
+                react.createElement("span", { className: "fv-context-item-label" }, "下载文件"))
+              : null));
       }
 
       /** Transient toast notification. */
@@ -2874,6 +2960,13 @@ window.__ModuleLoader__.load({
         const activeRoot = roots.find((row) => row.id === root);
         const treeRows = flattenTree({ expanded, nodes });
 
+        const handleDownloadItem = (entry) => {
+          if (!entry) return;
+          const targetPath = entry.path || entry.displayPath;
+          const targetName = entry.name || baseNameOf(targetPath);
+          performDownload(request, root, targetPath, targetName, showToast);
+        };
+
         return react.createElement("div", {
           className: "fv-scrim",
           role: "dialog",
@@ -2911,6 +3004,15 @@ window.__ModuleLoader__.load({
                   title: wrap ? "取消自动换行" : "自动换行",
                   onClick: () => setWrap((current) => !current),
                 }, react.createElement(SvgIconWrap, { size: 15 }))
+                : null,
+              meta !== null && meta.kind !== "directory"
+                ? react.createElement("button", {
+                  type: "button",
+                  className: "fv-icon-button fv-btn-download",
+                  "aria-label": "下载文件",
+                  title: "下载文件",
+                  onClick: () => handleDownloadItem(meta),
+                }, react.createElement(SvgIconDownload, { size: 15 }))
                 : null,
               react.createElement("button", {
                 type: "button", className: "fv-icon-button", "aria-label": "刷新", title: "刷新", onClick: refresh,
@@ -3009,7 +3111,7 @@ window.__ModuleLoader__.load({
                       : null)
                   : react.createElement(ErrorBoundary, {
                     resetKey: meta ? meta.path : "",
-                  }, react.createElement(FileView, { meta, root, api: props.api, wrap, lang: langChoice })))),
+                  }, react.createElement(FileView, { meta, root, api: props.api, wrap, lang: langChoice, onDownload: handleDownloadItem })))),
             contextMenu !== null
               ? react.createElement(ContextMenu, {
                 menu: contextMenu,
@@ -3017,6 +3119,7 @@ window.__ModuleLoader__.load({
                 onClose: () => setContextMenu(null),
                 onMention: mention,
                 onToast: showToast,
+                onDownload: handleDownloadItem,
               })
               : null,
             safeModalOpen
@@ -3330,6 +3433,7 @@ window.__ModuleLoader__.load({
       langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
+      triggerDownload, performDownload, SvgIconDownload,
     };
     return module.exports;
   }
