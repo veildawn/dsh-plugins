@@ -87,14 +87,19 @@ window.__ModuleLoader__.load({
     /** pi-ai 的 classifier 协议：命中时在模型标签上标出来源。 */
     const CLASSIFIER_APIS = ["typesafe-system-one", "cloudflare-workers-ai-system-one", "llama-cpp-classify", "openai-decisions"];
 
-    /** 模型下拉项文字：id + 决策标记 + 模态/类型字段。 */
+    /** 模型下拉项文字：id + 决策标记 + 接口 modality / 配置模态。 */
     function modelLabel(modelId, info) {
       if (!info) return modelId;
       const parts = [modelId];
       if (info.decisionModel) parts.push("决策模型");
       if (info.type && info.type !== "chat") parts.push("类型：" + info.type);
-      const modalities = modalityLabel(info.input);
-      if (modalities) parts.push(modalities);
+      if (info.modality) {
+        // /v1/models 返回的 modality 是决策模型的直接依据，优先展示。
+        parts.push("modality=" + info.modality);
+      } else {
+        const modalities = modalityLabel(info.input);
+        if (modalities) parts.push(modalities);
+      }
       // 只标出 classifier 协议：普通聊天路由的 openai-responses 之类对判断没有增量信息。
       if (info.api && CLASSIFIER_APIS.indexOf(String(info.api).toLowerCase()) !== -1) parts.push(info.api);
       return parts.join(" · ");
@@ -149,6 +154,7 @@ window.__ModuleLoader__.load({
       const [proxyLocked, setProxyLocked] = react.useState(false);
       const [configSource, setConfigSource] = react.useState("");
       const [modelWarning, setModelWarning] = react.useState("");
+      const [modelsApi, setModelsApi] = react.useState(null);
       const [status, setStatus] = react.useState(null);
       const [loading, setLoading] = react.useState(false);
       const [testing, setTesting] = react.useState(false);
@@ -183,6 +189,7 @@ window.__ModuleLoader__.load({
             setProxyLocked(data.proxyLocked === true);
             setConfigSource(typeof data.configSource === "string" ? data.configSource : "");
             setModelWarning(typeof data.modelWarning === "string" ? data.modelWarning : "");
+            setModelsApi(data.modelsApi && typeof data.modelsApi === "object" ? data.modelsApi : null);
             if (data.configError) setStatus({ ok: false, msg: data.configError });
           })
           .catch((err) => {
@@ -266,6 +273,7 @@ window.__ModuleLoader__.load({
           setApiKeyFrom(typeof data.apiKeyFrom === "string" ? data.apiKeyFrom : "");
           if (typeof data.proxy === "string") setProxy(data.proxy);
           setModelWarning(typeof data.modelWarning === "string" ? data.modelWarning : "");
+          setModelsApi(data.modelsApi && typeof data.modelsApi === "object" ? data.modelsApi : null);
         }).catch(() => {});
       };
 
@@ -322,6 +330,13 @@ window.__ModuleLoader__.load({
           (apiKeyConfigured
             ? " 已从提供商配置解析到 Key。"
             : " 未解析到 Key，请检查该提供商的 apiKeyEnv 或 ~/.dsh/.credentials.yaml。");
+      const modelsApiHint = modelsApi && modelsApi.ok === false
+        ? "（/v1/models 探测失败：" + (modelsApi.error || "未知错误") + "，已回退到静态识别）"
+        : (modelsApi && modelsApi.ok === true &&
+            Array.isArray(modelsApi.remoteDecisionModels) && modelsApi.remoteDecisionModels.length > 0
+          ? "（/v1/models 额外报告了 " + modelsApi.remoteDecisionModels.length + " 个决策模型：" +
+            modelsApi.remoteDecisionModels.join("、") + "）"
+          : "");
 
       return react.createElement("div", { className: "jev-settings" },
         react.createElement("style", null, css),
@@ -392,9 +407,9 @@ window.__ModuleLoader__.load({
                 onChange: (e) => setModel(e.target.value),
               }, modelOptions(models, decisionModels, model, modelInfo)),
               react.createElement("p", { className: "jev-hint" },
-                decisionModels.length > 0
-                  ? "优先展示识别到的决策模型（依据 classifier 协议、模型类型、模型名与模态字段）；其它模型也能选，但不保证支持决策协议。"
-                  : "该提供商没有识别到决策模型，请确认所选模型支持决策协议。"
+                (decisionModels.length > 0
+                  ? "优先展示识别到的决策模型（依据 /v1/models 的 modality、classifier 协议、模型类型与名称）；其它模型也能选，但不保证支持决策协议。"
+                  : "该提供商没有识别到决策模型，请确认所选模型支持决策协议。") + modelsApiHint
               )
             )
             : react.createElement("label", { className: "jev-field" },

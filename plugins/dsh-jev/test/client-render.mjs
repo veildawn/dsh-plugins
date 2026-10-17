@@ -181,9 +181,10 @@ const PROVIDER_VIEW = {
       models: ['jev-latest', 'deepseek-v4.1-flash'],
       decisionModels: ['jev-latest'],
       modelInfo: [
-        { id: 'jev-latest', name: '', input: ['text', 'image'], type: '', api: 'openai-responses', decisionModel: true },
-        { id: 'deepseek-v4.1-flash', name: '', input: ['text'], type: '', api: 'openai-responses', decisionModel: false },
+        { id: 'jev-latest', name: '', input: ['text', 'image'], type: '', api: 'openai-responses', modality: 'decision', decisionSource: 'models-api', decisionModel: true },
+        { id: 'deepseek-v4.1-flash', name: '', input: ['text'], type: '', api: 'openai-responses', modality: 'text', decisionSource: 'models-api-negative', decisionModel: false },
       ],
+      modelsApi: { ok: true, count: 4, remoteDecisionModels: ['liquid/d1-ultra'] },
     },
     {
       id: 'other',
@@ -200,11 +201,13 @@ const PROVIDER_VIEW = {
   ],
   model: 'jev-latest',
   models: ['jev-latest', 'deepseek-v4.1-flash'],
-  decisionModels: ['jev-latest'],
+  decisionModels: ['jev-latest', 'liquid/d1-ultra'],
   modelInfo: [
-    { id: 'jev-latest', name: '', input: ['text', 'image'], type: '', api: 'openai-responses', decisionModel: true },
-    { id: 'deepseek-v4.1-flash', name: '', input: ['text'], type: '', api: 'openai-responses', decisionModel: false },
+    { id: 'jev-latest', name: '', input: ['text', 'image'], type: '', api: 'openai-responses', modality: 'decision', decisionSource: 'models-api', decisionModel: true },
+    { id: 'deepseek-v4.1-flash', name: '', input: ['text'], type: '', api: 'openai-responses', modality: 'text', decisionSource: 'models-api-negative', decisionModel: false },
+    { id: 'liquid/d1-ultra', name: '', input: [], type: '', api: '', modality: 'decision', decisionSource: 'models-api', decisionModel: true },
   ],
+  modelsApi: { ok: true, count: 4, remoteDecisionModels: ['liquid/d1-ultra'] },
   baseURL: 'http://192.168.1.253:8319/v1',
   manualBaseURL: 'https://api.typesafe.ai',
   manualApiKey: 'ts-man...1234',
@@ -330,11 +333,15 @@ check('provider mode hides the manual model input', fieldOf(tree, '默认决策�
 const providerModelField = fieldOf(tree, '模型');
 const providerModelSelect = findAll(providerModelField, isSelect)[0];
 check('provider mode renders a model select', providerModelSelect !== undefined && providerModelSelect.props.value === 'jev-latest', JSON.stringify(providerModelSelect?.props));
-check('the model select offers the provider models', optionValues(providerModelSelect).join(',') === 'jev-latest,deepseek-v4.1-flash', optionValues(providerModelSelect).join(','));
+check('the model select offers the provider models plus remote decisions', optionValues(providerModelSelect).join(',') === 'jev-latest,liquid/d1-ultra,deepseek-v4.1-flash', optionValues(providerModelSelect).join(','));
 check('the model select groups decision models first', findAll(providerModelSelect, (n) => n.type === 'optgroup')[0]?.props.label === '决策模型');
 check('the model label carries the decision flag', optionLabels(providerModelSelect)[0].includes('决策模型'), optionLabels(providerModelSelect)[0]);
-check('the model label carries the modalities', optionLabels(providerModelSelect)[0].includes('文本+图像'), optionLabels(providerModelSelect)[0]);
+check('the model label carries the api modality', optionLabels(providerModelSelect)[0].includes('modality=decision'), optionLabels(providerModelSelect)[0]);
+const textModelLabel = optionLabels(providerModelSelect).find((label) => label.startsWith('deepseek-v4.1-flash'));
+check('a non-decision model also shows its api modality', String(textModelLabel).includes('modality=text'), String(textModelLabel));
 check('the model label does not repeat a plain chat route api', optionLabels(providerModelSelect)[0].includes('openai-responses') === false, optionLabels(providerModelSelect)[0]);
+const modelsApiHint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('额外报告了 1 个决策模型'))[0];
+check('the hint reports the /v1/models decision models', modelsApiHint !== undefined, String(modelsApiHint?.children?.[0]));
 check('getConfig restores the provider endpoint', findAll(fieldOf(tree, '接口端点'), isSelect)[0].props.value === '/v1/decisions');
 
 // ---------------------------------------------------------------------------

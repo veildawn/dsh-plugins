@@ -86,6 +86,11 @@ const REAL_PROFILE = `
               - decision
           - id: model-by-name
             name: Jev 决策模型
+          - id: model-by-modality-field
+            modality: decision
+          - id: model-declared-text
+            name: Jev decision helper
+            modality: text
           - id: plain-chat
             input:
               - text
@@ -217,6 +222,21 @@ check(
   mixedRoute.decisionModels.includes('plain-chat') === false,
   JSON.stringify(mixedRoute.decisionModels),
 );
+check(
+  'a static modality: decision field is detected',
+  mixedRoute.decisionModels.includes('model-by-modality-field'),
+  JSON.stringify(mixedRoute.decisionModels),
+);
+check(
+  'a static modality: text overrides the name-based guess',
+  mixedRoute.decisionModels.includes('model-declared-text') === false,
+  JSON.stringify(mixedRoute.decisionModels),
+);
+check(
+  'modelInfo exposes the static modality',
+  mixedRoute.modelInfo.find((entry) => entry.id === 'model-by-modality-field')?.modality === 'decision',
+  JSON.stringify(mixedRoute.modelInfo.find((entry) => entry.id === 'model-by-modality-field')),
+);
 
 const jevInfo = providers['ai-proxy'].modelInfo.find((entry) => entry.id === 'jev-latest');
 check('modelInfo exposes the input modalities', Array.isArray(jevInfo?.input) && jevInfo.input.length > 0, JSON.stringify(jevInfo));
@@ -242,6 +262,10 @@ check(
 check(
   'normalizeModelEntry fills api from the route',
   normalizeModelEntry({ id: 'x' }, 'typesafe-system-one').api === 'typesafe-system-one',
+);
+check(
+  'normalizeModelEntry keeps an unknown modality field',
+  normalizeModelEntry({ id: 'x', modality: 'decision' }, '').modality === 'decision',
 );
 
 // ---------------------------------------------------------------------------

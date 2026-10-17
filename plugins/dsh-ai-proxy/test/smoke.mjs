@@ -211,10 +211,14 @@ test('materializes the gateway as one llm-pi-ai route, leaving hand-written ones
     assert.deepEqual(profile.models[0], {
       id: 'claude-sonnet-4-5',
       contextWindow: 200000,
+      modality: 'text',
       input: ['text', 'image'],
       reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' },
     })
+    assert.deepEqual(profile.models[0].modality, 'text', 'gateway modality is written into the materialized route')
     assert.deepEqual(profile.models[1].reasoningEfforts, false, 'model without a ladder is non-reasoning')
+    assert.deepEqual(profile.models[1].modality, 'text', 'modality passes through for chat models too')
+    assert.deepEqual(profile.models[2].modality, 'image', 'image-generation modalities survive materialization')
     assert.deepEqual(profile.models[2].input, ['text'], 'undisclosed media defaults to text')
 
     assert.deepEqual(settings.doc[PI_AI_NS].providers['manual-route'], {

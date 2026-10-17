@@ -54,17 +54,39 @@ DeepSeek Harness (DSH) 原生「决策模型」插件：把结构化决策能力
 
 - **配置来源**
   - `dsh 已配置的提供商`：只显示「提供商 / 模型 / 接口端点」三项。接口地址、请求头与 API Key 全部由该提供商的配置决定，
-    因此面板不再显示这两个表单项（避免和 dsh 自身配置打架）。模型列表来自 dsh 的 `llm-pi-ai` 配置。
+    因此面板不再显示这两个表单项（避免和 dsh 自身配置打架）。模型列表来自 dsh 的 `llm-pi-ai` 配置，
+    并用提供商 `/v1/models` 的 `modality` 字段校准哪些是决策模型。
   - `手动配置接口地址与 API Key`：填写 baseUrl、模型 ID 与 Key。baseUrl 留空并保存会恢复官方默认地址 `https://api.typesafe.ai`。
 - **决策模型识别（下拉分组依据）**
+  - **静态 `modality`（可直接写在 YAML 里）**：模型条目支持写 `modality: decision`（与 `/v1/models` 同名字段）。
+    dsh 的模型 schema 没有这个正式字段，但 schemastery 会原样保留未知键，所以写进 `cordis.patch.yml`
+    不会导致启动失败；插件读的是 YAML 原文，因此离线或接口不可用时也能识别。
+    `modality: text` / `image` 会明确排除该模型（即使名字里带 `jev` / `decision`）。
+    示例：
+
+    ```yaml
+    models:
+      - id: liquid/d1-ultra
+        modality: decision     # 静态声明，优先于名字猜测
+    ```
+
+  - **提供商 `/v1/models` 的 `modality`（最可靠）**：provider 模式下插件会请求 `<baseURL>/v1/models`，
+    响应里 `modality: "decision"` 的模型直接判定为决策模型，`text` / `image` 的模型则排除。
+    例如本机 ai-proxy 的 `convaiinnovations/laya`、`liquid/d1-ultra` 名字不含任何关键词，只靠该字段就能正确归组。
+    接口报告为 decision、但 dsh 模型配置里未列出的模型也会追加到「决策模型」分组。
   - 协议：provider 的 `api` 或模型条目的 `api` 属于 pi-ai 的 classifier 协议
     （`typesafe-system-one`、`cloudflare-workers-ai-system-one`、`llama-cpp-classify`、`openai-decisions`）；
   - 类型：模型条目显式声明 `type: classifier`；
   - 名称：模型 id 或展示名命中 `jev` / `systemone` / `system-one` / `decision` / `classifier` / `noul` / `predicate`；
   - 模态：模型声明了 `text` / `image` 之外的输入模态（为未来的能力扩展预留）。
-  - 下拉选项会显示判断依据，例如 `jev-latest · 决策模型 · 文本`；普通模型显示 `deepseek-v4.1-flash · 文本+图像`。
-  - 说明：dsh 当前只允许声明 `text` / `image` 两种输入模态，无法单独表达「决策能力」；所以实际主要依据
-    classifier 协议、模型类型与名称，模态字段用于展示与未来扩展。声明为纯 `text` 的普通聊天模型不会被误收进决策分组。
+  - **优先级**：`/v1/models` 的 `modality` > 静态 `modality` > classifier 协议 / `type` / 名称 / 扩展输入模态。
+    探测失败（超时、无权限、接口不支持）时保留静态判断，并在模型下拉提示里说明失败原因。
+    探测超时 3 秒、成功结果缓存 60 秒、失败缓存 15 秒；只在打开/保存设置面板时请求，工具调用不受影响。
+  - 下拉选项会显示判断依据，例如 `jev-latest · 决策模型 · modality=decision`；
+    接口不可用时退回 `jev-latest · 决策模型 · decision`（静态 modality）或 `jev-latest · 决策模型 · 文本`。
+  - 说明：dsh 的 provider schema 只把 `input` 定义为 `text` / `image` 两种输入模态，不包含
+    `modality` / `type` 这类正式字段；但未声明的键会被保留，插件据此读取静态 `modality`，
+    并在有接口时用 `/v1/models` 的实时值校准。
 - **接口端点**
   - `/v1/systemone`：TypeSafe 官方原生决策协议；
   - `/v1/decisions`：兼容 OpenAI 决策协议的路由端点。

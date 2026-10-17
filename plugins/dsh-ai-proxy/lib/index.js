@@ -415,6 +415,13 @@ export function buildProviderProfile(options, models) {
       ...(entry.name !== undefined && entry.name !== entry.id ? { name: entry.name } : {}),
       ...(entry.contextWindow !== undefined ? { contextWindow: entry.contextWindow } : {}),
       ...(entry.maxTokens !== undefined ? { maxTokens: entry.maxTokens } : {}),
+      // The gateway's /v1/models "modality" (text / image / decision) is not a
+      // formal llm-pi-ai model field, but schemastery preserves undeclared keys,
+      // so writing it here lets static consumers (e.g. dsh-jev's decision-model
+      // detection) classify models without probing /v1/models again.
+      ...(typeof entry.modality === 'string' && entry.modality.trim() !== ''
+        ? { modality: entry.modality.trim() }
+        : {}),
       input: inputModalitiesOf(entry) ?? ['text'],
       reasoningEfforts: ladderToReasoningEfforts(entry.effortLevels),
     })),
@@ -736,7 +743,10 @@ class AiProxyApi {
       ...(m.description !== undefined ? { description: m.description } : {}),
       ...(m.contextWindow !== undefined ? { contextWindow: m.contextWindow } : {}),
       ...(m.maxTokens !== undefined ? { maxTokens: m.maxTokens } : {}),
-      effortLevels: [],
+      // Keep statically declared gateway capabilities, including modality.
+      ...(m.modality !== undefined ? { modality: m.modality } : {}),
+      ...(m.inputModalities !== undefined ? { inputModalities: m.inputModalities } : {}),
+      ...(m.effortLevels !== undefined ? { effortLevels: m.effortLevels } : []),
     }))
     let credential
     try {
@@ -956,6 +966,11 @@ const catalogModel = z.object({
   description: z.string(),
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
+  // Gateway-side capability fields discovered from /v1/models. They are
+  // carried through the plugin config so a re-materialization keeps them.
+  modality: z.string(),
+  inputModalities: z.array(z.string()),
+  effortLevels: z.array(z.string()),
 })
 
 

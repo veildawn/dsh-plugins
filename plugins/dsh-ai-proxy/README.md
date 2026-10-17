@@ -32,7 +32,8 @@ DSH ──> 宿主官方 llm-pi-ai 适配器（三协议、usage/finish 映射�
 dsh-ai-proxy：
   - OAuth 登录/刷新/撤销，access token 存 AIPROXY_ACCESS_TOKEN 凭据引用
   - 主动刷新定时器在过期前轮换 token（路由的 apiKeyEnv 按请求解析，新 token 自动生效）
-  - GET /v1/models 发现套餐模型，把 effort_levels 映射为 llm-pi-ai reasoningEfforts
+  - GET /v1/models 发现套餐模型，把 effort_levels 映射为 llm-pi-ai reasoningEfforts，
+    并把网关的 `modality`（text / image / decision）原样写入材料化路由的每个模型条目
   - 设置卡片 + /ai-proxy-auth Host RPC（登录/登出/状态/刷新模型）
 ```
 
@@ -161,6 +162,22 @@ dsh plugin add --profile web ./dsh-ai-proxy-0.3.14.tgz
 刷新并重写材料化路由。网关不可达或没有凭据时回退到 `models` 静态目录；材料化永远不会用
 空目录覆盖上一次的好目录。`input_modalities` 决定模型声明 `['text','image']` 还是
 `['text']`，未声明时按文本处理。
+
+网关返回的 `modality`（`text` / `image` / `decision`）会原样写进材料化路由的模型条目。
+`modality` 不是 llm-pi-ai 的正式 schema 字段，但 schemastery 会保留未声明的键，因此写入后
+dsh 配置里能直接看到它——依赖静态配置做能力判断的插件（例如 `dsh-jev` 识别决策模型）不必
+每次再请求 `/v1/models`。示例如下：
+
+```yaml
+providers:
+  ai-proxy:
+    models:
+      - id: liquid/d1-ultra
+        contextWindow: 32768
+        modality: decision      # 由 /v1/models 写入
+        input: [text]
+        reasoningEfforts: false
+```
 
 ## 配置
 

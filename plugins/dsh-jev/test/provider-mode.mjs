@@ -36,8 +36,11 @@ const workDir = await mkdtemp(join(tmpdir(), 'dsh-jev-provider-mode-'));
 const profileDir = join(workDir, 'profiles', 'web');
 await mkdir(profileDir, { recursive: true });
 
-/** 每次请求都记进这个数组，并发下也不会互相覆盖。 */
+/** 决策请求记进这个数组，并发下也不会互相覆盖。 */
 const requestLog = [];
+
+/** /v1/models 探测请求单独记录，避免影响「工具调用只发一次请求」的断言。 */
+const modelsLog = [];
 
 const server = createServer((req, res) => {
   let raw = '';
@@ -49,8 +52,21 @@ const server = createServer((req, res) => {
     } catch {
       body = { unparsed: raw };
     }
-    requestLog.push({ url: req.url, headers: req.headers, body });
     res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'GET' && req.url === '/v1/models') {
+      modelsLog.push({ url: req.url, headers: req.headers });
+      res.end(JSON.stringify({
+        object: 'list',
+        data: [
+          { id: 'jev-latest', modality: 'decision', owned_by: 'typesafe' },
+          { id: 'deepseek-v4.1-flash', modality: 'text', input_modalities: ['text', 'image'] },
+          { id: 'liquid/d1-ultra', modality: 'decision', owned_by: 'vercel' },
+          { id: 'gemini-3.1-flash-image', modality: 'image' },
+        ],
+      }));
+      return;
+    }
+    requestLog.push({ url: req.url, headers: req.headers, body });
     if (req.url === '/v1/decisions') {
       res.end(JSON.stringify({
         answers: [
@@ -85,6 +101,12 @@ await writeFile(join(profileDir, 'cordis.patch.yml'), `
             contextWindow: 200000
           - id: deepseek-v4.1-flash
             contextWindow: 1000000
+      static-only:
+        displayName: Static Only
+        baseURL: http://127.0.0.1:1/v1
+        models:
+          - id: fully-custom
+            modality: decision
 `, 'utf8');
 
 await writeFile(join(workDir, '.credentials.yaml'), `
@@ -98,7 +120,7 @@ process.env.DSH_HOME = workDir;
 process.env.DSH_PROFILE = 'web';
 process.env.AIPROXY_DSH_WEB_ACCESS_TOKEN = 'env-token';
 
-const { apply } = await import('../lib/index.js');
+const { apply, buildModelsUrl, parseModelsApi, mergeModelsApi } = await import('../lib/index.js');
 
 const settingsDir = join(workDir, 'settings');
 await mkdir(settingsDir, { recursive: true });
@@ -154,6 +176,20 @@ const jevInfo = Array.isArray(view.modelInfo) ? view.modelInfo.find((m) => m.id 
 check('getConfig exposes modelInfo with modalities', jevInfo !== undefined && Array.isArray(jevInfo.input), JSON.stringify(jevInfo));
 check('modelInfo marks jev-latest as a decision model', jevInfo?.decisionModel === true, JSON.stringify(jevInfo));
 check('provider rows also carry modelInfo', Array.isArray(view.providers[0]?.modelInfo) && view.providers[0].modelInfo.length > 0, JSON.stringify(view.providers[0]?.modelInfo));
+
+// /v1/models: the provider's own modality field decides what is a decision model
+check('getConfig probes /v1/models in provider mode', view.modelsApi !== null && view.modelsApi.ok === true, JSON.stringify(view.modelsApi));
+check('the models probe reports the model count', view.modelsApi?.count === 4, JSON.stringify(view.modelsApi));
+check('the models probe reports non-decision models too', view.modelInfo.find((m) => m.id === 'deepseek-v4.1-flash')?.decisionModel === false, JSON.stringify(view.modelInfo.find((m) => m.id === 'deepseek-v4.1-flash')));
+check('modality is carried into modelInfo', view.modelInfo.find((m) => m.id === 'jev-latest')?.modality === 'decision', JSON.stringify(view.modelInfo.find((m) => m.id === 'jev-latest')));
+check(
+  'a decision model missing from the dsh model list is added',
+  view.decisionModels.includes('liquid/d1-ultra') && view.modelInfo.some((m) => m.id === 'liquid/d1-ultra' && m.decisionModel),
+  JSON.stringify(view.decisionModels),
+);
+check('the probe lists the remote-only decision models', view.modelsApi?.remoteDecisionModels?.join(',') === 'liquid/d1-ultra', JSON.stringify(view.modelsApi?.remoteDecisionModels));
+check('the models probe logged exactly one GET', modelsLog.length === 1 && modelsLog[0].url === '/v1/models', JSON.stringify(modelsLog.map((m) => m.url)));
+check('the models probe authenticates with the provider key', modelsLog[0]?.headers?.authorization === 'Bearer cred-from-yaml', modelsLog[0]?.headers?.authorization);
 
 const providerResult = await providerSession.tool.execute({ state, questions }, {});
 check('provider mode returns normalized answers', providerResult?.answers?.urgent?.noul === 0.93 && providerResult?.answers?.dept?.choice === 'billing', JSON.stringify(providerResult));
@@ -264,6 +300,32 @@ check('the default endpoint is still /v1/systemone', defaultView.value.endpoint 
 check('the default model is jev-latest', defaultView.value.model === 'jev-latest', defaultView.value.model);
 
 // ---------------------------------------------------------------------------
+// 5b. 远程发现的决策模型可以直接选用
+// ---------------------------------------------------------------------------
+const remoteSession = register({ source: 'provider', provider: 'ai-proxy' });
+const remoteView = await remoteSession.rpc('getConfig', {});
+check('the remote-only decision model is offered in the view', remoteView.value.decisionModels.includes('liquid/d1-ultra'), JSON.stringify(remoteView.value.decisionModels));
+const remoteSave = await remoteSession.rpc('saveConfig', {
+  source: 'provider',
+  provider: 'ai-proxy',
+  model: 'liquid/d1-ultra',
+  endpoint: '/v1/decisions',
+});
+check('a remote-discovered decision model can be saved', remoteSave.ok === true && remoteSave.value.model === 'liquid/d1-ultra', JSON.stringify(remoteSave).slice(0, 300));
+check('a remote-discovered model is not flagged as unknown', remoteSave.value?.modelWarning === undefined, JSON.stringify(remoteSave.value?.modelWarning));
+
+// ---------------------------------------------------------------------------
+// 5c. /v1/models 不可用时，静态 modality 仍然生效
+// ---------------------------------------------------------------------------
+const staticSession = register({ source: 'provider', provider: 'static-only' });
+const staticView = await staticSession.rpc('getConfig', {});
+check('an unreachable /v1/models is reported as a failed probe', staticView.value.modelsApi !== null && staticView.value.modelsApi.ok === false, JSON.stringify(staticView.value.modelsApi));
+check('the static modality still marks the decision model', staticView.value.decisionModels.includes('fully-custom'), JSON.stringify(staticView.value.decisionModels));
+const staticInfo = staticView.value.modelInfo.find((m) => m.id === 'fully-custom');
+check('the static modality is exposed in modelInfo', staticInfo?.modality === 'decision' && staticInfo?.decisionModel === true, JSON.stringify(staticInfo));
+check('the static provider defaults to its decision model', staticView.value.model === 'fully-custom', String(staticView.value.model));
+
+// ---------------------------------------------------------------------------
 // 6. 保存时拒绝会写坏配置的输入
 // ---------------------------------------------------------------------------
 const badBase = await providerSession.rpc('saveConfig', { source: 'manual', baseURL: 'ftp://127.0.0.1:1' });
@@ -272,6 +334,79 @@ const badEndpoint = await providerSession.rpc('saveConfig', { source: 'manual', 
 check('saveConfig rejects an unknown endpoint', badEndpoint.ok === false, JSON.stringify(badEndpoint));
 const emptyModel = await providerSession.rpc('saveConfig', { source: 'manual', model: '   ' });
 check('saveConfig rejects an empty model', emptyModel.ok === false && emptyModel.error.code === 'model-required', JSON.stringify(emptyModel));
+
+// ---------------------------------------------------------------------------
+// 7. /v1/models 地址推导与响应解析
+// ---------------------------------------------------------------------------
+check('buildModelsUrl appends /models to a /v1 base', buildModelsUrl('http://x:1/v1') === 'http://x:1/v1/models', buildModelsUrl('http://x:1/v1'));
+check('buildModelsUrl adds /v1/models to a bare base', buildModelsUrl('http://x:1') === 'http://x:1/v1/models', buildModelsUrl('http://x:1'));
+check('buildModelsUrl keeps an explicit /v1/models base', buildModelsUrl('http://x:1/v1/models') === 'http://x:1/v1/models', buildModelsUrl('http://x:1/v1/models'));
+const parsed = parseModelsApi({
+  data: [
+    { id: 'a', modality: 'decision' },
+    { id: 'b', modality: 'text', input_modalities: ['text', 'image'] },
+  ],
+});
+check(
+  'parseModelsApi reads modality and input_modalities',
+  parsed.length === 2 && parsed[0].modality === 'decision' && parsed[1].inputModalities.join(',') === 'text,image',
+  JSON.stringify(parsed),
+);
+check('parseModelsApi accepts a bare array', parseModelsApi([{ id: 'x', modality: 'image' }])[0]?.modality === 'image');
+const mergedModels = mergeModelsApi(
+  [{ id: 'known', decisionModel: false }],
+  [],
+  {
+    ok: true,
+    models: [
+      { id: 'known', modality: 'decision', inputModalities: [] },
+      { id: 'remote', modality: 'decision', inputModalities: [] },
+      { id: 'text-only', modality: 'text', inputModalities: [] },
+    ],
+  },
+);
+check(
+  'mergeModelsApi lets the api modality override the static guess',
+  mergedModels.modelInfo.find((m) => m.id === 'known')?.decisionModel === true && mergedModels.decisionModels.includes('known'),
+  JSON.stringify(mergedModels),
+);
+check(
+  'mergeModelsApi appends remote-only decision models',
+  mergedModels.decisionModels.includes('remote') && mergedModels.remoteDecisionModels.join(',') === 'remote',
+  JSON.stringify(mergedModels),
+);
+check(
+  'mergeModelsApi ignores non-decision remote-only models',
+  mergedModels.decisionModels.includes('text-only') === false,
+  JSON.stringify(mergedModels.decisionModels),
+);
+check(
+  'mergeModelsApi falls back cleanly without a probe result',
+  mergeModelsApi([{ id: 'a', decisionModel: true }], ['a'], null).decisionModels.join(',') === 'a',
+);
+
+const staticModalitySurvives = mergeModelsApi(
+  [{ id: 'static-decision', modality: 'decision', decisionModel: true }],
+  ['static-decision'],
+  { ok: true, models: [{ id: 'other', modality: 'text', inputModalities: [] }] },
+);
+check(
+  'a static modality survives when the api omits the model',
+  staticModalitySurvives.decisionModels.includes('static-decision'),
+  JSON.stringify(staticModalitySurvives.decisionModels),
+);
+
+const apiOverridesStaticModality = mergeModelsApi(
+  [{ id: 'static-decision', modality: 'decision', decisionModel: true }],
+  ['static-decision'],
+  { ok: true, models: [{ id: 'static-decision', modality: 'text', inputModalities: [] }] },
+);
+check(
+  'the api modality overrides a static modality',
+  apiOverridesStaticModality.decisionModels.includes('static-decision') === false &&
+    apiOverridesStaticModality.modelInfo[0].decisionSource === 'models-api-negative',
+  JSON.stringify(apiOverridesStaticModality),
+);
 
 await new Promise((resolve) => server.close(resolve));
 await rm(workDir, { recursive: true, force: true });

@@ -17,6 +17,7 @@
  * @module dsh-jev
  */
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -845,6 +846,194 @@ function buildHeaders(providerHeaders, apiKey) {
   return headers;
 }
 
+/** 提供商 `/v1/models` 探测请求的超时（毫秒）。设置面板打开时等待，不能太久。 */
+const MODELS_API_TIMEOUT_MS = 3000;
+
+/** `/v1/models` 结果缓存：面板每次 getConfig 都会调用，避免反复打提供商接口。 */
+const modelsApiCache = new Map();
+
+/** 成功结果的缓存时长。 */
+const MODELS_API_CACHE_TTL_MS = 60000;
+
+/** 失败结果的缓存时长（短一些，方便用户改完配置尽快重试）。 */
+const MODELS_API_FAILURE_TTL_MS = 15000;
+
+/**
+ * 由 provider baseURL 推导出 `/v1/models` 地址。
+ *
+ * 兼容 baseURL 已带 /v1、已带 /models 以及自定义路径的写法。
+ * @param {string} baseURL 提供商 baseURL。
+ * @returns {string} 模型列表 URL。
+ */
+export function buildModelsUrl(baseURL) {
+  let base = String(baseURL).trim().replace(/[/]+$/, '');
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(base)) base = 'http://' + base;
+  if (/\/v1\/models$/i.test(base) || /\/models$/i.test(base)) return base;
+  if (/\/v1$/i.test(base)) return base + '/models';
+  return base + '/v1/models';
+}
+
+/**
+ * 解析 `/v1/models` 响应（兼容 `{data:[…]}`、`{models:[…]}` 与裸数组）。
+ *
+ * OpenAI 兼容网关的字段是 `modality`（text / image / decision），输入模态则放在
+ * `input_modalities`。两个都读，`modality` 才是决策模型的直接依据。
+ *
+ * @param {unknown} data 响应 JSON。
+ * @returns {Array<{ id: string, modality: string, inputModalities: string[] }>}
+ */
+export function parseModelsApi(data) {
+  const list = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.data)
+      ? data.data
+      : Array.isArray(data?.models)
+        ? data.models
+        : [];
+  const models = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const id = typeof item.id === 'string' && item.id.trim() !== ''
+      ? item.id.trim()
+      : (typeof item.name === 'string' ? item.name.trim() : '');
+    if (id === '') continue;
+    models.push({
+      id,
+      modality: typeof item.modality === 'string' ? item.modality.trim().toLowerCase() : '',
+      inputModalities: Array.isArray(item.input_modalities)
+        ? item.input_modalities.map((value) => String(value).trim().toLowerCase()).filter(Boolean)
+        : [],
+    });
+  }
+  return models;
+}
+
+/**
+ * 生成 `/v1/models` 缓存键（不保存明文 Key）。
+ * @param {object} effective 生效配置。
+ * @param {string} apiKey 明文 Key。
+ * @returns {string}
+ */
+function modelsApiCacheKey(effective, apiKey) {
+  const keyHash = createHash('sha256').update(apiKey).digest('hex').slice(0, 16);
+  const proxy = effective.proxy ? effective.proxy.display : '';
+  return [effective.providerId, effective.baseURL, keyHash, proxy].join('|');
+}
+
+/**
+ * 请求提供商的 `/v1/models`，读取每个模型的 `modality` 字段。
+ *
+ * 只有 provider 模式才探测：manual 模式的地址未必提供 OpenAI 兼容的模型列表，
+ * 也不应该为了展示列表去请求一个手写服务。失败一律静默降级（返回 ok:false），
+ * 由调用方回退到静态识别。
+ *
+ * @param {object} effective 生效配置。
+ * @param {string} apiKey 提供商可用的 Key（没有 Key 时不探测）。
+ * @param {object} config 规范化配置。
+ * @returns {Promise<{ ok: boolean, url: string, error?: string, models: Array<object>, cached: boolean } | null>}
+ */
+async function probeModelsApi(effective, apiKey, config) {
+  if (effective?.source !== 'provider' || !apiKey) return null;
+  const url = buildModelsUrl(effective.baseURL);
+  const cacheKey = modelsApiCacheKey(effective, apiKey);
+  const cached = modelsApiCache.get(cacheKey);
+  if (cached) {
+    const ttl = cached.value.ok ? MODELS_API_CACHE_TTL_MS : MODELS_API_FAILURE_TTL_MS;
+    if (Date.now() - cached.at < ttl) return { ...cached.value, cached: true };
+  }
+
+  let value;
+  try {
+    const response = await httpRequest(
+      url,
+      {
+        method: 'GET',
+        headers: buildHeaders(effective.headers, apiKey),
+        signal: AbortSignal.timeout(MODELS_API_TIMEOUT_MS),
+      },
+      config,
+      effective.proxy,
+    );
+    if (!response.ok) {
+      value = { ok: false, url, error: 'HTTP ' + response.status, models: [] };
+    } else {
+      value = { ok: true, url, models: parseModelsApi(await response.json()) };
+    }
+  } catch (error) {
+    value = { ok: false, url, error: error instanceof Error ? error.message : String(error), models: [] };
+  }
+  modelsApiCache.set(cacheKey, { at: Date.now(), value });
+  return { ...value, cached: false };
+}
+
+/**
+ * 把 `/v1/models` 的 `modality` 合并进提供商模型列表。
+ *
+ * 规则：
+ *   - 接口报告了 modality 的模型以接口为准（`decision` 才算决策模型）；
+ *   - 接口没报告的模型保留插件静态判断（classifier 协议 / type / 名字 / 模态）；
+ *   - 接口报告为 decision、但 dsh 配置里没列出的模型，追加进决策模型候选，
+ *     这样 `liquid/d1-ultra` 这类名字不带关键词的模型也能直接选到。
+ *
+ * @param {Array<object>} modelInfo 静态模型信息。
+ * @param {Array<string>} decisionModels 静态决策模型 ID。
+ * @param {{ ok: boolean, models: Array<{ id: string, modality: string, inputModalities: string[] }> } | null} modelsApi 探测结果。
+ * @returns {{ modelInfo: Array<object>, decisionModels: string[], remoteDecisionModels: string[] }}
+ */
+export function mergeModelsApi(modelInfo, decisionModels, modelsApi) {
+  const staticInfo = Array.isArray(modelInfo) ? modelInfo : [];
+  const staticDecisions = Array.isArray(decisionModels) ? decisionModels : [];
+  if (!modelsApi || modelsApi.ok !== true || !Array.isArray(modelsApi.models) || modelsApi.models.length === 0) {
+    return { modelInfo: staticInfo, decisionModels: staticDecisions, remoteDecisionModels: [] };
+  }
+  const remoteById = new Map(modelsApi.models.map((model) => [model.id, model]));
+  const mergedInfo = staticInfo.map((entry) => {
+    const remote = remoteById.get(entry.id);
+    if (!remote) return entry;
+    const remoteModality = remote.modality || '';
+    const staticModality = entry.modality || '';
+    const modality = remoteModality || staticModality;
+    let decisionModel = entry.decisionModel;
+    let decisionSource = entry.decisionSource || (entry.decisionModel ? 'static' : '');
+    if (remoteModality !== '') {
+      // 接口返回的 modality 优先于静态判断；静态 modality 只在接口没报告时兜底。
+      decisionModel = remoteModality === 'decision';
+      decisionSource = decisionModel ? 'models-api' : 'models-api-negative';
+    } else if (staticModality !== '') {
+      decisionModel = staticModality === 'decision';
+      decisionSource = decisionModel ? 'static-modality' : 'static-modality-negative';
+    }
+    return {
+      ...entry,
+      modality,
+      remoteInput: remote.inputModalities,
+      decisionModel,
+      decisionSource,
+    };
+  });
+  const known = new Set(mergedInfo.map((entry) => entry.id));
+  const remoteDecisionModels = [];
+  for (const remote of modelsApi.models) {
+    if (remote.modality !== 'decision' || known.has(remote.id)) continue;
+    remoteDecisionModels.push(remote.id);
+    mergedInfo.push({
+      id: remote.id,
+      name: '',
+      input: remote.inputModalities,
+      type: '',
+      api: '',
+      decisionModel: true,
+      modality: 'decision',
+      decisionSource: 'models-api',
+    });
+  }
+  return {
+    modelInfo: mergedInfo,
+    decisionModels: mergedInfo.filter((entry) => entry.decisionModel).map((entry) => entry.id),
+    remoteDecisionModels,
+  };
+}
+
 /**
  * 构建发送给决策 API 的标准 HTTP 请求载荷。
  * 根据所选端点（/v1/systemone 或 /v1/decisions）自动适配协议请求体结构。
@@ -1286,7 +1475,7 @@ function registerPolicySection(ctx, resolved) {
  * @param config - 规范化配置。
  * @returns 设置视图对象。
  */
-function buildConfigView(config) {
+async function buildConfigView(config) {
   const loaded = loadUserSettings(config.settingsFile);
   const values = loaded.values;
   const sysProviders = getDshSystemProviders();
@@ -1324,16 +1513,33 @@ function buildConfigView(config) {
     { source: 'manual', providerId: '', providerRow: undefined, settings: loaded, apiKeyEnv: config.apiKeyEnv },
     {},
   );
-  const providers = Object.values(sysProviders).map((provider) => ({
-    id: provider.id,
-    name: provider.name,
-    baseURL: provider.baseURL,
-    apiKeyEnv: provider.apiKeyEnv,
-    api: provider.api,
-    models: provider.models,
-    decisionModels: provider.decisionModels,
-    modelInfo: provider.modelInfo,
-  }));
+
+  // provider 模式下用提供商的 /v1/models 校准模型类型：响应里的 modality 才是
+  // 「这个模型是不是决策模型」的直接依据（例如 liquid/d1-ultra 名字里没有任何关键词）。
+  const activeRow = effective.providerRow ?? providerRow;
+  let modelsApi = null;
+  if (effective.source === 'provider' && keyInfo.token) {
+    try {
+      modelsApi = await probeModelsApi(effective, keyInfo.token, config);
+    } catch {
+      modelsApi = null;
+    }
+  }
+  const merged = mergeModelsApi(activeRow?.modelInfo ?? [], activeRow?.decisionModels ?? [], modelsApi);
+
+  const providers = Object.values(sysProviders).map((provider) => {
+    const isActive = provider.id === activeRow?.id;
+    return {
+      id: provider.id,
+      name: provider.name,
+      baseURL: provider.baseURL,
+      apiKeyEnv: provider.apiKeyEnv,
+      api: provider.api,
+      models: provider.models,
+      decisionModels: isActive ? merged.decisionModels : provider.decisionModels,
+      modelInfo: isActive ? merged.modelInfo : provider.modelInfo,
+    };
+  });
 
   return {
     configured: Boolean(keyInfo.token),
@@ -1344,10 +1550,11 @@ function buildConfigView(config) {
     provider: effective.providerId,
     providers,
     model: effective.model,
-    models: providerRow?.models ?? [],
-    decisionModels: providerRow?.decisionModels ?? [],
-    modelInfo: providerRow?.modelInfo ?? [],
-    modelWarning: effective.warnings[0],
+    models: activeRow?.models ?? [],
+    decisionModels: merged.decisionModels,
+    modelInfo: merged.modelInfo,
+    // 接口探测发现、但 dsh 配置未列出的模型不应再被标成「不在提供商模型列表」。
+    modelWarning: merged.modelInfo.some((entry) => entry.id === effective.model) ? undefined : effective.warnings[0],
     baseURL: effective.baseURL,
     baseURLDefault: DEFAULTS.baseURL,
     /** 手动模式下已保存/生效的地址：切换来源时用它恢复，而不是留着提供商的地址。 */
@@ -1367,6 +1574,16 @@ function buildConfigView(config) {
     settingsFile: loaded.path,
     legacySettingsFile: loaded.legacyPath,
     inferred: { provider: inferred.provider, model: inferred.model },
+    modelsApi: modelsApi
+      ? {
+          ok: modelsApi.ok,
+          url: modelsApi.url,
+          error: modelsApi.error,
+          count: modelsApi.models.length,
+          cached: modelsApi.cached === true,
+          remoteDecisionModels: merged.remoteDecisionModels,
+        }
+      : null,
     configError,
   };
 }
@@ -1385,7 +1602,7 @@ function buildConfigView(config) {
 async function handleSettingsRpc(config, method, payload = {}) {
   if (method === 'getConfig') {
     try {
-      return rpcOk(buildConfigView(config));
+      return rpcOk(await buildConfigView(config));
     } catch (error) {
       return rpcFailure('config-failed', error.message);
     }
@@ -1465,7 +1682,7 @@ async function handleSettingsRpc(config, method, payload = {}) {
       }
 
       writeSettingsFile(config.settingsFile, patch, { source: 'user-set' });
-      return rpcOk(buildConfigView(config));
+      return rpcOk(await buildConfigView(config));
     } catch (error) {
       return rpcFailure('save-failed', error.message);
     }

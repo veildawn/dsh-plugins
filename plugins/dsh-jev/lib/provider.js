@@ -397,13 +397,18 @@ export function isDecisionModel(model) {
 
 /**
  * 规范化一个模型条目（兼容 `- id` 对象与裸字符串两种写法）。
+ *
+ * `modality` 不是 dsh 模型 schema 的正式字段（官方只有 id/name/contextWindow/
+ * maxTokens/input/reasoningEfforts/compat），但 schemastery 会原样保留未知键，
+ * 所以静态配置里可以写 `modality: decision`；插件读的是 YAML 原文，能直接拿到。
+ *
  * @param {any} entry 原始条目。
  * @param {string} routeApi provider 级协议。
- * @returns {{ id: string, name: string, input: string[], type: string, api: string } | null}
+ * @returns {{ id: string, name: string, input: string[], modality: string, type: string, api: string } | null}
  */
 function normalizeModelEntry(entry, routeApi) {
   if (typeof entry === 'string') {
-    return { id: entry.trim(), name: '', input: [], type: '', api: routeApi };
+    return { id: entry.trim(), name: '', input: [], modality: '', type: '', api: routeApi };
   }
   if (!entry || typeof entry !== 'object') return null;
   const id = typeof entry.id === 'string' ? entry.id.trim() : '';
@@ -414,6 +419,7 @@ function normalizeModelEntry(entry, routeApi) {
     input: Array.isArray(entry.input)
       ? entry.input.map((m) => String(m).trim().toLowerCase()).filter((m) => m !== '')
       : [],
+    modality: typeof entry.modality === 'string' ? entry.modality.trim().toLowerCase() : '',
     type: typeof entry.type === 'string' ? entry.type.trim().toLowerCase() : '',
     api: typeof entry.api === 'string' && entry.api.trim() !== '' ? entry.api.trim() : routeApi,
   };
@@ -422,7 +428,9 @@ function normalizeModelEntry(entry, routeApi) {
 /**
  * 综合结构化字段判断一个模型条目是否是决策模型。
  *
- * 判断顺序（任一命中即为决策模型）：
+ * 判断顺序：
+ *   0. 条目显式声明了 `modality`（与 `/v1/models` 同名字段）——它是最高优先级的覆盖，
+ *      `modality: decision` 即为决策模型，`modality: text` / `image` 则明确排除；
  *   1. 协议属于 pi-ai 的 classifier 协议（typesafe-system-one 等）；
  *   2. 条目显式声明 `type: classifier`；
  *   3. id 或展示名命中决策模型命名规则；
@@ -431,12 +439,14 @@ function normalizeModelEntry(entry, routeApi) {
  * 只声明显式的 `input: ['text']` 不会被当成决策模型——普通聊天模型也是纯文本，
  * 那样会把整个模型列表都吞进「决策模型」分组。
  *
- * @param {{ id?: string, name?: string, input?: string[], type?: string, api?: string } | null} entry 模型条目。
+ * @param {{ id?: string, name?: string, input?: string[], modality?: string, type?: string, api?: string } | null} entry 模型条目。
  * @param {string} [routeApi] provider 级协议。
  * @returns {boolean}
  */
 export function isDecisionModelEntry(entry, routeApi = '') {
   if (!entry || typeof entry !== 'object') return false;
+  const declaredModality = String(entry.modality || '').trim().toLowerCase();
+  if (declaredModality !== '') return declaredModality === 'decision';
   const api = String(entry.api || routeApi || '').toLowerCase();
   if (CLASSIFIER_APIS.has(api)) return true;
   if (String(entry.type || '').toLowerCase() === 'classifier') return true;

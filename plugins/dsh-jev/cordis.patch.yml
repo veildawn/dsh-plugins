@@ -40,6 +40,17 @@
         # —— dsh 已配置的提供商（source: provider）——
         # provider: ai-proxy
         # model: jev-latest
+        #
+        # Decision-model detection in provider mode:
+        #   1. the provider's GET <baseURL>/v1/models "modality" field (decision/text/image);
+        #   2. a static "modality: decision" on the model entry in the llm-pi-ai
+        #      providers list (schemastery preserves this undeclared key, so it is
+        #      safe to write there even though dsh's schema does not define it);
+        #   3. classifier protocol (typesafe-system-one / openai-decisions / ...),
+        #      "type: classifier", model id/name keywords, extended input modalities.
+        # Example static declaration inside the llm-pi-ai provider's models list:
+        #   - id: liquid/d1-ultra
+        #     modality: decision
 
         # Optional API endpoint. Options: '/v1/systemone' (native, default for manual)
         # or '/v1/decisions' (OpenAI-compatible, default for provider).

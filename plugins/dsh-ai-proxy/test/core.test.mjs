@@ -284,8 +284,8 @@ test('buildProviderProfile: full shape, defaults, effort ladder and headers', ()
     retryPolicy: { mode: 'normal', maxRetries: 3 },
   })
   const models = [
-    { id: 'tiered-model', name: 'tiered-model', contextWindow: 200000, effortLevels: ['low', 'medium', 'high'], inputModalities: ['text', 'image'] },
-    { id: 'plain-model', name: 'plain-model', inputModalities: ['text'] },
+    { id: 'tiered-model', name: 'tiered-model', contextWindow: 200000, effortLevels: ['low', 'medium', 'high'], inputModalities: ['text', 'image'], modality: 'text' },
+    { id: 'plain-model', name: 'plain-model', inputModalities: ['text'], modality: 'decision' },
     { id: 'strong-model', name: 'strong-model', effortLevels: ['off', 'ultra'] },
   ]
   const profile = buildProviderProfile(options, models)
@@ -307,19 +307,21 @@ test('buildProviderProfile: full shape, defaults, effort ladder and headers', ()
   assert.deepEqual(profile.models[0], {
     id: 'tiered-model',
     contextWindow: 200000,
+    modality: 'text',
     input: ['text', 'image'],
     reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' },
-  }, 'name equal to id is omitted, per-model fields pass through')
+  }, 'name equal to id is omitted, per-model fields including modality pass through')
   assert.deepEqual(profile.models[1], {
     id: 'plain-model',
+    modality: 'decision',
     input: ['text'],
     reasoningEfforts: false,
-  }, 'no ladder marks a non-reasoning model')
+  }, 'no ladder marks a non-reasoning model; modality is preserved for static consumers')
   assert.deepEqual(profile.models[2], {
     id: 'strong-model',
     input: ['text'],
     reasoningEfforts: { off: null, max: 'ultra' },
-  }, 'undisclosed media defaults to text; non-standard rungs keep their wire spelling')
+  }, 'undisclosed media defaults to text; no modality field is invented when the gateway omits it')
 })
 
 test('buildProviderProfile: chat/completions default spells the /v1 base', () => {
