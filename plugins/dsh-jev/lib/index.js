@@ -1318,13 +1318,21 @@ function buildConfigView(config) {
   }
 
   const keyInfo = resolveApiKey(config, effective, {});
+  // 手写模式自己的 Key：切回「手动配置」时用它恢复输入框，而不是显示提供商的掩码。
+  const manualKeyInfo = resolveApiKey(
+    config,
+    { source: 'manual', providerId: '', providerRow: undefined, settings: loaded, apiKeyEnv: config.apiKeyEnv },
+    {},
+  );
   const providers = Object.values(sysProviders).map((provider) => ({
     id: provider.id,
     name: provider.name,
     baseURL: provider.baseURL,
     apiKeyEnv: provider.apiKeyEnv,
+    api: provider.api,
     models: provider.models,
     decisionModels: provider.decisionModels,
+    modelInfo: provider.modelInfo,
   }));
 
   return {
@@ -1338,11 +1346,15 @@ function buildConfigView(config) {
     model: effective.model,
     models: providerRow?.models ?? [],
     decisionModels: providerRow?.decisionModels ?? [],
+    modelInfo: providerRow?.modelInfo ?? [],
     modelWarning: effective.warnings[0],
     baseURL: effective.baseURL,
     baseURLDefault: DEFAULTS.baseURL,
     /** 手动模式下已保存/生效的地址：切换来源时用它恢复，而不是留着提供商的地址。 */
     manualBaseURL: resolveBaseURL(config, values),
+    /** 手动模式下已保存/生效的 Key 掩码，同理用于切回来时恢复。 */
+    manualApiKey: maskKey(manualKeyInfo.token),
+    manualApiKeyFrom: manualKeyInfo.from,
     baseURLLocked: source === 'manual' && config.configBaseURL !== undefined,
     endpoint: effective.endpoint,
     endpointDefault: DEFAULT_ENDPOINTS[source],

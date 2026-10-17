@@ -1,8 +1,8 @@
 {
   "name": "dsh-jev",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
-  "description": "决策模型原生工具插件：70ms 极速结构化决策、意图分流与状态打分。可直接下拉选择 dsh 已配置的提供商与模型，也可手写 baseUrl / API Key / 模型 ID；默认仍为 TypeSafe Jev 官方地址，支持 /v1/systemone 与 /v1/decisions 端点。",
+  "description": "决策模型原生工具插件：70ms 极速结构化决策、意图分流与状态打分。可直接下拉选择 dsh 已配置的提供商与模型（接口地址与 API Key 由提供商配置解析），也可手写 baseUrl / API Key / 模型 ID；默认仍为 TypeSafe Jev 官方地址，支持 /v1/systemone 与 /v1/decisions 端点。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

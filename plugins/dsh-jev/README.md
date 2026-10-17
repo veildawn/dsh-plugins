@@ -53,14 +53,24 @@ DeepSeek Harness (DSH) 原生「决策模型」插件：把结构化决策能力
 打开 **设置 → 决策模型**，保存后立即生效，无需重启。
 
 - **配置来源**
-  - `dsh 已配置的提供商`：下拉选择 provider，再下拉选择模型。模型列表来自 dsh 的 `llm-pi-ai` 配置；名字里带 `jev` / `systemone` / `decision` 的模型会排在「决策模型」分组里。
+  - `dsh 已配置的提供商`：只显示「提供商 / 模型 / 接口端点」三项。接口地址、请求头与 API Key 全部由该提供商的配置决定，
+    因此面板不再显示这两个表单项（避免和 dsh 自身配置打架）。模型列表来自 dsh 的 `llm-pi-ai` 配置。
   - `手动配置接口地址与 API Key`：填写 baseUrl、模型 ID 与 Key。baseUrl 留空并保存会恢复官方默认地址 `https://api.typesafe.ai`。
+- **决策模型识别（下拉分组依据）**
+  - 协议：provider 的 `api` 或模型条目的 `api` 属于 pi-ai 的 classifier 协议
+    （`typesafe-system-one`、`cloudflare-workers-ai-system-one`、`llama-cpp-classify`、`openai-decisions`）；
+  - 类型：模型条目显式声明 `type: classifier`；
+  - 名称：模型 id 或展示名命中 `jev` / `systemone` / `system-one` / `decision` / `classifier` / `noul` / `predicate`；
+  - 模态：模型声明了 `text` / `image` 之外的输入模态（为未来的能力扩展预留）。
+  - 下拉选项会显示判断依据，例如 `jev-latest · 决策模型 · 文本`；普通模型显示 `deepseek-v4.1-flash · 文本+图像`。
+  - 说明：dsh 当前只允许声明 `text` / `image` 两种输入模态，无法单独表达「决策能力」；所以实际主要依据
+    classifier 协议、模型类型与名称，模态字段用于展示与未来扩展。声明为纯 `text` 的普通聊天模型不会被误收进决策分组。
 - **接口端点**
   - `/v1/systemone`：TypeSafe 官方原生决策协议；
   - `/v1/decisions`：兼容 OpenAI 决策协议的路由端点。
   - provider 模式默认 `/v1/decisions`（dsh 提供商通常是 OpenAI 兼容网关）；手动模式默认 `/v1/systemone`。
 - **API Key**
-  - provider 模式：留空即按提供商的 `apiKeyEnv` 自动解析（`~/.dsh/.credentials.yaml` 优先）；也可以临时填一个 Key 覆盖。
+  - provider 模式：面板不提供 Key 输入，按提供商的 `apiKeyEnv` 自动解析（`~/.dsh/.credentials.yaml` 优先）。
   - 手动模式：留空保存表示保持原值；显式清空后保存可删除已存 Key。
   - 面板里回显的是掩码（形如 `ts-abc...1234`），掩码值不会被当成真实 Key 写回。
 - **测试连接**：会真的发一次最小决策请求（1 个 yes/no 问题），显示耗时、端点、模型与 Key 来源。
@@ -78,9 +88,9 @@ Profile 里显式写死 `baseURL` / `endpoint` / `proxy` 时，对应输入框�
 
 ## 提供商模式如何取 Key
 
-provider 模式下按 dsh 自身规则解析，不重复保存一份 Key：
+provider 模式下按 dsh 自身规则解析，面板不保存也不显示 Key：
 
-1. 面板/工具显式填写的 Key；
+1. Profile 里插件配置的 `apiKey`（不推荐写死）或设置文件里已有的显式 Key；
 2. 提供商声明的 `apiKeyEnv`：先查 `~/.dsh/.credentials.yaml` 的 `refs`，再查同名环境变量；
 3. 提供商没有声明 `apiKeyEnv` 时，才回退到通用变量
    （`$TYPESAFE_API_KEY`、`$JEV_API_KEY`、`$OPENAI_API_KEY`、`$DEEPSEEK_API_KEY`）与本地密钥文件。

@@ -177,23 +177,37 @@ const PROVIDER_VIEW = {
       name: 'AI Proxy',
       baseURL: 'http://192.168.1.253:8319/v1',
       apiKeyEnv: 'AIPROXY_DSH_WEB_ACCESS_TOKEN',
+      api: 'openai-responses',
       models: ['jev-latest', 'deepseek-v4.1-flash'],
       decisionModels: ['jev-latest'],
+      modelInfo: [
+        { id: 'jev-latest', name: '', input: ['text', 'image'], type: '', api: 'openai-responses', decisionModel: true },
+        { id: 'deepseek-v4.1-flash', name: '', input: ['text'], type: '', api: 'openai-responses', decisionModel: false },
+      ],
     },
     {
       id: 'other',
       name: 'Other',
       baseURL: 'https://api.example.com/v1',
       apiKeyEnv: 'OTHER_KEY',
+      api: 'openai-completions',
       models: ['some-chat-model'],
       decisionModels: [],
+      modelInfo: [
+        { id: 'some-chat-model', name: '', input: ['text'], type: '', api: 'openai-completions', decisionModel: false },
+      ],
     },
   ],
   model: 'jev-latest',
   models: ['jev-latest', 'deepseek-v4.1-flash'],
   decisionModels: ['jev-latest'],
+  modelInfo: [
+    { id: 'jev-latest', name: '', input: ['text', 'image'], type: '', api: 'openai-responses', decisionModel: true },
+    { id: 'deepseek-v4.1-flash', name: '', input: ['text'], type: '', api: 'openai-responses', decisionModel: false },
+  ],
   baseURL: 'http://192.168.1.253:8319/v1',
   manualBaseURL: 'https://api.typesafe.ai',
+  manualApiKey: 'ts-man...1234',
   baseURLDefault: 'https://api.typesafe.ai',
   baseURLLocked: false,
   endpoint: '/v1/decisions',
@@ -309,17 +323,19 @@ const providerSelect = findAll(providerField, isSelect)[0];
 check('the provider select is populated from getConfig', optionValues(providerSelect).join(',') === 'ai-proxy,other', optionValues(providerSelect).join(','));
 check('the provider select labels decision-model counts', optionLabels(providerSelect)[0].includes('1 个决策模型'), optionLabels(providerSelect)[0]);
 check('the provider select keeps the active provider', providerSelect.props.value === 'ai-proxy', String(providerSelect.props.value));
-check('provider mode renders a read-only baseURL', findAll(fieldOf(tree, '接口地址（由提供商决定）'), isInput)[0].props.disabled === true);
-check('provider mode shows the provider baseURL', findAll(fieldOf(tree, '接口地址（由提供商决定）'), isInput)[0].props.value === 'http://192.168.1.253:8319/v1');
+check('provider mode hides the baseURL form item', fieldOf(tree, '接口地址') === undefined && fieldOf(tree, '接口地址（由提供商决定）') === undefined);
+check('provider mode hides the API Key form item', fieldOf(tree, 'API Key') === undefined);
+check('provider mode renders exactly four selects (source/provider/model/endpoint)', findAll(tree, isSelect).length === 4, String(findAll(tree, isSelect).length));
 check('provider mode hides the manual model input', fieldOf(tree, '默认决策模型') === undefined);
 const providerModelField = fieldOf(tree, '模型');
 const providerModelSelect = findAll(providerModelField, isSelect)[0];
 check('provider mode renders a model select', providerModelSelect !== undefined && providerModelSelect.props.value === 'jev-latest', JSON.stringify(providerModelSelect?.props));
 check('the model select offers the provider models', optionValues(providerModelSelect).join(',') === 'jev-latest,deepseek-v4.1-flash', optionValues(providerModelSelect).join(','));
 check('the model select groups decision models first', findAll(providerModelSelect, (n) => n.type === 'optgroup')[0]?.props.label === '决策模型');
+check('the model label carries the decision flag', optionLabels(providerModelSelect)[0].includes('决策模型'), optionLabels(providerModelSelect)[0]);
+check('the model label carries the modalities', optionLabels(providerModelSelect)[0].includes('文本+图像'), optionLabels(providerModelSelect)[0]);
+check('the model label does not repeat a plain chat route api', optionLabels(providerModelSelect)[0].includes('openai-responses') === false, optionLabels(providerModelSelect)[0]);
 check('getConfig restores the provider endpoint', findAll(fieldOf(tree, '接口端点'), isSelect)[0].props.value === '/v1/decisions');
-check('getConfig restores the API key mask', findAll(fieldOf(tree, 'API Key'), isInput)[0].props.value === 'cred-...-yaml');
-check('getConfig reports the key as configured', findAll(tree, (n) => n.type === 'span' && n.children?.[0] === '已配置').length > 0);
 
 // ---------------------------------------------------------------------------
 // 5. 切换提供商 -> 模型收敛
@@ -328,7 +344,6 @@ findAll(fieldOf(tree, '提供商'), isSelect)[0].props.onChange({ target: { valu
 tree = render();
 check('switching the provider updates the model list', optionValues(findAll(fieldOf(tree, '模型'), isSelect)[0]).join(',') === 'some-chat-model', optionValues(findAll(fieldOf(tree, '模型'), isSelect)[0]).join(','));
 check('switching the provider selects its first model', findAll(fieldOf(tree, '模型'), isSelect)[0].props.value === 'some-chat-model', String(findAll(fieldOf(tree, '模型'), isSelect)[0].props.value));
-check('switching the provider updates the read-only baseURL', findAll(fieldOf(tree, '接口地址（由提供商决定）'), isInput)[0].props.value === 'https://api.example.com/v1');
 
 // 切回 ai-proxy，让保存测试使用 jev-latest
 findAll(fieldOf(tree, '提供商'), isSelect)[0].props.onChange({ target: { value: 'ai-proxy' } });
@@ -351,7 +366,8 @@ check(
     providerSaveCall.payload.provider === 'ai-proxy' &&
     providerSaveCall.payload.model === 'jev-latest' &&
     providerSaveCall.payload.endpoint === '/v1/decisions' &&
-    providerSaveCall.payload.baseURL === undefined,
+    providerSaveCall.payload.baseURL === undefined &&
+    providerSaveCall.payload.apiKey === undefined,
   JSON.stringify(providerSaveCall),
 );
 
@@ -371,6 +387,7 @@ tree = render();
 check('switching back to manual restores the native endpoint default', findAll(fieldOf(tree, '接口端点'), isSelect)[0].props.value === '/v1/systemone', String(findAll(fieldOf(tree, '接口端点'), isSelect)[0].props.value));
 check('switching back to manual shows the baseURL input again', findAll(fieldOf(tree, '接口地址'), isInput)[0].props.disabled === false);
 check('switching back to manual restores the manual baseURL, not the provider one', findAll(fieldOf(tree, '接口地址'), isInput)[0].props.value === 'https://api.typesafe.ai', String(findAll(fieldOf(tree, '接口地址'), isInput)[0].props.value));
+check('switching back to manual restores the manual API key mask', findAll(fieldOf(tree, 'API Key'), isInput)[0].props.value === 'ts-man...1234', String(findAll(fieldOf(tree, 'API Key'), isInput)[0].props.value));
 
 // ---------------------------------------------------------------------------
 // 8. 配置固定的字段禁用输入

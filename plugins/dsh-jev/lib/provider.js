@@ -335,6 +335,10 @@ export function getProfileProviders(opts = {}) {
 
 /**
  * 把收集到的原始 providers 规范化成统一结构。
+ *
+ * 每个模型条目保留 `input`（模态）、`type`（pi-ai 模型类型）与 `api`（协议）
+ * 三个结构化字段：它们比模型名字更可靠地描述「这个模型能不能做决策」。
+ *
  * @param {Record<string, any>} raw 原始定义。
  * @returns {Record<string, any>}
  */
@@ -342,39 +346,112 @@ function finalizeProviders(raw) {
   const result = {};
   for (const [id, conf] of Object.entries(raw)) {
     if (!conf || typeof conf !== 'object') continue;
-    const models = (Array.isArray(conf.models) ? conf.models : [])
-      .map((m) => (m && typeof m === 'object' ? m.id : m))
-      .filter((m) => typeof m === 'string' && m !== '');
+    const routeApi = typeof conf.api === 'string' ? conf.api.trim() : '';
+    const modelInfo = (Array.isArray(conf.models) ? conf.models : [])
+      .map((entry) => normalizeModelEntry(entry, routeApi))
+      .filter((entry) => entry !== null)
+      .map((entry) => ({ ...entry, decisionModel: isDecisionModelEntry(entry, routeApi) }));
+    const models = modelInfo.map((entry) => entry.id);
     result[id] = {
       id,
       name: typeof conf.displayName === 'string' && conf.displayName ? conf.displayName : id,
       baseURL: typeof conf.baseURL === 'string' ? conf.baseURL : '',
       apiKeyEnv: typeof conf.apiKeyEnv === 'string' ? conf.apiKeyEnv : '',
-      api: typeof conf.api === 'string' ? conf.api : '',
+      api: routeApi,
       headers: conf.headers && typeof conf.headers === 'object' ? { ...conf.headers } : {},
       models,
-      decisionModels: models.filter(isDecisionModel),
+      decisionModels: modelInfo.filter((entry) => entry.decisionModel).map((entry) => entry.id),
+      modelInfo,
     };
   }
   return result;
 }
 
 /**
- * 判断一个模型 id 是否像决策模型。
+ * pi-ai 中结构化决策/分类模型（classifier）的协议标识。
  *
- * 决策模型通常是 jev / systemone / decision 这类名字；这里只用于设置面板里
- * 把「决策模型」排到下拉列表前面，选错模型也不会被插件阻止。
- * @param {string} model 模型 id。
+ * 对应 `@earendil-works/pi-ai` 的 `KnownClassifierApi`：这类模型只能通过
+ * `classify()` 调用，返回强类型概率结果，正是 jev_decide 需要的形态。
+ */
+export const CLASSIFIER_APIS = new Set([
+  'typesafe-system-one',
+  'cloudflare-workers-ai-system-one',
+  'llama-cpp-classify',
+  'openai-decisions',
+]);
+
+/** 已知的输入模态；除此之外的模态值被视为模型自带的决策能力声明。 */
+const KNOWN_INPUT_MODALITIES = new Set(['text', 'image']);
+
+/**
+ * 判断一个模型 id 是否像决策模型（名字层面的兜底判断）。
+ *
+ * 决策模型通常是 jev / systemone / decision / classifier 这类名字。这里只用于
+ * 设置面板分组，选错模型也不会被插件阻止。
+ * @param {string} model 模型 id 或展示名。
  * @returns {boolean}
  */
 export function isDecisionModel(model) {
-  return typeof model === 'string' && /(^|[-_/])(jev|systemone|system-one|decision|predicate)([-_/.]|$)/i.test(model);
+  return typeof model === 'string' && /(^|[^a-z0-9])(jev|systemone|system-?one|decision|classifier|noul|predicate)([^a-z0-9]|$)/i.test(model);
+}
+
+/**
+ * 规范化一个模型条目（兼容 `- id` 对象与裸字符串两种写法）。
+ * @param {any} entry 原始条目。
+ * @param {string} routeApi provider 级协议。
+ * @returns {{ id: string, name: string, input: string[], type: string, api: string } | null}
+ */
+function normalizeModelEntry(entry, routeApi) {
+  if (typeof entry === 'string') {
+    return { id: entry.trim(), name: '', input: [], type: '', api: routeApi };
+  }
+  if (!entry || typeof entry !== 'object') return null;
+  const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+  if (id === '') return null;
+  return {
+    id,
+    name: typeof entry.name === 'string' ? entry.name.trim() : '',
+    input: Array.isArray(entry.input)
+      ? entry.input.map((m) => String(m).trim().toLowerCase()).filter((m) => m !== '')
+      : [],
+    type: typeof entry.type === 'string' ? entry.type.trim().toLowerCase() : '',
+    api: typeof entry.api === 'string' && entry.api.trim() !== '' ? entry.api.trim() : routeApi,
+  };
+}
+
+/**
+ * 综合结构化字段判断一个模型条目是否是决策模型。
+ *
+ * 判断顺序（任一命中即为决策模型）：
+ *   1. 协议属于 pi-ai 的 classifier 协议（typesafe-system-one 等）；
+ *   2. 条目显式声明 `type: classifier`；
+ *   3. id 或展示名命中决策模型命名规则；
+ *   4. 声明了已知模态之外的输入模态（未来扩展，如 `decision`）。
+ *
+ * 只声明显式的 `input: ['text']` 不会被当成决策模型——普通聊天模型也是纯文本，
+ * 那样会把整个模型列表都吞进「决策模型」分组。
+ *
+ * @param {{ id?: string, name?: string, input?: string[], type?: string, api?: string } | null} entry 模型条目。
+ * @param {string} [routeApi] provider 级协议。
+ * @returns {boolean}
+ */
+export function isDecisionModelEntry(entry, routeApi = '') {
+  if (!entry || typeof entry !== 'object') return false;
+  const api = String(entry.api || routeApi || '').toLowerCase();
+  if (CLASSIFIER_APIS.has(api)) return true;
+  if (String(entry.type || '').toLowerCase() === 'classifier') return true;
+  for (const candidate of [entry.id, entry.name]) {
+    if (isDecisionModel(candidate)) return true;
+  }
+  const input = Array.isArray(entry.input) ? entry.input : [];
+  if (input.some((modality) => !KNOWN_INPUT_MODALITIES.has(modality))) return true;
+  return false;
 }
 
 /**
  * 读取 dsh 自身配置的所有提供商。
  * @param {{ dshHome?: string, profile?: string }} [opts]
- * @returns {Record<string, { id: string, name: string, baseURL: string, apiKeyEnv: string, api: string, headers: Record<string,string>, models: string[], decisionModels: string[] }>}
+ * @returns {Record<string, { id: string, name: string, baseURL: string, apiKeyEnv: string, api: string, headers: Record<string,string>, models: string[], decisionModels: string[], modelInfo: Array<{ id: string, name: string, input: string[], type: string, api: string, decisionModel: boolean }> }>}
  */
 export function getDshSystemProviders(opts = {}) {
   const raw = {};
@@ -481,5 +558,5 @@ export function inferDefaultProvider(opts = {}) {
   return { provider: fallbackProvider, model: 'jev-latest' };
 }
 
-/** 便于测试与诊断：导出内置解析器。 */
-export const _internals = { parseSimpleYaml, stripScalar, JS_TAGS };
+/** 便于测试与诊断：导出内置解析器与识别函数。 */
+export const _internals = { parseSimpleYaml, stripScalar, JS_TAGS, normalizeModelEntry, isDecisionModelEntry };

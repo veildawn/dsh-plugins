@@ -72,18 +72,50 @@ window.__ModuleLoader__.load({
       return options;
     }
 
-    /** 模型下拉：决策模型优先，其余排后面。 */
-    function modelOptions(models, decisionModels, activeModel) {
+    /** 把模态数组渲染成人类可读的短标签（text+image → 文本+图像）。 */
+    function modalityLabel(input) {
+      const list = Array.isArray(input) ? input : [];
+      if (list.length === 0) return "";
+      const names = list.map((modality) => {
+        if (modality === "text") return "文本";
+        if (modality === "image") return "图像";
+        return String(modality);
+      });
+      return names.join("+");
+    }
+
+    /** pi-ai 的 classifier 协议：命中时在模型标签上标出来源。 */
+    const CLASSIFIER_APIS = ["typesafe-system-one", "cloudflare-workers-ai-system-one", "llama-cpp-classify", "openai-decisions"];
+
+    /** 模型下拉项文字：id + 决策标记 + 模态/类型字段。 */
+    function modelLabel(modelId, info) {
+      if (!info) return modelId;
+      const parts = [modelId];
+      if (info.decisionModel) parts.push("决策模型");
+      if (info.type && info.type !== "chat") parts.push("类型：" + info.type);
+      const modalities = modalityLabel(info.input);
+      if (modalities) parts.push(modalities);
+      // 只标出 classifier 协议：普通聊天路由的 openai-responses 之类对判断没有增量信息。
+      if (info.api && CLASSIFIER_APIS.indexOf(String(info.api).toLowerCase()) !== -1) parts.push(info.api);
+      return parts.join(" · ");
+    }
+
+    /** 模型下拉：决策模型优先，其余排后面；选项上附带模态/类型字段。 */
+    function modelOptions(models, decisionModels, activeModel, modelInfo) {
       const preferred = Array.isArray(decisionModels) ? decisionModels : [];
       const rest = (Array.isArray(models) ? models : []).filter((m) => preferred.indexOf(m) === -1);
+      const infoById = {};
+      for (const entry of Array.isArray(modelInfo) ? modelInfo : []) {
+        if (entry && typeof entry.id === "string") infoById[entry.id] = entry;
+      }
       const options = [];
       if (preferred.length > 0) {
         options.push(react.createElement("optgroup", { key: "g-decision", label: "决策模型" },
-          preferred.map((m) => react.createElement("option", { key: "decision-" + m, value: m }, m))));
+          preferred.map((m) => react.createElement("option", { key: "decision-" + m, value: m }, modelLabel(m, infoById[m])))));
       }
       if (rest.length > 0) {
         options.push(react.createElement("optgroup", { key: "g-other", label: "其它模型（不保证支持决策协议）" },
-          rest.map((m) => react.createElement("option", { key: "other-" + m, value: m }, m))));
+          rest.map((m) => react.createElement("option", { key: "other-" + m, value: m }, modelLabel(m, infoById[m])))));
       }
       if (activeModel && preferred.indexOf(activeModel) === -1 && rest.indexOf(activeModel) === -1) {
         options.unshift(react.createElement("option", { key: "active", value: activeModel }, activeModel + "（当前）"));
@@ -102,6 +134,7 @@ window.__ModuleLoader__.load({
       const [models, setModels] = react.useState([]);
       const [decisionModels, setDecisionModels] = react.useState([]);
       const [model, setModel] = react.useState("jev-latest");
+      const [modelInfo, setModelInfo] = react.useState([]);
       const [baseURL, setBaseURL] = react.useState(DEFAULT_BASE_URL);
       const [manualBaseURL, setManualBaseURL] = react.useState(DEFAULT_BASE_URL);
       const [baseURLLocked, setBaseURLLocked] = react.useState(false);
@@ -109,6 +142,7 @@ window.__ModuleLoader__.load({
       const [endpointDefaults, setEndpointDefaults] = react.useState({ ...DEFAULT_ENDPOINTS });
       const [endpointLocked, setEndpointLocked] = react.useState(false);
       const [apiKey, setApiKey] = react.useState("");
+      const [manualApiKey, setManualApiKey] = react.useState("");
       const [apiKeyConfigured, setApiKeyConfigured] = react.useState(false);
       const [apiKeyFrom, setApiKeyFrom] = react.useState("");
       const [proxy, setProxy] = react.useState("");
@@ -131,6 +165,7 @@ window.__ModuleLoader__.load({
             if (data.provider) setProvider(data.provider);
             setModels(Array.isArray(data.models) ? data.models : []);
             setDecisionModels(Array.isArray(data.decisionModels) ? data.decisionModels : []);
+            setModelInfo(Array.isArray(data.modelInfo) ? data.modelInfo : []);
             if (data.model) setModel(data.model);
             if (typeof data.baseURL === "string") setBaseURL(data.baseURL);
             if (typeof data.manualBaseURL === "string" && data.manualBaseURL) setManualBaseURL(data.manualBaseURL);
@@ -141,6 +176,7 @@ window.__ModuleLoader__.load({
               setEndpointDefaults({ ...DEFAULT_ENDPOINTS, ...data.endpointDefaults });
             }
             if (typeof data.apiKey === "string") setApiKey(data.apiKey);
+            if (typeof data.manualApiKey === "string") setManualApiKey(data.manualApiKey);
             setApiKeyConfigured(data.configured === true);
             setApiKeyFrom(typeof data.apiKeyFrom === "string" ? data.apiKeyFrom : "");
             if (typeof data.proxy === "string") setProxy(data.proxy);
@@ -166,6 +202,7 @@ window.__ModuleLoader__.load({
         const nextDecision = row && Array.isArray(row.decisionModels) ? row.decisionModels : [];
         setModels(nextModels);
         setDecisionModels(nextDecision);
+        setModelInfo(row && Array.isArray(row.modelInfo) ? row.modelInfo : []);
         if (row && typeof row.baseURL === "string") setBaseURL(row.baseURL);
         if (nextModels.indexOf("jev-latest") !== -1) setModel("jev-latest");
         else if (nextDecision.length > 0) setModel(nextDecision[0]);
@@ -188,18 +225,24 @@ window.__ModuleLoader__.load({
           if (id) applyProvider(id);
         } else if (previous !== "manual") {
           setBaseURL(manualBaseURL || DEFAULT_BASE_URL);
+          // 恢复手写配置自己的 Key 掩码，而不是沿用提供商的 Key 状态。
+          setApiKey(manualApiKey || "");
+          setApiKeyConfigured(Boolean(manualApiKey));
+          setApiKeyFrom("");
         }
         setStatus(null);
       };
 
       const buildPayload = () => {
-        const payload = { source, endpoint, proxy: proxy.trim(), apiKey: apiKey.trim() };
+        // provider 模式下接口地址与 API Key 都由 dsh 提供商配置决定，界面不提供这两项。
+        const payload = { source, endpoint, proxy: proxy.trim() };
         if (source === "provider") {
           payload.provider = provider;
           payload.model = model;
         } else {
           payload.baseURL = baseURL.trim();
           payload.model = model;
+          payload.apiKey = apiKey.trim();
         }
         return payload;
       };
@@ -212,11 +255,13 @@ window.__ModuleLoader__.load({
           if (data.provider) setProvider(data.provider);
           setModels(Array.isArray(data.models) ? data.models : []);
           setDecisionModels(Array.isArray(data.decisionModels) ? data.decisionModels : []);
+          setModelInfo(Array.isArray(data.modelInfo) ? data.modelInfo : []);
           if (data.model) setModel(data.model);
           if (typeof data.baseURL === "string") setBaseURL(data.baseURL);
           if (typeof data.manualBaseURL === "string" && data.manualBaseURL) setManualBaseURL(data.manualBaseURL);
           if (typeof data.endpoint === "string" && data.endpoint) setEndpoint(data.endpoint);
           if (typeof data.apiKey === "string") setApiKey(data.apiKey);
+          if (typeof data.manualApiKey === "string") setManualApiKey(data.manualApiKey);
           setApiKeyConfigured(data.configured === true);
           setApiKeyFrom(typeof data.apiKeyFrom === "string" ? data.apiKeyFrom : "");
           if (typeof data.proxy === "string") setProxy(data.proxy);
@@ -268,13 +313,15 @@ window.__ModuleLoader__.load({
       };
 
       const isProvider = source === "provider";
-      const keyHint = isProvider
-        ? (apiKeyConfigured
-          ? "Key 来源：" + (apiKeyFrom || "提供商配置") + "。留空保存表示继续使用该来源；填写则覆盖提供商自动解析的 Key。"
-          : "该提供商没有解析到 Key。可在此填写，或配置其 apiKeyEnv 指向的环境变量 / ~/.dsh/.credentials.yaml。")
-        : (apiKeyConfigured
-          ? "Key 来源：" + (apiKeyFrom || "本地配置") + "。留空保存表示保持原值；清空后保存可删除已存 Key。"
-          : "该 Key 只写入本机设置文件，不会进入模型上下文。");
+      const keyHint = apiKeyConfigured
+        ? "Key 来源：" + (apiKeyFrom || "本地配置") + "。留空保存表示保持原值；清空后保存可删除已存 Key。"
+        : "该 Key 只写入本机设置文件，不会进入模型上下文。";
+      const providerKeyHint = providers.length === 0
+        ? "未在 dsh 模型配置里找到提供商：可切到「手动配置」，或先在 Profile 的 llm-pi-ai 行里添加。"
+        : "选中的提供商决定 baseUrl、请求头与 API Key 的来源。" +
+          (apiKeyConfigured
+            ? " 已从提供商配置解析到 Key。"
+            : " 未解析到 Key，请检查该提供商的 apiKeyEnv 或 ~/.dsh/.credentials.yaml。");
 
       return react.createElement("div", { className: "jev-settings" },
         react.createElement("style", null, css),
@@ -310,25 +357,12 @@ window.__ModuleLoader__.load({
                 value: provider,
                 onChange: (e) => applyProvider(e.target.value),
               }, providerOptions(providers, provider)),
-              react.createElement("p", { className: "jev-hint" },
-                providers.length === 0
-                  ? "未在 dsh 模型配置里找到提供商：可切到「手动配置」，或先在 Profile 的 llm-pi-ai 行里添加。"
-                  : "选中的提供商决定 baseUrl、请求头与 API Key 的来源。"
-              )
+              react.createElement("p", { className: "jev-hint" }, providerKeyHint)
             )
             : null,
 
           isProvider
-            ? react.createElement("label", { className: "jev-field" },
-              react.createElement("span", { className: "jev-label" }, "接口地址（由提供商决定）"),
-              react.createElement("input", {
-                className: "jev-input",
-                type: "text",
-                value: baseURL,
-                disabled: true,
-                readOnly: true,
-              })
-            )
+            ? null
             : react.createElement("label", { className: "jev-field" },
               react.createElement("span", { className: "jev-label" }, "接口地址"),
               react.createElement("input", {
@@ -356,11 +390,11 @@ window.__ModuleLoader__.load({
                 className: "jev-input",
                 value: model,
                 onChange: (e) => setModel(e.target.value),
-              }, modelOptions(models, decisionModels, model)),
+              }, modelOptions(models, decisionModels, model, modelInfo)),
               react.createElement("p", { className: "jev-hint" },
                 decisionModels.length > 0
-                  ? "优先展示识别到的决策模型；其它模型也能选，但不保证支持决策协议。"
-                  : "该提供商没有识别到决策模型（jev / systemone / decision），请确认所选模型支持决策协议。"
+                  ? "优先展示识别到的决策模型（依据 classifier 协议、模型类型、模型名与模态字段）；其它模型也能选，但不保证支持决策协议。"
+                  : "该提供商没有识别到决策模型，请确认所选模型支持决策协议。"
               )
             )
             : react.createElement("label", { className: "jev-field" },
@@ -397,22 +431,24 @@ window.__ModuleLoader__.load({
             )
           ),
 
-          react.createElement("label", { className: "jev-field" },
-            react.createElement("span", { className: "jev-label" },
-              "API Key",
-              apiKeyConfigured
-                ? react.createElement("span", { className: "jev-tag" }, "已配置")
-                : null
+          isProvider
+            ? null
+            : react.createElement("label", { className: "jev-field" },
+              react.createElement("span", { className: "jev-label" },
+                "API Key",
+                apiKeyConfigured
+                  ? react.createElement("span", { className: "jev-tag" }, "已配置")
+                  : null
+              ),
+              react.createElement("input", {
+                className: "jev-input",
+                type: "password",
+                value: apiKey,
+                placeholder: apiKeyConfigured ? "已保存（留空表示不修改）" : "ts-...",
+                onChange: (e) => setApiKey(e.target.value),
+              }),
+              react.createElement("p", { className: "jev-hint" }, keyHint)
             ),
-            react.createElement("input", {
-              className: "jev-input",
-              type: "password",
-              value: apiKey,
-              placeholder: apiKeyConfigured ? "已保存（留空表示不修改）" : (isProvider ? "留空则按提供商 apiKeyEnv 自动解析" : "ts-..."),
-              onChange: (e) => setApiKey(e.target.value),
-            }),
-            react.createElement("p", { className: "jev-hint" }, keyHint)
-          ),
 
           react.createElement("label", { className: "jev-field" },
             react.createElement("span", { className: "jev-label" }, "代理地址"),

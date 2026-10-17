@@ -53,6 +53,9 @@ const REAL_PROFILE = `
         models:
           - id: jev-latest
             contextWindow: 200000
+            input:
+              - text
+              - image
           - id: deepseek-v4.1-flash
             contextWindow: 1000000
           - id: grok-imagine-image
@@ -64,6 +67,29 @@ const REAL_PROFILE = `
         baseURL: https://api.example.com/v1
         models:
           - id: some-chat-model
+      classifier-route:
+        displayName: Classifier Route
+        api: typesafe-system-one
+        baseURL: https://api.typesafe.ai/v1
+        models:
+          - id: gateway-classifier
+          - id: gateway-chat
+      mixed-route:
+        displayName: Mixed Route
+        baseURL: https://mixed.example.com/v1
+        models:
+          - id: model-by-type
+            type: classifier
+          - id: model-by-modality
+            input:
+              - text
+              - decision
+          - id: model-by-name
+            name: Jev 决策模型
+          - id: plain-chat
+            input:
+              - text
+              - image
 `;
 
 /** dsh 配置里真实存在的 `!!js` 标签，不能让整个文件解析失败。 */
@@ -157,6 +183,65 @@ check(
   providers['ai-proxy'].decisionModels.includes('jev-latest') &&
     providers['ai-proxy'].decisionModels.length === 1,
   JSON.stringify(providers['ai-proxy'].decisionModels),
+);
+
+// ---------------------------------------------------------------------------
+// 3b. structured decision-model detection: protocol / type / name / modality
+// ---------------------------------------------------------------------------
+const classifierRoute = providers['classifier-route'];
+check(
+  'a classifier api marks every model on the route as a decision model',
+  classifierRoute.decisionModels.join(',') === 'gateway-classifier,gateway-chat',
+  JSON.stringify(classifierRoute.decisionModels),
+);
+check('provider rows keep the route api', classifierRoute.api === 'typesafe-system-one', classifierRoute.api);
+
+const mixedRoute = providers['mixed-route'];
+check(
+  'a model-level classifier type is detected',
+  mixedRoute.decisionModels.includes('model-by-type'),
+  JSON.stringify(mixedRoute.decisionModels),
+);
+check(
+  'a non-text/image input modality is detected as a decision capability',
+  mixedRoute.decisionModels.includes('model-by-modality'),
+  JSON.stringify(mixedRoute.decisionModels),
+);
+check(
+  'a decision-model display name is detected',
+  mixedRoute.decisionModels.includes('model-by-name'),
+  JSON.stringify(mixedRoute.decisionModels),
+);
+check(
+  'a plain multimodal chat model is not dragged into the decision group',
+  mixedRoute.decisionModels.includes('plain-chat') === false,
+  JSON.stringify(mixedRoute.decisionModels),
+);
+
+const jevInfo = providers['ai-proxy'].modelInfo.find((entry) => entry.id === 'jev-latest');
+check('modelInfo exposes the input modalities', Array.isArray(jevInfo?.input) && jevInfo.input.length > 0, JSON.stringify(jevInfo));
+check('modelInfo marks the decision model', jevInfo?.decisionModel === true, JSON.stringify(jevInfo));
+check('modelInfo keeps the provider api for models without their own', jevInfo?.api === 'openai-responses', JSON.stringify(jevInfo));
+const plainInfo = providers['ai-proxy'].modelInfo.find((entry) => entry.id === 'plain-string-model');
+check('a bare-string model entry still produces modelInfo', plainInfo !== undefined && plainInfo.input.length === 0, JSON.stringify(plainInfo));
+check('modelInfo marks a plain chat model as non-decision', plainInfo?.decisionModel === false, JSON.stringify(plainInfo));
+
+const { isDecisionModelEntry, normalizeModelEntry } = _internals;
+check(
+  'isDecisionModelEntry accepts a classifier api',
+  isDecisionModelEntry({ id: 'anything' }, 'openai-decisions') === true,
+);
+check(
+  'isDecisionModelEntry accepts a classifier type',
+  isDecisionModelEntry({ id: 'anything', type: 'classifier' }) === true,
+);
+check(
+  'isDecisionModelEntry rejects a plain text chat model',
+  isDecisionModelEntry({ id: 'anything', input: ['text'] }) === false,
+);
+check(
+  'normalizeModelEntry fills api from the route',
+  normalizeModelEntry({ id: 'x' }, 'typesafe-system-one').api === 'typesafe-system-one',
 );
 
 // ---------------------------------------------------------------------------

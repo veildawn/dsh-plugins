@@ -150,6 +150,10 @@ check('getConfig reports the API key source from credentials', String(view.apiKe
 check('getConfig masks the API key', view.apiKey !== 'cred-from-yaml' && view.apiKey.includes('...'), view.apiKey);
 check('getConfig has no config error', view.configError === undefined || view.configError === null, String(view.configError));
 check('getConfig also exposes the manual baseURL for switching back', view.manualBaseURL === 'https://api.typesafe.ai', view.manualBaseURL);
+const jevInfo = Array.isArray(view.modelInfo) ? view.modelInfo.find((m) => m.id === 'jev-latest') : undefined;
+check('getConfig exposes modelInfo with modalities', jevInfo !== undefined && Array.isArray(jevInfo.input), JSON.stringify(jevInfo));
+check('modelInfo marks jev-latest as a decision model', jevInfo?.decisionModel === true, JSON.stringify(jevInfo));
+check('provider rows also carry modelInfo', Array.isArray(view.providers[0]?.modelInfo) && view.providers[0].modelInfo.length > 0, JSON.stringify(view.providers[0]?.modelInfo));
 
 const providerResult = await providerSession.tool.execute({ state, questions }, {});
 check('provider mode returns normalized answers', providerResult?.answers?.urgent?.noul === 0.93 && providerResult?.answers?.dept?.choice === 'billing', JSON.stringify(providerResult));
@@ -201,6 +205,15 @@ check('manual mode sends the native body shape', typeof requestLog[0]?.body?.sta
 // ---------------------------------------------------------------------------
 // 3. 未知提供商的错误信息
 // ---------------------------------------------------------------------------
+const providerSaveNoKey = await providerSession.rpc('saveConfig', {
+  source: 'provider',
+  provider: 'ai-proxy',
+  model: 'jev-latest',
+  endpoint: '/v1/decisions',
+  proxy: '',
+});
+check('provider mode saves without an apiKey field', providerSaveNoKey.ok === true && providerSaveNoKey.value.source === 'provider', JSON.stringify(providerSaveNoKey).slice(0, 300));
+
 const badProviderSave = await providerSession.rpc('saveConfig', { source: 'provider', provider: 'nope' });
 check('saveConfig rejects an unknown provider', badProviderSave.ok === false && badProviderSave.error.code === 'unknown-provider', JSON.stringify(badProviderSave));
 

@@ -18,7 +18,7 @@
 | **`dsh-archive-manager`** | [`plugins/dsh-archive-manager`](plugins/dsh-archive-manager) | 会话归档管理器（侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间） | [`v0.2.12`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-archive-manager@v0.2.12) |
 | **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端提示词按钮归入工作区工具箱、自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.8`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.8) |
 | **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | ZCode Design System 视觉系统（深炭灰画布、暖橙红品牌色、首屏直出零闪烁、全量剔除宿主默认蓝、PC/平板/移动端共享视觉Token与气泡/输入框/终端材质全面重塑） | [`v0.1.37`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.1.37) |
-| **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | 决策模型原生工具插件（可直接下拉选择 dsh 已配置的提供商与模型、或手写 baseURL/Key/模型 ID；默认仍为 TypeSafe Jev 官方地址、Choice/Score/Noul 三大决策原语、/v1/systemone 与 /v1/decisions 端点切换、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.2.0) |
+| **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | 决策模型原生工具插件（可直接下拉选择 dsh 已配置的提供商与模型，此时接口地址与 API Key 完全由提供商配置解析；也可手写 baseURL/Key/模型 ID。基于 classifier 协议、模型类型、名称与模态字段识别决策模型；默认仍为 TypeSafe Jev 官方地址、Choice/Score/Noul 三大决策原语、/v1/systemone 与 /v1/decisions 端点切换、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.2.1`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.2.1) |
 | **`dsh-image-gen`** | [`plugins/dsh-image-gen`](plugins/dsh-image-gen) | DSH 原生生图插件（把文生图作为原生工具暴露，可直接下拉选择 dsh 已配置的提供商与模型、或手动填写 baseURL/Key，内置尺寸与画质选择，支持 http/https/socks5 代理；设置面板可实时切换并测试连通性） | [`v0.1.2`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-image-gen@v0.1.2) |
 
 ---
@@ -72,7 +72,7 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.1.37/dsh-zcode-theme-0.1.37.tgz
 
 # 10. 安装决策模型（默认 TypeSafe Jev，也可选 dsh 已配置的提供商）
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.2.0/dsh-jev-0.2.0.tgz
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.2.1/dsh-jev-0.2.1.tgz
 
 # 11. 安装文生图 (生图模型) 插件
 dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-image-gen@v0.1.2/dsh-image-gen-0.1.2.tgz
