@@ -298,9 +298,11 @@ test('Mobile sidebar keeps one symmetric 12px content inset', () => {
   assert.match(css, /\[data-slot="root"\]>div>div:has\(>\[data-slot="sidebar"\]\)\{[^}]*box-sizing:border-box;[^}]*padding-left:var\(--dsh-sal\);padding-right:0/)
   assert.match(css, /\[data-slot="sidebar"\]\{--dsh-sidebar-inline-padding:12px!important;[^}]*width:100%!important;max-width:100%!important;[^}]*height:100%\}/)
   assert.match(css, /\.hHd-Xa_root\{--dsh-sidebar-inline-padding:12px!important;[^}]*width:100%!important;max-width:100%!important;[^}]*padding-left:12px!important;padding-right:12px!important\}/)
-  assert.match(css, /\[data-slot="sidebar"\] :where\(\.hHd-Xa_newSession,[^)]*\.qDHVXG_list,[^)]*\[role="tree"\],\[role="treeitem"\],[^)]*\.VOzbGW_trigger\)\{[^}]*width:100%!important;max-width:100%!important;margin:0!important\}/)
-  assert.match(css, /\[data-slot="sidebar"\] :where\(\.hHd-Xa_regionArea,\.qDHVXG_root,\.qDHVXG_listArea,\.qDHVXG_list\)\{padding-left:0!important;padding-right:0!important\}/)
-  assert.match(css, /\[data-slot="sidebar"\] \.qDHVXG_list\{scrollbar-gutter:auto!important\}/)
+  assert.match(css, /\[data-slot="sidebar"\] :where\(\.hHd-Xa_newSession,[^)]*\[role="tree"\],\[role="treeitem"\],[^)]*\.VOzbGW_trigger\)\{[^}]*width:100%!important;max-width:100%!important;margin:0!important\}/)
+  assert.match(css, /\[data-slot="sidebar"\] :where\(\.hHd-Xa_regionArea\)\{padding-left:0!important;padding-right:0!important\}/)
+  // 会话树容器组件已被宿主移除（qDHVXG_* 在 0.1.0-rc.7 与 0.2.1-rc.2 均不存在），
+  // 针对它的 scrollbar-gutter 规则属于死代码，不应再出现在 CSS 里。
+  assert.doesNotMatch(css, /qDHVXG/, '已从宿主移除的会话树哈希不得残留')
   assert.doesNotMatch(css, /\[data-slot="sidebar"\]\{[^}]*padding-(?:left|right):12px/, 'the slot wrapper must not double the content padding')
   assert.match(css, /\.YDXeBa_projectRow \.YDXeBa_rowActions,[^}]*\.YDXeBa_sessionRow \.YDXeBa_rowActions\{display:inline-flex!important;gap:6px!important;height:28px!important;align-items:center!important\}/)
   assert.match(css, /\.YDXeBa_projectRow \.YDXeBa_rowActions \.YDXeBa_iconButton,[^}]*\.YDXeBa_sessionRow \.YDXeBa_rowActions \.YDXeBa_iconButton\{[^}]*width:28px!important;height:28px!important;[^}]*border-radius:50%!important/)
@@ -330,9 +332,14 @@ test('Conversation mobile CSS keeps a bounded scrollport and permanently hides m
   assert.match(css, /\[data-chat-flow\] \[class\*="_actions"\]\{[^}]*flex-wrap:wrap!important;[^}]*width:100%!important;[^}]*height:auto!important;[^}]*overflow:visible!important/)
   assert.match(css, /\[data-chat-flow\] \[class\*="_actions"\] button\{[^}]*flex:0 0 32px;[^}]*width:32px!important;[^}]*height:32px!important;[^}]*min-width:32px!important;[^}]*min-height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /\[class\*="_timeStart"\],\[class\*="_timeEnd"\][^}]*display:none!important/)
-  assert.match(css, /\.FJxK0a_root\{display:none!important\}/)
+  // 统计药丸必须用宿主渲染时写死的稳定属性隐藏：宿主 0.2.1-rc.2 把该组件从
+  // dsh-client-ui-conversation 迁到 dsh-client-ui-chat，哈希类名由 FJxK0a_root
+  // 变成 bOPqQW_*，只认旧类名的规则会静默失效，统计行重新冒出并挤掉 meter。
+  assert.match(css, /\[data-composer-stat\]\{display:none!important\}/,
+    '统计药丸必须按 data-composer-stat 隐藏，不能再依赖会随宿主构建变化的哈希类名')
+  assert.doesNotMatch(css, /\.FJxK0a_root\{display:none/, '失效的旧哈希类名规则必须移除')
   assert.doesNotMatch(css, /stats-expanded/)
-  assert.match(css, /\.p-xYUq_actions,\._8_XoUG_action,\.osXY9a_actions\{flex-wrap:wrap!important\}/)
+  assert.match(css, /\.p-xYUq_actions,\._8_XoUG_action,\.osXY9a_actions,\.TS9iAW_actions\{flex-wrap:wrap!important\}/)
   assert.doesNotMatch(css, /\[data-chat-flow\] button\{min-width:44px/)
   assert.match(css, /\.md-code-block pre/)
   assert.match(css, /scroll-behavior:smooth/)
@@ -354,12 +361,12 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /.dsh-mobile-upload-btn[^{]*{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /.uV2eYG_primary{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*min-width:32px!important;[^}]*min-height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /.uV2eYG_primary{transform:none!important}/)
-  assert.match(css, /.Sh0Q9G_trigger,.uV2eYG_select{max-width:32px!important;min-width:32px!important}/)
-  assert.match(css, /\.Sh0Q9G_trigger[^{]*\{[^}]*width:32px!important/)
-  assert.match(css, /.Sh0Q9G_triggerIcon{display:inline-grid!important;place-items:center!important;flex:none;margin:0!important}/)
-  assert.match(css, /.uV2eYG_modes .Sh0Q9G_triggerLabel{display:none!important}/)
-  assert.match(css, /.Sh0Q9G_triggerLabel{display:none!important}/)
-  assert.match(css, /.Sh0Q9G_chevron{display:none!important}/)
+  assert.match(css, /.Sh0Q9G_trigger,.iWlSmW_trigger,.uV2eYG_select{max-width:32px!important;min-width:32px!important}/)
+  assert.match(css, /\.Sh0Q9G_trigger,\.iWlSmW_trigger[^{]*\{[^}]*width:32px!important/)
+  assert.match(css, /.Sh0Q9G_triggerIcon,.iWlSmW_triggerIcon{display:inline-grid!important;place-items:center!important;flex:none;margin:0!important}/)
+  assert.match(css, /.uV2eYG_modes .Sh0Q9G_triggerLabel,.uV2eYG_modes .iWlSmW_triggerLabel{display:none!important}/)
+  assert.match(css, /.Sh0Q9G_triggerLabel,.iWlSmW_triggerLabel{display:none!important}/)
+  assert.match(css, /.Sh0Q9G_chevron,.iWlSmW_chevron{display:none!important}/)
   assert.match(css, /.rS3zOq_chip{[^}]*width:max-content!important;[^}]*min-width:max-content!important;[^}]*padding:0 10px!important;[^}]*white-space:nowrap!important;overflow:visible!important;flex:none!important/)
   assert.match(css, /._7KE1Ra_root{[^}]*width:32px!important/)
   assert.match(css, /._7KE1Ra_trigger[^{]*{[^}]*width:32px!important;[^}]*border-radius:50%!important/)
@@ -370,11 +377,15 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /\.JObwrW_trigger\{[^}]*width:auto!important;[^}]*border-radius:999px!important;[^}]*display:inline-flex!important;[^}]*gap:6px!important/)
   assert.match(css, /\.JObwrW_trigger>span\{display:inline-block!important/)
   assert.match(css, /\.uV2eYG_dock>\[data-slot="conversation\.composer\.dock"\]\{flex:1 1 auto!important;width:auto!important;min-width:0!important/)
-  assert.match(css, /\.dsh-mobile-upload-btn,\s*\.dsh-mobile-tools-btn,\s*\.Sh0Q9G_trigger,\s*\.term-composer-btn,\s*\._7KE1Ra_trigger\s*\{/,
-    '统一圆钮规范的选择器列表不再包含 meter')
-  // 上下文 meter 必须留在输入框内：卡片补足底部内边距，dock 以负边距收回卡内
-  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)[^{]*\{[^}]*padding-bottom:40px!important\}/)
-  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock[^{]*\{[^}]*margin-top:-38px!important/)
+  assert.match(css, /\.dsh-mobile-upload-btn,\s*\.dsh-mobile-tools-btn,\s*\.Sh0Q9G_trigger,\s*\.iWlSmW_trigger,\s*\.term-composer-btn,\s*\._7KE1Ra_trigger\s*\{/,
+    '统一圆钮规范的选择器列表不再包含 meter，且同时覆盖新旧权限选择器哈希')
+  // 上下文 meter 必须留在输入框内：卡片补足底部内边距，dock 以负边距收回卡内。
+  // 统计药丸已隐藏，dock 里只剩 32px 的 meter 药丸 + 6px 下内边距 = 38px，
+  // 所以卡片留 40px、dock 上移 38px；两者必须配平，否则 meter 会被圆角裁掉或浮空。
+  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)[^{]*\{[^}]*padding-bottom:40px!important\}/,
+    '卡片底部必须为收起后的单行 meter 预留高度')
+  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock[^{]*\{[^}]*margin-top:-38px!important/,
+    'dock 负边距必须与卡片预留高度配平（40 - 2 = 38）')
   assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock[^{]*\{[^}]*position:relative!important;z-index:1!important/,
     'dock 抬高层级，否则会被 position:relative 的卡片背景盖住')
   assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock:not\(:has\(\[data-plan-review-scroll\]\)\):not\(:has\(\[data-plan-review-key\]\)\)/,
@@ -500,10 +511,10 @@ test('Settings becomes a native full-screen mobile page with pill tabs and card 
   assert.match(css, /\.VOzbGW_options :where\(button,\[role="button"\],\[role="switch"\],summary\)\{min-width:44px;min-height:44px;touch-action:manipulation\}/)
   assert.match(css, /body>div\[role="presentation"\]:has\(>\.VOzbGW_panel\)\{[^}]*width:100vw!important;height:var\(--dsh-vvh,100dvh\)!important;padding:0!important/)
   assert.match(css, /body>div\[role="presentation"\]>\[role="dialog"\]\[aria-modal="true"\]\.VOzbGW_panel\{[^}]*width:100vw!important;height:100%!important;max-width:none!important;[^}]*margin:0!important/)
-  assert.match(css, /\.wCInkW_panel,\[data-shortcut-modal="settings"\]/)
-  assert.match(css, /\.wCInkW_navList,\[data-shortcut-modal="settings"\] \[class\*="_navList"\]\{[^}]*height:44px;min-height:44px;[^}]*display:inline-flex!important;flex-direction:row!important/)
+  assert.match(css, /\.VOzbGW_panel,\[data-shortcut-modal="settings"\]/)
+  assert.match(css, /\.VOzbGW_navList,\[data-shortcut-modal="settings"\] \[class\*="_navList"\]\{[^}]*height:44px;min-height:44px;[^}]*display:inline-flex!important;flex-direction:row!important/)
   assert.match(css, /\.VOzbGW_options \.dm-container :where\(button,\[role="button"\],\.dm-action-btn,\.dm-tab-btn,\.dm-filter-btn,\.dm-chip,\.dm-icon-mini-btn\)\{min-width:0;min-height:0\}/)
-  assert.match(css, /\.wCInkW_options \.dm-container :where\(button,\[role="button"\],\.dm-action-btn,\.dm-tab-btn,\.dm-filter-btn,\.dm-chip,\.dm-icon-mini-btn\)/)
+  assert.match(css, /\.VOzbGW_options \.dm-container :where\(button,\[role="button"\],\.dm-action-btn,\.dm-tab-btn,\.dm-filter-btn,\.dm-chip,\.dm-icon-mini-btn\)/)
 })
 
 test('Agent preset is extracted from active headers and new-session hero seats', () => {
