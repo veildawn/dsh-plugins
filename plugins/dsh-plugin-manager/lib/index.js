@@ -859,10 +859,10 @@ async function runInstallWithLockfileRecovery({ name, profile, source, pkgName, 
   }
 
   if (actualSource !== source) {
-    push(`$ 实际执行: dsh plugin add --profile ${profile} ${actualSource}`)
+    push(`$ 实际执行: ${formatPluginCliCommand('add', profile, actualSource)}`)
   }
 
-  const attempt = async () => runDshPluginCommand(['plugin', 'add', '--profile', profile, actualSource], {
+  const attempt = async () => runDshPluginCommand(['plugin', '--profile', profile, 'add', actualSource], {
     onLog: push,
     spawnFn,
   })
@@ -1144,7 +1144,7 @@ export function handleRemovePlugin(options, payload, deps = {}) {
       const desktopEnv = resolveDesktopEnvironment()
       const displayCmd = formatPluginCliCommand('remove', profile, name, desktopEnv)
       task.log.push(`$ ${displayCmd}`)
-      const result = await runDshPluginCommand(['plugin', 'remove', '--profile', profile, name], {
+      const result = await runDshPluginCommand(['plugin', '--profile', profile, 'remove', name], {
         onLog: (line) => { task.log.push(line.replace(/\s+$/, '')) },
         spawnFn: deps.spawnFn,
       })

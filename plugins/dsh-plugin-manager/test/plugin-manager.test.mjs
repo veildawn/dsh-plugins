@@ -1108,7 +1108,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(task.profile, 'web')
     assert.equal(captured.calls.length, 1)
     assert.equal(captured.calls[0].cmd, 'dsh')
-    assert.deepEqual(captured.calls[0].args, ['plugin', 'add', '--profile', 'web', 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz'])
+    assert.deepEqual(captured.calls[0].args, ['plugin', '--profile', 'web', 'add', 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz'])
     assert.equal(task.log.some((l) => l.includes('plugin') && l.includes('add')), true)
     assert.equal(task.log.some((l) => l.includes('installing...')), true)
   })
@@ -1322,7 +1322,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(task.kind, 'remove')
     assert.equal(captured.calls.length, 1)
     assert.equal(captured.calls[0].cmd, 'dsh')
-    assert.deepEqual(captured.calls[0].args, ['plugin', 'remove', '--profile', 'web', 'dsh-model-roles'])
+    assert.deepEqual(captured.calls[0].args, ['plugin', '--profile', 'web', 'remove', 'dsh-model-roles'])
     assert.equal(task.log.some((l) => l.includes('plugin') && l.includes('remove')), true)
   })
 
