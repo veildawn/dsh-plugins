@@ -1071,5 +1071,92 @@ test('readDoc supports .doc files via word-extractor', async () => {
   assert.match(docRes.value.markdown, /Walking on imported air/)
 })
 
+test('safe paths are persisted to disk settings file and survive reload / restart', async () => {
+  const tmpDir = (await import('node:os')).tmpdir()
+  const path = (await import('node:path')).default
+  const fsSync = (await import('node:fs')).default
+  const { apply, readPersistedSettings } = await import('../lib/index.js')
+
+  const testSettingsFile = path.join(tmpDir, `fv-test-settings-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
+  try {
+    // 1. Initial fake context without settings file
+    let capturedHandler = null
+    const mockCtx = {
+      workspaceRegistry: { list: () => [{ path: 'D:/work' }] },
+      fs: { homedir: () => 'D:/Users/tester' },
+      inject: (deps, cb) => cb({
+        connection: {
+          rpc: {
+            handle: (channel, handler) => { capturedHandler = handler },
+          },
+        },
+      }),
+    }
+
+    apply(mockCtx, { settingsFile: testSettingsFile })
+    assert.ok(capturedHandler, 'rpc handler registered')
+
+    // 2. Initial state has no custom safe paths
+    const initialGet = await capturedHandler('getSafePaths', {})
+    assert.equal(initialGet.ok, true)
+    assert.equal(initialGet.value.safePaths.length, 0)
+
+    // 3. Update safe paths from Web UI
+    const updateRes = await capturedHandler('updateSafePaths', {
+      safePaths: [
+        { path: 'D:/Custom/Photos', label: '我的相册' },
+        { path: 'D:/Notes', label: '笔记' },
+      ],
+    })
+    assert.equal(updateRes.ok, true)
+    assert.equal(updateRes.value.safePaths.length, 2)
+
+    // 4. Verify disk file was written
+    const diskData = readPersistedSettings(testSettingsFile)
+    assert.ok(diskData, 'settings file was created')
+    assert.equal(diskData.safePaths.length, 2)
+    assert.equal(diskData.safePaths[0].path, 'D:/Custom/Photos')
+    assert.equal(diskData.safePaths[1].label, '笔记')
+
+    // 5. Simulate DSH restart: create brand new plugin instance with same settingsFile
+    let restartedHandler = null
+    const restartedCtx = {
+      workspaceRegistry: { list: () => [{ path: 'D:/work' }] },
+      fs: { homedir: () => 'D:/Users/tester' },
+      inject: (deps, cb) => cb({
+        connection: {
+          rpc: {
+            handle: (channel, handler) => { restartedHandler = handler },
+          },
+        },
+      }),
+    }
+    apply(restartedCtx, { settingsFile: testSettingsFile })
+
+    // 6. getSafePaths on new instance restores safe paths from disk
+    const restoredGet = await restartedHandler('getSafePaths', {})
+    assert.equal(restoredGet.ok, true)
+    assert.equal(restoredGet.value.safePaths.length, 2)
+    assert.equal(restoredGet.value.safePaths[0].path, 'D:/Custom/Photos')
+    assert.equal(restoredGet.value.safePaths[1].path, 'D:/Notes')
+
+    // 7. Deletion test: remove one path and save
+    const deleteRes = await restartedHandler('updateSafePaths', {
+      safePaths: [
+        { path: 'D:/Notes', label: '笔记' },
+      ],
+    })
+    assert.equal(deleteRes.ok, true)
+    assert.equal(deleteRes.value.safePaths.length, 1)
+
+    // 8. Disk file reflects deletion
+    const diskAfterDelete = readPersistedSettings(testSettingsFile)
+    assert.equal(diskAfterDelete.safePaths.length, 1)
+    assert.equal(diskAfterDelete.safePaths[0].path, 'D:/Notes')
+  } finally {
+    try { fsSync.unlinkSync(testSettingsFile) } catch (_) {}
+  }
+})
+
 
 

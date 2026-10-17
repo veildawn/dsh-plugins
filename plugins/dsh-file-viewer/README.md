@@ -85,7 +85,8 @@ dsh plugin --profile web add <release-tgz-url>
 - 在文件查看器顶部的工作区下拉框中，将分组呈现「工作区」与「安全访问路径」，可直接切换浏览；
 - 在对话回复或工具调用中点击属于安全访问路径内的文件路径时，文件查看器会自动定位并直接打开预览；
 - 每次请求都会先规范化路径，再用 `ctx.fs.contains` 严格校验目标落在工作区或已配置的安全访问路径之内，严防 `..` 目录穿越与符号链接逃逸；
-- 为保持向后兼容，原有的 `extraRoots` 与 `safeAccessPaths` 别名依然有效并会自动合并。
+- 为保持向后兼容，原有的 `extraRoots` 与 `safeAccessPaths` 别名依然有效并会自动合并；
+- **Web 界面动态配置与双重持久化**：可在输入框工具栏文件查看器入口或文件树顶部的「安全访问路径设置」弹窗中直接添加、查看或删除安全路径，保存后会自动双重持久化写入当前 Profile 配置（`cordis.patch.yml`）与本地文件（`~/.dsh/file-viewer/settings.json`），DSH 服务重启后配置稳定保留不丢失。
 
 插件不注册任何 HTTP 路由，全部通过 `trusted-host` 权限的 RPC 通道通信，从而复用 DSH `/api` 的浏览器信任围栏（Host/Origin 校验、DNS rebinding 防护）。二进制文件经 RPC 取回后在浏览器侧生成 blob URL，默认单文件上限 20 MB。
 

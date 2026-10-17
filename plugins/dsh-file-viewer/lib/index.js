@@ -14,6 +14,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import os from 'node:os'
+import fs from 'node:fs'
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 
@@ -98,6 +99,114 @@ export const inject = ['fs', 'connection', 'settings', 'workspaceRegistry', 'ses
 export const NS = 'file-viewer'
 export const RPC_CHANNEL = '/dsh-file-viewer'
 
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+export function liveField(schema) {
+  return typeof schema?.volatile === 'function' ? schema.volatile() : schema
+}
+
+export function isVolatileRef(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  if (typeof value.get !== 'function') return false
+  return VOLATILE_WRITE in value || Object.keys(value).length === 0
+}
+
+export function unwrapConfig(value, seen = new Set()) {
+  if (isVolatileRef(value)) return unwrapConfig(value.get(), seen)
+  if (value === null || typeof value !== 'object') return value
+  if (seen.has(value)) return value
+  if (Array.isArray(value)) return value.map((item) => unwrapConfig(item, seen))
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, unwrapConfig(item, seen)]))
+}
+
+export function settingsBase(ctx, config) {
+  return unwrapConfig(ctx.fiber?.entry?.options?.config ?? config ?? {})
+}
+
+export function settingsNamespace(ctx, fallback = NS) {
+  if (typeof ctx.settings?.register === 'function') return fallback
+  const id = ctx.fiber?.entry?.options?.id
+  return typeof id === 'string' && id.length > 0 ? id : fallback
+}
+
+export function resolveDshHome() {
+  return process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+}
+
+export function defaultSettingsFilePath() {
+  return path.join(resolveDshHome(), 'file-viewer', 'settings.json')
+}
+
+export function resolveSettingsFilePath(configuredPath) {
+  if (typeof configuredPath !== 'string' || configuredPath.trim() === '') {
+    return defaultSettingsFilePath()
+  }
+  const trimmed = configuredPath.trim()
+  const home = os.homedir()
+  if (trimmed === '~' || trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return path.join(home, trimmed.slice(2))
+  }
+  return path.resolve(trimmed)
+}
+
+export function readPersistedSettings(filePath) {
+  try {
+    const target = filePath || defaultSettingsFilePath()
+    if (!fs.existsSync(target)) return null
+    const text = fs.readFileSync(target, 'utf8')
+    const data = JSON.parse(text)
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+    return data
+  } catch (_) {
+    return null
+  }
+}
+
+export function writePersistedSettings(filePath, patch) {
+  try {
+    const target = filePath || defaultSettingsFilePath()
+    const current = readPersistedSettings(target) || {}
+    const next = {
+      ...current,
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, JSON.stringify(next, null, 2) + '\n', 'utf8')
+    return true
+  } catch (_) {
+    return false
+  }
+}
+
+export function openSettingsScope(ctx, config) {
+  if (typeof ctx.settings?.register === 'function') {
+    const scope = ctx.settings.register(NS, Config, { base: settingsBase(ctx, config) })
+    return { ...scope, get: () => unwrapConfig(scope.get()) }
+  }
+  const ns = settingsNamespace(ctx, NS)
+  const read = () => {
+    const raw = typeof ctx.settings?.get === 'function' ? ctx.settings.get(ns) : config
+    return unwrapConfig(Config(unwrapConfig(raw ?? {})))
+  }
+  return {
+    get: read,
+    watch(listener) {
+      if (typeof ctx.on !== 'function') return () => {}
+      return ctx.on('loader/volatile-update', () => listener(read()))
+    },
+    async update(patch) {
+      if (typeof ctx.settings?.mutate !== 'function') return
+      const ops = Object.entries(patch).map(([key, value]) => ({ op: 'set', path: [key], value }))
+      await ctx.settings.mutate(ns, ops)
+    },
+    async replace(section) {
+      if (typeof ctx.settings?.replace !== 'function') return
+      await ctx.settings.replace(ns, section)
+    },
+  }
+}
+
 const PathEntry = z.union([
   z.string(),
   z.object({
@@ -108,10 +217,11 @@ const PathEntry = z.union([
 ])
 
 export const Config = z.object({
-  safePaths: z.union([z.array(PathEntry), z.string()]).default([]).description('安全访问路径（除工作区外的可访问路径列表）'),
-  safeAccessPaths: z.union([z.array(PathEntry), z.string()]).default([]).description('安全访问路径（safePaths 别名）'),
-  extraRoots: z.union([z.array(PathEntry), z.string()]).default([]).description('额外根目录（向后兼容 safePaths）'),
+  safePaths: liveField(z.union([z.array(PathEntry), z.string()]).default([])).description('安全访问路径（除工作区外的可访问路径列表）'),
+  safeAccessPaths: liveField(z.union([z.array(PathEntry), z.string()]).default([])).description('安全访问路径（safePaths 别名）'),
+  extraRoots: liveField(z.union([z.array(PathEntry), z.string()]).default([])).description('额外根目录（向后兼容 safePaths）'),
   maxBytes: z.natural().default(MAX_BYTES),
+  settingsFile: z.string().default('').description('安全访问路径本地持久化配置文件路径（留空则默认保存在 ~/.dsh/file-viewer/settings.json）'),
 })
 
 /**
@@ -1072,30 +1182,51 @@ export async function handleRpc(ctx, options, method, payload, signal) {
  * @param {object} [config] - plugin config.
  */
 export function apply(ctx, config = {}) {
-  const scope = ctx.settings?.register?.(NS, Config, { base: config })
-  let settings = scope?.get?.() ?? Config(config)
-  scope?.watch?.((next) => {
+  const scope = openSettingsScope(ctx, config)
+  let settings = scope.get()
+  scope.watch?.((next) => {
     settings = next
   })
 
-  let dynamicSafePaths = null
+  const settingsFile = resolveSettingsFilePath(settings?.settingsFile)
+  const persisted = readPersistedSettings(settingsFile)
+  let dynamicSafePaths = Array.isArray(persisted?.safePaths) ? persisted.safePaths : null
+
   const updateSafePaths = async (paths) => {
     dynamicSafePaths = paths
+    // 1. 本地持久化文件保存（防止断电、重启或独立环境配置丢失）
     try {
-      if (scope?.update) {
+      writePersistedSettings(settingsFile, { safePaths: paths })
+    } catch (err) {
+      ctx.logger?.warn?.(`file-viewer: failed to write settingsFile: ${err?.message || err}`)
+    }
+    // 2. 宿主 Profile 设置保存（落盘到 profile cordis.patch.yml）
+    try {
+      if (typeof scope?.update === 'function') {
         await scope.update({ safePaths: paths })
       }
-    } catch (_) {}
+    } catch (err) {
+      ctx.logger?.warn?.(`file-viewer: update settings scope failed: ${err?.message || err}`)
+    }
   }
 
   const options = () => {
-    const rawSafe = dynamicSafePaths ?? settings?.safePaths ?? []
+    let rawSafe = dynamicSafePaths
+    if (rawSafe === null) {
+      const disk = readPersistedSettings(settingsFile)
+      if (Array.isArray(disk?.safePaths)) {
+        rawSafe = disk.safePaths
+      } else {
+        rawSafe = settings?.safePaths ?? []
+      }
+    }
     return {
       safePaths: rawSafe,
       safeAccessPaths: settings?.safeAccessPaths ?? [],
       extraRoots: settings?.extraRoots ?? [],
       maxBytes: settings?.maxBytes ?? MAX_BYTES,
       _updateSafePaths: updateSafePaths,
+      _settingsFile: settingsFile,
     }
   }
 

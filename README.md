@@ -13,7 +13,7 @@
 | **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标、桌面端/Web版局域网地址自识别与端口展示、卡片化设置面板与访问地址一键复制） | [`v0.1.20`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.20) |
 | **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接插件（协议层外包给宿主官方 llm-pi-ai 适配器并自动材料化路由、Chat/completions/Anthropic messages/Responses 三格式、最高推理强度开关、OAuth 2.0 PKCE 认证、令牌过期前主动轮换与阶梯推理映射、把网关 `/v1/models` 的 `modality`（text/image/decision）写入材料化路由供静态判断） | [`v0.3.15`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.3.15) |
 | **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、工作区工具箱整合文件查看器/本地终端/提示词历史、移动端右侧栏避让与一键返回对话、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、输入区聚焦防整页放大） | [`v0.1.44`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.44) |
-| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.2.3`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.2.3) |
+| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word、安全访问路径双重持久化保存） | [`v0.2.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.2.4) |
 | **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.14`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.14) |
 | **`dsh-archive-manager`** | [`plugins/dsh-archive-manager`](plugins/dsh-archive-manager) | 会话归档管理器（侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间） | [`v0.2.12`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-archive-manager@v0.2.12) |
 | **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端提示词按钮归入工作区工具箱、自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.8`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.8) |
@@ -57,7 +57,7 @@ dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/do
 dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.44/dsh-mobile-adapter-0.1.44.tgz
 
 # 5. 安装文件查看器插件 (会话头部抽屉浏览工作区文件)
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.2.3/dsh-file-viewer-0.2.3.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.2.4/dsh-file-viewer-0.2.4.tgz
 
 # 6. 安装本地终端插件 (跨平台原生终端调用与移动端适配)
 dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.14/dsh-terminal-0.1.14.tgz
