@@ -257,6 +257,19 @@ export const LOCAL_MONOREPO_PLUGINS = [
     path: 'plugins/dsh-jev',
     isRepoPlugin: true,
   },
+  {
+    id: 'dsh-image-gen',
+    name: 'dsh-image-gen',
+    title: '文生图与图像生成',
+    description: 'DSH 原生文生图插件，支持配置/下拉提供商与模型、尺寸与画质选择，内置 HTTP/HTTPS/SOCKS5 代理。',
+    author: 'veildawn',
+    category: 'ai',
+    tags: ['image', 'image-gen', 'draw', 'text-to-image', 'ai'],
+    icon: 'image',
+    repo: 'veildawn/dsh-plugins',
+    path: 'plugins/dsh-image-gen',
+    isRepoPlugin: true,
+  },
 ]
 
 /**
