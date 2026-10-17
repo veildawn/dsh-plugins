@@ -1,17 +1,25 @@
 /**
- * DSH 原生工具插件：将 TypeSafe Jev System One 决策模型作为原生工具暴露。
+ * DSH 原生工具插件：把「决策模型」作为原生工具暴露。
  *
- * Jev 属于决策类模型：接收应用上下文状态 (state) 与强类型问题 (questions)，
- * 返回附带校准置信度的强类型结构化结果，不生成自由文本对话，因此注册为 Tool 而非 LLM 聊天 Provider。
+ * 决策模型（默认 TypeSafe Jev / System One）接收应用上下文状态 (state) 与强类型
+ * 问题 (questions)，返回附带校准置信度的强类型结构化结果，不生成自由文本对话，
+ * 因此注册为 Tool 而非 LLM 聊天 Provider。
  *
- * 采用原生轻量设计：零外部 npm 依赖，通过 ctx.tools.register 挂载标准 JsonSchemaNode 工具定义。
+ * 接口来源有两种模式：
+ *   - provider：直接使用 dsh 已经配置好的提供商（llm-pi-ai 的 providers 行）与模型，
+ *     baseUrl / 请求头 / API Key 全部按 dsh 自己的配置解析，无需重复填写；
+ *   - manual：手写 baseUrl + API Key + 模型 ID，默认仍是官方地址
+ *     https://api.typesafe.ai，也可指向任意兼容决策协议的服务。
+ *
+ * 采用原生轻量设计：零外部 npm 依赖，通过 ctx.tools.register 挂载标准
+ * JsonSchemaNode 工具定义。
  *
  * @module dsh-jev
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import {
   DEFAULT_PROXY_HOSTS,
   formatProxyForDisplay,
@@ -19,6 +27,21 @@ import {
   proxyTargetsUrl,
   requestViaProxy,
 } from './proxy.js';
+import {
+  FALLBACK_KEY_ENVS,
+  getDshSystemProviders,
+  inferDefaultProvider,
+  isDecisionModel,
+  resolveToken,
+} from './provider.js';
+import {
+  DEFAULT_SETTINGS_PATH,
+  SOURCE_MODES,
+  describeConfigSource,
+  loadUserSettings,
+  resolveSettingsPath,
+  writeSettingsFile,
+} from './settings.js';
 
 /** Cordis 插件名称。 */
 export const name = 'tool-jev';
@@ -40,178 +63,6 @@ function rpcOk(value) {
 }
 
 /**
- * 处理前端设置 RPC 调用
- */
-async function handleSettingsRpc(ctx, resolved, method, payload) {
-  // 遵循配置里的 keyFile：前端保存的密钥必须写到与读取时相同的位置。
-  const userKeyPath = resolved.keyFile;
-
-  if (method === 'getConfig') {
-    const currentKey = await resolveApiKey(resolved);
-    const proxy = await resolveProxy(resolved);
-    const baseURL = await resolveBaseURL(resolved);
-    const endpoint = await resolveEndpoint(resolved);
-    return rpcOk({
-      configured: Boolean(currentKey),
-      apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
-      model: resolved.model,
-      baseURL,
-      baseURLDefault: DEFAULTS.baseURL,
-      baseURLLocked: resolved.configBaseURL !== undefined,
-      endpoint,
-      endpointDefault: DEFAULT_ENDPOINT,
-      endpointLocked: resolved.configEndpoint !== undefined,
-      availableEndpoints: AVAILABLE_ENDPOINTS,
-      // 代理地址回显给前端；密码已掩码，绝不把明文凭据送回浏览器。
-      proxy: proxy ? formatProxyForDisplay(proxy) : '',
-      // 由 Profile 配置固定的代理不允许在界面修改，前端据此禁用输入框。
-      proxyLocked: resolved.configProxy !== undefined,
-    });
-  }
-
-  if (method === 'saveConfig') {
-    try {
-      if (typeof payload?.apiKey === 'string' && payload.apiKey.trim() && !payload.apiKey.includes('...')) {
-        await mkdir(dirname(userKeyPath), { recursive: true });
-        await writeFile(userKeyPath, payload.apiKey.trim(), 'utf8');
-        resolved.apiKey = payload.apiKey.trim();
-      }
-      if (typeof payload?.model === 'string' && payload.model.trim()) {
-        resolved.model = payload.model.trim();
-      }
-      // 接口服务地址：支持自定义为其它地址（如本地接口服务）。空字符串表示恢复官方默认地址。
-      if (typeof payload?.baseURL === 'string') {
-        if (resolved.configBaseURL !== undefined) {
-          return rpcFailure(
-            'base-url-locked',
-            '接口地址已由插件配置（baseURL）固定，无法在界面修改：请修改 Profile 配置后重启',
-          );
-        }
-        const trimmed = payload.baseURL.trim();
-        if (trimmed === '') {
-          await writeSettingsFile(resolved, { baseURL: '' });
-          resolved.baseURL = DEFAULTS.baseURL;
-        } else {
-          const validated = endpoint(trimmed, 'baseURL');
-          await writeSettingsFile(resolved, { baseURL: validated });
-          resolved.baseURL = validated;
-        }
-      }
-      // 接口端点：提供 /v1/systemone（默认）与 /v1/decisions（兼容 OpenAI）
-      if (typeof payload?.endpoint === 'string') {
-        if (resolved.configEndpoint !== undefined) {
-          return rpcFailure(
-            'endpoint-locked',
-            '接口端点已由插件配置（endpoint）固定，无法在界面修改：请修改 Profile 配置后重启',
-          );
-        }
-        const trimmed = payload.endpoint.trim();
-        if (trimmed === '') {
-          await writeSettingsFile(resolved, { endpoint: '' });
-          resolved.endpoint = DEFAULT_ENDPOINT;
-        } else {
-          const validated = normalizeEndpoint(trimmed);
-          await writeSettingsFile(resolved, { endpoint: validated });
-          resolved.endpoint = validated;
-        }
-      }
-      // 代理地址：空字符串表示清除代理（恢复直连）。保存前先校验，避免写入坏值。
-      if (typeof payload?.proxy === 'string') {
-        if (resolved.configProxy !== undefined) {
-          return rpcFailure(
-            'proxy-locked',
-            '代理地址已由插件配置（proxy）固定，无法在界面修改：请修改 Profile 配置后重启',
-          );
-        }
-        const trimmed = payload.proxy.trim();
-        if (trimmed === '') {
-          await writeSettingsFile(resolved, { proxy: '' });
-        } else {
-          // 校验失败会抛出可读错误，由下方 catch 统一转为 RPC 失败。
-          parseProxyUrl(trimmed, 'proxy');
-          await writeSettingsFile(resolved, { proxy: trimmed });
-        }
-        resolved.proxy = undefined;
-      }
-      return rpcOk(true);
-    } catch (err) {
-      return rpcFailure('save-failed', err.message);
-    }
-  }
-
-  if (method === 'testConnection') {
-    try {
-      let testKey = payload?.apiKey;
-      // 如果前端传了包含掩码的 apiKey (如 "apikey...8f8e")，或者为空，则从本地配置或环境解析完整 key
-      if (!testKey || testKey.includes('...')) {
-        testKey = await resolveApiKey(resolved);
-      }
-      if (!testKey) {
-        return rpcFailure('unconfigured', '未配置 API Key');
-      }
-      // 使用界面上尚未保存的代理地址、接口服务地址与端点进行测试。
-      const testProxy = await resolveTestProxy(payload, resolved);
-      const testBaseURL = await resolveTestBaseURL(payload, resolved);
-      const testEndpoint = await resolveTestEndpoint(payload, resolved);
-      const isDecisions = testEndpoint === '/v1/decisions';
-      let testModel = payload?.model || resolved.model || 'jev-latest';
-      if (isDecisions && (testModel === 'jev-latest' || !testModel)) {
-        testModel = 'typesafe-ai/jev';
-      }
-
-      const pingBody = isDecisions
-        ? {
-            model: testModel,
-            input: 'Ping check from DSH',
-            questions: [
-              {
-                type: 'predicate',
-                name: 'ping',
-                instructions: 'Is this a valid test ping?',
-              },
-            ],
-          }
-        : {
-            state: 'Ping check from DSH',
-            model: testModel,
-            questions: {
-              ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
-            },
-          };
-
-      const start = Date.now();
-      const testRes = await httpRequest(
-        buildEndpointUrl(testBaseURL, testEndpoint),
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${testKey}`,
-          },
-          body: JSON.stringify(pingBody),
-        },
-        resolved,
-        testProxy,
-      );
-      const testData = await testRes.json();
-      const durationMs = Date.now() - start;
-      if (testRes.ok) {
-        return rpcOk({ durationMs, result: testData });
-      }
-      return rpcFailure(
-        `http-${testRes.status}`,
-        testData?.error?.message || testData?.detail?.message || `HTTP ${testRes.status}`,
-        { status: testRes.status, body: testData }
-      );
-    } catch (err) {
-      return rpcFailure('request-failed', err.message);
-    }
-  }
-
-  return rpcFailure('unknown-method', '未知方法: ' + method);
-}
-
-/**
  * 官方支持的核心问题原语：choice | score | noul。
  * 兼容将 boolean 视为 yes/no 原语，在构建网络请求前自动规范化为 noul。
  */
@@ -219,26 +70,40 @@ const QUESTION_TYPES = new Set(['choice', 'score', 'noul']);
 
 /** 可选的接口服务端点列表：官方 /v1/systemone 与 兼容 OpenAI 的 /v1/decisions。 */
 export const AVAILABLE_ENDPOINTS = ['/v1/systemone', '/v1/decisions'];
-export const DEFAULT_ENDPOINT = '/v1/systemone';
+
+/**
+ * 每种配置来源的默认端点。
+ *
+ * - manual 默认官方原生协议 /v1/systemone；
+ * - provider 指向的是 dsh 已配置的 OpenAI 兼容网关，默认走 /v1/decisions。
+ */
+export const DEFAULT_ENDPOINTS = {
+  manual: '/v1/systemone',
+  provider: '/v1/decisions',
+};
+
+/** 兼容旧导出：手写配置的默认端点。 */
+export const DEFAULT_ENDPOINT = DEFAULT_ENDPOINTS.manual;
 
 const DEFAULTS = {
+  source: 'manual',
+  provider: '',
   transport: 'typesafe',
   baseURL: 'https://api.typesafe.ai',
-  endpoint: DEFAULT_ENDPOINT,
   model: 'jev-latest',
   apiKey: undefined,
   apiKeyEnv: 'TYPESAFE_API_KEY',
   keyFile: join(homedir(), '.config', 'typesafe', 'key'),
   timeoutMs: 60000,
-  // toolTimeoutMs 根据 timeoutMs 与 retries 动态计算，确保覆盖所有重试轮次
+  // retries 为 0 表示不重试；toolTimeoutMs 根据 timeoutMs 与 retries 动态计算。
   retries: 0,
   maxStateBytes: 262144,
   maxQuestions: 64,
   // 代理：为空表示不使用代理（直连）；非空时，命中 proxyHosts 的请求全部经代理转发。
   proxy: undefined,
   proxyHosts: DEFAULT_PROXY_HOSTS,
-  /** 代理设置持久化文件（供前端保存，避免把代理密码写进 Profile 配置）。 */
-  settingsFile: join(homedir(), '.config', 'typesafe', 'settings.json'),
+  /** 代理等设置持久化文件（供前端保存，避免把凭据写进 Profile 配置）。 */
+  settingsFile: DEFAULT_SETTINGS_PATH,
 };
 
 /**
@@ -303,7 +168,7 @@ function endpoint(value, label) {
  * @param fallback - 缺省默认端点。
  * @returns 规范化后的端点字符串。
  */
-function normalizeEndpoint(value, fallback = DEFAULT_ENDPOINT) {
+function normalizeEndpoint(value, fallback = DEFAULT_ENDPOINTS.manual) {
   if (value === undefined || value === null) return fallback;
   const text = String(value).trim().toLowerCase();
   if (text === '' || text === 'default') return fallback;
@@ -320,7 +185,7 @@ function normalizeEndpoint(value, fallback = DEFAULT_ENDPOINT) {
  * @param endpointPath - 端点路径（默认 /v1/systemone）。
  * @returns 完整的请求端点 URL。
  */
-function buildEndpointUrl(baseURL, endpointPath = DEFAULT_ENDPOINT) {
+function buildEndpointUrl(baseURL, endpointPath = DEFAULT_ENDPOINTS.manual) {
   let base = String(baseURL).trim().replace(/[/]+$/, '');
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(base)) {
     base = 'http://' + base;
@@ -331,7 +196,7 @@ function buildEndpointUrl(baseURL, endpointPath = DEFAULT_ENDPOINT) {
 }
 
 /**
- * 校验可选的 policySection 配置（用于向大模型注入常驻 Jev 决策策略切面）。
+ * 校验可选的 policySection 配置（用于向大模型注入常驻决策策略切面）。
  * @param raw - 原始配置值。
  * @returns 解析后的 { enabled, order } 配置。
  */
@@ -372,6 +237,22 @@ function normalizeProxyHosts(raw) {
 }
 
 /**
+ * 规范化配置来源：provider（dsh 已配置的提供商）或 manual（手写 baseUrl）。
+ * 兼容旧配置里的 transport: typesafe（等价于 manual）。
+ *
+ * @param value - 原始来源值。
+ * @param fallback - 缺省来源。
+ * @returns 'provider' 或 'manual'。
+ */
+function normalizeSource(value, fallback = DEFAULTS.source) {
+  if (value === undefined || value === null || String(value).trim() === '') return fallback;
+  const text = String(value).trim().toLowerCase();
+  if (text === 'provider' || text === 'dsh') return 'provider';
+  if (text === 'manual' || text === 'custom' || text === 'typesafe') return 'manual';
+  throw new Error('tool-jev: source must be "provider" or "manual" (got "' + value + '")');
+}
+
+/**
  * 规范化插件配置：填充默认值、校验传输协议与 URL，自动清理路径尾部斜杠。
  * @param config - 原始传入配置。
  * @returns 规范化后的完整配置对象。
@@ -392,23 +273,33 @@ function normalizeConfig(config) {
   const configProxy = parseProxyUrl(raw.proxy, 'proxy');
   // 配置里显式给出的接口地址优先于前端保存的地址；未指定时为 undefined（允许界面自定义与环境变量覆盖）。
   const configBaseURL =
-    raw.baseURL !== undefined && raw.baseURL !== null
+    raw.baseURL !== undefined && raw.baseURL !== null && String(raw.baseURL).trim() !== ''
       ? endpoint(raw.baseURL, 'baseURL')
       : undefined;
   // 配置里显式给出的端点优先于前端保存的端点；未指定时为 undefined。
   const configEndpoint =
-    raw.endpoint !== undefined && raw.endpoint !== null
+    raw.endpoint !== undefined && raw.endpoint !== null && String(raw.endpoint).trim() !== ''
       ? normalizeEndpoint(raw.endpoint)
       : undefined;
+  const configProvider =
+    raw.provider !== undefined && raw.provider !== null && String(raw.provider).trim() !== ''
+      ? String(raw.provider).trim()
+      : undefined;
+  const modelExplicit =
+    raw.model !== undefined && raw.model !== null && String(raw.model).trim() !== '';
   return {
+    source: normalizeSource(raw.source, DEFAULTS.source),
+    /** 由插件配置指定的提供商（undefined 表示未指定，允许界面选择）。 */
+    configProvider,
+    provider: configProvider ?? '',
     transport,
     baseURL: configBaseURL ?? DEFAULTS.baseURL,
     /** 由插件配置固定下来的接口服务地址（undefined 表示允许前端覆盖）。 */
     configBaseURL,
-    endpoint: configEndpoint ?? DEFAULT_ENDPOINT,
-    /** 由插件配置固定下来的接口端点（undefined 表示允许前端覆盖）。 */
     configEndpoint,
-    model: String(raw.model === undefined ? DEFAULTS.model : raw.model),
+    model: modelExplicit ? String(raw.model).trim() : DEFAULTS.model,
+    /** 模型是否是 Profile 里显式写下的（provider 模式据此决定是否回退到提供商模型表）。 */
+    modelExplicit,
     apiKey: apiKey === '' ? undefined : apiKey,
     apiKeyEnv: String(raw.apiKeyEnv === undefined ? DEFAULTS.apiKeyEnv : raw.apiKeyEnv),
     keyFile: String(raw.keyFile === undefined ? DEFAULTS.keyFile : raw.keyFile),
@@ -426,7 +317,7 @@ function normalizeConfig(config) {
     configProxy,
     /** 当前生效的代理描述对象，undefined 表示直连。 */
     proxy: configProxy,
-    settingsFile: String(raw.settingsFile === undefined ? DEFAULTS.settingsFile : raw.settingsFile),
+    settingsFile: resolveSettingsPath(raw.settingsFile),
   };
 }
 
@@ -435,13 +326,40 @@ function normalizeConfig(config) {
  * @param path - 密钥文件路径。
  * @returns 读取到的密钥字符串，或 undefined。
  */
-async function readKeyFile(path) {
+function readKeyFile(path) {
   try {
-    const key = (await readFile(path, 'utf8')).trim();
+    const key = readFileSync(path, 'utf8').trim();
     return key === '' ? undefined : key;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * 读取 legacy 位置 ~/.dsh/tools/jev/.env 中的密钥（历史兜底，保持向后兼容）。
+ * @param config - 规范化配置。
+ * @returns 密钥或 undefined。
+ */
+function readLegacyEnvFile(config) {
+  const fallbackEnv = join(homedir(), '.dsh', 'tools', 'jev', '.env');
+  try {
+    const content = readFileSync(fallbackEnv, 'utf8');
+    for (const line of content.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.search(/[:=]/);
+      if (eqIdx !== -1) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        if (key === config.apiKeyEnv || key === 'TYPESAFE_API_KEY' || key === 'JEV_API_KEY') {
+          const val = trimmed.slice(eqIdx + 1).trim().replace(/^["'](.*)["']$/, '$1');
+          if (val) return val;
+        }
+      }
+    }
+  } catch {
+    // 文件不存在是常态
+  }
+  return undefined;
 }
 
 /**
@@ -450,39 +368,7 @@ async function readKeyFile(path) {
  * @returns 环境变量名数组。
  */
 function keyEnvNames(config) {
-  return Array.from(new Set([config.apiKeyEnv, 'JEV_API_KEY']));
-}
-
-/**
- * 读取前端保存的设置文件（代理地址等）。
- *
- * 文件缺失、为空或 JSON 损坏时一律返回空对象：设置文件只是便利层，
- * 任何读取问题都不应让插件加载失败。
- *
- * @param config - 规范化配置。
- * @returns 解析后的设置对象。
- */
-async function readSettingsFile(config) {
-  try {
-    const text = await readFile(config.settingsFile, 'utf8');
-    const parsed = JSON.parse(text);
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return parsed;
-  } catch {
-    return {};
-  }
-}
-
-/**
- * 将前端设置写入设置文件（合并写入，保留其它字段）。
- * @param config - 规范化配置。
- * @param patch - 需要写入的字段。
- */
-async function writeSettingsFile(config, patch) {
-  const current = await readSettingsFile(config);
-  const next = { ...current, ...patch };
-  await mkdir(dirname(config.settingsFile), { recursive: true });
-  await writeFile(config.settingsFile, JSON.stringify(next, null, 2) + '\n', 'utf8');
+  return Array.from(new Set([config.apiKeyEnv, 'TYPESAFE_API_KEY', 'JEV_API_KEY'].filter(Boolean)));
 }
 
 /**
@@ -492,37 +378,18 @@ async function writeSettingsFile(config, patch) {
  * 插件配置优先是为了让 Profile 里写死的代理不会被界面误改。
  *
  * @param config - 规范化配置。
+ * @param settings - 前端设置文件内容。
  * @returns 生效的代理描述对象，或 undefined 表示直连。
  */
-async function resolveProxy(config) {
+function resolveProxy(config, settings) {
   if (config.configProxy !== undefined) return config.configProxy;
-  const settings = await readSettingsFile(config);
-  if (typeof settings.proxy !== 'string' || settings.proxy.trim() === '') return undefined;
+  if (!settings || typeof settings.proxy !== 'string' || settings.proxy.trim() === '') return undefined;
   try {
     return parseProxyUrl(settings.proxy, 'proxy');
   } catch {
     // 保存时已校验过；此处兜底，避免手工编辑设置文件写坏后整个工具不可用。
     return undefined;
   }
-}
-
-/**
- * 统一的 HTTP 请求入口：命中代理规则时经代理转发，否则直连。
- *
- * 代理地址为空（或目标主机不在代理范围内）时走原生 fetch，行为与升级前完全一致。
- *
- * @param targetUrl - 目标请求地址。
- * @param init - 请求初始化参数。
- * @param config - 规范化配置。
- * @param proxy - 已解析的代理；省略（undefined）时按配置解析，显式传 null 表示强制直连。
- * @returns fetch 兼容的响应对象。
- */
-async function httpRequest(targetUrl, init, config, proxy) {
-  const active = proxy === undefined ? await resolveProxy(config) : proxy;
-  if (active === undefined || active === null || !proxyTargetsUrl(targetUrl, config.proxyHosts)) {
-    return fetch(targetUrl, init);
-  }
-  return requestViaProxy(targetUrl, init, active);
 }
 
 /**
@@ -535,27 +402,30 @@ async function httpRequest(targetUrl, init, config, proxy) {
  *
  * @param payload - 前端请求载荷。
  * @param config - 规范化配置。
+ * @param settings - 前端设置文件内容。
  * @returns 代理描述对象、null（直连）或 undefined（沿用已保存值）。
  */
-async function resolveTestProxy(payload, config) {
+function resolveTestProxy(payload, config, settings) {
   // 配置固定的代理不可被界面绕过，否则"测试连接"会与实际调用行为不一致。
   if (config.configProxy !== undefined) return config.configProxy;
-  if (typeof payload?.proxy !== 'string') return resolveProxy(config);
+  if (typeof payload?.proxy !== 'string') return resolveProxy(config, settings);
   const candidate = payload.proxy.trim();
   if (candidate === '') return null;
-  if (candidate.includes('***')) return resolveProxy(config);
+  if (candidate.includes('***')) return resolveProxy(config, settings);
   return parseProxyUrl(candidate, 'proxy');
 }
 
 /**
- * 解析当前生效的接口服务地址 (baseURL)。
+ * 解析 manual 模式下当前生效的接口服务地址 (baseURL)。
  *
- * 优先级：插件配置固定地址 (configBaseURL) > 环境变量 ($TYPESAFE_BASE_URL / $JEV_BASE_URL) > 前端保存的 baseURL > 官方默认地址。
+ * 优先级：插件配置固定地址 (configBaseURL) > 环境变量 ($TYPESAFE_BASE_URL / $JEV_BASE_URL)
+ * > 前端保存的 baseURL > 官方默认地址。
  *
  * @param config - 规范化配置。
+ * @param settings - 前端设置文件内容。
  * @returns 规范化后的接口服务地址 URL。
  */
-async function resolveBaseURL(config) {
+function resolveBaseURL(config, settings) {
   if (config.configBaseURL !== undefined) return config.configBaseURL;
   for (const name of ['TYPESAFE_BASE_URL', 'JEV_BASE_URL']) {
     const value = process.env[name];
@@ -567,8 +437,7 @@ async function resolveBaseURL(config) {
       }
     }
   }
-  const settings = await readSettingsFile(config);
-  if (typeof settings.baseURL === 'string' && settings.baseURL.trim() !== '') {
+  if (typeof settings?.baseURL === 'string' && settings.baseURL.trim() !== '') {
     try {
       return endpoint(settings.baseURL.trim(), 'baseURL');
     } catch {
@@ -579,36 +448,23 @@ async function resolveBaseURL(config) {
 }
 
 /**
- * 解析前端传来的接口地址测试值（用于 testConnection）。
- *
- * 语义：
- *   - 字段缺省（undefined）：沿用已保存或默认生效的接口地址；
- *   - 空字符串：用户清空了输入框，回退到官方默认地址测试；
- *   - 非空字符串：校验并使用该候选地址进行测试。
- *
- * @param payload - 前端请求载荷。
- * @param config - 规范化配置。
- * @returns 接口地址 URL。
- */
-async function resolveTestBaseURL(payload, config) {
-  // 配置固定的接口地址不可被界面绕过
-  if (config.configBaseURL !== undefined) return config.configBaseURL;
-  if (typeof payload?.baseURL !== 'string') return resolveBaseURL(config);
-  const candidate = payload.baseURL.trim();
-  if (candidate === '') return DEFAULTS.baseURL;
-  return endpoint(candidate, 'baseURL');
-}
-
-/**
  * 解析当前生效的接口服务端点 (endpoint)。
  *
- * 优先级：插件配置固定端点 (configEndpoint) > 环境变量 ($TYPESAFE_ENDPOINT / $JEV_ENDPOINT) > 前端保存的 endpoint > 默认端点 (/v1/systemone)。
+ * 优先级：插件配置固定端点 > 显式候选（来自界面/工具参数）> 环境变量
+ * > 前端保存的 endpoint > 按来源取默认值（manual → /v1/systemone，provider → /v1/decisions）。
  *
  * @param config - 规范化配置。
- * @returns 规范化后的端点字符串（/v1/systemone 或 /v1/decisions）。
+ * @param settings - 前端设置文件内容。
+ * @param source - 当前配置来源。
+ * @param candidate - 显式候选端点（可选）。
+ * @returns 规范化后的端点字符串。
  */
-async function resolveEndpoint(config) {
+function resolveEndpoint(config, settings, source, candidate) {
   if (config.configEndpoint !== undefined) return config.configEndpoint;
+  if (typeof candidate === 'string') {
+    const text = candidate.trim();
+    return text === '' ? DEFAULT_ENDPOINTS[source] : normalizeEndpoint(text);
+  }
   for (const name of ['TYPESAFE_ENDPOINT', 'JEV_ENDPOINT']) {
     const value = process.env[name];
     if (typeof value === 'string' && value.trim() !== '') {
@@ -619,88 +475,224 @@ async function resolveEndpoint(config) {
       }
     }
   }
-  const settings = await readSettingsFile(config);
-  if (typeof settings.endpoint === 'string' && settings.endpoint.trim() !== '') {
+  if (typeof settings?.endpoint === 'string' && settings.endpoint.trim() !== '') {
     try {
       return normalizeEndpoint(settings.endpoint.trim());
     } catch {
       // 容错兜底
     }
   }
-  return config.endpoint || DEFAULT_ENDPOINT;
+  return DEFAULT_ENDPOINTS[source] ?? DEFAULT_ENDPOINTS.manual;
 }
 
 /**
- * 解析前端传来的接口端点测试值（用于 testConnection）。
+ * 解析当前生效的模型 ID。
  *
- * @param payload - 前端请求载荷。
  * @param config - 规范化配置。
- * @returns 端点字符串。
+ * @param settings - 前端设置文件内容。
+ * @param providerRow - 当前提供商的配置行（manual 模式为 undefined）。
+ * @param source - 当前配置来源。
+ * @param candidate - 显式候选模型（可选）。
+ * @returns 模型 ID。
  */
-async function resolveTestEndpoint(payload, config) {
-  if (config.configEndpoint !== undefined) return config.configEndpoint;
-  if (typeof payload?.endpoint !== 'string') return resolveEndpoint(config);
-  const candidate = payload.endpoint.trim();
-  if (candidate === '') return DEFAULT_ENDPOINT;
-  return normalizeEndpoint(candidate);
+function resolveModel(config, settings, providerRow, source, candidate) {
+  if (typeof candidate === 'string' && candidate.trim() !== '') return candidate.trim();
+  if (typeof settings?.model === 'string' && settings.model.trim() !== '') return settings.model.trim();
+  if (source === 'provider') {
+    if (config.modelExplicit) return config.model;
+    const models = Array.isArray(providerRow?.models) ? providerRow.models : [];
+    if (models.length === 0) return DEFAULTS.model;
+    if (models.includes('jev-latest')) return 'jev-latest';
+    return providerRow.decisionModels[0] ?? models[0];
+  }
+  return config.model || DEFAULTS.model;
 }
 
 /**
- * 多级安全解析 API Key（避免密钥传入模型上下文造成泄露）：
- * 1. 插件显式配置项 (apiKey)
- * 2. 指定的环境变量名，随后检查 JEV_API_KEY
- * 3. 配置文件 (~/.config/typesafe/key)
- * 4. 本地 ~/.dsh/tools/jev/.env 自动探测兜底
+ * 校验 provider 行里的 baseURL。
+ * @param baseURL - provider 配置的 baseURL。
+ * @param providerId - provider ID（用于报错）。
+ * @returns 规范化后的 baseURL。
+ */
+function providerBaseURL(baseURL, providerId) {
+  const text = typeof baseURL === 'string' ? baseURL.trim() : '';
+  if (text === '') {
+    throw new Error(
+      'tool-jev: provider "' + providerId + '" has no baseURL in the dsh model settings;' +
+        ' pick another provider or switch the source to 手动配置',
+    );
+  }
+  return endpoint(text, 'provider "' + providerId + '" baseURL');
+}
+
+/**
+ * 计算一次调用实际生效的完整配置。
+ *
+ * 优先级（高 → 低）：
+ *   1. 显式覆盖值（界面测试 / 工具参数）；
+ *   2. 前端「保存设置」写入的设置文件；
+ *   3. Profile 里本插件的 config 段；
+ *   4. provider 行（provider 模式）或内置默认值（manual 模式）。
  *
  * @param config - 规范化配置。
- * @returns 解析得到的密钥或 undefined。
+ * @param overrides - 显式覆盖值。
+ * @returns 生效配置对象。
  */
-async function resolveApiKey(config) {
-  if (config.apiKey) return config.apiKey;
+function resolveEffective(config, overrides = {}) {
+  const loaded = loadUserSettings(config.settingsFile);
+  const values = loaded.values;
+  const source = normalizeSource(
+    overrides.source !== undefined ? overrides.source : (values.source ?? config.source),
+  );
+  const sysProviders = getDshSystemProviders();
+  let providerId = String(
+    (overrides.provider !== undefined && overrides.provider !== null ? overrides.provider : '') ||
+      values.provider ||
+      config.provider ||
+      '',
+  ).trim();
+  let providerRow = providerId ? sysProviders[providerId] : undefined;
 
-  for (const name of keyEnvNames(config)) {
+  if (source === 'provider' && providerId === '') {
+    const inferred = inferDefaultProvider();
+    providerId = inferred.provider;
+    providerRow = providerId ? sysProviders[providerId] : undefined;
+  }
+  if (source === 'provider' && !providerRow) {
+    const available = Object.keys(sysProviders);
+    const error = new Error(
+      'tool-jev: provider "' +
+        providerId +
+        '" is not configured in the dsh model settings. Configured providers: ' +
+        (available.length > 0 ? available.join(', ') : '(none)') +
+        '. Pick one in the settings panel, or switch the source to 手动配置.',
+    );
+    error.code = 'EPROVIDER';
+    throw error;
+  }
+
+  const baseURL =
+    source === 'provider' ? providerBaseURL(providerRow.baseURL, providerId) : resolveBaseURL(config, values);
+  const endpointPath = resolveEndpoint(config, values, source, overrides.endpoint);
+  const model = resolveModel(config, values, providerRow, source, overrides.model);
+  const warnings = [];
+  if (
+    source === 'provider' &&
+    model !== '' &&
+    Array.isArray(providerRow.models) &&
+    providerRow.models.length > 0 &&
+    !providerRow.models.includes(model)
+  ) {
+    warnings.push(
+      'model "' + model + '" is not in the configured model list for "' + providerId + '" - sending it anyway',
+    );
+  }
+  return {
+    source,
+    providerId,
+    providerName: providerRow?.name,
+    providerRow,
+    baseURL,
+    endpoint: endpointPath,
+    model,
+    headers: source === 'provider' ? { ...(providerRow.headers ?? {}) } : {},
+    apiKeyEnv: source === 'provider' ? providerRow.apiKeyEnv || config.apiKeyEnv : config.apiKeyEnv,
+    settings: loaded,
+    proxy: resolveProxy(config, values),
+    warnings,
+  };
+}
+
+/**
+ * 多级安全解析 API Key（避免密钥传入模型上下文造成泄露）。
+ *
+ * provider 模式：
+ *   1. 显式传入 / 插件配置 / 设置文件保存的 Key（覆盖提供商自动解析）；
+ *   2. 提供商声明的 apiKeyEnv（.credentials.yaml 优先，其次环境变量）；
+ *   3. 提供商未声明 apiKeyEnv 时，才回退到通用变量名与本地密钥文件。
+ *
+ * manual 模式：
+ *   1. 显式传入 / 插件配置 / 设置文件保存的 Key；
+ *   2. 插件配置的 apiKeyEnv、TYPESAFE_API_KEY、JEV_API_KEY；
+ *   3. ~/.config/typesafe/key；
+ *   4. ~/.dsh/tools/jev/.env（历史兜底）。
+ *
+ * @param config - 规范化配置。
+ * @param effective - 生效配置（含来源与提供商行）。
+ * @param overrides - { inline } 界面/工具传来的未保存 Key。
+ * @returns {{ token: string, from: string }}
+ */
+function resolveApiKey(config, effective, overrides = {}) {
+  const inline = typeof overrides.inline === 'string' ? overrides.inline.trim() : '';
+  // 含 ... 的值是 getConfig 回显的掩码，绝不能当作真实 Key。
+  if (inline !== '' && !inline.includes('...')) return { token: inline, from: 'inline' };
+  if (config.apiKey) return { token: config.apiKey, from: 'plugin-config' };
+  const saved = effective.settings?.values?.apiKey;
+  if (typeof saved === 'string' && saved.trim() !== '') return { token: saved.trim(), from: 'settings-file' };
+
+  const declaredEnv =
+    effective.source === 'provider' && effective.providerRow?.apiKeyEnv
+      ? effective.providerRow.apiKeyEnv
+      : '';
+  if (declaredEnv) {
+    // provider 声明了 apiKeyEnv 就只用它，绝不旁落到其它提供商的凭证上。
+    const found = resolveToken({ apiKeyEnv: declaredEnv });
+    if (found.token) return found;
+    return { token: '', from: 'none' };
+  }
+
+  const envNames =
+    effective.source === 'provider'
+      ? Array.from(new Set([...keyEnvNames(config), ...FALLBACK_KEY_ENVS]))
+      : keyEnvNames(config);
+  for (const name of envNames) {
     const value = process.env[name];
-    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+    if (typeof value === 'string' && value.trim() !== '') return { token: value.trim(), from: 'env:' + name };
   }
 
-  const fileKey = await readKeyFile(config.keyFile);
-  if (fileKey) return fileKey;
+  const fileKey = readKeyFile(config.keyFile);
+  if (fileKey) return { token: fileKey, from: 'key-file' };
 
-  // If using default keyFile location and not found, check ~/.dsh/tools/jev/.env
   if (config.keyFile === DEFAULTS.keyFile) {
-    const fallbackEnv = join(homedir(), '.dsh', 'tools', 'jev', '.env');
-    try {
-      const content = await readFile(fallbackEnv, 'utf8');
-      for (const line of content.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const eqIdx = trimmed.search(/[:=]/);
-        if (eqIdx !== -1) {
-          const key = trimmed.slice(0, eqIdx).trim();
-          if (key === config.apiKeyEnv || key === 'TYPESAFE_API_KEY' || key === 'JEV_API_KEY') {
-            const val = trimmed.slice(eqIdx + 1).trim().replace(/^["'](.*)["']$/, '$1');
-            if (val) return val;
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
+    const legacy = readLegacyEnvFile(config);
+    if (legacy) return { token: legacy, from: 'legacy-env-file' };
   }
 
-  return undefined;
+  return { token: '', from: 'none' };
 }
 
 /**
  * 构建缺少 API Key 时的统一诊断提示信息。
  * @param config - 规范化配置。
+ * @param effective - 生效配置。
  * @returns 错误提示文本。
  */
-function missingKeyMessage(config) {
+function missingKeyMessage(config, effective) {
+  if (effective?.source === 'provider' && effective.providerRow?.apiKeyEnv) {
+    return (
+      'tool-jev: no API key for provider "' +
+      effective.providerId +
+      '". Set $' +
+      effective.providerRow.apiKeyEnv +
+      ' (or add it to ~/.dsh/.credentials.yaml under refs),' +
+      ' or type a key into the settings panel.'
+    );
+  }
   const names = keyEnvNames(config)
     .map((name) => '$' + name)
     .join(' or ');
-  return 'tool-jev: no API key. Set ' + names + ', or write the key to ' + config.keyFile + '.';
+  return 'tool-jev: no API key. Set ' + names + ', type a key into the settings panel, or write it to ' + config.keyFile + '.';
+}
+
+/**
+ * 把 API Key 掩码成可回显给浏览器的展示值。
+ * @param key - 明文 Key。
+ * @returns 掩码后的字符串。
+ */
+function maskKey(key) {
+  if (!key) return '';
+  if (key.length <= 10) return key.slice(0, 3) + '...' + key.slice(-2);
+  return key.slice(0, 6) + '...' + key.slice(-4);
 }
 
 /**
@@ -718,7 +710,7 @@ function describeShape(value) {
 }
 
 /**
- * 校验模型传入的 questions 映射表，并将其规范化为 TypeSafe 协议标准格式。
+ * 校验模型传入的 questions 映射表，并将其规范化为协议标准格式。
  * @param questions - 模型输入的原始 questions。
  * @param config - 规范化配置。
  * @returns 校验合格并规范化后的 questions 结构体。
@@ -786,13 +778,6 @@ function assertQuestions(questions, config) {
 }
 
 /**
- * 构建发送给 TypeSafe 官方 API 的标准 HTTP 请求载荷。
- * @param args - 模型传入参数。
- * @param questions - 规范化后的 questions。
- * @param config - 插件配置。
- * @returns 请求 URL、请求头与载荷。
- */
-/**
  * 将兼容 OpenAI 格式或 /v1/decisions 返回的 answers 数组规范化为以问题 key 为键的标准字典结构。
  * @param answersArray - 决策回答列表。
  * @returns 规范化后的回答字典。
@@ -842,23 +827,40 @@ function normalizeDecisionAnswers(answersArray) {
 }
 
 /**
+ * 合并请求头：provider 行配置的 header 照搬，但认证头永远由插件自己设置，
+ * 避免把提供商配置里的 Authorization 覆盖成错误的值。
+ *
+ * @param providerHeaders - provider 行声明的 headers。
+ * @param apiKey - 明文 API Key。
+ * @returns 合并后的请求头。
+ */
+function buildHeaders(providerHeaders, apiKey) {
+  const headers = { 'content-type': 'application/json' };
+  for (const [key, value] of Object.entries(providerHeaders ?? {})) {
+    if (key.toLowerCase() === 'authorization') continue;
+    if (value === undefined || value === null) continue;
+    headers[key] = String(value);
+  }
+  headers.authorization = 'Bearer ' + apiKey;
+  return headers;
+}
+
+/**
  * 构建发送给决策 API 的标准 HTTP 请求载荷。
  * 根据所选端点（/v1/systemone 或 /v1/decisions）自动适配协议请求体结构。
  *
  * @param args - 模型传入参数。
  * @param questions - 规范化后的 questions。
- * @param config - 插件配置。
- * @param baseURL - 接口基地址。
- * @param endpoint - 接口端点。
- * @returns 请求 URL、请求头与载荷。
+ * @param effective - 生效配置。
+ * @returns 请求 URL、请求体、模型与端点。
  */
-function buildRequest(args, questions, config, baseURL, endpoint) {
-  let model = typeof args.model === 'string' && args.model.trim() !== '' ? args.model.trim() : config.model;
-  const base = baseURL || config.baseURL || DEFAULTS.baseURL;
-  const ep = endpoint || config.endpoint || DEFAULT_ENDPOINT;
+function buildRequest(args, questions, effective) {
+  let model = effective.model;
+  const ep = effective.endpoint;
 
-  // 针对 /v1/decisions 端点，若使用默认模型 jev-latest 则自动映射为网关模型标识 typesafe-ai/jev
-  if (ep === '/v1/decisions' && (model === 'jev-latest' || !model)) {
+  // 兼容历史行为：手写配置 + /v1/decisions 时，默认模型映射为 Vercel 网关标识。
+  // provider 模式绝不改写模型名——那里用的是 dsh 提供商自己声明的模型 ID。
+  if (ep === '/v1/decisions' && effective.source === 'manual' && (model === 'jev-latest' || !model)) {
     model = 'typesafe-ai/jev';
   }
 
@@ -890,7 +892,7 @@ function buildRequest(args, questions, config, baseURL, endpoint) {
       if (type === 'score') {
         const levels = Array.isArray(spec.criteria)
           ? spec.criteria.map((lvl) => (typeof lvl === 'string' ? { label: lvl } : lvl))
-          : Object.entries(spec.criteria || {}).map(([_, label]) => ({
+          : Object.entries(spec.criteria || {}).map(([, label]) => ({
               label: String(label),
             }));
         return {
@@ -904,8 +906,7 @@ function buildRequest(args, questions, config, baseURL, endpoint) {
     });
 
     return {
-      url: buildEndpointUrl(base, ep),
-      headers: { 'content-type': 'application/json' },
+      url: buildEndpointUrl(effective.baseURL, ep),
       body: {
         model,
         input: args.state,
@@ -918,8 +919,7 @@ function buildRequest(args, questions, config, baseURL, endpoint) {
 
   // /v1/systemone 官方原生协议
   return {
-    url: buildEndpointUrl(base, ep),
-    headers: { 'content-type': 'application/json' },
+    url: buildEndpointUrl(effective.baseURL, ep),
     body: { state: args.state, questions, model },
     model,
     endpoint: ep,
@@ -964,12 +964,29 @@ function rateLimitHint(status) {
 }
 
 /**
+ * 统一的 HTTP 请求入口：命中代理规则时经代理转发，否则直连。
+ *
+ * @param targetUrl - 目标请求地址。
+ * @param init - 请求初始化参数。
+ * @param config - 规范化配置。
+ * @param proxy - 已解析的代理；undefined / null 表示直连。
+ * @returns fetch 兼容的响应对象。
+ */
+async function httpRequest(targetUrl, init, config, proxy) {
+  if (proxy === undefined || proxy === null || !proxyTargetsUrl(targetUrl, config.proxyHosts)) {
+    return fetch(targetUrl, init);
+  }
+  return requestViaProxy(targetUrl, init, proxy);
+}
+
+/**
  * 执行单次 HTTP 请求探测（独立管理超时期，防止前次超时信号污染重试轮次）。
  * @param request - 请求地址与基础属性。
  * @param headers - 认证与协议头。
  * @param body - 序列化载荷。
  * @param exec - 宿主运行上下文。
  * @param config - 插件配置。
+ * @param proxy - 已解析的代理。
  * @returns API 返回数据。
  */
 async function attemptRequest(request, headers, body, exec, config, proxy) {
@@ -1055,13 +1072,13 @@ async function attemptRequest(request, headers, body, exec, config, proxy) {
 }
 
 /**
- * 发送 System One 决策请求（支持网络波动/5xx 自动指数退避重试，4xx 与中止不重试）。
+ * 发送决策请求（支持网络波动/5xx 自动指数退避重试，4xx 与中止不重试）。
  * @param args - 工具入参。
  * @param exec - 运行上下文。
  * @param config - 插件配置。
  * @returns 决策结果。
  */
-async function requestSystemOne(args, exec, config) {
+async function requestDecision(args, exec, config) {
   const state = args.state;
   if (typeof state !== 'string' || state.trim() === '') {
     throw new Error('tool-jev: state must be a non-empty string');
@@ -1072,18 +1089,15 @@ async function requestSystemOne(args, exec, config) {
   }
   const questions = assertQuestions(args.questions, config);
 
-  const apiKey = await resolveApiKey(config);
-  if (apiKey === undefined) throw new Error(missingKeyMessage(config));
+  const effective = resolveEffective(config, {
+    model: typeof args.model === 'string' ? args.model : undefined,
+  });
+  const keyInfo = resolveApiKey(config, effective, {});
+  if (!keyInfo.token) throw new Error(missingKeyMessage(config, effective));
 
-  const baseURL = await resolveBaseURL(config);
-  const endpoint = await resolveEndpoint(config);
-  const request = buildRequest(args, questions, config, baseURL, endpoint);
-  const headers = { ...request.headers, authorization: 'Bearer ' + apiKey };
+  const request = buildRequest(args, questions, effective);
+  const headers = buildHeaders(effective.headers, keyInfo.token);
   const body = JSON.stringify(request.body);
-
-  // 代理只在一次工具调用开始时解析一次：重试轮次之间保持一致，
-  // 也避免每轮都去读设置文件。
-  const proxy = await resolveProxy(config);
 
   if (isCallerAborted(exec)) throw callerAbortError();
 
@@ -1093,7 +1107,7 @@ async function requestSystemOne(args, exec, config) {
     if (attempt > 1) await sleep(500 * (attempt - 1));
     if (isCallerAborted(exec)) throw callerAbortError();
     try {
-      return await attemptRequest(request, headers, body, exec, config, proxy);
+      return await attemptRequest(request, headers, body, exec, config, effective.proxy);
     } catch (error) {
       if (isCallerAborted(exec)) throw callerAbortError();
       lastError = error;
@@ -1105,10 +1119,10 @@ async function requestSystemOne(args, exec, config) {
 }
 
 /**
- * 共享的 Jev 决策策略提示词片段词汇表（供模型可见的 Tool Description 与常驻提示词切面共用）。
+ * 共享的决策策略提示词片段词汇表（供模型可见的 Tool Description 与常驻提示词切面共用）。
  */
 const POLICY = {
-  purpose: 'Ask TypeSafe Jev, a System One decision model, for typed judgments about arbitrary state.',
+  purpose: 'Ask the configured decision model (default: TypeSafe Jev) for typed judgments about arbitrary state.',
   whenToUse: 'When to use: call jev_decide whenever the answer is a judgment, not a lookup.',
   defaultRule:
     'Default: ask Jev before turning a judgment about meaning, intent, relevance, fit, or risk into a conclusion.',
@@ -1140,7 +1154,7 @@ function policyBlock() {
 }
 
 /**
- * 常驻提示词切面文本内容（Surface B：向模型注入 Jev 决策规范指南）。
+ * 常驻提示词切面文本内容（Surface B：向模型注入决策规范指南）。
  * @returns 完整的切面说明文本。
  */
 function policySectionText() {
@@ -1191,7 +1205,7 @@ function parametersFor() {
       },
       model: {
         type: 'string',
-        description: 'Optional model id; defaults to the plugin-configured model (jev-latest).',
+        description: 'Optional model id; defaults to the plugin-configured model (jev-latest by default).',
       },
     },
   };
@@ -1264,196 +1278,276 @@ function registerPolicySection(ctx, resolved) {
 }
 
 /**
- * 挂载 Web 端设置路由接口（用于支持前端界面输入 API Key）
+ * 组装给前端设置面板的完整视图数据。
+ *
+ * 这个函数必须足够健壮：即使 dsh 提供商配置缺失或损坏，也要能返回一份可渲染的
+ * 视图（用 configError 说明原因），否则设置页会整块白屏。
+ *
+ * @param config - 规范化配置。
+ * @returns 设置视图对象。
  */
-function setupWebRoutes(ctx, resolved) {
-  if (typeof ctx?.inject !== 'function') return;
-  ctx.inject(['webServer'], (webServerCtx) => {
-    const ws = webServerCtx?.webServer;
-    if (!ws || typeof ws.get !== 'function') return;
+function buildConfigView(config) {
+  const loaded = loadUserSettings(config.settingsFile);
+  const values = loaded.values;
+  const sysProviders = getDshSystemProviders();
+  const inferred = inferDefaultProvider();
+  const source = normalizeSource(values.source ?? config.source);
+  const providerId = String(values.provider ?? config.provider ?? '').trim() || inferred.provider;
+  const providerRow = providerId ? sysProviders[providerId] : undefined;
 
-    // 与 RPC 路径保持一致：保存位置必须与读取位置相同（遵循 keyFile 配置）。
-    const userKeyPath = resolved.keyFile;
+  let effective;
+  let configError;
+  try {
+    effective = resolveEffective(config, { source, provider: providerId });
+  } catch (error) {
+    configError = error.message;
+    effective = {
+      source,
+      providerId,
+      providerName: providerRow?.name,
+      providerRow,
+      baseURL: source === 'provider' ? (providerRow?.baseURL ?? '') : resolveBaseURL(config, values),
+      endpoint: resolveEndpoint(config, values, source, undefined),
+      model: resolveModel(config, values, providerRow, source, undefined),
+      headers: providerRow?.headers ?? {},
+      apiKeyEnv: providerRow?.apiKeyEnv || config.apiKeyEnv,
+      settings: loaded,
+      proxy: resolveProxy(config, values),
+      warnings: [],
+    };
+  }
 
-    ws.get('/api/dsh-jev/config', async (_req, res) => {
-      const currentKey = await resolveApiKey(resolved);
-      const proxy = await resolveProxy(resolved);
-      const baseURL = await resolveBaseURL(resolved);
-      const endpoint = await resolveEndpoint(resolved);
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({
-        configured: Boolean(currentKey),
-        apiKey: currentKey ? (currentKey.slice(0, 6) + '...' + currentKey.slice(-4)) : '',
-        model: resolved.model,
-        baseURL,
-        baseURLDefault: DEFAULTS.baseURL,
-        baseURLLocked: resolved.configBaseURL !== undefined,
-        endpoint,
-        endpointDefault: DEFAULT_ENDPOINT,
-        endpointLocked: resolved.configEndpoint !== undefined,
-        availableEndpoints: AVAILABLE_ENDPOINTS,
-        proxy: proxy ? formatProxyForDisplay(proxy) : '',
-        proxyLocked: resolved.configProxy !== undefined,
-      }));
-    });
+  const keyInfo = resolveApiKey(config, effective, {});
+  const providers = Object.values(sysProviders).map((provider) => ({
+    id: provider.id,
+    name: provider.name,
+    baseURL: provider.baseURL,
+    apiKeyEnv: provider.apiKeyEnv,
+    models: provider.models,
+    decisionModels: provider.decisionModels,
+  }));
 
-    ws.post('/api/dsh-jev/config', async (req, res) => {
-      let bodyStr = '';
-      req.on('data', (chunk) => { bodyStr += chunk; });
-      req.on('end', async () => {
-        try {
-          const body = JSON.parse(bodyStr || '{}');
-          if (typeof body.apiKey === 'string' && body.apiKey.trim() && !body.apiKey.includes('...')) {
-            await mkdir(dirname(userKeyPath), { recursive: true });
-            await writeFile(userKeyPath, body.apiKey.trim(), 'utf8');
-            resolved.apiKey = body.apiKey.trim();
-          }
-          if (typeof body.model === 'string' && body.model.trim()) {
-            resolved.model = body.model.trim();
-          }
-          if (typeof body.baseURL === 'string') {
-            if (resolved.configBaseURL !== undefined) {
-              res.statusCode = 409;
-              res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({
-                ok: false,
-                error: '接口地址已由插件配置（baseURL）固定，无法在界面修改',
-              }));
-              return;
-            }
-            const trimmed = body.baseURL.trim();
-            if (trimmed === '') {
-              await writeSettingsFile(resolved, { baseURL: '' });
-              resolved.baseURL = DEFAULTS.baseURL;
-            } else {
-              const validated = endpoint(trimmed, 'baseURL');
-              await writeSettingsFile(resolved, { baseURL: validated });
-              resolved.baseURL = validated;
-            }
-          }
-          if (typeof body.endpoint === 'string') {
-            if (resolved.configEndpoint !== undefined) {
-              res.statusCode = 409;
-              res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({
-                ok: false,
-                error: '接口端点已由插件配置（endpoint）固定，无法在界面修改',
-              }));
-              return;
-            }
-            const trimmed = body.endpoint.trim();
-            if (trimmed === '') {
-              await writeSettingsFile(resolved, { endpoint: '' });
-              resolved.endpoint = DEFAULT_ENDPOINT;
-            } else {
-              const validated = normalizeEndpoint(trimmed);
-              await writeSettingsFile(resolved, { endpoint: validated });
-              resolved.endpoint = validated;
-            }
-          }
-          if (typeof body.proxy === 'string') {
-            if (resolved.configProxy !== undefined) {
-              res.statusCode = 409;
-              res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({
-                ok: false,
-                error: '代理地址已由插件配置（proxy）固定，无法在界面修改',
-              }));
-              return;
-            }
-            const trimmed = body.proxy.trim();
-            if (trimmed === '') {
-              await writeSettingsFile(resolved, { proxy: '' });
-            } else {
-              parseProxyUrl(trimmed, 'proxy');
-              await writeSettingsFile(resolved, { proxy: trimmed });
-            }
-            resolved.proxy = undefined;
-          }
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ ok: true }));
-        } catch (err) {
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ ok: false, error: err.message }));
-        }
-      });
-    });
+  return {
+    configured: Boolean(keyInfo.token),
+    apiKey: maskKey(keyInfo.token),
+    apiKeyFrom: keyInfo.from,
+    source,
+    sourceModes: SOURCE_MODES,
+    provider: effective.providerId,
+    providers,
+    model: effective.model,
+    models: providerRow?.models ?? [],
+    decisionModels: providerRow?.decisionModels ?? [],
+    modelWarning: effective.warnings[0],
+    baseURL: effective.baseURL,
+    baseURLDefault: DEFAULTS.baseURL,
+    /** 手动模式下已保存/生效的地址：切换来源时用它恢复，而不是留着提供商的地址。 */
+    manualBaseURL: resolveBaseURL(config, values),
+    baseURLLocked: source === 'manual' && config.configBaseURL !== undefined,
+    endpoint: effective.endpoint,
+    endpointDefault: DEFAULT_ENDPOINTS[source],
+    endpointDefaults: { ...DEFAULT_ENDPOINTS },
+    endpointLocked: config.configEndpoint !== undefined,
+    availableEndpoints: AVAILABLE_ENDPOINTS,
+    proxy: effective.proxy ? formatProxyForDisplay(effective.proxy) : '',
+    proxyLocked: config.configProxy !== undefined,
+    configSource: describeConfigSource(loaded),
+    settingsFile: loaded.path,
+    legacySettingsFile: loaded.legacyPath,
+    inferred: { provider: inferred.provider, model: inferred.model },
+    configError,
+  };
+}
 
-    ws.post('/api/dsh-jev/test', async (req, res) => {
-      let bodyStr = '';
-      req.on('data', (chunk) => { bodyStr += chunk; });
-      req.on('end', async () => {
-        try {
-          const body = JSON.parse(bodyStr || '{}');
-          const testKey = body.apiKey || (await resolveApiKey(resolved));
-          if (!testKey) {
-            res.statusCode = 400;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ ok: false, error: '未配置 API Key' }));
-            return;
-          }
-          const testProxy = await resolveTestProxy(body, resolved);
-          const testBaseURL = await resolveTestBaseURL(body, resolved);
-          const testEndpoint = await resolveTestEndpoint(body, resolved);
-          const isDecisions = testEndpoint === '/v1/decisions';
-          let testModel = body.model || resolved.model || 'jev-latest';
-          if (isDecisions && (testModel === 'jev-latest' || !testModel)) {
-            testModel = 'typesafe-ai/jev';
-          }
+/**
+ * 处理前端设置 RPC 调用。
+ *
+ * 所有解析都从设置文件重新读取，因此「保存」之后同一进程内立即生效，
+ * 不需要重启宿主。
+ *
+ * @param config - 规范化配置。
+ * @param method - 方法名。
+ * @param payload - 请求载荷。
+ * @returns 统一的 { ok, value | error } 信封。
+ */
+async function handleSettingsRpc(config, method, payload = {}) {
+  if (method === 'getConfig') {
+    try {
+      return rpcOk(buildConfigView(config));
+    } catch (error) {
+      return rpcFailure('config-failed', error.message);
+    }
+  }
 
-          const pingBody = isDecisions
-            ? {
-                model: testModel,
-                input: 'Ping check from DSH',
-                questions: [
-                  {
-                    type: 'predicate',
-                    name: 'ping',
-                    instructions: 'Is this a valid test ping?',
-                  },
-                ],
-              }
-            : {
-                state: 'Ping check from DSH',
-                model: testModel,
-                questions: {
-                  ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
-                },
-              };
+  if (method === 'saveConfig') {
+    try {
+      const loaded = loadUserSettings(config.settingsFile);
+      const current = loaded.values;
+      const source = normalizeSource(
+        typeof payload.source === 'string' ? payload.source : (current.source ?? config.source),
+      );
+      const patch = {};
+      if (typeof payload.source === 'string') patch.source = source;
 
-          const start = Date.now();
-          const testRes = await httpRequest(
-            buildEndpointUrl(testBaseURL, testEndpoint),
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${testKey}`,
-              },
-              body: JSON.stringify(pingBody),
-            },
-            resolved,
-            testProxy,
+      if (typeof payload.provider === 'string') {
+        const id = payload.provider.trim();
+        if (id !== '' && !getDshSystemProviders()[id]) {
+          const available = Object.keys(getDshSystemProviders());
+          return rpcFailure(
+            'unknown-provider',
+            '提供商 "' + id + '" 未在 dsh 模型配置里定义。可用提供商：' + (available.join(', ') || '(none)'),
           );
-          const testData = await testRes.json();
-          const durationMs = Date.now() - start;
-          if (testRes.ok) {
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ ok: true, durationMs, result: testData }));
-          } else {
-            res.statusCode = testRes.status;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ ok: false, error: testData?.error?.message || `HTTP ${testRes.status}` }));
-          }
-        } catch (err) {
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ ok: false, error: err.message }));
         }
+        patch.provider = id;
+      }
+
+      // 手写接口地址：空字符串表示恢复官方默认地址；provider 模式下由提供商决定，不写盘。
+      if (typeof payload.baseURL === 'string' && source === 'manual') {
+        if (config.configBaseURL !== undefined) {
+          return rpcFailure(
+            'base-url-locked',
+            '接口地址已由插件配置（baseURL）固定，无法在界面修改：请修改 Profile 配置后重启',
+          );
+        }
+        const trimmed = payload.baseURL.trim();
+        patch.baseURL = trimmed === '' ? '' : endpoint(trimmed, 'baseURL');
+      }
+
+      // 接口端点：空字符串表示恢复该来源的默认端点。
+      if (typeof payload.endpoint === 'string') {
+        if (config.configEndpoint !== undefined) {
+          return rpcFailure(
+            'endpoint-locked',
+            '接口端点已由插件配置（endpoint）固定，无法在界面修改：请修改 Profile 配置后重启',
+          );
+        }
+        const trimmed = payload.endpoint.trim();
+        patch.endpoint = trimmed === '' ? '' : normalizeEndpoint(trimmed);
+      }
+
+      if (typeof payload.model === 'string') {
+        const model = payload.model.trim();
+        // 手动模式必须给模型；provider 模式允许留空，调用时会回退到提供商模型表。
+        if (model === '' && source === 'manual') {
+          return rpcFailure('model-required', '模型名称不能为空');
+        }
+        patch.model = model;
+      }
+
+      // 含 ... 的值是 getConfig 回显的掩码，不能写回磁盘；空字符串表示清除显式 Key。
+      if (typeof payload.apiKey === 'string' && !payload.apiKey.includes('...')) {
+        patch.apiKey = payload.apiKey.trim();
+      }
+
+      // 代理地址：空字符串表示清除代理（恢复直连）。保存前先校验，避免写入坏值。
+      if (typeof payload.proxy === 'string') {
+        if (config.configProxy !== undefined) {
+          return rpcFailure(
+            'proxy-locked',
+            '代理地址已由插件配置（proxy）固定，无法在界面修改：请修改 Profile 配置后重启',
+          );
+        }
+        const trimmed = payload.proxy.trim();
+        if (trimmed !== '') parseProxyUrl(trimmed, 'proxy');
+        patch.proxy = trimmed;
+      }
+
+      writeSettingsFile(config.settingsFile, patch, { source: 'user-set' });
+      return rpcOk(buildConfigView(config));
+    } catch (error) {
+      return rpcFailure('save-failed', error.message);
+    }
+  }
+
+  if (method === 'testConnection') {
+    try {
+      const effective = resolveEffective(config, {
+        source: typeof payload.source === 'string' ? payload.source : undefined,
+        provider: typeof payload.provider === 'string' ? payload.provider : undefined,
+        model: typeof payload.model === 'string' ? payload.model : undefined,
+        endpoint: typeof payload.endpoint === 'string' ? payload.endpoint : undefined,
       });
-    });
-  });
+      const keyInfo = resolveApiKey(config, effective, {
+        inline: typeof payload.apiKey === 'string' ? payload.apiKey : undefined,
+      });
+      if (!keyInfo.token) {
+        return rpcFailure('unconfigured', missingKeyMessage(config, effective));
+      }
+
+      // 界面上尚未保存的手写接口地址只影响本次测试；provider 模式的地址由提供商决定。
+      let baseURL = effective.baseURL;
+      if (effective.source === 'manual' && typeof payload.baseURL === 'string') {
+        if (config.configBaseURL !== undefined) {
+          baseURL = config.configBaseURL;
+        } else {
+          const trimmed = payload.baseURL.trim();
+          baseURL = trimmed === '' ? DEFAULTS.baseURL : endpoint(trimmed, 'baseURL');
+        }
+      }
+
+      const testProxy = resolveTestProxy(payload, config, effective.settings.values);
+      const isDecisions = effective.endpoint === '/v1/decisions';
+      let testModel = effective.model;
+      if (isDecisions && effective.source === 'manual' && (testModel === 'jev-latest' || !testModel)) {
+        testModel = 'typesafe-ai/jev';
+      }
+
+      const pingBody = isDecisions
+        ? {
+            model: testModel,
+            input: 'Ping check from DSH',
+            questions: [
+              {
+                type: 'predicate',
+                name: 'ping',
+                instructions: 'Is this a valid test ping?',
+              },
+            ],
+          }
+        : {
+            state: 'Ping check from DSH',
+            model: testModel,
+            questions: {
+              ping: { type: 'noul', instructions: 'Is this a valid test ping?' },
+            },
+          };
+
+      const start = Date.now();
+      const testRes = await httpRequest(
+        buildEndpointUrl(baseURL, effective.endpoint),
+        {
+          method: 'POST',
+          headers: buildHeaders(effective.headers, keyInfo.token),
+          body: JSON.stringify(pingBody),
+        },
+        config,
+        testProxy,
+      );
+      const testData = await testRes.json();
+      const durationMs = Date.now() - start;
+      if (testRes.ok) {
+        return rpcOk({
+          durationMs,
+          model: testModel,
+          source: effective.source,
+          provider: effective.providerId,
+          baseURL,
+          endpoint: effective.endpoint,
+          apiKeyFrom: keyInfo.from,
+          result: testData,
+        });
+      }
+      return rpcFailure(
+        'http-' + testRes.status,
+        testData?.error?.message || testData?.detail?.message || 'HTTP ' + testRes.status,
+        { status: testRes.status, body: testData },
+      );
+    } catch (error) {
+      return rpcFailure('request-failed', error.message);
+    }
+  }
+
+  return rpcFailure('unknown-method', '未知方法: ' + method);
 }
 
 /**
@@ -1483,15 +1577,27 @@ export function apply(ctx, config) {
       },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    execute: (args, exec) => requestSystemOne(args, exec, resolved),
+    execute: (args, exec) => requestDecision(args, exec, resolved),
   });
   if (resolved.policySection.enabled) registerPolicySection(ctx, resolved);
-  
+
   if (ctx.connection?.rpc?.handle) {
     ctx.connection.rpc.handle(
       SETTINGS_RPC_CHANNEL,
-      (method, payload) => handleSettingsRpc(ctx, resolved, method, payload),
+      (method, payload) => handleSettingsRpc(resolved, method, payload),
       { authority: 'trusted-host' },
     );
   }
 }
+
+/** 便于测试与诊断：导出内部工具函数。 */
+export const _internals = {
+  normalizeConfig,
+  normalizeSource,
+  resolveEffective,
+  resolveApiKey,
+  buildConfigView,
+  buildEndpointUrl,
+  maskKey,
+  isDecisionModel,
+};

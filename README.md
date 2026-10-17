@@ -8,17 +8,18 @@
 
 | 插件名称 | 目录 | 说明 | 最新独立版本 |
 | :--- | :--- | :--- | :--- |
-| **`dsh-plugin-manager`** | [`plugins/dsh-plugin-manager`](plugins/dsh-plugin-manager) | 插件管理中心与自有插件更新/卸载管理器（专属拼图图标、移动端全量响应式触控适配、自有插件一键批量更新(N)、社区21分类、静默直接复制指令、剪贴板写入全路径兜底、异步平滑重启与自动恢复） | [`v0.3.38`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-plugin-manager@v0.3.40) |
-| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.28`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.29) |
-| **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标、桌面端/Web版局域网地址自识别与端口展示、卡片化设置面板与访问地址一键复制） | [`v0.1.19`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.20) |
-| **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接插件（协议层外包给宿主官方 llm-pi-ai 适配器并自动材料化路由、Chat/completions/Anthropic messages/Responses 三格式、最高推理强度开关、OAuth 2.0 PKCE 认证、令牌过期前主动轮换与阶梯推理映射） | [`v0.3.12`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.3.14) |
+| **`dsh-plugin-manager`** | [`plugins/dsh-plugin-manager`](plugins/dsh-plugin-manager) | 插件管理中心与自有插件更新/卸载管理器（专属拼图图标、移动端全量响应式触控适配、自有插件一键批量更新(N)、社区21分类、静默直接复制指令、剪贴板写入全路径兜底、异步平滑重启与自动恢复） | [`v0.3.40`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-plugin-manager@v0.3.40) |
+| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.29`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.29) |
+| **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标、桌面端/Web版局域网地址自识别与端口展示、卡片化设置面板与访问地址一键复制） | [`v0.1.20`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.20) |
+| **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接插件（协议层外包给宿主官方 llm-pi-ai 适配器并自动材料化路由、Chat/completions/Anthropic messages/Responses 三格式、最高推理强度开关、OAuth 2.0 PKCE 认证、令牌过期前主动轮换与阶梯推理映射） | [`v0.3.14`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.3.14) |
 | **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、工作区工具箱整合文件查看器/本地终端/提示词历史、移动端右侧栏避让与一键返回对话、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、输入区聚焦防整页放大） | [`v0.1.44`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.44) |
-| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.1.49`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.2.3) |
-| **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.13`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.14) |
-| **`dsh-archive-manager`** | [`plugins/dsh-archive-manager`](plugins/dsh-archive-manager) | 会话归档管理器（侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间） | [`v0.2.11`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-archive-manager@v0.2.12) |
-| **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端提示词按钮归入工作区工具箱、自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.7`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.8) |
+| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word） | [`v0.2.3`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.2.3) |
+| **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.14`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.14) |
+| **`dsh-archive-manager`** | [`plugins/dsh-archive-manager`](plugins/dsh-archive-manager) | 会话归档管理器（侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间） | [`v0.2.12`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-archive-manager@v0.2.12) |
+| **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端提示词按钮归入工作区工具箱、自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.8`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.8) |
 | **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | ZCode Design System 视觉系统（深炭灰画布、暖橙红品牌色、首屏直出零闪烁、全量剔除宿主默认蓝、PC/平板/移动端共享视觉Token与气泡/输入框/终端材质全面重塑） | [`v0.1.37`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.1.37) |
-| **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | TypeSafe Jev (System One 决策模型) 原生工具插件（70ms 级进程内直连、Choice/Score/Noul 三大决策原语、Web 前端设置面板直接配置 API Key 与代理地址并测通、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.1.9`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.1.13) |
+| **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | 决策模型原生工具插件（可直接下拉选择 dsh 已配置的提供商与模型、或手写 baseURL/Key/模型 ID；默认仍为 TypeSafe Jev 官方地址、Choice/Score/Noul 三大决策原语、/v1/systemone 与 /v1/decisions 端点切换、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.2.0) |
+| **`dsh-image-gen`** | [`plugins/dsh-image-gen`](plugins/dsh-image-gen) | DSH 原生生图插件（把文生图作为原生工具暴露，可直接下拉选择 dsh 已配置的提供商与模型、或手动填写 baseURL/Key，内置尺寸与画质选择，支持 http/https/socks5 代理；设置面板可实时切换并测试连通性） | [`v0.1.2`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-image-gen@v0.1.2) |
 
 ---
 
@@ -70,8 +71,11 @@ dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/do
 # 9. 安装 ZCode 主题
 dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.1.37/dsh-zcode-theme-0.1.37.tgz
 
-# 10. 安装 TypeSafe Jev 决策模型
-dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.13/dsh-jev-0.1.13.tgz
+# 10. 安装决策模型（默认 TypeSafe Jev，也可选 dsh 已配置的提供商）
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.2.0/dsh-jev-0.2.0.tgz
+
+# 11. 安装文生图 (生图模型) 插件
+dsh plugin add --profile web https://github.com/veildawn/dsh-plugins/releases/download/dsh-image-gen@v0.1.2/dsh-image-gen-0.1.2.tgz
 ```
 
 ### 重启 DSH Web 服务生效

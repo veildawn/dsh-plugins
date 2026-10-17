@@ -1,0 +1,223 @@
+/**
+ * 提供商读取层（lib/provider.js）测试。
+ *
+ * 「直接下拉选择 dsh 已经配置好的提供商和模型」的数据来源就是这一层，必须覆盖：
+ *   - profile 层的 cordis*.yml 里 llm-pi-ai 行的 providers 被正确收集；
+ *   - settings.yaml / settings.yaml.imported 两个旧来源也被读取，且 profile 优先；
+ *   - 决策模型（jev / systemone / decision）被识别并排到前面；
+ *   - 凭证优先从 .credentials.yaml 取，其次环境变量；
+ *   - js-yaml 不可用（或遇到 !!js 标签）时内置子集解析器兜底。
+ *
+ * 全程只往 mkdtemp 的临时目录写，绝不碰真实的 ~/.dsh。
+ *
+ * Run: node test/provider.mjs
+ */
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+let failures = 0;
+function check(label, condition, extra) {
+  if (condition) {
+    console.log('PASS ' + label);
+  } else {
+    failures += 1;
+    console.log('FAIL ' + label + (extra === undefined ? '' : ' :: ' + extra));
+  }
+}
+
+const workDir = await mkdtemp(join(tmpdir(), 'dsh-jev-providers-'));
+const profileDir = join(workDir, 'profiles', 'web');
+await mkdir(profileDir, { recursive: true });
+
+// 必须在动态 import 之前设置：provider.js 在模块加载时读取 DSH_HOME / DSH_PROFILE。
+process.env.DSH_HOME = workDir;
+process.env.DSH_PROFILE = 'web';
+
+/** 一份贴近真实 dsh profile 的 llm-pi-ai 配置。 */
+const REAL_PROFILE = `
+- id: webserver
+  config:
+    port: 3080
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      ai-proxy:
+        displayName: AI Proxy
+        apiKeyEnv: AIPROXY_DSH_WEB_ACCESS_TOKEN
+        api: openai-responses
+        baseURL: http://192.168.1.253:8319/v1
+        headers:
+          x-ai-proxy-client: dsh
+        models:
+          - id: jev-latest
+            contextWindow: 200000
+          - id: deepseek-v4.1-flash
+            contextWindow: 1000000
+          - id: grok-imagine-image
+            contextWindow: 16000
+          - plain-string-model
+      other-provider:
+        displayName: Another
+        apiKeyEnv: OTHER_KEY
+        baseURL: https://api.example.com/v1
+        models:
+          - id: some-chat-model
+`;
+
+/** dsh 配置里真实存在的 `!!js` 标签，不能让整个文件解析失败。 */
+const JS_TAGGED = `
+- id: llm-pi-ai
+  config:
+    providers:
+      tagged:
+        displayName: Tagged Provider
+        apiKeyEnv: TAGGED_KEY
+        baseURL: https://tagged.example.com/v1
+        models:
+          - id: systemone
+`;
+
+/** 旧版 dsh 的 settings.yaml（0.1.x）：providers 挂在 llm-pi-ai 段下。 */
+const LEGACY_SETTINGS = `
+llm-pi-ai:
+  providers:
+    legacy:
+      displayName: Legacy
+      apiKeyEnv: LEGACY_KEY
+      baseURL: http://127.0.0.1:9999/v1
+      models:
+        - id: decision-model
+    ai-proxy:
+      displayName: Legacy AI Proxy
+      baseURL: http://127.0.0.1:1111/v1
+      models:
+        - id: legacy-only
+`;
+
+await writeFile(join(profileDir, 'cordis.yml'), '# profile root\n[]\n');
+await writeFile(join(profileDir, 'cordis.patch.yml'), REAL_PROFILE, 'utf8');
+await mkdir(join(workDir, 'profiles', 'tagged'), { recursive: true });
+await writeFile(join(workDir, 'profiles', 'tagged', 'cordis.patch.yml'), JS_TAGGED, 'utf8');
+await writeFile(join(workDir, 'settings.yaml'), LEGACY_SETTINGS, 'utf8');
+await writeFile(join(workDir, '.credentials.yaml'), `
+refs:
+  AIPROXY_DSH_WEB_ACCESS_TOKEN: cred-from-yaml
+  OTHER_KEY: other-from-yaml
+`, 'utf8');
+
+const provider = await import('../lib/provider.js');
+const {
+  getDshSystemProviders,
+  getCredentials,
+  inferDefaultProvider,
+  isDecisionModel,
+  resolveToken,
+  providerConfigSources,
+  _internals,
+} = provider;
+
+const opts = { dshHome: workDir, profile: 'web' };
+
+// ---------------------------------------------------------------------------
+// 1. config source discovery
+// ---------------------------------------------------------------------------
+const sources = providerConfigSources(opts);
+check('settings.yaml is read', sources.some((f) => f.endsWith('settings.yaml')));
+check('profile cordis.patch.yml is read', sources.some((f) => f.endsWith('cordis.patch.yml')));
+check('profile cordis.yml is read', sources.some((f) => f.endsWith('cordis.yml')));
+
+// ---------------------------------------------------------------------------
+// 2. provider collection
+// ---------------------------------------------------------------------------
+const providers = getDshSystemProviders(opts);
+check('collects ai-proxy from the profile layer', providers['ai-proxy'] !== undefined, Object.keys(providers).join(','));
+check('collects the legacy settings.yaml provider', providers.legacy !== undefined, Object.keys(providers).join(','));
+check('profile layer overrides the legacy provider row', providers['ai-proxy'].baseURL === 'http://192.168.1.253:8319/v1', providers['ai-proxy']?.baseURL);
+check('collects models from object entries', providers['ai-proxy'].models.includes('jev-latest'), JSON.stringify(providers['ai-proxy'].models));
+check('collects models from plain string entries', providers['ai-proxy'].models.includes('plain-string-model'), JSON.stringify(providers['ai-proxy'].models));
+check('keeps provider headers', providers['ai-proxy'].headers['x-ai-proxy-client'] === 'dsh', JSON.stringify(providers['ai-proxy'].headers));
+check('keeps provider apiKeyEnv', providers['ai-proxy'].apiKeyEnv === 'AIPROXY_DSH_WEB_ACCESS_TOKEN', providers['ai-proxy'].apiKeyEnv);
+check('uses displayName as the human name', providers['ai-proxy'].name === 'AI Proxy', providers['ai-proxy'].name);
+const taggedProviders = getDshSystemProviders({ dshHome: workDir, profile: 'tagged' });
+check('parses a provision containing !!js tags', taggedProviders.tagged !== undefined, Object.keys(taggedProviders).join(','));
+
+// ---------------------------------------------------------------------------
+// 3. decision-model detection
+// ---------------------------------------------------------------------------
+for (const model of ['jev-latest', 'typesafe-ai/jev', 'jev', 'systemone', 'decision-model', 'my-decision-classifier']) {
+  check('detects decision model: ' + model, isDecisionModel(model) === true, String(isDecisionModel(model)));
+}
+for (const model of ['deepseek-v4.1-flash', 'grok-imagine-image', 'plain-string-model']) {
+  check('does not misclassify: ' + model, isDecisionModel(model) === false, String(isDecisionModel(model)));
+}
+check(
+  'provider row exposes decisionModels',
+  providers['ai-proxy'].decisionModels.includes('jev-latest') &&
+    providers['ai-proxy'].decisionModels.length === 1,
+  JSON.stringify(providers['ai-proxy'].decisionModels),
+);
+
+// ---------------------------------------------------------------------------
+// 4. default provider inference
+// ---------------------------------------------------------------------------
+const inferred = inferDefaultProvider(opts);
+check('inferDefaultProvider picks a provider with a decision model', inferred.provider === 'ai-proxy', inferred.provider);
+check('inferDefaultProvider picks its decision model', inferred.model === 'jev-latest', inferred.model);
+
+// ---------------------------------------------------------------------------
+// 5. credentials + token resolution
+// ---------------------------------------------------------------------------
+const creds = getCredentials(opts);
+check('reads refs from .credentials.yaml', creds.AIPROXY_DSH_WEB_ACCESS_TOKEN === 'cred-from-yaml', JSON.stringify(creds));
+
+const declared = resolveToken({ apiKeyEnv: 'AIPROXY_DSH_WEB_ACCESS_TOKEN' }, { dshHome: workDir, env: {} });
+check('declared apiKeyEnv resolves from credentials', declared.token === 'cred-from-yaml' && declared.from === 'credentials:AIPROXY_DSH_WEB_ACCESS_TOKEN', JSON.stringify(declared));
+
+const fromEnv = resolveToken({ apiKeyEnv: 'ONLY_IN_ENV' }, { dshHome: workDir, env: { ONLY_IN_ENV: 'env-token' } });
+check('falls back to the environment', fromEnv.token === 'env-token' && fromEnv.from === 'env:ONLY_IN_ENV', JSON.stringify(fromEnv));
+
+const credentialsWin = resolveToken(
+  { apiKeyEnv: 'AIPROXY_DSH_WEB_ACCESS_TOKEN' },
+  { dshHome: workDir, env: { AIPROXY_DSH_WEB_ACCESS_TOKEN: 'env-token' } },
+);
+check('credentials win over the environment', credentialsWin.token === 'cred-from-yaml', JSON.stringify(credentialsWin));
+
+const missingDeclared = resolveToken(
+  { apiKeyEnv: 'DECLARED_BUT_MISSING' },
+  { dshHome: workDir, env: { TYPESAFE_API_KEY: 'should-not-be-used' } },
+);
+check(
+  'a declared but missing apiKeyEnv never falls through to another provider key',
+  missingDeclared.token === '' && missingDeclared.from === 'none',
+  JSON.stringify(missingDeclared),
+);
+
+const undeclared = resolveToken({ apiKeyEnv: '' }, { dshHome: workDir, env: { JEV_API_KEY: 'jev-key' } });
+check('an undeclared provider falls back to the shared Jev variable', undeclared.token === 'jev-key', JSON.stringify(undeclared));
+
+// ---------------------------------------------------------------------------
+// 6. built-in YAML fallback
+// ---------------------------------------------------------------------------
+const fallback = _internals.parseSimpleYaml(`
+llm-pi-ai:
+  providers:
+    p1:
+      displayName: P1
+      baseURL: http://127.0.0.1:1/v1
+      models:
+        - id: jev-latest
+`);
+check(
+  'the built-in YAML subset parser understands a provider block',
+  fallback?.['llm-pi-ai']?.providers?.p1?.baseURL === 'http://127.0.0.1:1/v1' &&
+    fallback['llm-pi-ai'].providers.p1.models[0].id === 'jev-latest',
+  JSON.stringify(fallback),
+);
+
+await rm(workDir, { recursive: true, force: true });
+
+console.log('');
+console.log(failures === 0 ? 'PROVIDER OK' : 'PROVIDER FAILED: ' + failures + ' check(s)');
+process.exit(failures === 0 ? 0 : 1);

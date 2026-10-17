@@ -1,9 +1,15 @@
 /**
  * dsh-jev 前端设置面板 (Client Settings UI)
  *
- * 在 DSH 的 Settings -> Jev 决策模型 中提供可视化的配置面板，
- * 允许用户在 Web 界面直接输入、查看与保存 TypeSafe API Key，
- * 并在前端提供即时测通验证。
+ * 在 DSH 的 Settings → 决策模型 中提供可视化配置：
+ *   - 来源切换：dsh 已配置的提供商（下拉） / 手动配置（baseUrl + API Key + 模型 ID）
+ *   - 提供商与模型下拉（模型列表来自 dsh 自身配置，决策模型排在前列）
+ *   - 接口端点下拉（/v1/systemone 官方原生协议 与 /v1/decisions 兼容 OpenAI）
+ *   - 代理地址（留空直连）
+ *   - 保存设置 / 测试连接
+ *
+ * 默认为 TypeSafe Jev 官方地址，但不再绑定 TypeSafe：任何兼容决策协议的服务
+ * 都可以通过「手动配置」或已经配置在 dsh 里的提供商接入。
  */
 
 window.__ModuleLoader__.load({
@@ -17,39 +23,98 @@ window.__ModuleLoader__.load({
     const SETTINGS_SLOT = "settings.section";
     const RPC_CHANNEL = "/dsh-jev-settings";
 
+    const DEFAULT_BASE_URL = "https://api.typesafe.ai";
+    const DEFAULT_ENDPOINTS = { manual: "/v1/systemone", provider: "/v1/decisions" };
+
     const css = `
-      .jev-settings{display:flex;flex-direction:column;gap:14px;width:100%;max-width:720px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
+      .jev-settings{display:flex;flex-direction:column;gap:14px;width:100%;max-width:760px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
       .jev-settings h2,.jev-settings p{margin:0}
       .jev-settings h2{font:var(--dsw-font-l-20);display:flex;align-items:center;gap:8px}
       .jev-intro{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14);line-height:20px}
       .jev-card{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-l,12px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform))}
+      .jev-row{display:flex;gap:12px;flex-wrap:wrap}
+      .jev-row>.jev-field{flex:1 1 220px}
       .jev-field{display:flex;flex-direction:column;gap:6px}
-      .jev-label{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500}
+      .jev-label{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;display:flex;align-items:center;gap:6px}
       .jev-input{box-sizing:border-box;width:100%;height:36px;padding:0 12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:8px;outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
       .jev-input:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}
+      .jev-input:disabled{opacity:.6;cursor:default}
+      select.jev-input{cursor:pointer}
+      select.jev-input option{background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary)}
       .jev-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:4px}
       .jev-btn{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:18px;background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer}
       .jev-btn:disabled{cursor:default;opacity:.5}
       .jev-btn-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff}
-      .jev-status{padding:10px 12px;border-radius:8px;font-size:12px;line-height:18px}
+      .jev-status{padding:10px 12px;border-radius:8px;font-size:12px;line-height:18px;white-space:pre-wrap}
       .jev-status.ok{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#22c55e) 10%,transparent);color:var(--dsw-alias-state-success-primary,#22c55e)}
       .jev-status.err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
       .jev-hint{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}
-      .jev-input:disabled{opacity:.6;cursor:default}
-      select.jev-input{cursor:pointer}
-      select.jev-input option{background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary)}
+      .jev-tag{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:9px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 14%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe);font-size:11px;line-height:18px}
+      .jev-tag.muted{background:color-mix(in srgb,var(--dsw-alias-label-tertiary,#888) 16%,transparent);color:var(--dsw-alias-label-tertiary,#888)}
     `;
+
+    /** 把 dsh 提供商行渲染成下拉选项。 */
+    function providerOptions(providers, activeId) {
+      const list = Array.isArray(providers) ? providers : [];
+      if (list.length === 0) {
+        return [react.createElement("option", { key: "empty", value: "" }, "（dsh 模型配置里没有提供商）")];
+      }
+      const options = list.map((p) =>
+        react.createElement("option", { key: p.id, value: p.id },
+          (p.name && p.name !== p.id ? p.name + "（" + p.id + "）" : p.id) +
+          (Array.isArray(p.decisionModels) && p.decisionModels.length > 0
+            ? " — " + p.decisionModels.length + " 个决策模型"
+            : ""))
+      );
+      if (activeId && !list.some((p) => p.id === activeId)) {
+        options.unshift(react.createElement("option", { key: "missing", value: activeId }, activeId + "（未在配置中找到）"));
+      }
+      return options;
+    }
+
+    /** 模型下拉：决策模型优先，其余排后面。 */
+    function modelOptions(models, decisionModels, activeModel) {
+      const preferred = Array.isArray(decisionModels) ? decisionModels : [];
+      const rest = (Array.isArray(models) ? models : []).filter((m) => preferred.indexOf(m) === -1);
+      const options = [];
+      if (preferred.length > 0) {
+        options.push(react.createElement("optgroup", { key: "g-decision", label: "决策模型" },
+          preferred.map((m) => react.createElement("option", { key: "decision-" + m, value: m }, m))));
+      }
+      if (rest.length > 0) {
+        options.push(react.createElement("optgroup", { key: "g-other", label: "其它模型（不保证支持决策协议）" },
+          rest.map((m) => react.createElement("option", { key: "other-" + m, value: m }, m))));
+      }
+      if (activeModel && preferred.indexOf(activeModel) === -1 && rest.indexOf(activeModel) === -1) {
+        options.unshift(react.createElement("option", { key: "active", value: activeModel }, activeModel + "（当前）"));
+      }
+      if (options.length === 0) {
+        options.push(react.createElement("option", { key: "empty", value: "" }, "（该提供商没有配置模型）"));
+      }
+      return options;
+    }
 
     function JevSettings(props) {
       const { rpcCall } = props || {};
-      const [apiKey, setApiKey] = react.useState("");
-      const [baseURL, setBaseURL] = react.useState("https://api.typesafe.ai");
-      const [baseURLLocked, setBaseURLLocked] = react.useState(false);
-      const [endpoint, setEndpoint] = react.useState("/v1/systemone");
-      const [endpointLocked, setEndpointLocked] = react.useState(false);
+      const [source, setSource] = react.useState("manual");
+      const [providers, setProviders] = react.useState([]);
+      const [provider, setProvider] = react.useState("");
+      const [models, setModels] = react.useState([]);
+      const [decisionModels, setDecisionModels] = react.useState([]);
       const [model, setModel] = react.useState("jev-latest");
+      const [baseURL, setBaseURL] = react.useState(DEFAULT_BASE_URL);
+      const [manualBaseURL, setManualBaseURL] = react.useState(DEFAULT_BASE_URL);
+      const [baseURLLocked, setBaseURLLocked] = react.useState(false);
+      const [endpoint, setEndpoint] = react.useState(DEFAULT_ENDPOINTS.manual);
+      const [endpointDefaults, setEndpointDefaults] = react.useState({ ...DEFAULT_ENDPOINTS });
+      const [endpointLocked, setEndpointLocked] = react.useState(false);
+      const [apiKey, setApiKey] = react.useState("");
+      const [apiKeyConfigured, setApiKeyConfigured] = react.useState(false);
+      const [apiKeyFrom, setApiKeyFrom] = react.useState("");
       const [proxy, setProxy] = react.useState("");
       const [proxyLocked, setProxyLocked] = react.useState(false);
+      const [configSource, setConfigSource] = react.useState("");
+      const [modelWarning, setModelWarning] = react.useState("");
       const [status, setStatus] = react.useState(null);
       const [loading, setLoading] = react.useState(false);
       const [testing, setTesting] = react.useState(false);
@@ -60,18 +125,29 @@ window.__ModuleLoader__.load({
         setLoading(true);
         rpcCall("getConfig", {})
           .then((data) => {
-            if (!active) return;
-            if (data.apiKey) setApiKey(data.apiKey);
-            if (typeof data.baseURL === "string" && data.baseURL) setBaseURL(data.baseURL);
+            if (!active || !data) return;
+            if (data.source) setSource(data.source);
+            setProviders(Array.isArray(data.providers) ? data.providers : []);
+            if (data.provider) setProvider(data.provider);
+            setModels(Array.isArray(data.models) ? data.models : []);
+            setDecisionModels(Array.isArray(data.decisionModels) ? data.decisionModels : []);
+            if (data.model) setModel(data.model);
+            if (typeof data.baseURL === "string") setBaseURL(data.baseURL);
+            if (typeof data.manualBaseURL === "string" && data.manualBaseURL) setManualBaseURL(data.manualBaseURL);
             setBaseURLLocked(data.baseURLLocked === true);
             if (typeof data.endpoint === "string" && data.endpoint) setEndpoint(data.endpoint);
             setEndpointLocked(data.endpointLocked === true);
-            if (data.model) setModel(data.model);
+            if (data.endpointDefaults && typeof data.endpointDefaults === "object") {
+              setEndpointDefaults({ ...DEFAULT_ENDPOINTS, ...data.endpointDefaults });
+            }
+            if (typeof data.apiKey === "string") setApiKey(data.apiKey);
+            setApiKeyConfigured(data.configured === true);
+            setApiKeyFrom(typeof data.apiKeyFrom === "string" ? data.apiKeyFrom : "");
             if (typeof data.proxy === "string") setProxy(data.proxy);
             setProxyLocked(data.proxyLocked === true);
-            if (data.configured) {
-              setStatus({ ok: true, msg: "已从系统环境或配置文件成功加载密钥" });
-            }
+            setConfigSource(typeof data.configSource === "string" ? data.configSource : "");
+            setModelWarning(typeof data.modelWarning === "string" ? data.modelWarning : "");
+            if (data.configError) setStatus({ ok: false, msg: data.configError });
           })
           .catch((err) => {
             if (active) setStatus({ ok: false, msg: "读取配置失败: " + err.message });
@@ -82,32 +158,86 @@ window.__ModuleLoader__.load({
         return () => { active = false; };
       }, [rpcCall]);
 
+      /** 切换提供商时，把模型下拉收敛到该提供商（优先决策模型）。 */
+      const applyProvider = (id) => {
+        setProvider(id);
+        const row = providers.find((p) => p.id === id);
+        const nextModels = row && Array.isArray(row.models) ? row.models : [];
+        const nextDecision = row && Array.isArray(row.decisionModels) ? row.decisionModels : [];
+        setModels(nextModels);
+        setDecisionModels(nextDecision);
+        if (row && typeof row.baseURL === "string") setBaseURL(row.baseURL);
+        if (nextModels.indexOf("jev-latest") !== -1) setModel("jev-latest");
+        else if (nextDecision.length > 0) setModel(nextDecision[0]);
+        else if (nextModels.length > 0) setModel(nextModels[0]);
+        setModelWarning("");
+      };
+
+      /** 切换来源时，端点与接口地址跟随该来源的已保存/默认值（用户显式锁定的除外）。 */
+      const switchSource = (next) => {
+        const previous = source;
+        setSource(next);
+        if (!endpointLocked) {
+          setEndpoint(endpointDefaults[next] || DEFAULT_ENDPOINTS[next] || DEFAULT_ENDPOINTS.manual);
+        }
+        if (next === "provider") {
+          // 记住手写地址，切回手动配置时恢复，而不是把提供商的地址留在输入框里。
+          if (previous === "manual") setManualBaseURL(baseURL);
+          const current = providers.find((p) => p.id === provider);
+          const id = current ? provider : (providers[0] ? providers[0].id : "");
+          if (id) applyProvider(id);
+        } else if (previous !== "manual") {
+          setBaseURL(manualBaseURL || DEFAULT_BASE_URL);
+        }
+        setStatus(null);
+      };
+
+      const buildPayload = () => {
+        const payload = { source, endpoint, proxy: proxy.trim(), apiKey: apiKey.trim() };
+        if (source === "provider") {
+          payload.provider = provider;
+          payload.model = model;
+        } else {
+          payload.baseURL = baseURL.trim();
+          payload.model = model;
+        }
+        return payload;
+      };
+
+      const refresh = () => {
+        rpcCall("getConfig", {}).then((data) => {
+          if (!data) return;
+          if (data.source) setSource(data.source);
+          setProviders(Array.isArray(data.providers) ? data.providers : []);
+          if (data.provider) setProvider(data.provider);
+          setModels(Array.isArray(data.models) ? data.models : []);
+          setDecisionModels(Array.isArray(data.decisionModels) ? data.decisionModels : []);
+          if (data.model) setModel(data.model);
+          if (typeof data.baseURL === "string") setBaseURL(data.baseURL);
+          if (typeof data.manualBaseURL === "string" && data.manualBaseURL) setManualBaseURL(data.manualBaseURL);
+          if (typeof data.endpoint === "string" && data.endpoint) setEndpoint(data.endpoint);
+          if (typeof data.apiKey === "string") setApiKey(data.apiKey);
+          setApiKeyConfigured(data.configured === true);
+          setApiKeyFrom(typeof data.apiKeyFrom === "string" ? data.apiKeyFrom : "");
+          if (typeof data.proxy === "string") setProxy(data.proxy);
+          setModelWarning(typeof data.modelWarning === "string" ? data.modelWarning : "");
+        }).catch(() => {});
+      };
+
       const save = async () => {
         if (!rpcCall) return;
         setLoading(true);
+        setStatus(null);
         try {
-          const res = await rpcCall("saveConfig", {
-            apiKey: apiKey.trim(),
-            baseURL: baseURL.trim(),
-            endpoint,
-            model,
-            proxy: proxy.trim(),
-          });
-          if (res === true || (res && res.ok)) {
-            setStatus({ ok: true, msg: "设置已保存成功！已写入本地配置" });
-            rpcCall("getConfig", {}).then((data) => {
-              if (data && typeof data.baseURL === "string") {
-                setBaseURL(data.baseURL);
-              }
-              if (data && typeof data.endpoint === "string") {
-                setEndpoint(data.endpoint);
-              }
-            }).catch(() => {});
+          const res = await rpcCall("saveConfig", buildPayload());
+          if (res === true || (res && res.ok !== false)) {
+            setStatus({ ok: true, msg: "设置已保存！" });
+            refresh();
           } else {
-            setStatus({ ok: false, msg: res?.error || "保存失败" });
+            setStatus({ ok: false, msg: (res && (res.error?.message || res.error)) || "保存失败" });
           }
         } catch (err) {
-          setStatus({ ok: false, msg: "保存发生异常：" + err.message });
+          setStatus({ ok: false, msg: "保存发生异常：" + (err?.message || err) });
         } finally {
           setLoading(false);
         }
@@ -118,19 +248,17 @@ window.__ModuleLoader__.load({
         setTesting(true);
         setStatus(null);
         try {
-          const res = await rpcCall("testConnection", {
-            apiKey: apiKey.trim(),
-            baseURL: baseURL.trim(),
-            endpoint,
-            model,
-            proxy: proxy.trim(),
-          });
+          const res = await rpcCall("testConnection", buildPayload());
           if (res && res.durationMs !== undefined) {
-            const via = proxy.trim() ? "（经代理）" : "（直连）";
-            const target = (baseURL.trim() || "https://api.typesafe.ai") + (endpoint || "/v1/systemone");
-            setStatus({ ok: true, msg: `✓ 连接成功！[${target}] Jev 模型响应正常 ${via} (${res.durationMs}ms)` });
+            const target = (res.source === "provider" ? "提供商 " + res.provider + " " : "") +
+              (res.baseURL || "") + (res.endpoint || "");
+            setStatus({
+              ok: true,
+              msg: "✓ 连接成功！[" + target + "] 决策模型 " + res.model + " 响应正常（" +
+                (res.apiKeyFrom ? "Key 来源：" + res.apiKeyFrom + "， " : "") + res.durationMs + "ms）",
+            });
           } else {
-            setStatus({ ok: false, msg: `连接失败：${res?.error || "未能连通接口服务"}` });
+            setStatus({ ok: false, msg: "连接失败：" + ((res && res.error) || "未能连通决策接口") });
           }
         } catch (err) {
           setStatus({ ok: false, msg: "测试请求失败：" + err.message });
@@ -139,39 +267,116 @@ window.__ModuleLoader__.load({
         }
       };
 
+      const isProvider = source === "provider";
+      const keyHint = isProvider
+        ? (apiKeyConfigured
+          ? "Key 来源：" + (apiKeyFrom || "提供商配置") + "。留空保存表示继续使用该来源；填写则覆盖提供商自动解析的 Key。"
+          : "该提供商没有解析到 Key。可在此填写，或配置其 apiKeyEnv 指向的环境变量 / ~/.dsh/.credentials.yaml。")
+        : (apiKeyConfigured
+          ? "Key 来源：" + (apiKeyFrom || "本地配置") + "。留空保存表示保持原值；清空后保存可删除已存 Key。"
+          : "该 Key 只写入本机设置文件，不会进入模型上下文。");
+
       return react.createElement("div", { className: "jev-settings" },
         react.createElement("style", null, css),
-        react.createElement("h2", null, "TypeSafe Jev 设置"),
+        react.createElement("h2", null, "决策模型设置"),
         react.createElement("p", { className: "jev-intro" },
-          "TypeSafe Jev (System One) 决策模型配置。无需派生子进程，提供毫秒级强类型概率决策。"
+          "配置 jev_decide 决策工具使用的接口。可以直接下拉选择 dsh 已配置的提供商与模型，" +
+          "也可以手写任意兼容决策协议的服务地址与 API Key。默认为 TypeSafe Jev 官方地址 https://api.typesafe.ai，但不再局限于 TypeSafe。"
         ),
         react.createElement("div", { className: "jev-card" },
+          // 来源切换
           react.createElement("label", { className: "jev-field" },
-            react.createElement("span", { className: "jev-label" }, "TypeSafe API Key"),
-            react.createElement("input", {
+            react.createElement("span", { className: "jev-label" }, "配置来源"),
+            react.createElement("select", {
               className: "jev-input",
-              type: "password",
-              value: apiKey,
-              placeholder: "ts-...",
-              onChange: (e) => setApiKey(e.target.value),
-            })
-          ),
-          react.createElement("label", { className: "jev-field" },
-            react.createElement("span", { className: "jev-label" }, "接口地址"),
-            react.createElement("input", {
-              className: "jev-input",
-              type: "text",
-              value: baseURL,
-              disabled: baseURLLocked,
-              placeholder: "https://api.typesafe.ai",
-              onChange: (e) => setBaseURL(e.target.value),
-            }),
+              value: source,
+              onChange: (e) => switchSource(e.target.value),
+            },
+              react.createElement("option", { value: "manual" }, "手动配置接口地址与 API Key"),
+              react.createElement("option", { value: "provider" }, "dsh 已配置的提供商（下拉选择）")
+            ),
             react.createElement("p", { className: "jev-hint" },
-              baseURLLocked
-                ? "接口地址已由插件配置（baseURL）固定，如需修改请编辑 Profile 配置后重启。"
-                : "默认为官方地址 https://api.typesafe.ai。可自定义配置为其它地址，如：本地接口服务地址（http://127.0.0.1:8000）。"
+              isProvider
+                ? "列表来自 dsh 自身的模型配置（llm-pi-ai 的 providers），baseUrl、请求头与 Key 都按提供商配置解析。"
+                : "默认是 TypeSafe Jev 官方地址；也可填任意兼容 /v1/systemone 或 /v1/decisions 的服务。"
             )
           ),
+
+          isProvider
+            ? react.createElement("label", { className: "jev-field" },
+              react.createElement("span", { className: "jev-label" }, "提供商"),
+              react.createElement("select", {
+                className: "jev-input",
+                value: provider,
+                onChange: (e) => applyProvider(e.target.value),
+              }, providerOptions(providers, provider)),
+              react.createElement("p", { className: "jev-hint" },
+                providers.length === 0
+                  ? "未在 dsh 模型配置里找到提供商：可切到「手动配置」，或先在 Profile 的 llm-pi-ai 行里添加。"
+                  : "选中的提供商决定 baseUrl、请求头与 API Key 的来源。"
+              )
+            )
+            : null,
+
+          isProvider
+            ? react.createElement("label", { className: "jev-field" },
+              react.createElement("span", { className: "jev-label" }, "接口地址（由提供商决定）"),
+              react.createElement("input", {
+                className: "jev-input",
+                type: "text",
+                value: baseURL,
+                disabled: true,
+                readOnly: true,
+              })
+            )
+            : react.createElement("label", { className: "jev-field" },
+              react.createElement("span", { className: "jev-label" }, "接口地址"),
+              react.createElement("input", {
+                className: "jev-input",
+                type: "text",
+                value: baseURL,
+                disabled: baseURLLocked,
+                placeholder: DEFAULT_BASE_URL,
+                onChange: (e) => setBaseURL(e.target.value),
+              }),
+              react.createElement("p", { className: "jev-hint" },
+                baseURLLocked
+                  ? "接口地址已由插件配置（baseURL）固定，如需修改请编辑 Profile 配置后重启。"
+                  : "默认为官方地址 https://api.typesafe.ai。可自定义为其它地址，如：本地接口服务地址（http://127.0.0.1:8000）。"
+              )
+            ),
+
+          isProvider
+            ? react.createElement("label", { className: "jev-field" },
+              react.createElement("span", { className: "jev-label" },
+                "模型",
+                modelWarning ? react.createElement("span", { className: "jev-tag muted" }, "不在提供商模型列表") : null
+              ),
+              react.createElement("select", {
+                className: "jev-input",
+                value: model,
+                onChange: (e) => setModel(e.target.value),
+              }, modelOptions(models, decisionModels, model)),
+              react.createElement("p", { className: "jev-hint" },
+                decisionModels.length > 0
+                  ? "优先展示识别到的决策模型；其它模型也能选，但不保证支持决策协议。"
+                  : "该提供商没有识别到决策模型（jev / systemone / decision），请确认所选模型支持决策协议。"
+              )
+            )
+            : react.createElement("label", { className: "jev-field" },
+              react.createElement("span", { className: "jev-label" }, "默认决策模型"),
+              react.createElement("input", {
+                className: "jev-input",
+                type: "text",
+                value: model,
+                placeholder: "jev-latest",
+                onChange: (e) => setModel(e.target.value),
+              }),
+              react.createElement("p", { className: "jev-hint" },
+                "模型 ID，默认 jev-latest；以其它服务为准，例如自定义部署的决策模型名。"
+              )
+            ),
+
           react.createElement("label", { className: "jev-field" },
             react.createElement("span", { className: "jev-label" }, "接口端点"),
             react.createElement("select", {
@@ -180,24 +385,35 @@ window.__ModuleLoader__.load({
               disabled: endpointLocked,
               onChange: (e) => setEndpoint(e.target.value),
             },
-              react.createElement("option", { value: "/v1/systemone" }, "/v1/systemone（官方默认）"),
+              react.createElement("option", { value: "/v1/systemone" }, "/v1/systemone（官方原生协议）"),
               react.createElement("option", { value: "/v1/decisions" }, "/v1/decisions（兼容 OpenAI）")
             ),
             react.createElement("p", { className: "jev-hint" },
               endpointLocked
                 ? "接口端点已由插件配置（endpoint）固定，如需修改请编辑 Profile 配置后重启。"
-                : "默认为 /v1/systemone。如对接兼容 OpenAI 决策协议的本地或第三方服务，可切换为 /v1/decisions。"
+                : (isProvider
+                  ? "默认为 /v1/decisions（dsh 提供商通常是 OpenAI 兼容网关）；若提供商直接暴露官方原生协议，可切回 /v1/systemone。"
+                  : "默认为 /v1/systemone。如对接兼容 OpenAI 决策协议的本地或第三方服务，可切换为 /v1/decisions。")
             )
           ),
+
           react.createElement("label", { className: "jev-field" },
-            react.createElement("span", { className: "jev-label" }, "默认决策模型"),
+            react.createElement("span", { className: "jev-label" },
+              "API Key",
+              apiKeyConfigured
+                ? react.createElement("span", { className: "jev-tag" }, "已配置")
+                : null
+            ),
             react.createElement("input", {
               className: "jev-input",
-              type: "text",
-              value: model,
-              onChange: (e) => setModel(e.target.value),
-            })
+              type: "password",
+              value: apiKey,
+              placeholder: apiKeyConfigured ? "已保存（留空表示不修改）" : (isProvider ? "留空则按提供商 apiKeyEnv 自动解析" : "ts-..."),
+              onChange: (e) => setApiKey(e.target.value),
+            }),
+            react.createElement("p", { className: "jev-hint" }, keyHint)
           ),
+
           react.createElement("label", { className: "jev-field" },
             react.createElement("span", { className: "jev-label" }, "代理地址"),
             react.createElement("input", {
@@ -211,12 +427,17 @@ window.__ModuleLoader__.load({
             react.createElement("p", { className: "jev-hint" },
               proxyLocked
                 ? "代理地址已由插件配置（proxy）固定，如需修改请编辑 Profile 配置后重启。"
-                : "留空表示直连。填写后，发往 *.typesafe.ai 的请求将全部经该代理转发。" +
-                  "支持 http://、https://、socks5://、socks5h://；省略协议时按 http 处理；" +
-                  "需要认证时写成 http://user:password@host:port。"
+                : "留空表示直连。填写后，发往代理范围内主机的请求将全部经该代理转发。" +
+                  "支持 http://、https://、socks5://、socks5h://；需要认证时写成 http://user:password@host:port。"
             )
           ),
+
+          configSource
+            ? react.createElement("p", { className: "jev-hint" }, "配置来源：" + configSource)
+            : null,
+
           status ? react.createElement("div", { className: `jev-status ${status.ok ? "ok" : "err"}` }, status.msg) : null,
+
           react.createElement("div", { className: "jev-actions" },
             react.createElement("button", {
               className: "jev-btn",
@@ -238,7 +459,7 @@ window.__ModuleLoader__.load({
     const NAV_STYLE_ID = "dsh-jev-nav-styles";
     const navCss = 'button:has([data-settings-nav-label="dsh-jev"]) > svg:first-child{display:none}';
 
-    function IconSparkles16({ size = 16 }) {
+    function IconDecision16({ size = 16 }) {
       return react.createElement("svg", {
         width: size,
         height: size,
@@ -249,8 +470,12 @@ window.__ModuleLoader__.load({
         strokeLinecap: "round",
         strokeLinejoin: "round",
       },
-        react.createElement("path", { d: "m8 1 1.7 4.3L14 7l-4.3 1.7L8 13l-1.7-4.3L2 7l4.3-1.7z" }),
-        react.createElement("path", { d: "M13 12l.6 1.4L15 14l-1.4.6L13 16l-.6-1.4L11 14l1.4-.6z" })
+        react.createElement("circle", { cx: "8", cy: "3", r: "1.6" }),
+        react.createElement("path", { d: "M8 4.6v2.2" }),
+        react.createElement("path", { d: "M8 6.8 4.2 9.4" }),
+        react.createElement("path", { d: "M8 6.8 11.8 9.4" }),
+        react.createElement("circle", { cx: "4.2", cy: "11", r: "1.5" }),
+        react.createElement("circle", { cx: "11.8", cy: "11", r: "1.5" })
       );
     }
 
@@ -270,15 +495,15 @@ window.__ModuleLoader__.load({
         }
         const result = await rpc.call(RPC_CHANNEL, method, payload || {});
         if (result && result.ok === true) return result.value;
-        throw new Error(result?.error?.message || "请求失败");
+        throw new Error(result?.error?.message || (typeof result?.error === "string" ? result.error : "请求失败"));
       };
 
       const label = () => react.createElement("span", {
         "data-settings-nav-label": "dsh-jev",
         style: { display: "inline-flex", alignItems: "center", gap: 8 },
       },
-        react.createElement(IconSparkles16, { size: 16 }),
-        react.createElement("span", null, "Jev 决策模型")
+        react.createElement(IconDecision16, { size: 16 }),
+        react.createElement("span", null, "决策模型")
       );
 
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({

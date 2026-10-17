@@ -1,23 +1,23 @@
-# Example overlay for the native TypeSafe transport.
+# 决策模型插件（dsh-jev）的 cordis patch 示例。
 #
-# Apply it without touching any profile, from the cloned repository root:
-#   dsh web --patch "$(pwd)/dsh.patch.yml"
+# 在 cloned 仓库根目录下用 overlay 方式加载：
+#   dsh web --patch "$(pwd)/cordis.patch.yml"
 #
-# The key is never written here: it resolves from $TYPESAFE_API_KEY, then
-# $JEV_API_KEY, then ~/.config/typesafe/key (override with keyFile).
+# `name` 保持相对路径：loader 会把相对 name 解析为「本 patch 文件所在目录」，
+# 因此 './lib/index.js' 在 checkout overlay 下是 <repo>/lib/index.js，
+# 在安装包里则是 <pkg>/lib/index.js。
 #
-# `name` stays relative on purpose: the loader resolves a relative name against
-# the directory of THIS patch file, so './lib/index.js' means <repo>/lib/index.js
-# when applied as a checkout overlay, and <pkg>/lib/index.js when the same file
-# ships inside the installed package as its dsh.bundle.patch layer.
+# 两种配置来源任选其一：
+#   1. source: provider —— 直接用 dsh 已经配置好的提供商与模型（推荐；
+#      baseUrl / 请求头 / API Key 全部按 llm-pi-ai 的 provider 行解析）；
+#   2. source: manual   —— 手写 baseUrl + API Key（默认官方地址
+#      https://api.typesafe.ai）。
 #
-# policySection is deliberately NOT written here. Its fields are optional and
-# default to the trigger policy (enabled: true, order = the systemPrompt order
-# of 'MCP_SERVERS' + 10), so omitting it keeps this example's config key set
-# unchanged while the resident 'jev-decision-policy' prompt section still
-# registers. Add it only to opt out or re-place that section, e.g.
+# policySection 故意不写：字段可选，默认启用触发策略（enabled: true，
+# order = systemPrompt 的 'MCP_SERVERS' 顺序 + 10），因此常驻的
+# 'jev-decision-policy' 切面仍会注册。只有想禁用或调整位置时才写：
 #   policySection: { enabled: false }
-# or
+# 或
 #   policySection: { order: -5000 }
 - insert:
     - id: tool-jev
@@ -26,21 +26,37 @@
         - tools
         - connection
       config:
-        transport: typesafe
-        model: jev-latest
-        apiKeyEnv: TYPESAFE_API_KEY
-        timeoutMs: 60000
+        # 默认是手动配置：保留 TypeSafe 官方地址。
+        source: manual
+
+        # —— 手动配置（source: manual）——
+        # model: jev-latest
         # Optional API base URL. Defaults to the official endpoint https://api.typesafe.ai.
-        # Can be set to a custom or local server endpoint, e.g. 'http://127.0.0.1:8000'.
-        # A baseURL saved from the settings UI lives in ~/.config/typesafe/settings.json
-        # and is overridden by this config.
+        # Can be set to any compatible decision service, e.g. 'http://127.0.0.1:8000'.
+        # A baseURL saved from the settings UI lives in ~/.dsh/jev/settings.json
+        # (legacy: ~/.config/typesafe/settings.json) and is overridden by this config.
         # baseURL: https://api.typesafe.ai
-        # Optional API endpoint. Options: '/v1/systemone' (default) or '/v1/decisions' (OpenAI-compatible).
+
+        # —— dsh 已配置的提供商（source: provider）——
+        # provider: ai-proxy
+        # model: jev-latest
+
+        # Optional API endpoint. Options: '/v1/systemone' (native, default for manual)
+        # or '/v1/decisions' (OpenAI-compatible, default for provider).
         # endpoint: /v1/systemone
+
+        # Key resolution (manual mode): explicit apiKey > $TYPESAFE_API_KEY /
+        # $JEV_API_KEY > ~/.config/typesafe/key. In provider mode the provider's
+        # apiKeyEnv is resolved from ~/.dsh/.credentials.yaml first, then env.
+        # apiKeyEnv: TYPESAFE_API_KEY
+
+        # timeout / retry
+        timeoutMs: 60000
+        retries: 0
+
         # Optional egress proxy. Leave it out (or empty) to connect directly;
-        # when set, every request to *.typesafe.ai goes through this proxy.
+        # when set, requests to the hosts in proxyHosts go through this proxy.
         # Accepts http://, https://, socks5:// and socks5h:// (credentials as
-        # http://user:password@host:port). A proxy saved from the settings UI
-        # lives in ~/.config/typesafe/settings.json and is overridden by this.
+        # http://user:password@host:port).
         # proxy: 'http://127.0.0.1:7890'
         # proxyHosts: ['typesafe.ai']   # which targets use the proxy ('*' = all)
