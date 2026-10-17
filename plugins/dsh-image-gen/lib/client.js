@@ -165,19 +165,22 @@ window.__ModuleLoader__.load({
       const save = async () => {
         if (!rpcCall) return;
         setLoading(true);
+        setStatus(null);
         try {
           const payload = { source, provider, model, size, quality, proxy: proxy.trim() };
           if (source === "manual") payload.baseURL = baseURL.trim();
           if (apiKey.trim()) payload.apiKey = apiKey.trim();
           const res = await rpcCall("saveConfig", payload);
-          if (res === true || (res && res.ok)) {
+          if (res === true || (res && res.ok !== false)) {
             setApiKey("");
             setStatus({ ok: true, msg: "设置已保存！" + (source === "provider" ? "已写入本地生图配置" : "") });
+            if (res && res.configSource) setConfigSource(res.configSource);
+            if (res && res.apiKeyConfigured !== undefined) setApiKeyConfigured(res.apiKeyConfigured === true);
           } else {
-            setStatus({ ok: false, msg: (res && res.error) || "保存失败" });
+            setStatus({ ok: false, msg: (res && (res.error?.message || res.error)) || "保存失败" });
           }
         } catch (err) {
-          setStatus({ ok: false, msg: "保存发生异常：" + err.message });
+          setStatus({ ok: false, msg: "保存发生异常：" + (err?.message || err) });
         } finally {
           setLoading(false);
         }

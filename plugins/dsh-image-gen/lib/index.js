@@ -542,7 +542,7 @@ async function handleSettingsRpc(resolved, method, payload = {}) {
       }
 
       writeSettingsFile(resolved.settingsFile, patch, { source: 'user-set' });
-      return rpcOk(buildConfigView(resolved));
+      return rpcOk({ ok: true, ...buildConfigView(resolved) });
     } catch (err) {
       return rpcFailure('save-failed', err.message);
     }

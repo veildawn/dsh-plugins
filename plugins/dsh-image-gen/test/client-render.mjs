@@ -384,6 +384,12 @@ check('renders the save button', saveBtn !== undefined);
 const testBtn = findAll(tree, (n) => n.type === 'button' && n.children?.[0] === '测试连接')[0];
 check('renders the test button', testBtn !== undefined);
 
+/** 状态条文本（status.msg 直接作为 children 传入）。 */
+const statusText = (t) => {
+  const node = findAll(t, (n) => typeof n.props?.className === 'string' && n.props.className.startsWith('img-status'))[0];
+  return String(node?.children?.[0] ?? '');
+};
+
 sent.length = 0;
 await saveBtn.props.onClick();
 check('save sends the source mode', sent.at(-1)?.method === 'saveConfig' && sent.at(-1).payload.source === 'provider', JSON.stringify(sent.at(-1)));
@@ -393,16 +399,13 @@ check('save sends the size', sent.at(-1).payload.size === '1024x1024');
 check('save sends the quality', sent.at(-1).payload.quality === 'auto');
 check('save sends the proxy', typeof sent.at(-1).payload.proxy === 'string');
 check('save omits baseURL in provider mode', sent.at(-1).payload.baseURL === undefined, JSON.stringify(Object.keys(sent.at(-1).payload)));
+tree = render(spyRpc);
+check('save reports success status', statusText(tree).includes('设置已保存'), statusText(tree));
 
 sent.length = 0;
 await testBtn.props.onClick();
 check('test uses the same payload shape', sent.at(-1)?.method === 'testConnection' && sent.at(-1).payload.provider === 'ai-proxy' && sent.at(-1).payload.size === '1024x1024', JSON.stringify(sent.at(-1)));
 tree = render(spyRpc);
-/** 状态条文本（status.msg 直接作为 children 传入）。 */
-const statusText = (t) => {
-  const node = findAll(t, (n) => typeof n.props?.className === 'string' && n.props.className.startsWith('img-status'))[0];
-  return String(node?.children?.[0] ?? '');
-};
 check('test reports success with the route', statusText(tree).includes('连接成功'), statusText(tree));
 check('a successful test says it was direct', statusText(tree).includes('直连'), statusText(tree));
 
