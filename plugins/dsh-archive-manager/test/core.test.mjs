@@ -486,8 +486,12 @@ test('client: bundle loads through __ModuleLoader__ with the single-arg factory 
   const exportsObj = entry.factory((name) => {
     if (name === 'react') return fakeReact;
     if (name === '@deepseek-ai/dsh-client-ui-primitives') {
+      // 0.2.1-rc.2 renames the icon exports: `Icon*20` → `Icon*Regular`/`Icon*Medium`.
+      // Hand back only the current names so this asserts the bundle's prefer-new
+      // fallback chain, not a stale export.
       return {
-        IconArchiveOutline20: ({ size, className }) => fakeReact.createElement('svg', { size, className }),
+        IconArchiveOutlineRegular: ({ size, className }) => fakeReact.createElement('svg', { size, className, 'data-variant': 'regular' }),
+        IconArchiveOutlineMedium: ({ size, className }) => fakeReact.createElement('svg', { size, className, 'data-variant': 'medium' }),
         Tooltip: ({ children }) => children,
       };
     }
@@ -497,6 +501,55 @@ test('client: bundle loads through __ModuleLoader__ with the single-arg factory 
   assert.deepEqual(exportsObj.inject, ['slots', 'connection', 'workspaces']);
   delete globalThis.window;
   delete globalThis.document;
+});
+
+test('client: prefers the renamed IconArchiveOutlineRegular/Medium export and still accepts the retired IconArchiveOutline20', async () => {
+  const fakeReact = {
+    createElement: (type, props, ...children) => ({ type, props, children }),
+    Fragment: Symbol('Fragment'),
+    useState: (init) => [typeof init === 'function' ? init() : init, () => {}],
+    useEffect: () => {},
+    useCallback: (fn) => fn,
+    useMemo: (fn) => fn(),
+    useRef: (init) => ({ current: init }),
+  };
+  const loadWith = async (primitives) => {
+    const captured = {};
+    globalThis.window = {
+      __ModuleLoader__: { load: (entry) => { captured.entry = entry; } },
+      dispatchEvent: () => {},
+      setTimeout: () => {},
+      CustomEvent: class {},
+    };
+    globalThis.document = { getElementById: () => null, createElement: () => ({ appendChild: () => {} }), head: { appendChild: () => {} } };
+    await import(`../lib/client.js?t=${Date.now()}&variant=${Math.random()}`);
+    const module = { exports: {} };
+    const exportsObj = captured.entry.factory((name) => {
+      if (name === 'react') return fakeReact;
+      if (name === '@deepseek-ai/dsh-client-ui-primitives') return primitives;
+      throw new Error(`unexpected require: ${name}`);
+    }, undefined, undefined);
+    delete globalThis.window;
+    delete globalThis.document;
+    return exportsObj;
+  };
+
+  const Component = () => null;
+  const newNames = await loadWith({
+    IconArchiveOutlineRegular: Component,
+    IconArchiveOutlineMedium: () => null,
+    Tooltip: ({ children }) => children,
+  });
+  assert.equal(typeof newNames.apply, 'function', 'a host exporting only the renamed icons still loads the bundle');
+
+  const legacyNames = await loadWith({
+    IconArchiveOutline20: () => null,
+    Tooltip: ({ children }) => children,
+  });
+  assert.equal(typeof legacyNames.apply, 'function', 'a host exporting only the retired icon still loads the bundle');
+
+  const noIcons = await loadWith({ Tooltip: ({ children }) => children });
+  assert.equal(typeof noIcons.apply, 'function', 'a host exporting neither icon falls back to the inline SVG');
 });
 
 // ── live (volatile) config plumbing ────────────────────────────────────────

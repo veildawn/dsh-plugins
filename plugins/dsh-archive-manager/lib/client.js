@@ -76,9 +76,13 @@ window.__ModuleLoader__.load({
       primitives = require("@deepseek-ai/dsh-client-ui-primitives");
     } catch (_) {}
 
-    const IconArchive = (primitives && primitives.IconArchiveOutline20)
-      ? primitives.IconArchiveOutline20
-      : DefaultIconArchive;
+    // 图标符号改名兼容：0.2.1-rc.2 起官方图标由 `Icon*16/14/20` 改名为
+    // `Icon*Regular` / `Icon*Medium`（同一图标两档描边），旧名不再导出。
+    // 先取新名，再退回旧名，最后由内联 SVG 兜底，任何宿主版本都有图标。
+    const IconArchive = (primitives && (primitives.IconArchiveOutlineRegular
+      || primitives.IconArchiveOutlineMedium
+      || primitives.IconArchiveOutline20))
+      || DefaultIconArchive;
 
     const css = `
       /* 侧边栏入口按钮：完全贴合 sidebar.settings (VOzbGW_triggerRow + VOzbGW_trigger) 的几何对齐规格 */

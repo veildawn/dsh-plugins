@@ -138,12 +138,6 @@ const nativeRequests = () => requestLog.filter((entry) => entry.url === '/v1/sys
 const lastNative = () => nativeRequests().at(-1) ?? { headers: {}, body: null };
 const callsWithState = (state) => nativeRequests().filter((entry) => entry.body && entry.body.state === state).length;
 
-function register(config) {
-  const registered = [];
-  apply({ tools: { register: (definition) => { registered.push(definition); return () => {}; } } }, config);
-  return registered;
-}
-
 /** Minimal validator mirroring what the registry does with output.schema. */
 function outputSchemaViolation(value) {
   const schema = tool.output.schema;
@@ -164,6 +158,29 @@ function outputSchemaViolation(value) {
 }
 
 process.env.SMOKE_KEY = 'ts_smoke';
+
+/**
+ * Settings file every `register()` call in this file points at.
+ *
+ * The plugin treats `~/.config/typesafe/settings.json` as a saved-preferences
+ * layer and lets it override the built-in `baseURL`/`endpoint`/`proxy`
+ * defaults, so a developer machine that once saved `/v1/decisions` there
+ * changed this test's request shape (OpenAI-style `{model,input}` instead of
+ * `{state,questions,model}`) and reddened assertions that never touch the
+ * settings layer. Point every registration at a path inside the per-run temp
+ * dir: absent file ⇒ the documented defaults, and a test can never write to the
+ * user's real preferences.
+ */
+const isolatedSettingsFile = join(tmpdir(), 'jev-smoke-settings-' + process.pid + '.json');
+
+function register(config) {
+  const registered = [];
+  apply(
+    { tools: { register: (definition) => { registered.push(definition); return () => {}; } } },
+    { settingsFile: isolatedSettingsFile, ...config },
+  );
+  return registered;
+}
 
 // --- registration ---------------------------------------------------------
 const tools = register({ baseURL, apiKeyEnv: 'SMOKE_KEY', model: 'jev-test', timeoutMs: 5000 });
