@@ -1,0 +1,31 @@
+name: Diagnose Plugin Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - name: Remove local-dev node_modules symlinks
+        run: find plugins -maxdepth 2 -name node_modules -type l -delete
+      - name: Install Dependencies
+        run: pnpm install --no-frozen-lockfile
+      - name: Run tests verbose
+        run: |
+          cd plugins/dsh-remote-control
+          npm test 2>&1 | tail -80
