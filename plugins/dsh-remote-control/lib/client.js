@@ -142,8 +142,12 @@ window.__ModuleLoader__.load({
       .dsh-remote-copy-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.12));color:var(--dsw-alias-label-primary) !important;border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dsh-remote-copy-btn.copied{color:var(--dsw-alias-state-success-primary,#10b981) !important;border-color:var(--dsw-alias-state-success-primary,#10b981)}
       .dsh-remote-host-switch{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:8px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));font-size:13px}
-      .dsh-remote-port-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));font-size:13px}
-      .dsh-remote-host-btn{padding:4px 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease}
+      /* 标签、输入框、按钮一律不收缩不换行，三者占一行；
+         说明文字独占整行（flex-basis:100%），空间不够时整段下移而不是被压窄或截断。 */
+      .dsh-remote-port-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));font-size:13px;line-height:20px}
+      .dsh-remote-port-row>*{flex:none;white-space:nowrap}
+      .dsh-remote-port-hint{flex:1 0 100%;white-space:normal;line-height:18px}
+      .dsh-remote-host-btn{display:inline-flex;align-items:center;justify-content:center;flex:none;white-space:nowrap;line-height:20px;padding:4px 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease}
       .dsh-remote-host-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.08));border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dsh-remote-host-btn:disabled{opacity:.4;cursor:default}
       button:has([data-settings-nav-label="remote-control"]) > svg:first-child{display:none}
@@ -644,7 +648,7 @@ window.__ModuleLoader__.load({
                 className: "dsh-remote-host-btn", type: "button", disabled: busy,
                 onClick: applyPort,
               }, "应用端口"),
-              react.createElement("span", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: "12px" } },
+              react.createElement("span", { className: "dsh-remote-port-hint", style: { color: "var(--dsw-alias-label-tertiary)", fontSize: "12px" } },
                 remote.bindLocked ? "回环端口由宿主随机分配，此端口对外" : "重启客户端后生效")
             ) : null,
             /* 局域网访问地址：桌面端走对外端口，web profile 直接就是监听端口 */

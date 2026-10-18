@@ -1222,6 +1222,52 @@ test('开关的透明 checkbox 必须压回 0 尺寸，否则移动端触摸目�
   }
 })
 
+test('端口行里的标签、输入框、按钮都不得换行，说明文字独占整行', async () => {
+  // 宿主把设置面板挤到 531px 时，四个 flex 项一起收缩会把「局域网对外端口:」
+  // 和「应用端口」压成两行。标签与按钮必须 flex:none + nowrap，
+  // 说明文字用 flex-basis:100% 独占一行，整段下移而不是被压窄。
+  const previousLocation = globalThis.location
+  globalThis.location = { hostname: 'localhost', host: 'localhost:19387' }
+  storage.clear()
+  resetBrowser()
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    const connection = new BrowserConnection(ctx)
+    connection.rpc.call = async (channel) => channel === CONFIG_RPC_CHANNEL
+      ? { ok: true, value: { enabled: true, secretConfigured: true, port: 19387, host: '127.0.0.1', bindLocked: true, lanIps: [] } }
+      : { ok: false }
+    await ctx.plugin(clientPlugin).await()
+    const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
+    render(section.component, section.entry.inject())
+    await new Promise((resolve) => setImmediate(resolve))
+    const view = render(section.component, section.entry.inject())
+
+    const row = findElement(view, (node) => node?.props?.className === 'dsh-remote-port-row')
+    assert(row, '端口行应当渲染')
+    const hint = findElement(row, (node) => node?.props?.className === 'dsh-remote-port-hint')
+    assert(hint, '尾部说明文字必须带 dsh-remote-port-hint 类，否则拿不到独占整行的样式')
+
+    const clientSource = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+    /** 取指定选择器的样式规则体；选择器按字面量处理，不做正则解释。 */
+    const cssRule = (selector) => {
+      const start = clientSource.indexOf(selector + '{')
+      assert(start !== -1, '缺少样式规则 ' + selector)
+      const end = clientSource.indexOf('}', start)
+      return clientSource.slice(start, end + 1)
+    }
+    const noWrap = cssRule('.dsh-remote-port-row>*')
+    assert.match(noWrap, /flex:none/, '行内子项不得收缩')
+    assert.match(noWrap, /white-space:nowrap/, '行内子项不得换行')
+    const hintRule = cssRule('.dsh-remote-port-hint')
+    assert.match(hintRule, /flex:1 0 100%/, '说明文字必须独占整行')
+    assert.match(hintRule, /white-space:normal/, '说明文字自身允许换行')
+    assert.match(cssRule('.dsh-remote-host-btn'), /white-space:nowrap/, '按钮文案不得换行')
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
 // ── live (volatile) config plumbing ────────────────────────────────────────
 
 const VOLATILE_WRITE_SYMBOL = Symbol.for('cosmokit.volatile.write')
