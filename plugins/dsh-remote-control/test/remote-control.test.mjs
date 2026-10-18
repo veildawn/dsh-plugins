@@ -2,7 +2,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer, get } from 'node:http'
 import { networkInterfaces } from 'node:os'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import * as plugin from '../lib/index.js'
@@ -924,21 +926,35 @@ test('normalizeBindPort 只接受 1~65535 的整数端口', () => {
 
 test('桌面端可以改端口，但不能改 host', async () => {
   const { ctx } = makeHost()
-  const desktopCtx = desktopView(ctx)
-  // 桌面端回环端口由宿主随机分配，插件不允许固定它
-  await assert.rejects(
-    () => internals.setServerBindHost(desktopCtx, undefined, 5464),
-    /回环端口由宿主随机分配/,
-  )
-  // 试图改成局域网地址：拒绝
-  await assert.rejects(
-    () => internals.setServerBindHost(desktopCtx, '192.168.50.108', 5464),
-    /桌面端不能修改监听地址/,
-  )
-  // 显式写回环地址且不指定端口：允许（只重写 host 行）
-  const sameHost = await internals.setServerBindHost(desktopCtx, '127.0.0.1')
-  assert.equal(sameHost.host, '127.0.0.1')
-  assert.equal(sameHost.port, undefined)
+  // profile.dir 指向临时目录：patch 由测试创建，不碰本机真实 profile
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-rc-'))
+  const patchPath = join(dir, 'cordis.patch.yml')
+  writeFileSync(patchPath, '# empty\n[]\n', 'utf8')
+  try {
+    const desktopCtx = {
+      get: (name) => (name === 'profileContext' ? { name: 'desktop', dir } : ctx.get(name)),
+      settings: ctx.settings,
+    }
+    // 桌面端回环端口由宿主随机分配，插件不允许固定它
+    await assert.rejects(
+      () => internals.setServerBindHost(desktopCtx, undefined, 5464),
+      /回环端口由宿主随机分配/,
+    )
+    // 试图改成局域网地址：拒绝
+    await assert.rejects(
+      () => internals.setServerBindHost(desktopCtx, '192.168.50.108', 5464),
+      /桌面端不能修改监听地址/,
+    )
+    // 回环地址通过校验，只重写 host 行、不固定端口
+    const sameHost = await internals.setServerBindHost(desktopCtx, '127.0.0.1')
+    assert.equal(sameHost.host, '127.0.0.1')
+    assert.equal(sameHost.port, undefined)
+    const written = readFileSync(patchPath, 'utf8')
+    assert.match(written, /host: "127\.0\.0\.1"/)
+    assert.doesNotMatch(written, /port: 5464/, '回环端口不应被固定')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('桌面端对外端口由 lanGatewayPort 独立控制', async () => {
@@ -946,14 +962,16 @@ test('桌面端对外端口由 lanGatewayPort 独立控制', async () => {
   // 走真实的 settings 注册流程，让 mutate 有命名空间可用
   plugin.apply(ctx, { enabled: true })
   const desktopCtx = desktopView(ctx)
-  // 设置对外端口只写 settings，不碰 profile 的 webserver 行
-  const patchPath = internals.resolveProfilePatchPath(desktopCtx)
-  const before = patchPath ? readFileSync(patchPath, 'utf8') : ''
-  const result = await internals.setLanGatewayPort(desktopCtx, 4000)
+  // 只写 settings，不碰 profile 的 webserver 行：
+  // 这里给一个不存在的 profile 目录，若实现误去改 patch 会直接抛错。
+  const isolated = {
+    get: (name) => (name === 'profileContext' ? { name: 'desktop', dir: 'C:/nonexistent-profile' } : ctx.get(name)),
+    settings: ctx.settings,
+  }
+  const result = await internals.setLanGatewayPort(isolated, 4000)
   assert.equal(result.lanGatewayPort, 4000)
   assert.equal(settings.doc[plugin.NS]?.lanGatewayPort, 4000)
-  if (patchPath) assert.equal(readFileSync(patchPath, 'utf8'), before, '不得改动 profile 的 webserver 配置')
-  await assert.rejects(() => internals.setLanGatewayPort(desktopCtx, 0), /端口必须是 1 到 65535/)
+  await assert.rejects(() => internals.setLanGatewayPort(isolated, 0), /端口必须是 1 到 65535/)
 })
 
 test('局域网代理把网卡端口的请求转发到 127.0.0.1 上游', async () => {

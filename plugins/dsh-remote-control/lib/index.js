@@ -307,7 +307,9 @@ export function pickLanBindHost() {
 export async function setServerBindHost(ctx, targetHost, targetPort) {
   const desktop = isDesktopHostedProfile(ctx)
   if (desktop) {
-    if (targetHost !== undefined && normalizeBindHost(targetHost) !== '127.0.0.1') {
+    // 桌面端只看「是不是回环」，不做完整规范化：无 LAN 网卡时 normalizeBindHost
+    // 会先抛「没有可用的局域网 IPv4」，掩盖真正该报的桌面端限制。
+    if (targetHost !== undefined && !isLoopbackHost(String(targetHost).trim())) {
       throw new Error('桌面端不能修改监听地址：宿主固定连接 127.0.0.1，改绑会导致应用无法启动。对外端口请用「局域网端口」设置。')
     }
     if (targetPort !== undefined) {
