@@ -495,8 +495,9 @@ window.__ModuleLoader__.load({
                 : "本机配置可用",
             }));
             setEnabled(next.enabled === true);
-            /* 桌面端显示对外端口，web profile 显示监听端口 */
-            const shownPort = next.bindLocked ? next.lanGatewayPort : next.port;
+            /* 宿主绑回环时（桌面端固定、web 也可这么配），对外端口由插件反代提供 */
+            const lanEntryNext = next.bindLocked || next.lanGatewayActive;
+            const shownPort = lanEntryNext ? next.lanGatewayPort : next.port;
             setPortInput(shownPort === undefined ? "" : String(shownPort));
           }, (error) => {
             if (active) setRemote((value) => Object.assign({}, value, { message: "无法读取远程控制状态: " + error.message }));
@@ -541,8 +542,9 @@ window.__ModuleLoader__.load({
         const applyPort = () => withBusy(async () => {
           const port = Number(String(portInput).trim());
           if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("端口必须是 1 到 65535 之间的整数");
-          /* 桌面端改的是插件自己监听的对外端口，宿主回环端口保持随机不动。 */
-          const next = remote.bindLocked
+          /* 宿主绑回环时改的是插件自己监听的对外端口，宿主端口保持不动。 */
+          const lanEntry = remote.bindLocked || remote.lanGatewayActive;
+          const next = lanEntry
             ? await props.configRequest("setLanGatewayPort", { port })
             : await props.configRequest("setBindHost", { port });
           setRemote((current) => Object.assign({}, current, next, {
@@ -550,6 +552,8 @@ window.__ModuleLoader__.load({
           }));
           setPortInput(String(port));
         }, "修改端口失败: ");
+        /* 宿主绑回环时（桌面端固定、web 也可这么配），对外端口由插件反代提供 */
+        const lanEntry = remote.bindLocked || remote.lanGatewayActive;
         return react.createElement("div", { className: "dsh-remote-settings" },
           react.createElement("style", null, uiCss),
           react.createElement("div", { className: "dsh-remote-header" },
@@ -617,9 +621,11 @@ window.__ModuleLoader__.load({
               /* 宿主只接受具体网卡 IP，通配 0.0.0.0 会让整个 profile 起不来，
                  因此「开放局域网」绑到第一块非回环网卡，并把地址显示出来。
                  桌面端宿主写死连 127.0.0.1，改绑会让应用启动失败，故不提供切换按钮。 */
-              remote.bindLocked
+              remote.bindLocked || remote.lanGatewayActive
                 ? react.createElement("span", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: "12px" } },
-                    "桌面端固定 127.0.0.1，不可改绑")
+                    remote.bindLocked
+                      ? "桌面端固定 127.0.0.1，不可改绑"
+                      : "宿主固定 127.0.0.1，局域网由插件代理端口转发")
                 : react.createElement("div", { style: { display: "flex", gap: "6px" } },
                     !remote.isAllInterfaces && Array.isArray(remote.lanIps) && remote.lanIps.length > 0 ? react.createElement("button", {
                       className: "dsh-remote-host-btn", type: "button", disabled: busy,
@@ -633,14 +639,14 @@ window.__ModuleLoader__.load({
             ) : react.createElement("div", { className: "dsh-remote-details" },
               "绑定宿主: " + (remote.host || "127.0.0.1") + (remote.isAllInterfaces ? " (已开放局域网)" : " (仅本机回环)")
             ),
-            /* 端口可自定义：host 受宿主限制，port 不受，桌面端同样能改。 */
+            /* 端口可自定义：host 受宿主限制，port 不受，两种 profile 都能改。 */
             !props.remoteBrowser ? react.createElement("div", { className: "dsh-remote-port-row" },
               react.createElement("span", { style: { color: "var(--dsw-alias-label-secondary)" } },
-                remote.bindLocked ? "局域网对外端口:" : "监听端口:"),
+                lanEntry ? "局域网对外端口:" : "监听端口:"),
               react.createElement("input", {
                 className: "dsh-remote-input", type: "number", min: 1, max: 65535,
                 value: portInput, disabled: busy,
-                "aria-label": remote.bindLocked ? "局域网对外端口" : "监听端口",
+                "aria-label": lanEntry ? "局域网对外端口" : "监听端口",
                 onChange: (event) => setPortInput(event.target.value),
                 style: { width: "110px" },
               }),
@@ -649,12 +655,12 @@ window.__ModuleLoader__.load({
                 onClick: applyPort,
               }, "应用端口"),
               react.createElement("span", { className: "dsh-remote-port-hint", style: { color: "var(--dsw-alias-label-tertiary)", fontSize: "12px" } },
-                remote.bindLocked ? "回环端口由宿主随机分配，此端口对外" : "重启客户端后生效")
+                lanEntry ? "宿主端口不动，此端口由插件代理对外" : "重启客户端后生效")
             ) : null,
-            /* 局域网访问地址：桌面端走对外端口，web profile 直接就是监听端口 */
+            /* 局域网访问地址：走插件代理端口，或宿主直接绑定的端口 */
             Array.isArray(remote.lanIps) && remote.lanIps.length > 0 ? react.createElement("ul", { className: "dsh-remote-network-list" },
               remote.lanIps.map((ip) => {
-                const lanPort = remote.bindLocked ? (remote.lanGatewayPort || remote.port) : remote.port;
+                const lanPort = lanEntry ? (remote.lanGatewayPort || remote.port) : remote.port;
                 const url = "http://" + ip + ":" + lanPort;
                 const isCopied = copiedIp === ip;
                 return react.createElement("li", { key: ip, className: "dsh-remote-network-item" },

@@ -242,6 +242,13 @@ const WILDCARD_BIND_HOSTS = new Set(['0.0.0.0', '::', '[::]', '*'])
 const LOOPBACK_BIND_ALIASES = new Set(['localhost', '::1', '[::1]'])
 const IPV4_LITERAL = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
 
+/**
+ * 本进程里已启动的局域网反代记录：`{ host, port, active }`。
+ * 一个进程只跑一个 profile，用模块级变量即可；status 查询来自别的子上下文，
+ * 拿不到网关所在 ctx 的局部变量，只能读这份记录。
+ */
+let lanGatewayRuntime = { host: undefined, port: undefined, active: false }
+
 export function isLoopbackHost(host) {
   if (typeof host !== 'string') return false
   const raw = host.trim().toLowerCase()
@@ -372,8 +379,10 @@ export function isDesktopHostedProfile(ctx) {
  * 兼容 desktop 与 web 两种 profile 环境。
  */
 export function getServerNetworkInfo(ctx) {
-  const webServer = ctx.webServer
-  const connection = ctx.connection
+  /* 状态查询来自只 inject 了 connection 的子上下文，那里读 ctx.webServer 会拿到
+     undefined；用 ctx.get 读同一份共享服务，局域网反代的状态才看得到。 */
+  const webServer = ctx.webServer ?? ctx.get?.('webServer')
+  const connection = ctx.connection ?? ctx.get?.('connection')
   const port = Number(webServer?.port || (typeof webServer?.server?.address === 'function' ? webServer.server.address()?.port : undefined)) || undefined
   const host = webServer?.host || '127.0.0.1'
   // 宿主只允许绑定具体 IP，因此「已开放局域网」等价于绑定了一块非回环网卡。
@@ -382,6 +391,8 @@ export function getServerNetworkInfo(ctx) {
   const trustedHosts = Array.isArray(connection?.trustedHosts) ? [...connection.trustedHosts] : []
   // 桌面端无法改绑：宿主用写死的 127.0.0.1 打开界面，改绑会让整个应用起不来。
   const bindLocked = isDesktopHostedProfile(ctx)
+  // 宿主绑回环时，局域网入口由插件自己的反代端口提供。
+  const lanGatewayActive = lanGatewayRuntime.active === true
 
   return {
     port,
@@ -390,7 +401,18 @@ export function getServerNetworkInfo(ctx) {
     lanIps,
     trustedHosts,
     bindLocked,
+    lanGatewayActive,
   }
+}
+
+/**
+ * 是否需要起局域网反代：宿主只监听回环时（桌面端固定如此，web profile 也可以这么配），
+ * 局域网入口只能由插件自己的端口提供。
+ */
+export function shouldStartLanGateway(ctx) {
+  if (isDesktopHostedProfile(ctx)) return true
+  const webServer = ctx.webServer ?? ctx.get?.('webServer')
+  return isLoopbackHost(String(webServer?.host ?? ''))
 }
 
 async function status(ctx, options, token) {
@@ -407,6 +429,7 @@ async function status(ctx, options, token) {
     lanIps: network.lanIps,
     trustedHosts: network.trustedHosts,
     bindLocked: network.bindLocked,
+    lanGatewayActive: network.lanGatewayActive,
     lanGatewayPort: current.lanGatewayPort,
   }
 }
@@ -431,6 +454,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           lanIps: value.lanIps,
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
+          lanGatewayActive: value.lanGatewayActive,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -452,6 +476,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           lanIps: value.lanIps,
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
+          lanGatewayActive: value.lanGatewayActive,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -475,6 +500,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           lanIps: value.lanIps,
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
+          lanGatewayActive: value.lanGatewayActive,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -506,6 +532,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           lanIps: value.lanIps,
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
+          lanGatewayActive: value.lanGatewayActive,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -527,6 +554,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           lanIps: value.lanIps,
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
+          lanGatewayActive: value.lanGatewayActive,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -817,10 +845,11 @@ export function apply(ctx, config) {
     }), 'remote-control: browser session handshake')
   })
 
-  /* 桌面端不能改宿主绑定，改用独立局域网代理端口对外提供同一工作区。 */
+  /* 宿主只绑回环时（桌面端固定如此，web profile 也可以这么配），
+     在局域网网卡上另起反向代理端口，把请求转发到 127.0.0.1:<宿主端口>。 */
   ctx.inject(['connection', 'webServer'], (gatewayCtx) => {
     gatewayCtx.effect(() => {
-      if (!isDesktopHostedProfile(gatewayCtx)) return
+      if (!shouldStartLanGateway(gatewayCtx)) return
       const lanIp = pickLanBindHost()
       const targetPort = Number(gatewayCtx.webServer?.port) || undefined
       if (!lanIp || !targetPort) return
@@ -829,6 +858,7 @@ export function apply(ctx, config) {
       let disposed = false
       const stop = async () => {
         disposed = true
+        lanGatewayRuntime = { host: undefined, port: undefined, active: false }
         const current = handle
         handle = undefined
         await current?.close()
@@ -844,6 +874,7 @@ export function apply(ctx, config) {
       startLanGateway({ bindHost: lanIp, port: gatewayPort, targetPort, mintCookie }).then((started) => {
         if (disposed) { void started.close(); return }
         handle = started
+        lanGatewayRuntime = { host: lanIp, port: gatewayPort, active: true }
         gatewayCtx.logger?.info?.('remote-control: LAN gateway on %s:%s', lanIp, gatewayPort)
       }, (error) => {
         gatewayCtx.logger?.warn?.('remote-control: LAN gateway failed on %s:%s: %s', lanIp, gatewayPort, error?.message ?? error)
@@ -861,6 +892,19 @@ export function apply(ctx, config) {
         const authenticated = connection.browserAuth.isAuthenticated(request)
         if (shouldServeUnauthenticatedIndex(request, enabled, authenticated)) return true
         return origAuthorizeIndex(request, response)
+      }
+
+      if (typeof connection.admit === 'function') {
+        const origAdmit = connection.admit.bind(connection)
+        connection.admit = function (request) {
+          const res = origAdmit(request)
+          if (res && 'rejection' in res) {
+            if (res.rejection === 401 && shouldBypassBrowserAuthRejection(request, options().enabled)) {
+              return { peer: connection.browserPeer }
+            }
+          }
+          return res
+        }
       }
 
       if (typeof connection.requestRejection === 'function') {
@@ -911,7 +955,9 @@ export const internals = {
   normalizeBindHost,
   isLoopbackHost,
   isDesktopHostedProfile,
+  shouldStartLanGateway,
   getServerNetworkInfo,
+  lanGatewayRuntime: () => lanGatewayRuntime,
   resolveProfilePatchPath,
   updateWebserverHostInPatch,
   setServerBindHost,

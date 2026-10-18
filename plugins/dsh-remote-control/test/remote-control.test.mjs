@@ -279,6 +279,12 @@ test('index passthrough and 401 bypass are gated on enabled and limited to remot
     if (url.searchParams.get('trust') === 'no') return 403
     return 401
   }
+  connection.admit = (req) => {
+    const rej = connection.requestRejection(req)
+    if (rej !== undefined) return { rejection: rej }
+    return { peer: connection.browserPeer }
+  }
+  connection.browserPeer = { id: 'browser-peer' }
 
   await ctx.plugin(plugin).await()
   const configure = connection.registrations.get(CONFIG_RPC_CHANNEL).handler
@@ -315,6 +321,12 @@ test('index passthrough and 401 bypass are gated on enabled and limited to remot
   assert.equal(connection.requestRejection({ url: '/api' }), 401, '/api still requires the browser cookie')
   assert.equal(connection.requestRejection({ url: '/dsh-remote-control-config' }), 401)
   assert.equal(connection.requestRejection({ url: '/dsh-remote-control?trust=no' }), 403)
+
+  // Verify connection.admit bypasses 401 for remote-control RPC channels
+  assert.deepEqual(connection.admit({ url: '/dsh-remote-control' }), { peer: connection.browserPeer })
+  assert.deepEqual(connection.admit({ url: '/ai-proxy-remote-control' }), { peer: connection.browserPeer })
+  assert.deepEqual(connection.admit({ url: '/api' }), { rejection: 401 })
+  assert.deepEqual(connection.admit({ url: '/dsh-remote-control?trust=no' }), { rejection: 403 })
 })
 
 // Browser session handshake -------------------------------------------------
@@ -1015,6 +1027,38 @@ test('局域网代理端口默认 3081，且可配置', () => {
   for (const bad of [0, 70000, 3.5]) {
     assert.throws(() => plugin.resolveOptions({ lanGatewayPort: bad }), /lanGatewayPort/)
   }
+})
+
+test('宿主绑回环时由插件反代提供局域网入口', () => {
+  // 桌面端固定 127.0.0.1；web profile 也可以这么配（0.2.x 拒绝 0.0.0.0），
+  // 两种情况下局域网入口都只能由插件自己的反代端口提供。
+  const { ctx, webServer } = makeHost()
+  webServer.host = '127.0.0.1'
+  assert.equal(internals.shouldStartLanGateway(ctx), true, '回环绑定必须起反代')
+
+  // 宿主已经绑到具体网卡时不需要再叠一层代理
+  webServer.host = '192.168.1.20'
+  assert.equal(internals.shouldStartLanGateway(ctx), false)
+
+  // 桌面端无论 host 是什么都走反代（宿主不允许改绑）
+  const desktopCtx = desktopView(ctx)
+  assert.equal(internals.shouldStartLanGateway(desktopCtx), true)
+})
+
+test('status 报告的局域网代理状态以 webServer 服务为键，跨子上下文可见', async () => {
+  // status 由另一个 inject 子上下文发起，只有 webServer 实例是共享的；
+  // 若把状态挂在各自的 ctx 上，界面永远看不到「反代已启动」。
+  const { ctx, connection, webServer } = makeHost()
+  webServer.host = '127.0.0.1'
+  webServer.port = 3090
+  connection.browserAuth = { isAuthenticated: () => false }
+  await ctx.plugin(plugin).await()
+
+  const configure = connection.registrations.get(CONFIG_RPC_CHANNEL).handler
+  const before = await configure('status', {})
+  assert.equal(before.ok, true)
+  assert.equal(before.value.lanGatewayActive, false, '未启动反代时应为 false')
+  assert.equal(before.value.lanGatewayPort, DEFAULT_LAN_GATEWAY_PORT)
 })
 
 test('normalizeBindHost 把通配地址换成具体网卡 IP，宿主只接受 IP 字面量', () => {
