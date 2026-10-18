@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   compareVersions,
   isUpgrade,
@@ -29,6 +29,7 @@ import {
   listLockfilePluginEntries,
   normalizeTarballUrl,
   readHostDshVersion,
+  extractDshVersionFromPkg,
   findProfileName,
   findLockfilePackagesMissingIntegrity,
   repairLockfileIntegrity,
@@ -1637,6 +1638,64 @@ describe('dsh-market DSH host update detection', () => {
     assert.equal(readHostDshVersion({ spawnFn: failSpawn, processArgs: [] }), null)
   })
 
+  it('reads the host DSH version from a desktop app.asar bundle', () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-host-version-'))
+    try {
+      const installDir = join(home, 'DSH')
+      const exePath = join(installDir, 'DeepSeek Harness.exe')
+      writeAsarArchive(join(installDir, 'resources', 'app.asar'), new Map([
+        ['dsh/node_modules/@deepseek-ai/dsh/package.json', JSON.stringify({
+          name: '@deepseek-ai/dsh',
+          version: '9.9.9-fixture',
+        })],
+        ['dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js', '// fixture'],
+      ]))
+
+      const version = readHostDshVersion({
+        spawnFn: () => ({ status: 1, stdout: '', stderr: '' }),
+        processArgs: [
+          exePath,
+          join(installDir, 'resources', 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'index.js'),
+          join(home, 'profiles', 'desktop'),
+        ],
+      })
+      assert.equal(version, '9.9.9-fixture')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to the desktop runtime package when the inner dsh bundle is absent', () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-host-version-'))
+    try {
+      const installDir = join(home, 'DSH')
+      writeAsarArchive(join(installDir, 'resources', 'app.asar'), new Map([
+        ['dsh/package.json', JSON.stringify({
+          name: '@deepseek-ai/dsh-desktop-runtime',
+          version: '8.8.8-fixture',
+        })],
+      ]))
+
+      const version = readHostDshVersion({
+        spawnFn: () => ({ status: 1, stdout: '', stderr: '' }),
+        processArgs: [
+          join(installDir, 'DeepSeek Harness.exe'),
+          join(home, 'profiles', 'desktop'),
+        ],
+      })
+      assert.equal(version, '8.8.8-fixture')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('never reports a dependency range as the host version', () => {
+    assert.equal(extractDshVersionFromPkg({ name: 'x', dependencies: { '@deepseek-ai/dsh': '^0.2.0' } }), null)
+    assert.equal(extractDshVersionFromPkg({ name: 'x', dependencies: { '@deepseek-ai/dsh': '~0.2.1-rc.2' } }), null)
+    assert.equal(extractDshVersionFromPkg({ name: 'x', dependencies: { '@deepseek-ai/dsh': '0.2.1-rc.2' } }), '0.2.1-rc.2')
+    assert.equal(extractDshVersionFromPkg(null), null)
+  })
+
   it('checks DSH update state correctly', () => {
     const upToDate = checkDshUpdate({ currentVersion: '0.1.5-rc.1', latestVersion: '0.1.5-rc.1' })
     assert.equal(upToDate.hasUpdate, false)
@@ -2050,3 +2109,38 @@ it('Config: every field this section owns is live, and unwraps to plain data', (
   for (const key of keys) assert.equal(isVolatileRef(plain[key]), false, key + ' unwraps to plain data')
   assert.deepEqual(Object.keys(plain).sort(), [...keys].sort(), 'unwrapping keeps every declared field')
 })
+
+// ── fixtures ───────────────────────────────────────────────────────────────
+
+/** 写一个只含内联文件的极简 Electron asar 包，供宿主版本探测的离线测试使用。 */
+function writeAsarArchive(asarPath, entries) {
+  const header = { files: {} }
+  const payloads = []
+  let offset = 0
+  for (const [relPath, content] of entries) {
+    const data = Buffer.from(content, 'utf8')
+    const parts = relPath.split('/')
+    let node = header
+    for (const part of parts.slice(0, -1)) {
+      node.files[part] ??= { files: {} }
+      node = node.files[part]
+    }
+    node.files[parts.at(-1)] = { size: data.length, offset: String(offset) }
+    payloads.push(data)
+    offset += data.length
+  }
+
+  // 头部 JSON 按 4 字节对齐，文件偏移即相对对齐后数据区的起点。
+  let json = Buffer.from(JSON.stringify(header), 'utf8')
+  const padding = (4 - (json.length % 4)) % 4
+  if (padding) json = Buffer.concat([json, Buffer.alloc(padding, 0x20)])
+
+  const head = Buffer.alloc(16)
+  head.writeUInt32LE(4, 0)
+  head.writeUInt32LE(16 + json.length, 4)
+  head.writeUInt32LE(12 + json.length, 8)
+  head.writeUInt32LE(json.length, 12)
+
+  mkdirSync(dirname(asarPath), { recursive: true })
+  writeFileSync(asarPath, Buffer.concat([head, json, ...payloads]))
+}

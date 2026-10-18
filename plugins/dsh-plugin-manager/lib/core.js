@@ -8,7 +8,7 @@
  * - Local profile plugin inspection (installed versions) and update-state merge
  */
 
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -444,17 +444,25 @@ export function findProfileName() {
 /**
  * Detect whether the host is running in Desktop mode and discover its CLI paths and environment.
  */
-export function resolveDesktopEnvironment() {
-  const argv = process.argv
-  const isDesktop = argv.some((arg) => typeof arg === 'string' && /[\\/]profiles[\\/]desktop/.test(arg))
+export function resolveDesktopEnvironment({ processArgs = process.argv } = {}) {
+  const argv = processArgs || process.argv
+  const hasDesktopProfile = argv.some((arg) => typeof arg === 'string' && /[\\/]profiles[\\/]desktop/.test(arg))
+  const hasDesktopExe = (typeof process.execPath === 'string' && process.execPath.includes('DeepSeek Harness'))
+    || argv.some((arg) => typeof arg === 'string' && /DeepSeek Harness(?:\.exe)?/i.test(arg))
+  const isDesktop = hasDesktopProfile
     || Boolean(process.env.DSH_DESKTOP_NODE_EXECUTABLE)
-    || (typeof process.execPath === 'string' && process.execPath.includes('DeepSeek Harness'))
+    || hasDesktopExe
 
   if (!isDesktop) {
     return { isDesktop: false, platform: process.platform }
   }
 
-  const execPath = process.env.DSH_DESKTOP_NODE_EXECUTABLE || process.execPath
+  let execPath = process.env.DSH_DESKTOP_NODE_EXECUTABLE || process.execPath
+  if (!execPath || !execPath.includes('DeepSeek Harness')) {
+    const exeArg = argv.find((arg) => typeof arg === 'string' && /DeepSeek Harness(?:\.exe)?/i.test(arg))
+    if (exeArg) execPath = exeArg
+  }
+
   const execDir = dirname(execPath)
   const candidateResources = [
     join(execDir, 'resources'),
@@ -463,10 +471,16 @@ export function resolveDesktopEnvironment() {
   ]
 
   let cliPath = null
+  const relCli = join('dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
   for (const resDir of candidateResources) {
-    const candidateCli = join(resDir, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
-    if (existsSync(candidateCli)) {
-      cliPath = candidateCli
+    const asarFile = join(resDir, 'app.asar')
+    if (existsInAsar(asarFile, relCli.replace(/\\/g, '/'))) {
+      cliPath = join(asarFile, relCli)
+      break
+    }
+    const unpackedCli = join(resDir, 'app.asar.unpacked', relCli)
+    if (existsSync(unpackedCli)) {
+      cliPath = unpackedCli
       break
     }
   }
@@ -1246,56 +1260,266 @@ export function normalizeTarballUrl(url) {
 }
 
 
+export const DSH_HOST_PACKAGE_NAMES = new Set([
+  DSH_PACKAGE_NAME,
+  '@deepseek-ai/dsh-desktop',
+  '@deepseek-ai/dsh-desktop-runtime',
+  '@deepseek-ai/dsh-desktop-host',
+])
+
+// 精确版本号，不含 ^ ~ >= 等范围前缀。
+const EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?$/
+
 /**
- * Detect the running host DSH version.
- * First inspects process.argv / running script path to locate @deepseek-ai/dsh package.json.
- * Falls back to executing CLI if spawnFn is provided.
+ * Extract DSH host version from a parsed package.json object.
+ * Only an exact version counts: a dependency range like "^0.2.0" describes no installed build.
  */
-export function readHostDshVersion({ spawnFn = null, processArgs = process.argv } = {}) {
-  const candidates = [...(processArgs || [])];
+export function extractDshVersionFromPkg(pkg) {
+  if (!pkg || typeof pkg !== 'object') return null
+  if (pkg.name === DSH_PACKAGE_NAME && pkg.version) return pkg.version
+  const declared = pkg.dependencies && pkg.dependencies[DSH_PACKAGE_NAME]
+  if (typeof declared === 'string' && EXACT_VERSION_RE.test(declared.trim())) {
+    return declared.trim()
+  }
+  if (DSH_HOST_PACKAGE_NAMES.has(pkg.name) && pkg.version) {
+    return pkg.version
+  }
+  return null
+}
+
+/**
+ * Read and parse JSON file from inside an Electron asar archive without dependencies.
+ */
+export function readPackageJsonFromAsar(asarPath, entryRelativePath) {
   try {
-    const whichCmd = process.platform === "win32" ? "where" : "which";
-    const runner = spawnFn || spawnSync;
-    const whichRes = runner(whichCmd, ["dsh"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    if (whichRes && whichRes.status === 0 && whichRes.stdout) {
-      candidates.push(...whichRes.stdout.trim().split(/\r?\n/));
+    const directPath = join(asarPath, entryRelativePath)
+    if (existsSync(directPath)) {
+      return JSON.parse(readFileSync(directPath, 'utf8'))
     }
   } catch {}
 
+  let fd = null
+  const prevNoAsar = process.noAsar
+  try {
+    process.noAsar = true
+    fd = openSync(asarPath, 'r')
+    const sizeBuf = Buffer.alloc(16)
+    readSync(fd, sizeBuf, 0, 16, 0)
+    const jsonLen = sizeBuf.readUInt32LE(12)
+    if (!jsonLen || jsonLen > 32 * 1024 * 1024) return null
+    const headerBuf = Buffer.alloc(jsonLen)
+    readSync(fd, headerBuf, 0, jsonLen, 16)
+    const header = JSON.parse(headerBuf.toString('utf8'))
+
+    const parts = entryRelativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+    let cur = header
+    for (const part of parts) {
+      if (!cur.files || !cur.files[part]) return null
+      cur = cur.files[part]
+    }
+    if (!cur.size || cur.offset == null) return null
+    const baseOffset = 16 + jsonLen
+    const fileOffset = baseOffset + parseInt(cur.offset, 10)
+    const fileBuf = Buffer.alloc(cur.size)
+    readSync(fd, fileBuf, 0, cur.size, fileOffset)
+    return JSON.parse(fileBuf.toString('utf8'))
+  } catch {
+    return null
+  } finally {
+    if (fd != null) {
+      try { closeSync(fd) } catch {}
+    }
+    if (prevNoAsar === undefined) {
+      delete process.noAsar
+    } else {
+      process.noAsar = prevNoAsar
+    }
+  }
+}
+
+/**
+ * Check whether a relative path exists inside an Electron asar archive.
+ */
+export function existsInAsar(asarPath, entryRelativePath) {
+  try {
+    const directPath = join(asarPath, entryRelativePath)
+    if (existsSync(directPath)) return true
+  } catch {}
+
+  let fd = null
+  const prevNoAsar = process.noAsar
+  try {
+    process.noAsar = true
+    fd = openSync(asarPath, 'r')
+    const sizeBuf = Buffer.alloc(16)
+    readSync(fd, sizeBuf, 0, 16, 0)
+    const jsonLen = sizeBuf.readUInt32LE(12)
+    if (!jsonLen || jsonLen > 32 * 1024 * 1024) return false
+    const headerBuf = Buffer.alloc(jsonLen)
+    readSync(fd, headerBuf, 0, jsonLen, 16)
+    const header = JSON.parse(headerBuf.toString('utf8'))
+
+    const parts = entryRelativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+    let cur = header
+    for (const part of parts) {
+      if (!cur.files || !cur.files[part]) return false
+      cur = cur.files[part]
+    }
+    return true
+  } catch {
+    return false
+  } finally {
+    if (fd != null) {
+      try { closeSync(fd) } catch {}
+    }
+    if (prevNoAsar === undefined) {
+      delete process.noAsar
+    } else {
+      process.noAsar = prevNoAsar
+    }
+  }
+}
+
+function inspectAsarForDshVersion(asarPath) {
+  const candidateEntries = [
+    'dsh/node_modules/@deepseek-ai/dsh/package.json',
+    'dsh/package.json',
+    'package.json',
+    'node_modules/@deepseek-ai/dsh/package.json',
+  ]
+  for (const entry of candidateEntries) {
+    const pkg = readPackageJsonFromAsar(asarPath, entry)
+    const v = extractDshVersionFromPkg(pkg)
+    if (v) return v
+  }
+  return null
+}
+
+function inspectDirForDshVersion(dir) {
+  if (!dir || typeof dir !== 'string') return null
+  const asarMatch = dir.match(/^(.+?\.asar)(?:[\\/]|$)/i)
+  if (asarMatch) {
+    const v = inspectAsarForDshVersion(asarMatch[1])
+    if (v) return v
+  }
+  try {
+    const pkgPath = join(dir, 'package.json')
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+      const v = extractDshVersionFromPkg(pkg)
+      if (v) return v
+    }
+  } catch {}
+  try {
+    const nested = join(dir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
+    if (existsSync(nested)) {
+      const pkg = JSON.parse(readFileSync(nested, 'utf8'))
+      const v = extractDshVersionFromPkg(pkg)
+      if (v) return v
+    }
+  } catch {}
+  try {
+    const asarFile = join(dir, 'app.asar')
+    if (existsSync(asarFile)) {
+      const v = inspectAsarForDshVersion(asarFile)
+      if (v) return v
+    }
+  } catch {}
+  return null
+}
+
+/**
+ * Detect the running host DSH version.
+ * First inspects Desktop environment, resources, and process.argv / running script path.
+ * Falls back to executing CLI if spawnFn is provided or available on PATH.
+ */
+export function readHostDshVersion({ spawnFn = null, processArgs = process.argv } = {}) {
+  const desktopEnv = resolveDesktopEnvironment({ processArgs })
+  if (desktopEnv.isDesktop && desktopEnv.execPath) {
+    const execDir = dirname(desktopEnv.execPath)
+    const candidateResourceDirs = [
+      join(execDir, 'resources'),
+      join(execDir, '..', 'Resources'),
+      join(execDir, 'Contents', 'Resources'),
+    ]
+    for (const resDir of candidateResourceDirs) {
+      const v = inspectDirForDshVersion(resDir)
+      if (v) return v
+    }
+  }
+
+  const candidates = [...(processArgs || [])]
   for (const raw of candidates) {
-    if (!raw || typeof raw !== "string") continue;
+    if (!raw || typeof raw !== 'string') continue
     try {
-      const real = realpathSync(raw);
-      let dir = statSync(real).isDirectory() ? real : dirname(real);
+      const asarMatch = raw.match(/^(.+?\.asar)(?:[\\/]|$)/i)
+      if (asarMatch) {
+        const v = inspectAsarForDshVersion(asarMatch[1])
+        if (v) return v
+      }
+      const real = realpathSync(raw)
+      let dir = statSync(real).isDirectory() ? real : dirname(real)
       for (let i = 0; i < 6; i++) {
-        const pkgPath = join(dir, "package.json");
-        if (existsSync(pkgPath)) {
-          const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-          if (pkg && pkg.name === DSH_PACKAGE_NAME && pkg.version) {
-            return pkg.version;
-          }
-        }
-        const parent = dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
+        const v = inspectDirForDshVersion(dir)
+        if (v) return v
+        const parent = dirname(dir)
+        if (parent === dir) break
+        dir = parent
+      }
+    } catch {}
+  }
+
+  if (desktopEnv.isDesktop && desktopEnv.cliPath && desktopEnv.execPath) {
+    try {
+      const runner = spawnFn || spawnSync
+      const res = runner(desktopEnv.execPath, ['--expose-internals', desktopEnv.cliPath, '--version'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      if (res && res.status === 0) {
+        const match = String(res.stdout || '').trim().match(/(\d+\.\d+\.\d+(?:-[\w.]+)?)/)
+        if (match) return match[1]
       }
     } catch {}
   }
 
   try {
-    const runner = spawnFn || spawnSync;
-    const res = runner("dsh", ["--version"], {
-      encoding: "utf8",
-      shell: process.platform === "win32",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    if (res && res.status === 0) {
-      const match = String(res.stdout || "").trim().match(/(\d+\.\d+\.\d+(?:-[\w.]+)?)/);
-      if (match) return match[1];
+    const whichCmd = process.platform === 'win32' ? 'where' : 'which'
+    const runner = spawnFn || spawnSync
+    const whichRes = runner(whichCmd, ['dsh'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    if (whichRes && whichRes.status === 0 && whichRes.stdout) {
+      const cliCandidates = whichRes.stdout.trim().split(/\r?\n/)
+      for (const raw of cliCandidates) {
+        if (!raw || typeof raw !== 'string') continue
+        try {
+          const real = realpathSync(raw)
+          let dir = statSync(real).isDirectory() ? real : dirname(real)
+          for (let i = 0; i < 6; i++) {
+            const v = inspectDirForDshVersion(dir)
+            if (v) return v
+            const parent = dirname(dir)
+            if (parent === dir) break
+            dir = parent
+          }
+        } catch {}
+      }
     }
   } catch {}
 
-  return null;
+  try {
+    const runner = spawnFn || spawnSync
+    const res = runner('dsh', ['--version'], {
+      encoding: 'utf8',
+      shell: process.platform === 'win32',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    if (res && res.status === 0) {
+      const match = String(res.stdout || '').trim().match(/(\d+\.\d+\.\d+(?:-[\w.]+)?)/)
+      if (match) return match[1]
+    }
+  } catch {}
+
+  return null
 }
 
 /**
