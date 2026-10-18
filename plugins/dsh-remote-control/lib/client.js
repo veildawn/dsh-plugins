@@ -115,8 +115,10 @@ window.__ModuleLoader__.load({
       .dsh-remote-toggle-sub{font-size:12px;color:var(--dsw-alias-label-tertiary)}
 
       /* iOS 风格 Switch 开关 */
-      .dsh-remote-switch{position:relative;display:inline-block;width:38px;height:22px;flex:none;cursor:pointer}
-      .dsh-remote-switch input{opacity:0;width:0;height:0;margin:0}
+      .dsh-remote-switch{position:relative;display:inline-block;width:38px;height:22px;flex:none;cursor:pointer;overflow:hidden}
+      /* 移动端适配会按 [role="switch"] 给 44px 触摸目标，会把透明 checkbox 撑成方块盖住滑块，
+         这里显式压回 0 并 !important，保证开关始终是 38×22。 */
+      .dsh-remote-switch input{opacity:0;width:0!important;height:0!important;min-width:0!important;min-height:0!important;margin:0;padding:0;border:0;appearance:none}
       .dsh-remote-slider{position:absolute;cursor:pointer;inset:0;background-color:var(--dsw-alias-border-default,rgba(125,125,125,0.25));border-radius:22px;transition:.2s cubic-bezier(0.4, 0, 0.2, 1)}
       .dsh-remote-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:#ffffff;border-radius:50%;transition:.2s cubic-bezier(0.4, 0, 0.2, 1);box-shadow:0 1px 3px rgba(0,0,0,0.2)}
       .dsh-remote-switch input:checked + .dsh-remote-slider{background-color:var(--dsw-alias-brand-primary,#4d6bfe)}

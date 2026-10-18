@@ -1211,6 +1211,17 @@ test('the switch row nests no label and drives the checkbox only through change'
   }
 })
 
+test('开关的透明 checkbox 必须压回 0 尺寸，否则移动端触摸目标会把它撑成方块', () => {
+  // mobile-adapter 按 [role="switch"] 给 min-width/min-height: 44px，
+  // 这里若不显式压回，透明 input 会变成 44×44 盖住 38×22 的滑块。
+  const clientSource = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const rule = clientSource.match(/\.dsh-remote-switch input\{[^}]*\}/)
+  assert(rule, '缺少 .dsh-remote-switch input 样式规则')
+  for (const prop of ['width', 'height', 'min-width', 'min-height']) {
+    assert.match(rule[0], new RegExp(prop + ':0!important'), prop + ' 必须用 !important 压回 0')
+  }
+})
+
 // ── live (volatile) config plumbing ────────────────────────────────────────
 
 const VOLATILE_WRITE_SYMBOL = Symbol.for('cosmokit.volatile.write')
