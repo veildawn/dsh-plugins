@@ -1050,7 +1050,6 @@ test('status 报告的局域网代理状态以 webServer 服务为键，跨子�
   // 若把状态挂在各自的 ctx 上，界面永远看不到「反代已启动」。
   const { ctx, connection, webServer } = makeHost()
   webServer.host = '127.0.0.1'
-  webServer.port = 3090
   connection.browserAuth = { isAuthenticated: () => false }
   await ctx.plugin(plugin).await()
 
