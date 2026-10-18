@@ -47,8 +47,8 @@ import {
 /** Cordis 插件名称。 */
 export const name = 'tool-jev';
 
-/** 插件激活前所需注入的底层服务列表。保持 tools 硬依赖以符合 SPEC。 */
-export const inject = ['tools'];
+/** 插件激活前所需注入的底层服务列表。保持 tools 硬依赖以符合 SPEC；webServer 供 rpc.handle 注册路由时读取。 */
+export const inject = ['tools', 'webServer'];
 
 /**
  * 设置 RPC 通道常量。

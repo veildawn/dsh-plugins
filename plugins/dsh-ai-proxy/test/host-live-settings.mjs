@@ -134,6 +134,9 @@ ctx.provide('connection', {
     },
   },
 });
+// 插件声明了 webServer 依赖（rpc.handle 在调用方 ctx 上读它注册路由），
+// 没有这一项插件会一直挂起等待，测试里的 apply 永远不会执行。
+ctx.provide('webServer', { port: 0, host: '127.0.0.1', protocol: 'http:', register: () => () => {} });
 
 /**
  * Mirrors dsh-config-editor's ConfigEditor: `configuration()` reads the loader

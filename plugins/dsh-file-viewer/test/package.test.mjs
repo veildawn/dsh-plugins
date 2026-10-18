@@ -81,7 +81,7 @@ test('the host half declares its services as a flat array', async () => {
   // optional chaining on `ctx.settings` is not a substitute for declaring it.
   const host = await import('../lib/index.js')
   assert(Array.isArray(host.inject), 'inject must be an array of service names')
-  assert.deepEqual(host.inject, ['fs', 'connection', 'settings', 'workspaceRegistry', 'sessions'])
+  assert.deepEqual(host.inject, ['fs', 'connection', 'settings', 'workspaceRegistry', 'sessions', 'webServer'])
   assert.equal(host.name, 'file-viewer')
 })
 
@@ -89,8 +89,10 @@ test('the host half registers one trusted-host RPC channel and no HTTP route', (
   const source = read('lib/index.js')
   assert.match(source, /connection\.rpc\.handle\(/)
   assert.match(source, /authority: 'trusted-host'/)
-  // Opening a bare route would bypass the /api browser-trust fence.
-  assert.doesNotMatch(source, /webServer/)
+  // Opening a bare route would bypass the /api browser-trust fence; the only
+  // webServer usage allowed is the inject declaration rpc.handle itself needs.
+  assert.doesNotMatch(source, /webServer\.(register|registerUpgrade|registerFallback)/)
+  assert.match(source, /export const inject = \[[^\]]*'webServer'\]/)
   // Containment is the whole security story for reads; never drop it.
   assert.match(source, /ctx\.fs\.contains\(/)
   assert.match(source, /isSafeRelativePath\(/)

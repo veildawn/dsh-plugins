@@ -95,7 +95,9 @@ export {
 const execFileAsync = promisify(execFile)
 
 export const name = 'file-viewer'
-export const inject = ['fs', 'connection', 'settings', 'workspaceRegistry', 'sessions']
+// webServer 必须一并注入：connection.rpc.handle 在调用方 ctx 上读 webServer 注册路由，
+// 缺这一项会让插件在 webServer 就绪前就执行 apply 并以 "without inject" 激活失败。
+export const inject = ['fs', 'connection', 'settings', 'workspaceRegistry', 'sessions', 'webServer']
 export const NS = 'file-viewer'
 export const RPC_CHANNEL = '/dsh-file-viewer'
 

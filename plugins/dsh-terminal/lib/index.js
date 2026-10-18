@@ -12,7 +12,9 @@ import { detectShells, buildCleanEnv } from './shell.js'
 import { TerminalSession, SessionManager } from './core.js'
 
 export const name = 'terminal'
-export const inject = ['connection', 'settings', 'sessions', 'workspaceRegistry']
+// webServer 必须一并注入：connection.rpc.handle 在调用方 ctx 上读 webServer 注册路由，
+// 缺这一项会让插件在 webServer 就绪前就执行 apply 并以 "without inject" 激活失败。
+export const inject = ['connection', 'settings', 'sessions', 'workspaceRegistry', 'webServer']
 export const NS = 'terminal'
 export const RPC_CHANNEL = '/dsh-terminal'
 

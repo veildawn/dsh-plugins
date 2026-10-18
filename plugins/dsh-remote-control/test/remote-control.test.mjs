@@ -1,8 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createServer, get } from 'node:http'
+import { networkInterfaces } from 'node:os'
+import { readFileSync } from 'node:fs'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import * as plugin from '../lib/index.js'
+import { DEFAULT_LAN_GATEWAY_PORT, startLanGateway } from '../lib/lan-gateway.js'
 
 const {
   CONFIG_RPC_CHANNEL,
@@ -102,6 +106,23 @@ function makeHost(doc) {
   const webServer = new FakeWebServer(ctx)
   const apiProxy = new FakeApiProxy(ctx)
   return { ctx, settings, credentials, connection, webServer, apiProxy }
+}
+
+/**
+ * 让既有 ctx 以「桌面端 profile」的身份被检测。
+ * 不能用 Object.create(ctx)：那样 `get` 会递归到自己。
+ */
+function desktopView(ctx) {
+  return {
+    get: (name) => (name === 'profileContext' ? { name: 'desktop', dir: 'C:/tmp' } : ctx.get(name)),
+    settings: ctx.settings,
+    fiber: ctx.fiber,
+    logger: ctx.logger,
+    effect: (fn) => ctx.effect(fn),
+    inject: (deps, fn) => ctx.inject(deps, fn),
+    on: (name, fn) => ctx.on(name, fn),
+    emit: (name, ...args) => ctx.emit(name, ...args),
+  }
 }
 test('secret comparison and resolution reject unsafe values and honor documented priority', async (t) => {
   assert.equal(internals.matchesRemoteControlSecret('secret', 'secret'), true)
@@ -214,6 +235,10 @@ test('index passthrough and 401 bypass are gated on enabled and limited to remot
   assert.equal(internals.shouldServeUnauthenticatedIndex(
     { method: 'GET', url: '/', headers: { host: '127.0.0.1:3080' } }, true, false,
   ), false, 'a loopback browser keeps the stock 401 and its token URL hint')
+  // 局域网网关把 Host 折成回环，但原始 authority 在标记头里，仍要下发锁屏页
+  assert.equal(internals.shouldServeUnauthenticatedIndex(
+    { method: 'GET', url: '/', headers: { host: '127.0.0.1:4385', 'x-dsh-lan-origin': '192.168.50.108:3080' } }, true, false,
+  ), true, 'gateway requests must still get the lock screen, not the stock 401')
   assert.equal(internals.shouldServeUnauthenticatedIndex(
     { method: 'GET', url: '/', headers: new Headers({ host: 'localhost:3080' }) }, true, false,
   ), false, 'Headers-like carriers classify the same way')
@@ -856,19 +881,170 @@ test('an invalid stored secret stays locked and is removed', async () => {
 
 test('updateWebserverHostInPatch seamlessly updates or inserts webserver host', () => {
   const sampleEmpty = `# empty patch\n[]\n`
-  const added = internals.updateWebserverHostInPatch(sampleEmpty, '0.0.0.0', 19387)
-  assert(added.includes('host: "0.0.0.0"'))
+  const added = internals.updateWebserverHostInPatch(sampleEmpty, '127.0.0.1', 19387)
+  assert(added.includes('host: "127.0.0.1"'))
   assert(added.includes('port: 19387'))
 
   const sampleExisting = `- id: webserver\n  name: "@deepseek-ai/dsh-host-webserver"\n  config:\n    host: "127.0.0.1"\n    port: 19387\n- id: other\n`
-  const updatedToAll = internals.updateWebserverHostInPatch(sampleExisting, '0.0.0.0')
-  assert(updatedToAll.includes('host: "0.0.0.0"'))
-  assert.equal(updatedToAll.includes('host: "127.0.0.1"'), false)
-  assert(updatedToAll.includes('- id: other'))
+  const updatedToLan = internals.updateWebserverHostInPatch(sampleExisting, '192.168.1.20')
+  assert(updatedToLan.includes('host: "192.168.1.20"'))
+  assert.equal(updatedToLan.includes('host: "127.0.0.1"'), false)
+  assert(updatedToLan.includes('- id: other'))
 
-  const updatedBack = internals.updateWebserverHostInPatch(updatedToAll, '127.0.0.1')
+  const updatedBack = internals.updateWebserverHostInPatch(updatedToLan, '127.0.0.1')
   assert(updatedBack.includes('host: "127.0.0.1"'))
-  assert.equal(updatedBack.includes('host: "0.0.0.0"'), false)
+  assert.equal(updatedBack.includes('192.168.1.20'), false)
+})
+
+test('updateWebserverHostInPatch 同时支持自定义端口', () => {
+  const sampleExisting = `- id: webserver\n  name: "@deepseek-ai/dsh-host-webserver"\n  config:\n    host: "127.0.0.1"\n    port: 3080\n- id: other\n`
+  // 只改端口，host 不变
+  const portOnly = internals.updateWebserverHostInPatch(sampleExisting, '127.0.0.1', 5464, 5464)
+  assert(portOnly.includes('port: 5464'))
+  assert.equal(portOnly.includes('port: 3080'), false)
+  assert(portOnly.includes('host: "127.0.0.1"'))
+  assert(portOnly.includes('- id: other'), '不得破坏其它配置段')
+  // 只出现一次 port 行，不重复插入
+  assert.equal((portOnly.match(/^\s+port:/gm) ?? []).length, 1)
+  // 新建段落时带上端口
+  const created = internals.updateWebserverHostInPatch('# empty\n[]\n', '127.0.0.1', 3080, 3080)
+  assert(created.includes('host: "127.0.0.1"'))
+  assert(created.includes('port: 3080'))
+})
+
+test('normalizeBindPort 只接受 1~65535 的整数端口', () => {
+  for (const value of [1, 80, 3080, 65535, '8080']) {
+    assert.equal(internals.normalizeBindPort(value), Number(value))
+  }
+  for (const bad of [0, -1, 65536, 3.14, 'abc', '', null, undefined]) {
+    assert.throws(() => internals.normalizeBindPort(bad), /端口必须是 1 到 65535 之间的整数/, String(bad) + ' 应被拒绝')
+  }
+  assert.equal(internals.DEFAULT_SERVER_PORT, 3080)
+})
+
+test('桌面端可以改端口，但不能改 host', async () => {
+  const { ctx } = makeHost()
+  const desktopCtx = desktopView(ctx)
+  // 桌面端回环端口由宿主随机分配，插件不允许固定它
+  await assert.rejects(
+    () => internals.setServerBindHost(desktopCtx, undefined, 5464),
+    /回环端口由宿主随机分配/,
+  )
+  // 试图改成局域网地址：拒绝
+  await assert.rejects(
+    () => internals.setServerBindHost(desktopCtx, '192.168.50.108', 5464),
+    /桌面端不能修改监听地址/,
+  )
+  // 显式写回环地址且不指定端口：允许（只重写 host 行）
+  const sameHost = await internals.setServerBindHost(desktopCtx, '127.0.0.1')
+  assert.equal(sameHost.host, '127.0.0.1')
+  assert.equal(sameHost.port, undefined)
+})
+
+test('桌面端对外端口由 lanGatewayPort 独立控制', async () => {
+  const { ctx, settings } = makeHost()
+  // 走真实的 settings 注册流程，让 mutate 有命名空间可用
+  plugin.apply(ctx, { enabled: true })
+  const desktopCtx = desktopView(ctx)
+  // 设置对外端口只写 settings，不碰 profile 的 webserver 行
+  const patchPath = internals.resolveProfilePatchPath(desktopCtx)
+  const before = patchPath ? readFileSync(patchPath, 'utf8') : ''
+  const result = await internals.setLanGatewayPort(desktopCtx, 4000)
+  assert.equal(result.lanGatewayPort, 4000)
+  assert.equal(settings.doc[plugin.NS]?.lanGatewayPort, 4000)
+  if (patchPath) assert.equal(readFileSync(patchPath, 'utf8'), before, '不得改动 profile 的 webserver 配置')
+  await assert.rejects(() => internals.setLanGatewayPort(desktopCtx, 0), /端口必须是 1 到 65535/)
+})
+
+test('局域网代理把网卡端口的请求转发到 127.0.0.1 上游', async () => {
+  const lan = Object.values(networkInterfaces()).flat()
+    .find((iface) => iface && iface.family === 'IPv4' && !iface.internal)?.address
+  if (!lan) return // 无局域网网卡的环境跳过
+  // 上游只监听回环，等价于桌面端宿主
+  const upstream = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' })
+    res.end('host=' + req.headers.host + ' url=' + req.url)
+  })
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve))
+  const targetPort = upstream.address().port
+  const gateway = await startLanGateway({ bindHost: lan, port: 0, targetPort })
+  const gatewayPort = gateway.server.address().port
+  try {
+    // 本文件把 globalThis.fetch 换成了假实现，这里直接用原生 http 请求。
+    const body = await new Promise((resolve, reject) => {
+      get(`http://${lan}:${gatewayPort}/probe?x=1`, (response) => {
+        let text = ''
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => { text += chunk })
+        response.on('end', () => resolve({ status: response.statusCode, text }))
+      }).on('error', reject)
+    })
+    assert.equal(body.status, 200)
+    assert.match(body.text, /url=\/probe\?x=1/)
+    // Host 折成上游 authority：connection.admit 只认回环/绑定地址/trustedHosts，
+    // 局域网 authority 会被判 403，故由代理改写。
+    assert.match(body.text, new RegExp('host=127\\.0\\.0\\.1:' + targetPort))
+  } finally {
+    await gateway.close()
+    await new Promise((resolve) => upstream.close(resolve))
+  }
+})
+
+test('局域网代理端口默认 3081，且可配置', () => {
+  assert.equal(DEFAULT_LAN_GATEWAY_PORT, 3081)
+  assert.equal(plugin.resolveOptions({}).lanGatewayPort, DEFAULT_LAN_GATEWAY_PORT)
+  assert.equal(plugin.resolveOptions({ lanGatewayPort: 4000 }).lanGatewayPort, 4000)
+  for (const bad of [0, 70000, 3.5]) {
+    assert.throws(() => plugin.resolveOptions({ lanGatewayPort: bad }), /lanGatewayPort/)
+  }
+})
+
+test('normalizeBindHost 把通配地址换成具体网卡 IP，宿主只接受 IP 字面量', () => {
+  // 0.2.x 的 webserver 在启动阶段拒绝 0.0.0.0/::，写进配置会让整个 profile 起不来
+  const lan = internals.getLocalLanAddresses().find((ip) => !ip.startsWith('127.'))
+  for (const wildcard of ['0.0.0.0', '::', '[::]', '*']) {
+    if (lan) assert.equal(internals.normalizeBindHost(wildcard), lan, wildcard + ' 应落到具体网卡 IP')
+    else assert.throws(() => internals.normalizeBindHost(wildcard), /没有可用的局域网 IPv4/, wildcard + ' 无网卡时应报错')
+  }
+  assert.equal(internals.normalizeBindHost('127.0.0.1'), '127.0.0.1')
+  assert.equal(internals.normalizeBindHost('192.168.1.20'), '192.168.1.20')
+  // 宿主只接受 IP 字面量：回环别名归一成 127.0.0.1，域名直接拒绝
+  assert.equal(internals.normalizeBindHost('localhost'), '127.0.0.1')
+  assert.equal(internals.normalizeBindHost('::1'), '127.0.0.1')
+  assert.throws(() => internals.normalizeBindHost('dsh.example.com'), /必须是具体的 IP 地址/)
+  assert.throws(() => internals.normalizeBindHost('300.1.1.1'), /必须是具体的 IP 地址/)
+  assert.throws(() => internals.normalizeBindHost(''), /不能为空/)
+})
+
+test('isLoopbackHost 区分回环与具体网卡地址', () => {
+  for (const host of ['127.0.0.1', 'localhost', '::1', '[::1]', ' 127.0.0.1 ', '127.0.0.2']) {
+    assert.equal(internals.isLoopbackHost(host), true, host + ' 是回环')
+  }
+  for (const host of ['192.168.1.20', '0.0.0.0', '::', '10.0.0.5', '127.0.0', undefined, '']) {
+    assert.equal(internals.isLoopbackHost(host), false, String(host) + ' 不是回环')
+  }
+})
+
+test('isDesktopHostedProfile 识别桌面端 profile', () => {
+  const make = (profile, entryName) => ({
+    get: (name) => (name === 'profileContext' ? profile : undefined),
+    fiber: { entry: { options: { name: entryName } } },
+  })
+  assert.equal(internals.isDesktopHostedProfile(make({ name: 'desktop' })), true)
+  assert.equal(internals.isDesktopHostedProfile(make({ name: 'web' })), false)
+  assert.equal(internals.isDesktopHostedProfile(make(undefined, '@deepseek-ai/dsh-desktop-host')), true)
+  assert.equal(internals.isDesktopHostedProfile(make(undefined, 'dsh-web-app')), false)
+  assert.equal(internals.isDesktopHostedProfile({ get: () => undefined }), process.env.DSH_DESKTOP_NODE_EXECUTABLE !== undefined)
+})
+
+test('桌面端拒绝改绑监听地址，避免宿主硬编码 127.0.0.1 打不开而崩溃', async () => {
+  const { ctx } = makeHost()
+  // 模拟桌面端 profile
+  const desktopCtx = desktopView(ctx)
+  await assert.rejects(
+    () => internals.setServerBindHost(desktopCtx, '192.168.50.108'),
+    /桌面端不能修改监听地址/,
+  )
 })
 
 test('desktop and LAN trust: getLocalLanAddresses, getServerNetworkInfo and auto-trusted LAN IP requestRejection', async () => {
@@ -881,7 +1057,7 @@ test('desktop and LAN trust: getLocalLanAddresses, getServerNetworkInfo and auto
 
   const { ctx, connection, webServer } = makeHost()
   webServer.port = 19387
-  webServer.host = '0.0.0.0'
+  webServer.host = lanIps[0] || '192.168.1.20'
   connection.trustedHosts = []
   let authed = false
   connection.browserAuth = {
@@ -898,8 +1074,8 @@ test('desktop and LAN trust: getLocalLanAddresses, getServerNetworkInfo and auto
   await ctx.plugin(plugin).await()
   const info = internals.getServerNetworkInfo(ctx)
   assert.equal(info.port, 19387)
-  assert.equal(info.host, '0.0.0.0')
-  assert.equal(info.isAllInterfaces, true)
+  assert.equal(info.host, webServer.host)
+  assert.equal(info.isAllInterfaces, true, '绑具体网卡 IP 即视为已开放局域网')
 
   const configure = connection.registrations.get(CONFIG_RPC_CHANNEL).handler
   await configure('setEnabled', { enabled: true })
@@ -946,7 +1122,7 @@ test('desktop and LAN status info renders in RemoteControlSettings', async () =>
             enabled: true,
             secretConfigured: true,
             port: 19387,
-            host: '0.0.0.0',
+            host: '192.168.50.108',
             isAllInterfaces: true,
             lanIps: ['192.168.50.108'],
             trustedHosts: [],
@@ -972,9 +1148,47 @@ test('desktop and LAN status info renders in RemoteControlSettings', async () =>
     assert(portTag, '应当显示监听端口标签')
     const hostSwitch = findElement(networkCard, (node) => node?.props?.className === 'dsh-remote-host-switch')
     assert(hostSwitch, '本机访问时应显示切换监听地址控件')
+    // 已开放局域网时只提供「切回仅本机」，且按钮文案里不出现宿主会拒绝的通配地址
+    const backButton = findElement(hostSwitch, (node) => node?.type === 'button' && String(node?.props?.children).includes('仅本机'))
+    assert(backButton, '已开放局域网时应提供切回仅本机的按钮')
+    assert.equal(findElement(hostSwitch, (node) => node?.type === 'button' && String(node?.props?.children).includes('0.0.0.0')), undefined,
+      '界面不得再引导用户绑定 0.0.0.0')
     const lanUrl = findElement(networkCard, (node) => node?.props?.className === 'dsh-remote-network-url')
     assert(lanUrl, '应当显示可供局域网直接访问的完整 URL')
     assert.equal(lanUrl.props.children, 'http://192.168.50.108:19387')
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('the switch row nests no label and drives the checkbox only through change', async () => {
+  // 真实浏览器里点击内层 label 会先冒泡到外层再触发原生 activation，
+  // 嵌套 label 或手写 onClick 翻转都会连发两次点击，开关看起来永远打不开。
+  const previousLocation = globalThis.location
+  globalThis.location = { hostname: 'localhost', host: 'localhost:19387' }
+  storage.clear()
+  resetBrowser()
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+    const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
+    render(section.component, section.entry.inject())
+    await new Promise((resolve) => setImmediate(resolve))
+    const view = render(section.component, section.entry.inject())
+
+    const row = findElement(view, (node) => node?.props?.className === 'dsh-remote-toggle-row')
+    assert(row)
+    assert.equal(row.type, 'label', '整行仍是 label，点文字也能切换')
+    assert.equal(row.props.onClick, undefined, '不得再手写 onClick 翻转')
+
+    const switchWrapper = findElement(view, (node) => node?.props?.className === 'dsh-remote-switch')
+    assert(switchWrapper)
+    assert.notEqual(switchWrapper.type, 'label', '内层不能是 label，否则一次点击会激活两次')
+    const checkbox = findElement(switchWrapper, (node) => node?.props?.role === 'switch')
+    assert.equal(checkbox.props.type, 'checkbox')
+    assert.equal(typeof checkbox.props.onChange, 'function')
   } finally {
     globalThis.location = previousLocation
   }

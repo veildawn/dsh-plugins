@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote-control",
-  "version": "0.1.21",
+  "version": "0.1.34",
   "description": "Token-authenticated remote access gate and privileged RPC bridge for DeepSeek Harness",
   "type": "module",
   "main": "lib/index.js",
@@ -15,6 +15,7 @@
   "files": [
     "lib/index.js",
     "lib/client.js",
+    "lib/lan-gateway.js",
     "README.md",
     "cordis.patch.yml"
   ],

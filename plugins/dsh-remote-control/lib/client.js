@@ -140,6 +140,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-copy-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.12));color:var(--dsw-alias-label-primary) !important;border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dsh-remote-copy-btn.copied{color:var(--dsw-alias-state-success-primary,#10b981) !important;border-color:var(--dsw-alias-state-success-primary,#10b981)}
       .dsh-remote-host-switch{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:8px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));font-size:13px}
+      .dsh-remote-port-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));font-size:13px}
       .dsh-remote-host-btn{padding:4px 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease}
       .dsh-remote-host-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.08));border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dsh-remote-host-btn:disabled{opacity:.4;cursor:default}
@@ -452,6 +453,7 @@ window.__ModuleLoader__.load({
         const [enabled, setEnabled] = react.useState(false);
         const [secret, setSecret] = react.useState(currentSecret);
         const [copiedIp, setCopiedIp] = react.useState("");
+        const [portInput, setPortInput] = react.useState("");
 
         const copyText = async (text, id) => {
           let ok = false;
@@ -487,6 +489,9 @@ window.__ModuleLoader__.load({
                 : "本机配置可用",
             }));
             setEnabled(next.enabled === true);
+            /* 桌面端显示对外端口，web profile 显示监听端口 */
+            const shownPort = next.bindLocked ? next.lanGatewayPort : next.port;
+            setPortInput(shownPort === undefined ? "" : String(shownPort));
           }, (error) => {
             if (active) setRemote((value) => Object.assign({}, value, { message: "无法读取远程控制状态: " + error.message }));
           });
@@ -519,13 +524,26 @@ window.__ModuleLoader__.load({
         }, "保存远程控制失败: ");
         const switchBindHost = (targetHost) => withBusy(async () => {
           const next = await props.configRequest("setBindHost", { host: targetHost });
-          const isAll = targetHost === "0.0.0.0" || targetHost === "::";
+          /* 宿主会把请求地址规范化成具体网卡 IP，界面以返回值为准 */
+          const host = next?.host || targetHost;
           setRemote((current) => Object.assign({}, current, next, {
-            host: targetHost,
-            isAllInterfaces: isAll,
-            message: "网络绑定已切换为 " + targetHost + "（重启客户端或热重载后生效）",
+            host,
+            isAllInterfaces: host !== "127.0.0.1" && host !== "localhost" && host !== "::1",
+            message: "网络绑定已切换为 " + host + "（重启客户端或热重载后生效）",
           }));
         }, "切换网络绑定失败: ");
+        const applyPort = () => withBusy(async () => {
+          const port = Number(String(portInput).trim());
+          if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("端口必须是 1 到 65535 之间的整数");
+          /* 桌面端改的是插件自己监听的对外端口，宿主回环端口保持随机不动。 */
+          const next = remote.bindLocked
+            ? await props.configRequest("setLanGatewayPort", { port })
+            : await props.configRequest("setBindHost", { port });
+          setRemote((current) => Object.assign({}, current, next, {
+            message: "对外端口已改为 " + port + "（重启客户端后生效）",
+          }));
+          setPortInput(String(port));
+        }, "修改端口失败: ");
         return react.createElement("div", { className: "dsh-remote-settings" },
           react.createElement("style", null, uiCss),
           react.createElement("div", { className: "dsh-remote-header" },
@@ -535,15 +553,14 @@ window.__ModuleLoader__.load({
 
           /* 基础配置卡片 */
           react.createElement("div", { className: "dsh-remote-card" },
-            react.createElement("label", { className: "dsh-remote-toggle-row", onClick: (e) => {
-              if (busy || props.remoteBrowser) return;
-              if (e.target.tagName !== "INPUT") setEnabled(!enabled);
-            } },
+            /* 整行是唯一的 label，点击由原生 activation 触发一次 change；
+               不可再嵌一层 label 或手写 onClick 翻转，否则会连发两次点击互相抵消 */
+            react.createElement("label", { className: "dsh-remote-toggle-row" },
               react.createElement("div", { className: "dsh-remote-toggle-text" },
                 react.createElement("span", { className: "dsh-remote-toggle-title" }, "启用远程访问"),
                 react.createElement("span", { className: "dsh-remote-toggle-sub" }, "开启后宿主机将放行已通过密钥验证的远程设备请求")
               ),
-              react.createElement("label", { className: "dsh-remote-switch" },
+              react.createElement("span", { className: "dsh-remote-switch" },
                 react.createElement("input", {
                   type: "checkbox", role: "switch", checked: enabled, disabled: busy || props.remoteBrowser,
                   "aria-label": "启用远程访问", onChange: (event) => setEnabled(event.target.checked),
@@ -589,24 +606,50 @@ window.__ModuleLoader__.load({
               react.createElement("span", { style: { color: "var(--dsw-alias-label-secondary)" } },
                 "监听地址: ",
                 react.createElement("strong", { style: { color: "var(--dsw-alias-label-primary)", fontFamily: "ui-monospace,monospace" } }, remote.host || "127.0.0.1"),
-                remote.isAllInterfaces ? " (所有网卡)" : " (仅本机)"
+                remote.isAllInterfaces ? " (已开放局域网)" : " (仅本机)"
               ),
-              react.createElement("div", { style: { display: "flex", gap: "6px" } },
-                remote.host !== "0.0.0.0" ? react.createElement("button", {
-                  className: "dsh-remote-host-btn", type: "button", disabled: busy,
-                  onClick: () => switchBindHost("0.0.0.0"),
-                }, "切换为 0.0.0.0 (开放局域网)") : null,
-                remote.host !== "127.0.0.1" ? react.createElement("button", {
-                  className: "dsh-remote-host-btn", type: "button", disabled: busy,
-                  onClick: () => switchBindHost("127.0.0.1"),
-                }, "切换为 127.0.0.1 (仅本机)") : null
-              )
+              /* 宿主只接受具体网卡 IP，通配 0.0.0.0 会让整个 profile 起不来，
+                 因此「开放局域网」绑到第一块非回环网卡，并把地址显示出来。
+                 桌面端宿主写死连 127.0.0.1，改绑会让应用启动失败，故不提供切换按钮。 */
+              remote.bindLocked
+                ? react.createElement("span", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: "12px" } },
+                    "桌面端固定 127.0.0.1，不可改绑")
+                : react.createElement("div", { style: { display: "flex", gap: "6px" } },
+                    !remote.isAllInterfaces && Array.isArray(remote.lanIps) && remote.lanIps.length > 0 ? react.createElement("button", {
+                      className: "dsh-remote-host-btn", type: "button", disabled: busy,
+                      onClick: () => switchBindHost(remote.lanIps[0]),
+                    }, "开放局域网 (" + remote.lanIps[0] + ")") : null,
+                    remote.isAllInterfaces ? react.createElement("button", {
+                      className: "dsh-remote-host-btn", type: "button", disabled: busy,
+                      onClick: () => switchBindHost("127.0.0.1"),
+                    }, "切换为 127.0.0.1 (仅本机)") : null
+                  )
             ) : react.createElement("div", { className: "dsh-remote-details" },
-              "绑定宿主: " + (remote.host || "127.0.0.1") + (remote.isAllInterfaces ? " (已监听所有网卡)" : " (仅本机回环)")
+              "绑定宿主: " + (remote.host || "127.0.0.1") + (remote.isAllInterfaces ? " (已开放局域网)" : " (仅本机回环)")
             ),
+            /* 端口可自定义：host 受宿主限制，port 不受，桌面端同样能改。 */
+            !props.remoteBrowser ? react.createElement("div", { className: "dsh-remote-port-row" },
+              react.createElement("span", { style: { color: "var(--dsw-alias-label-secondary)" } },
+                remote.bindLocked ? "局域网对外端口:" : "监听端口:"),
+              react.createElement("input", {
+                className: "dsh-remote-input", type: "number", min: 1, max: 65535,
+                value: portInput, disabled: busy,
+                "aria-label": remote.bindLocked ? "局域网对外端口" : "监听端口",
+                onChange: (event) => setPortInput(event.target.value),
+                style: { width: "110px" },
+              }),
+              react.createElement("button", {
+                className: "dsh-remote-host-btn", type: "button", disabled: busy,
+                onClick: applyPort,
+              }, "应用端口"),
+              react.createElement("span", { style: { color: "var(--dsw-alias-label-tertiary)", fontSize: "12px" } },
+                remote.bindLocked ? "回环端口由宿主随机分配，此端口对外" : "重启客户端后生效")
+            ) : null,
+            /* 局域网访问地址：桌面端走对外端口，web profile 直接就是监听端口 */
             Array.isArray(remote.lanIps) && remote.lanIps.length > 0 ? react.createElement("ul", { className: "dsh-remote-network-list" },
               remote.lanIps.map((ip) => {
-                const url = "http://" + ip + ":" + remote.port;
+                const lanPort = remote.bindLocked ? (remote.lanGatewayPort || remote.port) : remote.port;
+                const url = "http://" + ip + ":" + lanPort;
                 const isCopied = copiedIp === ip;
                 return react.createElement("li", { key: ip, className: "dsh-remote-network-item" },
                   react.createElement("span", { className: "dsh-remote-network-url" }, url),

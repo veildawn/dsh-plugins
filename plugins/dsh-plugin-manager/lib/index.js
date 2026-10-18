@@ -59,7 +59,12 @@ import {
 } from './core.js'
 
 export const name = 'plugin-manager'
-export const inject = ['settings', 'connection']
+/**
+ * webServer 必须一起注入：`connection.rpc.handle` 内部用调用方的 ctx 读
+ * `ctx.webServer` 注册路由，缺这一项会让整个插件在启用时报
+ * `cannot get property "webServer" without inject` 而激活失败。
+ */
+export const inject = ['settings', 'connection', 'webServer']
 export const NS = 'plugin-manager'
 export const MARKET_RPC_CHANNEL = '/dsh-plugin-manager-rpc'
 

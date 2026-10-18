@@ -50,8 +50,8 @@ import {
 /** Cordis 插件名称。 */
 export const name = 'tool-image-gen';
 
-/** 插件激活前所需注入的底层服务列表。 */
-export const inject = ['tools', 'connection'];
+/** 插件激活前所需注入的底层服务列表；webServer 供 rpc.handle 注册路由时读取。 */
+export const inject = ['tools', 'connection', 'webServer'];
 
 /** 前端设置面板使用的 RPC 通道。 */
 export const SETTINGS_RPC_CHANNEL = '/dsh-image-gen-settings';

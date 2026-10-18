@@ -12,7 +12,9 @@ import {
 } from './core.js'
 
 export const name = 'archive-manager'
-export const inject = ['workspaceRegistry', 'sessionPersistence', 'settings', 'sessions', 'agents']
+// webServer 必须一并注入：connection.rpc.handle 在调用方 ctx 上读 webServer 注册路由，
+// 缺这一项会让插件在 webServer 就绪前就执行 apply 并以 "without inject" 激活失败。
+export const inject = ['workspaceRegistry', 'sessionPersistence', 'settings', 'sessions', 'agents', 'webServer']
 
 /** The shared symbol of cosmokit's live-reference protocol, stable across module copies. */
 const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')

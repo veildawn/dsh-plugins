@@ -13,6 +13,7 @@ import { networkInterfaces } from 'node:os'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { DEFAULT_LAN_GATEWAY_PORT, LAN_ORIGIN_HEADER, startLanGateway } from './lan-gateway.js'
 
 export const name = 'remote-control'
 export const inject = ['credentials', 'settings', 'connection', 'webServer']
@@ -80,14 +81,20 @@ export { isVolatileRef, liveField, settingsBase, unwrapConfig }
 export const Config = z.object({
   enabled: liveField(z.boolean().default(false)),
   secret: liveField(z.string().role('secret').default('')),
+  /* 桌面端无法改宿主绑定，这里给出对外暴露的局域网代理端口。 */
+  lanGatewayPort: liveField(z.natural().min(1).max(65535).default(DEFAULT_LAN_GATEWAY_PORT)),
 })
 
 export function resolveOptions(raw = {}) {
   const enabled = raw.enabled ?? false
   const secret = raw.secret ?? ''
+  const lanGatewayPort = raw.lanGatewayPort ?? DEFAULT_LAN_GATEWAY_PORT
   if (typeof enabled !== 'boolean') throw new Error(name + ': enabled must be a boolean')
   if (typeof secret !== 'string') throw new Error(name + ': secret must be a string')
-  return { enabled, secret }
+  if (!Number.isInteger(lanGatewayPort) || lanGatewayPort < 1 || lanGatewayPort > 65535) {
+    throw new Error(name + ': lanGatewayPort must be an integer between 1 and 65535')
+  }
+  return { enabled, secret, lanGatewayPort }
 }
 
 const METHODS = {
@@ -153,14 +160,16 @@ export function resolveProfilePatchPath(ctx) {
 }
 
 /**
- * 修改 YAML 内容中 webserver 的 host 配置。
- * 支持 0.0.0.0 与 127.0.0.1 模式无缝互转。
+ * 修改 YAML 内容中 webserver 的 host 与 port 配置。
+ * targetPort 为 undefined 时保留原有端口行；其余情况写入给定端口。
  */
-export function updateWebserverHostInPatch(yamlContent, targetHost, defaultPort = 19387) {
+export function updateWebserverHostInPatch(yamlContent, targetHost, defaultPort = 19387, targetPort) {
+  const port = Number.isInteger(targetPort) ? targetPort : defaultPort
   const lines = yamlContent.split(/\r?\n/)
   let inWebserver = false
   let inConfig = false
   let hostReplaced = false
+  let portReplaced = false
   const output = []
 
   for (let i = 0; i < lines.length; i++) {
@@ -175,6 +184,10 @@ export function updateWebserverHostInPatch(yamlContent, targetHost, defaultPort 
       if (!hostReplaced) {
         output.push(`    host: "${targetHost}"`)
         hostReplaced = true
+      }
+      if (!portReplaced) {
+        output.push(`    port: ${port}`)
+        portReplaced = true
       }
       inWebserver = false
       inConfig = false
@@ -191,12 +204,21 @@ export function updateWebserverHostInPatch(yamlContent, targetHost, defaultPort 
       hostReplaced = true
       continue
     }
+    if (inWebserver && inConfig && /^\s+port:\s*\d+\s*$/.test(line)) {
+      output.push(`    port: ${port}`)
+      portReplaced = true
+      continue
+    }
     output.push(line)
   }
 
   if (inWebserver && !hostReplaced) {
     output.push(`    host: "${targetHost}"`)
     hostReplaced = true
+  }
+  if (inWebserver && !portReplaced) {
+    output.push(`    port: ${port}`)
+    portReplaced = true
   }
 
   if (!hostReplaced) {
@@ -205,7 +227,7 @@ export function updateWebserverHostInPatch(yamlContent, targetHost, defaultPort 
       `  name: "@deepseek-ai/dsh-host-webserver"`,
       `  config:`,
       `    host: "${targetHost}"`,
-      `    port: ${defaultPort}`,
+      `    port: ${port}`,
       ``,
     ]
     return block.join('\n') + yamlContent
@@ -214,22 +236,105 @@ export function updateWebserverHostInPatch(yamlContent, targetHost, defaultPort 
   return output.join('\n')
 }
 
+/** 通配地址：宿主的 webserver 从 0.2.x 起在启动阶段直接拒绝，写进配置会导致整个 profile 起不来。 */
+const WILDCARD_BIND_HOSTS = new Set(['0.0.0.0', '::', '[::]', '*'])
+/** 回环别名，写进配置前都要换成宿主机认识的 IP 字面量。 */
+const LOOPBACK_BIND_ALIASES = new Set(['localhost', '::1', '[::1]'])
+const IPV4_LITERAL = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+
+export function isLoopbackHost(host) {
+  if (typeof host !== 'string') return false
+  const raw = host.trim().toLowerCase()
+  if (raw === '127.0.0.1' || LOOPBACK_BIND_ALIASES.has(raw)) return true
+  const match = IPV4_LITERAL.exec(raw)
+  return Boolean(match) && match[1] === '127'
+}
+
+/** 宿主只接受具体 IP 字面量，域名与回环别名都必须在写入配置前落成地址。 */
+function isBindableLiteral(host) {
+  const match = IPV4_LITERAL.exec(host)
+  if (match) return match.slice(1).every((part) => Number(part) <= 255)
+  return /^[0-9a-f:]+$/i.test(host) && host.includes(':')
+}
+
+/** 未配置端口时宿主给 webserver 的默认值。 */
+export const DEFAULT_SERVER_PORT = 3080
+
 /**
- * 切换或设置当前 profile 的 webserver 绑定 Host（例如 0.0.0.0 或 127.0.0.1）。
+ * 校验监听端口：必须是 1~65535 的整数（0 表示让系统分配，这里不接受）。
+ * 端口可以自定义，桌面端也能改；只有 host 受宿主限制。
  */
-export async function setServerBindHost(ctx, targetHost) {
-  if (targetHost !== '0.0.0.0' && targetHost !== '127.0.0.1') {
-    throw new Error('Target bind host must be 0.0.0.0 or 127.0.0.1')
+export function normalizeBindPort(targetPort) {
+  const port = typeof targetPort === 'string' ? Number(targetPort.trim()) : targetPort
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('端口必须是 1 到 65535 之间的整数')
   }
+  return port
+}
+
+/**
+ * 把绑定请求解析成宿主能接受的地址：通配地址换成一块具体网卡的 IPv4。
+ * 宿主只接受具体 IP 字面量，因此「开放局域网」必须落到某个真实网卡地址上。
+ */
+export function normalizeBindHost(targetHost) {
+  const raw = typeof targetHost === 'string' ? targetHost.trim() : ''
+  if (!raw) throw new Error('绑定地址不能为空')
+  if (WILDCARD_BIND_HOSTS.has(raw)) {
+    const lan = pickLanBindHost()
+    if (!lan) throw new Error('宿主机没有可用的局域网 IPv4 地址，无法开放局域网访问')
+    return lan
+  }
+  if (isLoopbackHost(raw)) return '127.0.0.1'
+  if (!isBindableLiteral(raw)) {
+    throw new Error('绑定地址必须是具体的 IP 地址，不能是域名或通配地址')
+  }
+  return raw
+}
+
+/** 选一块非回环网卡的 IPv4 作为局域网绑定地址；没有可用网卡时返回 undefined。 */
+export function pickLanBindHost() {
+  return getLocalLanAddresses().find((ip) => !ip.startsWith('127.'))
+}
+
+/**
+ * 切换或设置当前 profile 的 webserver 绑定 Host 与端口。
+ * 入参可以是 127.0.0.1，也可以是要绑定的具体局域网 IP；port 省略时保留当前端口。
+ *
+ * 桌面端只锁 host：宿主固定连 127.0.0.1，改绑会让应用起不来。桌面端的回环端口
+ * 保持随机（宿主传 `--port 0`），对外端口由 `lanGatewayPort` 单独控制，
+ * 见 {@link setLanGatewayPort}。
+ */
+export async function setServerBindHost(ctx, targetHost, targetPort) {
+  const desktop = isDesktopHostedProfile(ctx)
+  if (desktop) {
+    if (targetHost !== undefined && normalizeBindHost(targetHost) !== '127.0.0.1') {
+      throw new Error('桌面端不能修改监听地址：宿主固定连接 127.0.0.1，改绑会导致应用无法启动。对外端口请用「局域网端口」设置。')
+    }
+    if (targetPort !== undefined) {
+      throw new Error('桌面端的回环端口由宿主随机分配，不能固定；需要对外暴露请设置「局域网端口」。')
+    }
+  }
+  const host = desktop ? '127.0.0.1' : normalizeBindHost(targetHost)
+  const port = targetPort === undefined ? undefined : normalizeBindPort(targetPort)
   const patchPath = resolveProfilePatchPath(ctx)
   if (!patchPath) {
     throw new Error('未找到当前 profile 的 cordis.patch.yml 配置文件')
   }
   const content = readFileSync(patchPath, 'utf8')
-  const defaultPort = ctx.webServer?.port || 19387
-  const updated = updateWebserverHostInPatch(content, targetHost, defaultPort)
+  const defaultPort = port ?? (ctx.webServer?.port || DEFAULT_SERVER_PORT)
+  const updated = updateWebserverHostInPatch(content, host, defaultPort, port)
   writeFileSync(patchPath, updated, 'utf8')
-  return { ok: true, host: targetHost, path: patchPath }
+  return { ok: true, host, ...port === undefined ? {} : { port }, path: patchPath }
+}
+
+/**
+ * 设置桌面端对外暴露的局域网端口。该端口由插件自己的反向代理监听，
+ * 与宿主回环端口相互独立，因此可以稳定对外而不影响 Electron 启动。
+ */
+export async function setLanGatewayPort(ctx, targetPort) {
+  const port = normalizeBindPort(targetPort)
+  await ctx.settings.mutate(settingsNamespace(ctx, NS), [{ op: 'set', path: ['lanGatewayPort'], value: port }])
+  return { ok: true, lanGatewayPort: port }
 }
 export function getLocalLanAddresses() {
   try {
@@ -243,6 +348,24 @@ export function getLocalLanAddresses() {
 }
 
 /**
+ * 当前进程是否由 Electron 桌面端宿主托管。
+ * 桌面端把 `--host 127.0.0.1` 写死在 IPC 链路里，据此区分「能改绑」与「只能走局域网代理」。
+ */
+export function isDesktopHostedProfile(ctx) {
+  try {
+    const profile = ctx.get('profileContext')
+    if (profile?.name === 'desktop') return true
+    const entry = ctx.fiber?.entry?.options
+    if (typeof entry?.name === 'string' && entry.name.includes('desktop-host')) return true
+  } catch {}
+  if (process.env.DSH_DESKTOP_NODE_EXECUTABLE !== undefined) return true
+  // 桌面端宿主以 `dsh-desktop-host/lib/index.js` 作为入口启动子进程，
+  // 该路径同时出现在 execArgv 与 argv 里，profile 换名也照样命中。
+  const argv = [...process.execArgv, ...process.argv].join(' ')
+  return /dsh-desktop-host/.test(argv)
+}
+
+/**
  * 检测当前宿主机监听端口与网络绑定信息。
  * 兼容 desktop 与 web 两种 profile 环境。
  */
@@ -251,9 +374,12 @@ export function getServerNetworkInfo(ctx) {
   const connection = ctx.connection
   const port = Number(webServer?.port || (typeof webServer?.server?.address === 'function' ? webServer.server.address()?.port : undefined)) || undefined
   const host = webServer?.host || '127.0.0.1'
-  const isAllInterfaces = host === '0.0.0.0' || host === '::'
+  // 宿主只允许绑定具体 IP，因此「已开放局域网」等价于绑定了一块非回环网卡。
+  const isAllInterfaces = !isLoopbackHost(host)
   const lanIps = getLocalLanAddresses()
   const trustedHosts = Array.isArray(connection?.trustedHosts) ? [...connection.trustedHosts] : []
+  // 桌面端无法改绑：宿主用写死的 127.0.0.1 打开界面，改绑会让整个应用起不来。
+  const bindLocked = isDesktopHostedProfile(ctx)
 
   return {
     port,
@@ -261,21 +387,25 @@ export function getServerNetworkInfo(ctx) {
     isAllInterfaces,
     lanIps,
     trustedHosts,
+    bindLocked,
   }
 }
 
 async function status(ctx, options, token) {
   const expected = await remoteControlSecret(ctx, options)
   const network = getServerNetworkInfo(ctx)
+  const current = options()
   return {
-    enabled: options().enabled,
+    enabled: current.enabled,
     secretConfigured: Boolean(expected),
-    authenticated: options().enabled && matchesRemoteControlSecret(expected, token),
+    authenticated: current.enabled && matchesRemoteControlSecret(expected, token),
     port: network.port,
     host: network.host,
     isAllInterfaces: network.isAllInterfaces,
     lanIps: network.lanIps,
     trustedHosts: network.trustedHosts,
+    bindLocked: network.bindLocked,
+    lanGatewayPort: current.lanGatewayPort,
   }
 }
 
@@ -298,6 +428,8 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           isAllInterfaces: value.isAllInterfaces,
           lanIps: value.lanIps,
           trustedHosts: value.trustedHosts,
+          bindLocked: value.bindLocked,
+          lanGatewayPort: value.lanGatewayPort,
         },
       }
     }
@@ -317,6 +449,8 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           isAllInterfaces: value.isAllInterfaces,
           lanIps: value.lanIps,
           trustedHosts: value.trustedHosts,
+          bindLocked: value.bindLocked,
+          lanGatewayPort: value.lanGatewayPort,
         },
       }
     }
@@ -338,14 +472,26 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           isAllInterfaces: value.isAllInterfaces,
           lanIps: value.lanIps,
           trustedHosts: value.trustedHosts,
+          bindLocked: value.bindLocked,
+          lanGatewayPort: value.lanGatewayPort,
         },
       }
     }
     if (method === 'setBindHost') {
-      if (keys.length !== 1 || !Object.hasOwn(payload, 'host') || typeof payload.host !== 'string') {
-        return errorResult('Remote Control setBindHost requests must carry exactly one string host field')
+      /* host 可选：桌面端只允许改 port，此时 payload 只带 port。 */
+      const fields = new Set(keys.map((key) => String(key)))
+      const hasHost = fields.has('host')
+      const hasPort = fields.has('port')
+      if (fields.size === 0 || fields.size > 2 || fields.size !== (hasHost ? 1 : 0) + (hasPort ? 1 : 0)) {
+        return errorResult('Remote Control setBindHost requests carry exactly one host or port field')
       }
-      await setServerBindHost(ctx, payload.host)
+      if (hasHost && typeof payload.host !== 'string') {
+        return errorResult('Remote Control setBindHost host must be a string')
+      }
+      if (hasPort && !Number.isInteger(payload.port)) {
+        return errorResult('Remote Control setBindHost port must be an integer')
+      }
+      await setServerBindHost(ctx, hasHost ? payload.host : undefined, hasPort ? payload.port : undefined)
       const value = await status(ctx, options, '')
       return {
         ok: true,
@@ -357,6 +503,29 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           isAllInterfaces: value.isAllInterfaces,
           lanIps: value.lanIps,
           trustedHosts: value.trustedHosts,
+          bindLocked: value.bindLocked,
+          lanGatewayPort: value.lanGatewayPort,
+        },
+      }
+    }
+    if (method === 'setLanGatewayPort') {
+      if (keys.length !== 1 || !Object.hasOwn(payload, 'port') || !Number.isInteger(payload.port)) {
+        return errorResult('Remote Control setLanGatewayPort requests carry exactly one integer port field')
+      }
+      await setLanGatewayPort(ctx, payload.port)
+      const value = await status(ctx, options, '')
+      return {
+        ok: true,
+        value: {
+          enabled: value.enabled,
+          secretConfigured: value.secretConfigured,
+          port: value.port,
+          host: value.host,
+          isAllInterfaces: value.isAllInterfaces,
+          lanIps: value.lanIps,
+          trustedHosts: value.trustedHosts,
+          bindLocked: value.bindLocked,
+          lanGatewayPort: value.lanGatewayPort,
         },
       }
     }
@@ -616,7 +785,15 @@ export function shouldServeUnauthenticatedIndex(request, enabled, isAuthenticate
   }
   if (url.searchParams.has('token')) return false
   if (url.pathname !== '/' && url.pathname !== '/index.html') return false
+  // 局域网网关会把 Host 折成回环，原始 authority 记在标记头里。
+  if (isLanGatewayRequest(request)) return true
   return !isLoopbackHostHeader(requestHeader(request, 'host'))
+}
+
+/** 请求是否来自本插件的局域网网关（Host 已被折成回环）。 */
+export function isLanGatewayRequest(request) {
+  const origin = requestHeader(request, LAN_ORIGIN_HEADER)
+  return typeof origin === 'string' && origin.length > 0
 }
 
 export function apply(ctx, config) {
@@ -638,6 +815,41 @@ export function apply(ctx, config) {
     }), 'remote-control: browser session handshake')
   })
 
+  /* 桌面端不能改宿主绑定，改用独立局域网代理端口对外提供同一工作区。 */
+  ctx.inject(['connection', 'webServer'], (gatewayCtx) => {
+    gatewayCtx.effect(() => {
+      if (!isDesktopHostedProfile(gatewayCtx)) return
+      const lanIp = pickLanBindHost()
+      const targetPort = Number(gatewayCtx.webServer?.port) || undefined
+      if (!lanIp || !targetPort) return
+      const gatewayPort = normalizeBindPort(options().lanGatewayPort ?? DEFAULT_LAN_GATEWAY_PORT)
+      let handle
+      let disposed = false
+      const stop = async () => {
+        disposed = true
+        const current = handle
+        handle = undefined
+        await current?.close()
+      }
+      /* 浏览器自带的 Cookie 绑定局域网 authority，折过 Host 后对不上；
+         网关用宿主的 launch token 现签一份绑定 127.0.0.1 的会话。 */
+      const mintCookie = async () => {
+        const cookie = captureSessionCookie(gatewayCtx.connection, {
+          headers: { host: `127.0.0.1:${targetPort}` },
+        })
+        return typeof cookie === 'string' && cookie.length > 0 ? cookie : undefined
+      }
+      startLanGateway({ bindHost: lanIp, port: gatewayPort, targetPort, mintCookie }).then((started) => {
+        if (disposed) { void started.close(); return }
+        handle = started
+        gatewayCtx.logger?.info?.('remote-control: LAN gateway on %s:%s', lanIp, gatewayPort)
+      }, (error) => {
+        gatewayCtx.logger?.warn?.('remote-control: LAN gateway failed on %s:%s: %s', lanIp, gatewayPort, error?.message ?? error)
+      })
+      return stop
+    }, 'remote-control: LAN gateway')
+  })
+
   ctx.inject(['connection'], (connectionCtx) => {
     const connection = connectionCtx.connection
     if (connection && connection.browserAuth && typeof connection.authorizeIndex === 'function') {
@@ -657,9 +869,12 @@ export function apply(ctx, config) {
           let res = origRequestRejection(request)
           if (res === 403 && options().enabled) {
             const hostHeader = requestHeader(request, 'host')
+            const lanOrigin = requestHeader(request, LAN_ORIGIN_HEADER)
             if (hostHeader) {
               const lanIps = getLocalLanAddresses()
               const isLocalLan = lanIps.some((ip) => hostHeader === ip || hostHeader.startsWith(ip + ':'))
+                // 网关请求的 Host 已被折成回环，原始 authority 在标记头里
+                || (typeof lanOrigin === 'string' && lanIps.some((ip) => lanOrigin === ip || lanOrigin.startsWith(ip + ':')))
               if (isLocalLan) {
                 res = connection.browserAuth.isAuthenticated(request) ? undefined : 401
               }
@@ -690,10 +905,17 @@ export const internals = {
   matchesRemoteControlSecret,
   remoteControlSecret,
   getLocalLanAddresses,
+  pickLanBindHost,
+  normalizeBindHost,
+  isLoopbackHost,
+  isDesktopHostedProfile,
   getServerNetworkInfo,
   resolveProfilePatchPath,
   updateWebserverHostInPatch,
   setServerBindHost,
+  setLanGatewayPort,
+  normalizeBindPort,
+  DEFAULT_SERVER_PORT,
   handleConfigRpc,
   handleRemoteControlRpc,
   captureSessionCookie,
@@ -702,5 +924,6 @@ export const internals = {
   isRemoteControlRpcPath,
   isLoopbackHostHeader,
   shouldBypassBrowserAuthRejection,
+  isLanGatewayRequest,
   shouldServeUnauthenticatedIndex,
 }

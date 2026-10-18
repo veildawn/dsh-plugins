@@ -414,7 +414,7 @@ test('core: handleArchiveRpc dispatches with the ok/error envelope and gates phy
 
 test('host: apply registers the settings namespace and the trusted-host RPC channel', async () => {
   assert.equal(HostPlugin.name, 'archive-manager');
-  assert.deepEqual(HostPlugin.inject, ['workspaceRegistry', 'sessionPersistence', 'settings', 'sessions', 'agents']);
+  assert.deepEqual(HostPlugin.inject, ['workspaceRegistry', 'sessionPersistence', 'settings', 'sessions', 'agents', 'webServer']);
   const calls = { handle: null, register: null };
   const ctx = {
     settings: {

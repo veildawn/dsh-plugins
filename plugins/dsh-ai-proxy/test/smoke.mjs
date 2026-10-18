@@ -89,12 +89,24 @@ class FakeConnection extends Service {
   }
 }
 
+/** 插件声明了 webServer 依赖（rpc.handle 在调用方 ctx 上读它注册路由）。 */
+class FakeWebServer extends Service {
+  constructor(ctx) {
+    super(ctx, 'webServer')
+    this.port = 0
+    this.host = '127.0.0.1'
+    this.protocol = 'http:'
+  }
+  register() { return () => {} }
+}
+
 function makeCtx(settingsDoc) {
   const ctx = new Context()
   new LlmRuntime(ctx)
   const settings = new MemSettings(ctx, settingsDoc)
   const creds = new FakeCreds(ctx)
   const connection = new FakeConnection(ctx)
+  new FakeWebServer(ctx)
   return { ctx, creds, connection, settings }
 }
 

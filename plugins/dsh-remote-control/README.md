@@ -24,9 +24,9 @@ DSH 特权 API。
 插件自带 `cordis.patch.yml`，安装后会插入 `remote-control` Cordis 行，默认关闭远程访问：
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-control-0.1.21.tgz
+dsh plugin --profile web add ./dsh-remote-control-0.1.34.tgz
 # 桌面端安装：
-# dsh plugin --profile desktop add ./dsh-remote-control-0.1.21.tgz
+# dsh plugin --profile desktop add ./dsh-remote-control-0.1.34.tgz
 ```
 
 ### 重启生效
@@ -94,9 +94,54 @@ DSH_REMOTE_CONTROL_SECRET='replace-with-a-long-random-secret'
 | --- | --- | --- |
 | `enabled` | `false` | 是否接受远程认证和特权调用 |
 | `secret` | `''` | secret-role 回退密钥；凭据仓和环境变量优先 |
+| `lanGatewayPort` | `3081` | 桌面端对外的局域网代理端口；与回环端口相互独立 |
 
 `/dsh-remote-control-config` 是单独的 loopback-only 配置通道。公网通道不能启用远程访问，
 也不能替换 Host 密钥。
+
+### 局域网绑定：必须写具体网卡 IP，不能写 0.0.0.0
+
+DSH 0.2.x 的 `webserver` 在启动阶段就会拒绝通配地址，报错
+`host "0.0.0.0" is an unspecified (wildcard) address`，**整个 profile 因此起不来**。
+所以「开放局域网」不再写 `0.0.0.0`，而是绑定到本机一块具体网卡的 IPv4（设置页按钮上会
+直接显示该地址，例如 `开放局域网 (192.168.50.108)`）；切回本机则写 `127.0.0.1`。
+
+如果 `cordis.patch.yml` 里已经留下了 `host: "0.0.0.0"`，在应用能启动之前先手工改成
+本机网卡地址或 `127.0.0.1`：
+
+```yaml
+- id: webserver
+  name: "@deepseek-ai/dsh-host-webserver"
+  config:
+    host: "192.168.50.108"
+    port: 8930
+```
+
+`isAllInterfaces` 的含义随之变为「绑定了一块非回环网卡」，`GET /` 与 `/api/*` 的放行规则不变。
+
+### 桌面端：宿主绑定改不了，用局域网网关对外
+
+Electron 桌面端把 `--host 127.0.0.1` 写死在 IPC 链路里：宿主子进程用
+`http://127.0.0.1:<port>` 回传 ready，主进程拿这个 URL 去 `fetch` 鉴权。因此桌面端
+profile **不能**覆盖 `webserver` 的 host，改了会让整个应用起不来（crash 日志是
+`ECONNREFUSED 127.0.0.1:<port>`）。
+
+桌面端要局域网访问，插件会在网卡上另起一个反向代理端口（`lanGatewayPort`，默认
+**3081**），转发到宿主的回环端口：
+
+```
+http://192.168.50.108:3081  ──►  127.0.0.1:<宿主随机端口>
+```
+
+- 在 **设置 → 远程控制 → 局域网对外端口** 修改，回环端口保持随机不动。
+- 网关会把 `Host`/`Origin` 折成 `127.0.0.1` 才能过 `connection.admit` 的信任围栏，
+  原始 authority 记在 `x-dsh-lan-origin` 头里，插件据此仍能识别「来自局域网」并下发锁屏页。
+- 浏览器自带 Cookie 绑定的是局域网 authority，折过 Host 后必然对不上，因此网关用宿主
+  launch token 现签一份绑定 `127.0.0.1` 的会话。
+- WebSocket 升级（`/api/remote.mux`）同样转发；`connection` 与 `upgrade` 头在升级路径
+  必须保留，删掉会让页面停在「重新连接中」。
+
+`lanGatewayPort` 不要设成与回环端口相同，否则代理会抢走宿主端口。
 
 ### 会话握手：为什么解锁后必须再补一次 Cookie
 
