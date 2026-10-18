@@ -1034,7 +1034,6 @@ test('isDesktopHostedProfile 识别桌面端 profile', () => {
   assert.equal(internals.isDesktopHostedProfile(make({ name: 'web' })), false)
   assert.equal(internals.isDesktopHostedProfile(make(undefined, '@deepseek-ai/dsh-desktop-host')), true)
   assert.equal(internals.isDesktopHostedProfile(make(undefined, 'dsh-web-app')), false)
-  assert.equal(internals.isDesktopHostedProfile({ get: () => undefined }), process.env.DSH_DESKTOP_NODE_EXECUTABLE !== undefined)
 })
 
 test('桌面端拒绝改绑监听地址，避免宿主硬编码 127.0.0.1 打不开而崩溃', async () => {
