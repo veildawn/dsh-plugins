@@ -114,7 +114,7 @@ class Document extends Events {
     this.card.parentElement = this.composer
     this.composer.append(this.card)
     this.tools = new Element('div', this)
-    this.tools.className = 'uV2eYG_tools'
+    this.tools.className = 'ccegLa_tools'
     this.modelLabel = new Element('span', this)
     this.modelLabel.className = '_7KE1Ra_triggerLabel'
     this.modelLabel.textContent = 'antigravity/gemini-3-flash'
@@ -194,7 +194,7 @@ class Document extends Events {
     if (selector === '.Sh0Q9G_triggerLabel') return null
     if (selector === '[data-composer-card] textarea') return this.textarea
     if (selector === '[data-composer-input]') return this.input
-    if (selector === '[data-composer-card] .uV2eYG_tools') return this.tools
+    if (selector.includes('tools')) return this.tools
     if (selector === '[data-composer-card]') return this.card
     if (selector === '._7KE1Ra_triggerLabel') return this.modelLabel
     if (selector === '._7KE1Ra_triggerEffort') return this.effortLabel
@@ -319,13 +319,13 @@ test('Conversation mobile CSS keeps a bounded scrollport and permanently hides m
   assert.doesNotMatch(css, /body\{position:fixed/)
   assert.match(css, /\[data-slot="root"\]>div\{height:100%!important;min-height:0/)
   assert.match(css, /\.pI_x6G_centerCol,[\s\S]*grid-column:2!important/)
-  assert.match(css, /\.wSkVaW_root,[^}]*--dsh-chat-content-width:100%!important/)
-  assert.match(css, /\.wSkVaW_widthHandle,[^}]*display:none!important/)
+  assert.match(css, /\.gehEqa_root,[^}]*--dsh-chat-content-width:100%!important/)
+  assert.match(css, /\.gehEqa_widthHandle,[^}]*display:none!important/)
   assert.match(css, /\[data-slot="conversation"\]\{flex:1 1 0;height:100%;min-width:0;min-height:0/)
   assert.match(css, /\[data-conversation-scroll\]\{flex:1 1 0;min-width:0;min-height:0/)
   assert.match(css, /\[data-slot="conversation\.session\.header"\]>header\{display:none!important\}/)
-  assert.match(css, /\.wSkVaW_heroWorkspaceRow\{[^}]*width:100%;padding:0 20px!important;gap:4px!important;flex-wrap:wrap\}/)
-  assert.match(css, /\.pXSMma_workspace\{[^}]*min-width:0!important;max-width:100%!important;min-height:36px!important;flex:1 1 140px\}/)
+  assert.match(css, /\.gehEqa_heroWorkspaceRow\{[^}]*width:100%;padding:0 20px!important;gap:4px!important;flex-wrap:wrap\}/)
+  assert.match(css, /\.f0iH8G_workspace\{[^}]*min-width:0!important;max-width:100%!important;min-height:36px!important;flex:1 1 140px\}/)
   assert.match(css, /\[data-slot="conversation\.hero\.agentPreset"\]>span\{min-width:0;max-width:min\(50%,240px\);flex:0 1 auto\}/)
   assert.match(css, /\[data-slot="conversation\.hero\.agentPreset"\] \.cubgiG_seat\{[^}]*width:100%;min-width:0;max-width:100%;height:36px;min-height:36px;[^}]*border-radius:999px\}/)
   assert.match(css, /--dsh-keyboard-inset/)
@@ -351,20 +351,20 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /\[data-composer-seat\]\{[^}]*padding-bottom:max\(8px,var\(--dsh-sab\)\)/)
   assert.match(css, /\[data-composer-card\]\{[^}]*padding:8px 10px 6px!important/)
   assert.match(css, /\[data-composer-card\]>:last-child\{[^}]*display:flex;[^}]*min-height:44px;[^}]*flex-direction:row!important;flex-wrap:wrap!important;[^}]*align-items:center!important;[^}]*justify-content:space-between;[^}]*gap:4px!important;[^}]*padding:4px 8px 8px!important/)
-  assert.match(css, /\.uV2eYG_tools,\.uV2eYG_trailing\{[^}]*display:flex;[^}]*align-items:center;[^}]*min-width:0/)
+  assert.match(css, /\.ccegLa_tools,\.ccegLa_trailing\{[^}]*display:flex;[^}]*align-items:center;[^}]*min-width:0/)
   assert.match(css, /\[data-composer-card\]>:last-child\{[^}]*overflow:visible!important/)
-  assert.match(css, /\.uV2eYG_tools\{min-width:max-content;flex:1 1 auto;gap:4px!important;overflow:visible!important\}/)
-  assert.match(css, /\.uV2eYG_modes\{flex:none;flex-wrap:nowrap!important;[^}]*overflow:visible!important\}/)
-  assert.doesNotMatch(css, /\.uV2eYG_tools\{[^}]*overflow-y:hidden/)
-  assert.match(css, /\.uV2eYG_trailing\{flex:none;max-width:calc\(100% - 36px\);margin-left:auto;[^}]*gap:6px!important/)
-  assert.match(css, /.uV2eYG_add{display:none!important}/)
+  assert.match(css, /\.ccegLa_tools\{min-width:max-content;flex:1 1 auto;gap:4px!important;overflow:visible!important\}/)
+  assert.match(css, /\.ccegLa_modes\{flex:none;flex-wrap:nowrap!important;[^}]*overflow:visible!important\}/)
+  assert.doesNotMatch(css, /\.ccegLa_tools\{[^}]*overflow-y:hidden/)
+  assert.match(css, /\.ccegLa_trailing\{flex:none;max-width:calc\(100% - 36px\);margin-left:auto;[^}]*gap:6px!important/)
+  assert.match(css, /.ccegLa_add{display:none!important}/)
   assert.match(css, /.dsh-mobile-upload-btn[^{]*{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*border-radius:50%!important/)
-  assert.match(css, /.uV2eYG_primary{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*min-width:32px!important;[^}]*min-height:32px!important;[^}]*border-radius:50%!important/)
-  assert.match(css, /.uV2eYG_primary{transform:none!important}/)
-  assert.match(css, /.Sh0Q9G_trigger,.iWlSmW_trigger,.uV2eYG_select{max-width:32px!important;min-width:32px!important}/)
+  assert.match(css, /.ccegLa_primary{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*min-width:32px!important;[^}]*min-height:32px!important;[^}]*border-radius:50%!important/)
+  assert.match(css, /.ccegLa_primary{transform:none!important}/)
+  assert.match(css, /.Sh0Q9G_trigger,.iWlSmW_trigger,.ccegLa_select{max-width:32px!important;min-width:32px!important}/)
   assert.match(css, /\.Sh0Q9G_trigger,\.iWlSmW_trigger[^{]*\{[^}]*width:32px!important/)
   assert.match(css, /.Sh0Q9G_triggerIcon,.iWlSmW_triggerIcon{display:inline-grid!important;place-items:center!important;flex:none;margin:0!important}/)
-  assert.match(css, /.uV2eYG_modes .Sh0Q9G_triggerLabel,.uV2eYG_modes .iWlSmW_triggerLabel{display:none!important}/)
+  assert.match(css, /.ccegLa_modes .Sh0Q9G_triggerLabel,.ccegLa_modes .iWlSmW_triggerLabel{display:none!important}/)
   assert.match(css, /.Sh0Q9G_triggerLabel,.iWlSmW_triggerLabel{display:none!important}/)
   assert.match(css, /.Sh0Q9G_chevron,.iWlSmW_chevron{display:none!important}/)
   assert.match(css, /.rS3zOq_chip{[^}]*width:max-content!important;[^}]*min-width:max-content!important;[^}]*padding:0 10px!important;[^}]*white-space:nowrap!important;overflow:visible!important;flex:none!important/)
@@ -373,22 +373,22 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon{display:none!important}/)
   assert.match(css, /.dsh-mobile-composer-info{[^}]*text-align:center/)
   // 上下文 meter：内容自适应药丸（不是 32x32 圆钮），避免百分比被裁掉
-  assert.match(css, /\.JObwrW_root\{width:auto!important;[^}]*height:32px!important/)
-  assert.match(css, /\.JObwrW_trigger\{[^}]*width:auto!important;[^}]*border-radius:999px!important;[^}]*display:inline-flex!important;[^}]*gap:6px!important/)
-  assert.match(css, /\.JObwrW_trigger>span\{display:inline-block!important/)
-  assert.match(css, /\.uV2eYG_dock>\[data-slot="conversation\.composer\.dock"\]\{flex:1 1 auto!important;width:auto!important;min-width:0!important/)
+  assert.match(css, /\.NXnJXa_root\{width:auto!important;[^}]*height:32px!important/)
+  assert.match(css, /\.NXnJXa_trigger\{[^}]*width:auto!important;[^}]*border-radius:999px!important;[^}]*display:inline-flex!important;[^}]*gap:6px!important/)
+  assert.match(css, /\.NXnJXa_trigger>span\{display:inline-block!important/)
+  assert.match(css, /\.ccegLa_dock>\[data-slot="conversation\.composer\.dock"\]\{flex:1 1 auto!important;width:auto!important;min-width:0!important/)
   assert.match(css, /\.dsh-mobile-upload-btn,\s*\.dsh-mobile-tools-btn,\s*\.Sh0Q9G_trigger,\s*\.iWlSmW_trigger,\s*\.term-composer-btn,\s*\._7KE1Ra_trigger\s*\{/,
     '统一圆钮规范的选择器列表不再包含 meter，且同时覆盖新旧权限选择器哈希')
   // 上下文 meter 必须留在输入框内：卡片补足底部内边距，dock 以负边距收回卡内。
   // 统计药丸已隐藏，dock 里只剩 32px 的 meter 药丸 + 6px 下内边距 = 38px，
   // 所以卡片留 40px、dock 上移 38px；两者必须配平，否则 meter 会被圆角裁掉或浮空。
-  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)[^{]*\{[^}]*padding-bottom:40px!important\}/,
+  assert.match(css, /\[data-composer-card\]:has\(\+\.ccegLa_dock \.NXnJXa_root\)[^{]*\{[^}]*padding-bottom:40px!important\}/,
     '卡片底部必须为收起后的单行 meter 预留高度')
-  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock[^{]*\{[^}]*margin-top:-38px!important/,
+  assert.match(css, /\[data-composer-card\]:has\(\+\.ccegLa_dock \.NXnJXa_root\)\+\.ccegLa_dock[^{]*\{[^}]*margin-top:-38px!important/,
     'dock 负边距必须与卡片预留高度配平（40 - 2 = 38）')
-  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock[^{]*\{[^}]*position:relative!important;z-index:1!important/,
+  assert.match(css, /\[data-composer-card\]:has\(\+\.ccegLa_dock \.NXnJXa_root\)\+\.ccegLa_dock[^{]*\{[^}]*position:relative!important;z-index:1!important/,
     'dock 抬高层级，否则会被 position:relative 的卡片背景盖住')
-  assert.match(css, /\[data-composer-card\]:has\(\+\.uV2eYG_dock \.JObwrW_root\)\+\.uV2eYG_dock:not\(:has\(\[data-plan-review-scroll\]\)\):not\(:has\(\[data-plan-review-key\]\)\)/,
+  assert.match(css, /\[data-composer-card\]:has\(\+\.ccegLa_dock \.NXnJXa_root\)\+\.ccegLa_dock:not\(:has\(\[data-plan-review-scroll\]\)\):not\(:has\(\[data-plan-review-key\]\)\)/,
     '面板在场时保持原布局，避免与输入区重叠')
   // 宿主 0.2.0-rc.2 起输入区是 contenteditable（[data-composer-input]），不再是
   // [data-composer-card] textarea；防 iOS 聚焦自动放大的字号下限必须落在真实元素上。
@@ -790,8 +790,8 @@ test('the tools menu outranks its own backdrop despite the role="menu" rule', ()
 })
 
 test('the tools button sits after the shield at the same level as upload', async () => {
-  // 工具箱位置在盾牌右侧，但必须与上传按钮同级挂在 .uV2eYG_tools 上，
-  // 而不是插进盾牌所在的子容器 .uV2eYG_modes。插进子容器会让工具箱吃内层
+  // 工具箱位置在盾牌右侧，但必须与上传按钮同级挂在 .ccegLa_tools 上，
+  // 而不是插进盾牌所在的子容器 modes。插进子容器会让工具箱吃内层
   // gap、上传按钮吃外层 gap，跨容器边界导致两档间距视觉不齐。
   // 同级挂载后所有间距统一由外层 gap:4px 决定，也就不需要任何 margin 补偿。
   const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
@@ -802,7 +802,7 @@ test('the tools button sits after the shield at the same level as upload', async
 
   const css = client.internals.css
   assert.doesNotMatch(css, /\.dsh-mobile-tools-btn\{[^}]*margin/)
-  assert.match(css, /\.uV2eYG_tools\{[^}]*gap:4px!important/)
+  assert.match(css, /\.ccegLa_tools\{[^}]*gap:4px!important/)
 })
 
 test('the tools menu keeps its items tappable through the whole gesture', async () => {
@@ -883,4 +883,36 @@ test('mobile right sidebar is adapted with top offset and back-to-conversation b
     globalThis.MutationObserver = previous.MutationObserver
   }
 })
+
+test('tools button mounts reliably with new and old host tools container class names', async () => {
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.match(source, /\[data-composer-card\]\s*\.ccegLa_tools/)
+  assert.match(source, /\[data-composer-card\]\s*\[class\*="_tools"\]/)
+
+  const f = fixture()
+  const previous = {
+    document: globalThis.document,
+    window: globalThis.window,
+    MutationObserver: globalThis.MutationObserver,
+  }
+  globalThis.document = f.doc
+  globalThis.window = f.win
+  globalThis.MutationObserver = f.Observer
+  try {
+    f.win.__dsh_open_file_viewer = () => {}
+    f.doc.tools.className = 'ccegLa_tools'
+    client.apply(f.ctx)
+    f.doc.notifyMutation()
+
+    const toolsBtn = f.doc.tools.children.find((node) => node.className === 'dsh-mobile-tools-btn')
+    assert.ok(toolsBtn, 'tools button must mount into .ccegLa_tools container')
+    assert.equal(toolsBtn.getAttribute('aria-label'), '工作区工具')
+  } finally {
+    delete f.win.__dsh_open_file_viewer
+    globalThis.document = previous.document
+    globalThis.window = previous.window
+    globalThis.MutationObserver = previous.MutationObserver
+  }
+})
+
 

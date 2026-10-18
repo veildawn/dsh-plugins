@@ -92,11 +92,11 @@ window.__ModuleLoader__.load({
           border-radius:10px!important;
         }
         [data-slot="conversation"]{flex:1 1 0;height:100%;min-width:0;min-height:0}
-        .wSkVaW_root,[class*="_root"]:has(>[class*="_body"]){--dsh-chat-content-width:100%!important;--dsh-composer-card-max-width:100%!important}
-        .wSkVaW_widthHandle,[class*="_widthHandle"]{display:none!important}
+        .gehEqa_root,[class*="_root"]:has(>[class*="_body"]){--dsh-chat-content-width:100%!important;--dsh-composer-card-max-width:100%!important}
+        .gehEqa_widthHandle,[class*="_widthHandle"]{display:none!important}
         [data-slot="conversation.session.header"]>header{display:none!important}
-        .wSkVaW_heroWorkspaceRow{box-sizing:border-box;width:100%;padding:0 20px!important;gap:4px!important;flex-wrap:wrap}
-        .pXSMma_workspace{box-sizing:border-box;min-width:0!important;max-width:100%!important;min-height:36px!important;flex:1 1 140px}
+        .gehEqa_heroWorkspaceRow{box-sizing:border-box;width:100%;padding:0 20px!important;gap:4px!important;flex-wrap:wrap}
+        .f0iH8G_workspace{box-sizing:border-box;min-width:0!important;max-width:100%!important;min-height:36px!important;flex:1 1 140px}
         [data-slot="conversation.hero.agentPreset"]>span{min-width:0;max-width:min(50%,240px);flex:0 1 auto}
         [data-slot="conversation.hero.agentPreset"] .cubgiG_seat{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:36px;min-height:36px;padding:0 10px;border-radius:999px}
         [data-conversation-scroll]{flex:1 1 0;min-width:0;min-height:0;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
@@ -121,12 +121,12 @@ window.__ModuleLoader__.load({
         [data-composer-seat]{flex:none;bottom:0;padding-bottom:max(8px,var(--dsh-sab))}
         [data-composer-card]{box-sizing:border-box;max-width:none!important;border-radius:18px!important;padding:8px 10px 6px!important}
         [data-composer-card]>:last-child{box-sizing:border-box;display:flex;width:100%;min-height:44px;flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:space-between;gap:4px!important;padding:4px 8px 8px!important;overflow:visible!important}
-        .uV2eYG_tools,.uV2eYG_trailing{box-sizing:border-box;display:flex;align-items:center;min-width:0}
-        .uV2eYG_tools{min-width:max-content;flex:1 1 auto;gap:4px!important;overflow:visible!important}
-        .uV2eYG_tools::-webkit-scrollbar{display:none}
-        .uV2eYG_modes{flex:none;flex-wrap:nowrap!important;align-items:center;gap:4px!important;overflow:visible!important}
-        .uV2eYG_trailing{flex:none;max-width:calc(100% - 36px);margin-left:auto;justify-content:flex-end;gap:6px!important;overflow:visible}
-        .uV2eYG_add{display:none!important}
+        .ccegLa_tools,.ccegLa_trailing{box-sizing:border-box;display:flex;align-items:center;min-width:0}
+        .ccegLa_tools{min-width:max-content;flex:1 1 auto;gap:4px!important;overflow:visible!important}
+        .ccegLa_tools::-webkit-scrollbar{display:none}
+        .ccegLa_modes{flex:none;flex-wrap:nowrap!important;align-items:center;gap:4px!important;overflow:visible!important}
+        .ccegLa_trailing{flex:none;max-width:calc(100% - 36px);margin-left:auto;justify-content:flex-end;gap:6px!important;overflow:visible}
+        .ccegLa_add{display:none!important}
         /* Unified Mobile Action Button Spec (32x32 round circle, subtle background, clean border, centered icon) */
         .dsh-mobile-upload-btn,
         .dsh-mobile-tools-btn,
@@ -160,29 +160,29 @@ window.__ModuleLoader__.load({
         .Sh0Q9G_trigger:hover,.Sh0Q9G_trigger:active,.iWlSmW_trigger:hover,.iWlSmW_trigger:active,
         .term-composer-btn:hover,.term-composer-btn:active,
         ._7KE1Ra_trigger:hover,._7KE1Ra_trigger:active,
-        .JObwrW_trigger:hover,.JObwrW_trigger:active {
+        .NXnJXa_trigger:hover,.NXnJXa_trigger:active {
           background:var(--dsw-alias-interactive-bg-hover-solid,rgba(0,0,0,.12))!important;
           color:var(--dsw-alias-label-primary)!important;
           transform:scale(.96)!important;
         }
         .dsh-mobile-upload-btn svg{width:16px;height:16px;flex:none;display:block}
-        .uV2eYG_primary{box-sizing:border-box;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none;border-radius:50%!important;display:grid;place-items:center;background:var(--dsw-alias-brand-primary,#4d6bfe)!important;color:#fff!important;border:none!important}
-        .uV2eYG_primary{transform:none!important}
-        .uV2eYG_primary:active{transform:scale(.96)!important}
-        .Sh0Q9G_trigger,.iWlSmW_trigger,.uV2eYG_select,.rS3zOq_chip,._7KE1Ra_trigger{box-sizing:border-box;height:32px!important;min-height:32px!important;font-size:12px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+        .ccegLa_primary{box-sizing:border-box;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none;border-radius:50%!important;display:grid;place-items:center;background:var(--dsw-alias-brand-primary,#4d6bfe)!important;color:#fff!important;border:none!important}
+        .ccegLa_primary{transform:none!important}
+        .ccegLa_primary:active{transform:scale(.96)!important}
+        .Sh0Q9G_trigger,.iWlSmW_trigger,.ccegLa_select,.rS3zOq_chip,._7KE1Ra_trigger{box-sizing:border-box;height:32px!important;min-height:32px!important;font-size:12px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
         .rS3zOq_chip{box-sizing:border-box!important;width:max-content!important;height:32px!important;min-width:max-content!important;min-height:32px!important;padding:0 10px!important;border-radius:999px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:4px!important;white-space:nowrap!important;overflow:visible!important;flex:none!important;line-height:1!important}
         /* 上下文用量按钮属于输入区：宿主把 dock（统计行 + 上下文 meter）放在卡片下方，
            而上面的 32x32 统一按钮样式会让 meter 看起来"浮"在输入框外面。这里在渲染了
            meter、且 dock 没有计划复核/待办面板时，把 dock 收回卡片内部（卡片补足底部
            内边距，dock 负边距上移），按钮与统计行都落在输入框的圆角内。卡片是
            position:relative，dock 必须同样定位并抬高层级，否则会被卡片背景盖住。 */
-        [data-composer-card]:has(+.uV2eYG_dock .JObwrW_root):not(:has(+.uV2eYG_dock [data-plan-review-scroll])):not(:has(+.uV2eYG_dock [data-plan-review-key])){padding-bottom:40px!important}
-        [data-composer-card]:has(+.uV2eYG_dock .JObwrW_root)+.uV2eYG_dock:not(:has([data-plan-review-scroll])):not(:has([data-plan-review-key])){width:auto!important;max-width:100%!important;margin-top:-38px!important;padding:0 12px 6px!important;position:relative!important;z-index:1!important}
+        [data-composer-card]:has(+.ccegLa_dock .NXnJXa_root):not(:has(+.ccegLa_dock [data-plan-review-scroll])):not(:has(+.ccegLa_dock [data-plan-review-key])){padding-bottom:40px!important}
+        [data-composer-card]:has(+.ccegLa_dock .NXnJXa_root)+.ccegLa_dock:not(:has([data-plan-review-scroll])):not(:has([data-plan-review-key])){width:auto!important;max-width:100%!important;margin-top:-38px!important;padding:0 12px 6px!important;position:relative!important;z-index:1!important}
         [data-plan-review-key],[data-slot="conversation.composer.dock"],[data-plan-review-scroll]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important}
         [data-plan-review-scroll]{max-height:min(45dvh,360px)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important}
-        .Sh0Q9G_trigger,.iWlSmW_trigger,.uV2eYG_select{max-width:32px!important;min-width:32px!important}
+        .Sh0Q9G_trigger,.iWlSmW_trigger,.ccegLa_select{max-width:32px!important;min-width:32px!important}
         .Sh0Q9G_triggerIcon,.iWlSmW_triggerIcon{display:inline-grid!important;place-items:center!important;flex:none;margin:0!important}
-        .uV2eYG_modes .Sh0Q9G_triggerLabel,.uV2eYG_modes .iWlSmW_triggerLabel{display:none!important}
+        .ccegLa_modes .Sh0Q9G_triggerLabel,.ccegLa_modes .iWlSmW_triggerLabel{display:none!important}
         .Sh0Q9G_triggerLabel,.iWlSmW_triggerLabel{display:none!important}
         .Sh0Q9G_chevron,.iWlSmW_chevron{display:none!important}
         ._7KE1Ra_root{flex:none!important;width:32px!important;max-width:32px!important;min-width:32px!important}
@@ -202,11 +202,11 @@ window.__ModuleLoader__.load({
         /* 上下文用量是状态标签（圆环 + 百分比），不是动作按钮：套 32x32 圆形会把
            文字挤到圆环下方并被卡片边缘裁掉（实测 scrollH 41 > clientH 32）。这里
            改成内容自适应药丸，高度与其它按钮一致，宽度随百分比增长。 */
-        .JObwrW_root{width:auto!important;max-width:100%!important;height:32px!important;min-width:0!important;flex:none!important;display:inline-flex!important;align-items:center!important}
-        .JObwrW_trigger{box-sizing:border-box!important;width:auto!important;height:32px!important;min-width:0!important;max-width:none!important;max-height:32px!important;border-radius:999px!important;padding:0 10px!important;margin:0!important;display:inline-flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;gap:6px!important;white-space:nowrap!important}
-        .JObwrW_trigger>span{display:inline-block!important;line-height:1!important;white-space:nowrap!important}
+        .NXnJXa_root{width:auto!important;max-width:100%!important;height:32px!important;min-width:0!important;flex:none!important;display:inline-flex!important;align-items:center!important}
+        .NXnJXa_trigger{box-sizing:border-box!important;width:auto!important;height:32px!important;min-width:0!important;max-width:none!important;max-height:32px!important;border-radius:999px!important;padding:0 10px!important;margin:0!important;display:inline-flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;gap:6px!important;white-space:nowrap!important}
+        .NXnJXa_trigger>span{display:inline-block!important;line-height:1!important;white-space:nowrap!important}
         /* dock 槽位让出宽度给 meter，长统计行收缩而不是把按钮挤出卡片 */
-        .uV2eYG_dock>[data-slot="conversation.composer.dock"]{flex:1 1 auto!important;width:auto!important;min-width:0!important;max-width:100%!important}
+        .ccegLa_dock>[data-slot="conversation.composer.dock"]{flex:1 1 auto!important;width:auto!important;min-width:0!important;max-width:100%!important}
         /* 宿主 0.2.0-rc.2 起输入区由 <textarea> 换成了 contenteditable 宿主元素
            （[data-composer-input]），旧的 [data-composer-card] textarea 选择器已不再
            命中，防放大规则静默失效。iOS Safari 对计算字号小于 16px 的可编辑元素
@@ -725,19 +725,19 @@ window.__ModuleLoader__.load({
         previousOpen = open
 
         if (mobile) {
-          const toolsEl = doc.querySelector('[data-composer-card] .uV2eYG_tools')
+          const toolsEl = doc.querySelector('[data-composer-card] .ccegLa_tools, [data-composer-card] .uV2eYG_tools, [data-composer-card] [class*="_tools"]')
           if (toolsEl) {
             if (!toolsEl.contains(uploadBtn)) toolsEl.prepend(uploadBtn)
             const hasFv = typeof win.__dsh_open_file_viewer === 'function' || doc.querySelector('button[aria-label="查看项目文件"], button[title="查看项目文件"]') != null
             const hasTerm = typeof win.__dsh_open_terminal === 'function' || doc.querySelector('button[aria-label="打开本地终端"], button[title="打开本地终端"]') != null
             const hasPh = typeof win.__dsh_open_prompt_history === 'function' || doc.querySelector('button[aria-label="提示词历史"], button[title="提示词历史"]') != null
             if (hasFv || hasTerm || hasPh) {
-              // 位置：盾牌右侧。但不能插进盾牌所在的 .uV2eYG_modes —— 那是
-              // .uV2eYG_tools 的子容器，插进去后工具箱吃内层 gap、上传按钮吃外层
+              // 位置：盾牌右侧。但不能插进盾牌所在的 modes 容器 —— 那是
+              // tools 栏的子容器，插进去后工具箱吃内层 gap、上传按钮吃外层
               // gap，跨容器边界会让两档间距在视觉上不齐。
-              // 因此插在 .uV2eYG_tools 这一层、紧跟 modes 之后：工具箱与上传按钮
+              // 因此插在 toolsEl 这一层、紧跟 modes 之后：工具箱与上传按钮
               // 同级，所有间距统一由外层 gap:4px 决定，且位置仍在盾牌右侧。
-              const shield = doc.querySelector('[data-composer-card] .Sh0Q9G_trigger, [data-composer-card] .iWlSmW_trigger')
+              const shield = doc.querySelector('[data-composer-card] .Sh0Q9G_trigger, [data-composer-card] .iWlSmW_trigger, [data-composer-card] button[aria-label*="权限"], [data-composer-card] button[aria-label*="permission" i]')
               const modes = shield?.parentElement ?? null
               const anchor = modes != null && modes.parentElement === toolsEl ? modes : uploadBtn
               const misplaced = toolsBtn.parentElement !== toolsEl
