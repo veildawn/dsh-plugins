@@ -1,0 +1,25 @@
+{
+  "name": "dsh-plugins",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DeepSeek Harness community plugins monorepo — each plugin is versioned, tested and published independently",
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=20.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "license": "MIT",
+  "scripts": {
+    "test": "pnpm -r --if-present test",
+    "pack:check": "node scripts/verify-pack-contents.mjs",
+    "publish:dry": "pnpm -r --if-present publish --dry-run --access public --no-git-checks"
+  }
+}

@@ -25,7 +25,12 @@
 
 ## 🚀 插件安装指南 (Installation)
 
-无需下载整个仓库，每个插件均提供独立的 `.tgz` 安装包。使用 DSH 官方 CLI 即可在线一键安装：
+所有插件已发布到 npm registry，scope 为 `@weniatall/`。使用 DSH 官方 CLI 即可在线一键安装：
+
+> **为什么带 `@weniatall/` 前缀**：12 个插件里有 9 个的无 scope 包名（`dsh-terminal`、
+> `dsh-file-viewer` 等）已被第三方占用且不可转让，因此统一迁移到 scope 下。scope 包名
+> 与 GitHub tag 刻意不同 —— tag 仍是 `dsh-terminal@v0.1.16` 这样的短名，以便历史
+> Release 的下载链接和插件管理器的来源白名单继续有效。详见 [npm 发布指引](docs/npm-publishing.md)。
 
 > **宿主兼容（dsh `0.2.1-rc.2`）**：下表版本均已针对运行中的 dsh 宿主做过兼容校验，`peerDependencies`
 > 使用 `>=0.1.0-rc.6` 这类开放区间，同时接受 0.1.x、`0.2.0-rc.N` 与 `0.2.1-rc.N`。2026-09-29 之前发布的旧版本
@@ -42,40 +47,40 @@
 
 ```bash
 # 0. 安装插件管理中心 (自有插件更新与社区市场)
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-plugin-manager@v0.3.45/dsh-plugin-manager-0.3.45.tgz
+dsh plugin --profile web add @weniatall/dsh-plugin-manager
 
 # 1. 安装模型角色分工插件 (多模型智能路由与识图子代理)
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.31/dsh-model-roles-0.4.31.tgz
+dsh plugin --profile web add @weniatall/dsh-model-roles
 
 # 2. 安装远程安全通道插件 (推荐所有公网/局域网部署安装)
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-remote-control@v0.1.36/dsh-remote-control-0.1.36.tgz
+dsh plugin --profile web add @weniatall/dsh-remote-control
 
 # 3. 安装 AI Proxy 网关插件
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.3.17/dsh-ai-proxy-0.3.17.tgz
+dsh plugin --profile web add @weniatall/dsh-ai-proxy
 
 # 4. 安装移动端适配插件 (手机浏览器访问必备)
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.45/dsh-mobile-adapter-0.1.45.tgz
+dsh plugin --profile web add @weniatall/dsh-mobile-adapter
 
 # 5. 安装文件查看器插件 (会话头部抽屉浏览工作区文件)
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.2.6/dsh-file-viewer-0.2.6.tgz
+dsh plugin --profile web add @weniatall/dsh-file-viewer
 
 # 6. 安装本地终端插件 (跨平台原生终端调用与移动端适配)
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.16/dsh-terminal-0.1.16.tgz
+dsh plugin --profile web add @weniatall/dsh-terminal
 
 # 7. 安装会话归档管理器
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.2.14/dsh-archive-manager-0.2.14.tgz
+dsh plugin --profile web add @weniatall/dsh-archive-manager
 
 # 8. 安装提示词历史与跨端漫游
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-prompt-history@v0.4.10/dsh-prompt-history-0.4.10.tgz
+dsh plugin --profile web add @weniatall/dsh-prompt-history
 
 # 9. 安装 ZCode 主题
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.1.37/dsh-zcode-theme-0.1.37.tgz
+dsh plugin --profile web add @weniatall/dsh-zcode-theme
 
 # 10. 安装决策模型（默认 TypeSafe Jev，也可选 dsh 已配置的提供商）
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.2.3/dsh-jev-0.2.3.tgz
+dsh plugin --profile web add @weniatall/dsh-jev
 
 # 11. 安装文生图 (生图模型) 插件
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-image-gen@v0.1.3/dsh-image-gen-0.1.3.tgz
+dsh plugin --profile web add @weniatall/dsh-image-gen
 ```
 
 ### 重启 DSH Web 服务生效
@@ -97,9 +102,17 @@ dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/do
 
 ## 🛠️ 独立发布机制 (Independent Release Workflow)
 
-本项目采用业内标准 Monorepo 独立发布策略（**Tag 格式：`<plugin-name>@v<version>`**）：
+本项目采用业内标准 Monorepo 独立发布策略（**Tag 格式：`<plugin-name>@v<version>`**）。
 
-### 方式 1：使用一键发布脚本 (推荐)
+npm 包名带 scope（`@weniatall/dsh-terminal`），GitHub tag 保持短名（`dsh-terminal@v0.1.16`）——
+两者刻意不同，原因见 [npm 发布指引](docs/npm-publishing.md#二命名约定重要)。
+
+### 方式 1：GitHub Actions 手动触发（推荐，同时发 npm）
+在 **Actions → Release Single Plugin → Run workflow** 中填写插件名、版本号，
+并勾选 `publish_npm`。workflow 会跑测试、校验打包内容、发布 npm（走
+Trusted Publishing，无需任何 token）、再创建 GitHub Release。
+
+### 方式 2：本地一键脚本（只发 GitHub Release）
 ```bash
 # 格式: ./scripts/release.sh <插件目录名> [版本号(可选)]
 ./scripts/release.sh dsh-plugin-manager 0.3.38
@@ -112,12 +125,17 @@ dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/do
 ```
 脚本会自动：
 1. 运行对应插件的单元测试；
-2. 执行 `npm pack`；
-3. 打上 `plugin@vX.Y.Z` 格式的 Git Tag 并推送；
-4. 自动创建对应的独立 GitHub Release 并上传 `.tgz`。
+2. 校验宿主兼容性与 npm 发布内容（`verify-pack-contents.mjs`）；
+3. 执行 `npm pack` 并把产物重命名为 `<短名>-<版本>.tgz`；
+4. 打上 `plugin@vX.Y.Z` 格式的 Git Tag 并推送；
+5. 自动创建对应的独立 GitHub Release 并上传 `.tgz`。
 
-### 方式 2：CI/CD 自动触发
-只要给仓库推送形如 `dsh-model-roles@v0.4.31` 的 Tag，GitHub Actions 将会自动检测对应插件目录并构建专属 Release。
+### 方式 3：推送 Tag 触发 CI
+只要给仓库推送形如 `dsh-model-roles@v0.4.31` 的 Tag，GitHub Actions 将会自动检测对应插件目录并构建专属 Release（此路径不发 npm）。
+
+> 发布前的本地自检：`node scripts/verify-pack-contents.mjs` 会逐个校验 12 个插件的
+> `files` 白名单，确保既不漏发运行期文件，也不会把 `test/`、`node_modules/` 或历史
+> `.tgz` 一起发出去。
 
 ### 设置写入自检（`has no volatile fields` 回归）
 dsh `0.1.7` 起（含当前的 `0.2.1-rc.2`）`ctx.settings` 是 dsh-settings 的 `SettingsForms`：任何**没有声明 live

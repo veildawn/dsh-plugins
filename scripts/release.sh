@@ -56,6 +56,12 @@ node "$(dirname "$0")/check-host-load.mjs" "$PLUGIN_DIR"
 echo "🎨 正在校验 $PLUGIN 的样式哈希仍匹配当前 dsh 宿主..."
 node "$(dirname "$0")/check-host-hashes.mjs" "$PLUGIN_DIR"
 
+# 0.3 发布内容闸门：files 白名单漏文件时本地测试照样通过（测试直接读源码
+#     目录），但用户装到 profile 后会 import 失败；反过来白名单写宽会把
+#     test/、node_modules/、历史 tgz 一起发出去。这里对最终产物做一次断言。
+echo "🔍 正在校验 $PLUGIN 的 npm 发布内容..."
+node "$(dirname "$0")/verify-pack-contents.mjs" --plugin "$PLUGIN"
+
 # 1. 运行该插件测试
 # 插件从 profile 的共享目录解析宿主包，其位置随 HOME 变化，所以不能写死。
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
@@ -63,11 +69,28 @@ echo "🧪 正在运行 $PLUGIN 自动化测试..."
 (cd "$PLUGIN_DIR" && NODE_PATH="$DSH_HOME/profiles/node_modules:$DSH_HOME/profiles/web/node_modules" npm test)
 
 # 2. 打包生成 tgz
+#    npm pack 会把 scope 展平进文件名（@weniatall/dsh-terminal@0.1.16 ->
+#    weniatall-dsh-terminal-0.1.16.tgz），但 dsh-plugin-manager 的
+#    isAllowedRepoUrl 白名单要求资产名是 "<短名>-<版本>.tgz"，所以显式重命名。
+#    这里必须按确定的名字取，不能用 `ls *.tgz | head -1`：插件目录里通常还留着
+#    几十个历史 tgz，那会取到错误的文件。
 echo "📦 打包 tgz..."
-(cd "$PLUGIN_DIR" && npm pack)
-TGZ_FILE=$(ls "$PLUGIN_DIR"/*.tgz | head -n 1)
+TGZ_NAME="${PLUGIN}-${VERSION}.tgz"
+TGZ_FILE="$PLUGIN_DIR/$TGZ_NAME"
+(cd "$PLUGIN_DIR" && npm pack --silent >/dev/null)
+PACKED_FILE=$(ls "$PLUGIN_DIR"/*.tgz -t | head -n 1)
+if [ "$(basename "$PACKED_FILE")" != "$TGZ_NAME" ]; then
+  mv "$PACKED_FILE" "$TGZ_FILE"
+fi
+if [ ! -f "$TGZ_FILE" ]; then
+  echo "❌ 打包失败：未找到 $TGZ_FILE"
+  exit 1
+fi
+echo "   产物: $TGZ_NAME"
 
 # 3. 创建 Git Tag 并推送到 GitHub，触发独立 Release
+#    tag 保持无 scope 短名（${PLUGIN}@v${VERSION}），与 GitHub Release 下载
+#    URL 和 isAllowedRepoUrl 白名单一致；npm 包名带 scope 是另一回事。
 echo "🏷️ 创建 Git Tag 并推送..."
 git tag -a "$TAG" -m "Release $TAG" || true
 git push origin "$TAG"
@@ -78,9 +101,16 @@ gh release create "$TAG" "$TGZ_FILE" \
   --title "$PLUGIN v$VERSION" \
   --notes "### 📦 $PLUGIN Release (v$VERSION)
 
-#### 💻 安装命令 (Installation)
+#### 💻 安装方式 (Installation)
+
+通过 npm registry（推荐，自动跟随最新版）：
 \`\`\`bash
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/$TAG/$(basename "$TGZ_FILE")
+dsh plugin --profile web add $(node -p "require('./$PLUGIN_DIR/package.json').name")
+\`\`\`
+
+或从 GitHub Release 安装固定版本的 tarball：
+\`\`\`bash
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/$TAG/$TGZ_NAME
 \`\`\`
 
 #### 🔄 重启服务 (Restart Service)

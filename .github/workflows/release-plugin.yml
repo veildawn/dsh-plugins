@@ -1,13 +1,41 @@
 name: Release Single Plugin
 
+# 两种触发方式：
+#   1. 推送 dsh-xxx@v1.2.3 形式的 tag（不发布 npm，只建 GitHub Release）；
+#   2. 手动 workflow_dispatch 且 publish_npm=true（完整发布：GitHub Release + npm）。
+#
+# tag 格式刻意保持**无 scope 短名**（dsh-terminal@v0.1.16），即使 npm 包名是
+# @weniatall/dsh-terminal。原因：
+#   - GitHub 的 release 下载 URL 把 tag 当作单个路径段，scope 名里的 "/" 会被
+#     切成两段，历史 release 的安装命令全部失效；
+#   - plugins/dsh-plugin-manager 的 isAllowedRepoUrl 白名单也按
+#     "<name>@v<ver>/<name>-<ver>.tgz" 校验，短名可以原样复用。
 on:
   push:
     tags:
-      # 匹配形如 dsh-mobile-adapter@v0.1.5 或 dsh-remote-control@v0.1.0 或 @deepseek-ai/...
       - '*@v*'
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: '插件目录名（如 dsh-terminal）'
+        required: true
+        type: string
+      version:
+        description: '要发布的版本号（须与 package.json 一致，如 0.1.16）'
+        required: true
+        type: string
+      publish_npm:
+        description: '同时发布到 npm registry（需要 Trusted Publishing 已配置）'
+        required: false
+        type: boolean
+        default: false
 
+# contents: write —— 创建 GitHub Release
+# id-token: write —— npm Trusted Publishing 通过 GitHub OIDC 换取一次性凭证，
+#                    无需任何 NPM_TOKEN secret，因此也不存在 token 90 天过期问题。
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
@@ -15,6 +43,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          # 默认 fetch-depth=1 会拿不到 tag 指向的信息；这里需要完整历史以读取 tag。
+          fetch-depth: 0
 
       # pnpm 11 requires Node >= 22.13, and the plugins' tests use the
       # node:test runner and Object.hasOwn, both fine on 22.
@@ -22,19 +53,30 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          # 不设置 registry-url：省略它可避免 setup-node 写入一个带 NODE_AUTH_TOKEN
+          # 占位符的 .npmrc，从而让后面真正走 OIDC 的 npm publish 不被覆盖。
 
       - name: Parse Tag & Locate Plugin
         id: parse
         run: |
-          TAG="${{ github.ref_name }}"
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PLUGIN_NAME="${{ inputs.plugin }}"
+            VERSION="${{ inputs.version }}"
+            TAG="$PLUGIN_NAME@v$VERSION"
+          else
+            TAG="${{ github.ref_name }}"
+            # 从右往左取最后一个 "@v"：即使日后 tag 带上 @scope 前缀，
+            # "${VAR%@v*}" 也只会切掉版本部分，不会误伤 scope 里的 "@"。
+            PLUGIN_NAME="${TAG%@v*}"
+            VERSION="${TAG##*@v}"
+          fi
+
           echo "Processing Tag: $TAG"
-          # 提取插件名与版本号，例如 dsh-mobile-adapter@v0.1.5 -> PLUGIN=dsh-mobile-adapter, VERSION=0.1.5
-          PLUGIN_NAME=$(echo "$TAG" | sed -E 's/@v[0-9].*//')
-          VERSION=$(echo "$TAG" | sed -E 's/.*@v//')
-          
           echo "Plugin: $PLUGIN_NAME"
           echo "Version: $VERSION"
-          
+
           PLUGIN_DIR="plugins/$PLUGIN_NAME"
           if [ ! -d "$PLUGIN_DIR" ]; then
             echo "Error: Directory $PLUGIN_DIR does not exist!"
@@ -50,22 +92,29 @@ jobs:
             exit 1
           fi
 
+          # npm 包名（带 scope）与 GitHub tag（短名）刻意不同，这里显式记录下来，
+          # 供 npm publish 步骤与 release notes 使用。
+          PACKAGE_NAME=$(node -p "require('./$PLUGIN_DIR/package.json').name")
+
           DESC=$(node -p "try { require('./$PLUGIN_DIR/package.json').description || '' } catch(e) { '' }")
-          echo "plugin_desc=$DESC" >> $GITHUB_OUTPUT
 
-          echo "plugin_name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "plugin_dir=$PLUGIN_DIR" >> $GITHUB_OUTPUT
+          echo "plugin_desc=$DESC" >> "$GITHUB_OUTPUT"
+          echo "package_name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "plugin_name=$PLUGIN_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "plugin_dir=$PLUGIN_DIR" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      # There is no root package.json, so corepack cannot infer a version;
-      # pin it here instead.
+      # There is no root package.json unless the repo adds one; when present,
+      # corepack reads `packageManager` from it. Pinning here keeps the version
+      # identical either way.
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 11
 
       # Several plugins/*/node_modules entries are checked in as symlinks to
-      # a maintainer's local dev profile (e.g. /Users/.../. dsh/profiles/node_modules),
+      # a maintainer's local dev profile (e.g. /Users/.../.dsh/profiles/node_modules),
       # which does not exist on the runner. pnpm then fails trying to create
       # files under that dangling target. Removing the symlink here is safe:
       # it only affects this checkout, and pnpm recreates a real node_modules
@@ -88,36 +137,65 @@ jobs:
             exit 1
           fi
 
+      # 发布内容闸门：确认 files 白名单没有漏文件，也没有把 test/、node_modules/
+      # 或历史 tgz 一起发出去。
+      - name: Verify Package Contents
+        run: node scripts/verify-pack-contents.mjs --plugin ${{ steps.parse.outputs.plugin_name }}
+
+      # npm pack 会把 scope 展平进文件名：@weniatall/dsh-terminal@0.1.16
+      # -> weniatall-dsh-terminal-0.1.16.tgz。但 dsh-plugin-manager 的
+      # isAllowedRepoUrl 白名单要求的资产名是 "<短名>-<版本>.tgz"，两者必须一致，
+      # 否则插件管理器会拒绝安装自己发布的包。所以这里显式重命名。
       - name: Pack Plugin Tarball
         id: pack
         run: |
+          set -euo pipefail
           cd ${{ steps.parse.outputs.plugin_dir }}
-          npm pack
+          npm pack --json > /tmp/pack.json
+          PACKED=$(node -p "require('/tmp/pack.json')[0].filename")
           TGZ_NAME="${{ steps.parse.outputs.plugin_name }}-${{ steps.parse.outputs.version }}.tgz"
-          if [ ! -f "$TGZ_NAME" ]; then
-            echo "Error: expected $TGZ_NAME, got: $(ls *.tgz)"
-            exit 1
+          if [ "$PACKED" != "$TGZ_NAME" ]; then
+            mv "$PACKED" "$TGZ_NAME"
           fi
           echo "Packaged: $TGZ_NAME"
-          echo "tgz_path=${{ steps.parse.outputs.plugin_dir }}/$TGZ_NAME" >> $GITHUB_OUTPUT
-          echo "tgz_name=$TGZ_NAME" >> $GITHUB_OUTPUT
+          echo "tgz_path=${{ steps.parse.outputs.plugin_dir }}/$TGZ_NAME" >> "$GITHUB_OUTPUT"
+          echo "tgz_name=$TGZ_NAME" >> "$GITHUB_OUTPUT"
+
+      # Trusted Publishing：npm 通过 GitHub OIDC 验证本 workflow 的身份，
+      # 直接签发一次性凭证。不需要 NPM_TOKEN secret，也就没有 token 过期问题，
+      # 并会自动生成 provenance。
+      # 前提：在 npmjs.com 上给该包配置 trusted publisher（仓库 + workflow 文件名）。
+      - name: Publish to npm
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_npm }}
+        run: |
+          set -euo pipefail
+          cd ${{ steps.parse.outputs.plugin_dir }}
+          echo "Publishing ${{ steps.parse.outputs.package_name }}@${{ steps.parse.outputs.version }}"
+          npm publish --access public --provenance
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: "${{ steps.parse.outputs.plugin_name }} v${{ steps.parse.outputs.version }}"
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.parse.outputs.tag }}
           files: ${{ steps.pack.outputs.tgz_path }}
           body: |
             ${{ steps.parse.outputs.plugin_desc }}
 
             ### 📦 ${{ steps.parse.outputs.plugin_name }} Release (v${{ steps.parse.outputs.version }})
 
-            #### 💻 一键安装命令 (Installation)
-            ```bash
-            # 使用 DSH 官方 CLI 安装
-            dsh plugin --profile web add https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.pack.outputs.tgz_name }}
+            #### 💻 安装方式 (Installation)
 
-            # 重启服务生效
-            dsh service restart
+            通过 npm registry（推荐，自动跟随最新版）：
+            ```bash
+            dsh plugin --profile web add ${{ steps.parse.outputs.package_name }}
             ```
+
+            或从 GitHub Release 安装固定版本的 tarball：
+            ```bash
+            dsh plugin --profile web add https://github.com/${{ github.repository }}/releases/download/${{ steps.parse.outputs.tag }}/${{ steps.pack.outputs.tgz_name }}
+            ```
+
+            #### 🔄 重启服务 (Restart Service)
+            - **macOS / Linux**: `./scripts/dsh-web.sh restart`
+            - **Windows**: `.\scripts\dsh-web.ps1 restart`（或 `scripts\dsh-web.cmd restart`）
