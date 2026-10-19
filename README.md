@@ -84,7 +84,8 @@ dsh plugin --profile web add @weniatall/dsh-jev
 dsh plugin --profile web add @weniatall/dsh-image-gen
 
 # 13. 安装独立子任务模型路由 (按任务类型为子代理选模型)
-dsh plugin --profile web add @weniatall/dsh-task-models
+#     npm 包 @weniatall/dsh-task-models 尚未首次发布，先用 Release tarball 安装
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.2.0/dsh-task-models-0.2.0.tgz
 ```
 
 ### 从旧版 tarball 安装迁移

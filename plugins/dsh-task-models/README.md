@@ -22,16 +22,16 @@ TypeSafe Jev（System One 决策模型）参与“这个子任务属于哪一类
 
 ## 安装
 
-本插件发布到 npm scope `@weniatall/`，GitHub tag 仍是无 scope 短名
-（`dsh-task-models@v0.2.0`），因此两种安装方式都可用：
+从 GitHub Release 安装（插件管理器的「自有插件」页也能直接点安装）：
 
 ```bash
-# 推荐：走 npm registry（自动跟随最新版）
-dsh plugin --profile web add @weniatall/dsh-task-models
-
-# 或从 GitHub Release 安装固定版本的 tarball
 dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.2.0/dsh-task-models-0.2.0.tgz
 ```
+
+> 包名已在 `package.json` 中迁移到 npm scope `@weniatall/dsh-task-models`，但该包尚未
+> 首次发布到 npm registry（Trusted Publishing 只能给已存在的包授权）。在完成首次发布前，
+> 请使用上面的 GitHub Release tarball 安装；插件管理器在 `allowTarball` 开启时也走这条
+> 渠道。
 
 或在仓库内打包安装：
 
