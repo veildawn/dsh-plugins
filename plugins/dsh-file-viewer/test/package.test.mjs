@@ -473,6 +473,29 @@ test('drawer supports fullscreen toggle on PC and hides it on mobile', () => {
   assert.match(source, /@media\(max-width:768px\)\{[\s\S]*?\.fv-btn-fullscreen\{display:none!important\}/)
 })
 
+test('the drawer clears the Windows caption strip instead of sliding under it', () => {
+  const source = read('lib/client.js')
+
+  // The desktop shell marks <html> with data-windows-titlebar and publishes the
+  // strip height as a custom property. The native caption buttons live in that
+  // strip, above every page layer, so a trailing-edge drawer that starts at the
+  // frame's top edge has its header controls covered by them. The scrim must
+  // therefore start below the strip.
+  assert.match(
+    source,
+    /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.fv-scrim\{top:var\(--dsh-windows-titlebar-height,40px\)\}/,
+    'the drawer must offset below the Windows caption strip and publish no offset elsewhere',
+  )
+
+  // Fullscreen removes the strip, so the rule has to stay scoped away from it;
+  // an unconditional offset would leave a dead band above the drawer there.
+  assert.doesNotMatch(source, /html\[data-windows-titlebar\] \.fv-scrim\{top:/)
+
+  // The offset belongs to the shell overlay seat only: the mobile bottom-sheet
+  // context menu and the centred modals are positioned independently.
+  assert.doesNotMatch(source, /html\[data-windows-titlebar\][^{]*\.fv-modal-scrim\{[^}]*top:/)
+})
+
 test('the selected file path is hidden in the mobile header', () => {
   const source = read('lib/client.js')
   // Desktop still shows the selected path in the header; phones do not have

@@ -302,6 +302,15 @@ window.__ModuleLoader__.load({
       .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:transparent;pointer-events:auto;color-scheme:light dark;animation:fv-fade .16s ease-out}
       .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1);transition:width .2s cubic-bezier(.2,.8,.2,1)}
       .fv-shell[data-fullscreen="true"]{width:100vw;border-left:none}
+      /* Windows desktop paints the native caption buttons (minimize, maximize,
+         close) in a strip across the top of the window, above every page layer.
+         The shell's overlay seat spans the whole frame — padding box included —
+         so a trailing-edge drawer would start underneath that strip and its
+         header controls could never be clicked. Start the drawer below the
+         strip instead, which also leaves the strip free to drag the window.
+         The host sets data-fullscreen while the window is fullscreen and the
+         strip is hidden, so the offset has to drop then. */
+      html[data-windows-titlebar]:not([data-fullscreen]) .fv-scrim{top:var(--dsh-windows-titlebar-height,40px)}
       @keyframes fv-fade{from{opacity:0}to{opacity:1}}
       @keyframes fv-slide{from{transform:translateX(100%)}to{transform:translateX(0)}}
       @media(prefers-reduced-motion:reduce){.fv-scrim,.fv-shell{animation:none}}
