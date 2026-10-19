@@ -84,6 +84,56 @@ function upstreamHeaders(source, targetPort, forUpgrade = false) {
 }
 
 /**
+ * 端口不可用的两类原因：被占用，以及没有权限绑定（如 Windows 保留端口段）。
+ */
+const PORT_TAKEN_CODES = new Set(['EADDRINUSE'])
+const PORT_DENIED_CODES = new Set(['EACCES', 'EPERM'])
+
+/** 该错误是否表示端口已被别的进程占用。 */
+export function isPortTakenError(error) {
+  return PORT_TAKEN_CODES.has(error?.code)
+}
+
+/**
+ * 探测某个地址上的端口此刻是否可绑定。
+ *
+ * 绑定成功后立刻关闭，因此只是一次瞬时探测，不能替代真正的监听：两次调用之间
+ * 端口仍可能被别人抢走。它的用途是**提前**给出可读的冲突提示，而不是保证成功。
+ *
+ * @param {string} bindHost 要探测的地址，例如 `127.0.0.1` 或 `192.168.68.106`。
+ * @param {number} port 要探测的端口。
+ * @returns {Promise<{available: boolean, code?: string, message?: string}>}
+ */
+export function probePortAvailable(bindHost, port) {
+  return new Promise((resolve) => {
+    const probe = createServer()
+    probe.once('error', (error) => {
+      resolve({ available: false, code: error?.code, message: error?.message })
+    })
+    probe.listen(port, bindHost, () => {
+      probe.close(() => resolve({ available: true }))
+    })
+  })
+}
+
+/**
+ * 把监听失败翻译成用户能直接照着做的说明。
+ * @param {string} bindHost 监听地址。
+ * @param {number} port 监听端口。
+ * @param {{code?: string, message?: string}} error 失败原因。
+ * @returns {string} 中文提示。
+ */
+export function describeBindFailure(bindHost, port, error) {
+  if (isPortTakenError(error)) {
+    return `端口 ${port} 在 ${bindHost} 上已被占用`
+  }
+  if (PORT_DENIED_CODES.has(error?.code)) {
+    return `没有权限监听 ${bindHost}:${port}`
+  }
+  return `无法监听 ${bindHost}:${port}：${error?.message ?? String(error)}`
+}
+
+/**
  * 启动局域网反向代理。
  * @param {object} options 代理参数。
  * @param {string} options.bindHost 局域网网卡地址，例如 `192.168.50.108`。
@@ -164,4 +214,52 @@ export function startLanGateway({ bindHost, port, targetPort, mintCookie }) {
       })
     })
   })
+}
+
+/**
+ * 在**每一块**局域网网卡上各起一个监听。
+ *
+ * 只绑 `os.networkInterfaces()` 里的第一个非回环地址是不够的：地址顺序由系统决定，
+ * 常常先出现的是 VPN/虚拟网卡（EasyTier、Tailscale、Hyper-V…），于是设置页里列出的
+ * 真实局域网地址（例如 `192.168.68.106`）根本没有 socket 在听，浏览器直接
+ * `ERR_CONNECTION_REFUSED`。这里逐个地址起监听，让界面上列出的每个地址都能打开。
+ *
+ * 单个地址失败（端口被占用、网卡刚断开）不影响其它地址；只有全部失败才抛出。
+ *
+ * @param {object} options 代理参数。
+ * @param {string[]} options.bindHosts 要监听的网卡地址列表。
+ * @param {number} options.port 监听端口；0 表示由系统分配（多地址时会各拿一个不同端口）。
+ * @param {number} options.targetPort 上游 `127.0.0.1` 端口。
+ * @param {() => Promise<string|undefined>} [options.mintCookie] 会话 Cookie 签发函数。
+ * @returns {Promise<{addresses: string[], servers: import('node:http').Server[],
+ *   failures: {bindHost: string, code?: string, message: string, portTaken: boolean}[],
+ *   close: () => Promise<void>}>}
+ */
+export async function startLanGateways({ bindHosts, port, targetPort, mintCookie }) {
+  const started = []
+  const failures = []
+  for (const bindHost of bindHosts) {
+    try {
+      const handle = await startLanGateway({ bindHost, port, targetPort, mintCookie })
+      started.push({ bindHost, handle })
+    } catch (error) {
+      /* 失败原因在这里翻译成可直接展示的中文说明，调用方不必再解析 errno。 */
+      failures.push({
+        bindHost,
+        code: error?.code,
+        portTaken: isPortTakenError(error),
+        message: describeBindFailure(bindHost, port, error),
+      })
+    }
+  }
+  if (started.length === 0) {
+    const reason = failures.map((failure) => failure.message).join('；')
+    throw new Error(`lan gateway: ${reason || 'no bindable LAN address'}`)
+  }
+  return {
+    addresses: started.map((entry) => entry.bindHost),
+    servers: started.map((entry) => entry.handle.server),
+    failures,
+    close: () => Promise.all(started.map((entry) => entry.handle.close())).then(() => {}),
+  }
 }

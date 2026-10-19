@@ -13,7 +13,7 @@ import { networkInterfaces } from 'node:os'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { DEFAULT_LAN_GATEWAY_PORT, LAN_ORIGIN_HEADER, startLanGateway } from './lan-gateway.js'
+import { DEFAULT_LAN_GATEWAY_PORT, LAN_ORIGIN_HEADER, describeBindFailure, isPortTakenError, probePortAvailable, startLanGateways } from './lan-gateway.js'
 
 export const name = 'remote-control'
 export const inject = ['credentials', 'settings', 'connection', 'webServer']
@@ -243,11 +243,13 @@ const LOOPBACK_BIND_ALIASES = new Set(['localhost', '::1', '[::1]'])
 const IPV4_LITERAL = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
 
 /**
- * 本进程里已启动的局域网反代记录：`{ host, port, active }`。
+ * 本进程里已启动的局域网反代记录：`{ hosts, port, active, failures }`。
+ * 一块网卡一个监听，因此 `hosts` 是地址数组；`failures` 记录没起来的地址及原因
+ * （典型是端口被占用），供设置页提示。
  * 一个进程只跑一个 profile，用模块级变量即可；status 查询来自别的子上下文，
  * 拿不到网关所在 ctx 的局部变量，只能读这份记录。
  */
-let lanGatewayRuntime = { host: undefined, port: undefined, active: false }
+let lanGatewayRuntime = { hosts: [], port: undefined, active: false, failures: [] }
 
 export function isLoopbackHost(host) {
   if (typeof host !== 'string') return false
@@ -301,9 +303,7 @@ export function normalizeBindHost(targetHost) {
 /** 选一块非回环网卡的 IPv4 作为局域网绑定地址；没有可用网卡时返回 undefined。 */
 export function pickLanBindHost() {
   return getLocalLanAddresses().find((ip) => !ip.startsWith('127.'))
-}
-
-/**
+}/**
  * 切换或设置当前 profile 的 webserver 绑定 Host 与端口。
  * 入参可以是 127.0.0.1，也可以是要绑定的具体局域网 IP；port 省略时保留当前端口。
  *
@@ -342,18 +342,80 @@ export async function setServerBindHost(ctx, targetHost, targetPort) {
  */
 export async function setLanGatewayPort(ctx, targetPort) {
   const port = normalizeBindPort(targetPort)
+  /* 换端口前先探测：正在监听的旧端口不能算冲突，其余地址被占用就直接报错，
+     免得用户改完重启才发现端口起不来。探测失败不阻断（可能只是瞬时占用）。 */
+  const hostPort = Number(ctx.webServer?.port) || undefined
+  const conflicts = await findPortConflicts(port, { ignorePort: hostPort })
+  if (conflicts.length > 0) {
+    throw new Error(`端口 ${port} 已被占用：${conflicts.map((item) => item.bindHost).join(', ')}`)
+  }
   await ctx.settings.mutate(settingsNamespace(ctx, NS), [{ op: 'set', path: ['lanGatewayPort'], value: port }])
   return { ok: true, lanGatewayPort: port }
 }
+
+/**
+ * 检查一批地址上的端口是否可绑定，返回被占用的地址。
+ *
+ * 本插件自己的网关正在监听的端口会被误判成“占用”，因此 `ignorePort` 指定的
+ * 端口（宿主当前端口）与当前网关端口都跳过。探测只是尽力而为：两次调用之间
+ * 端口仍可能被抢走，真正的结论以 `startLanGateways` 的监听结果为准。
+ *
+ * @param {number} port 要检查的端口。
+ * @param {{ignorePort?: number, bindHosts?: string[]}} [options] 例外与地址范围。
+ * @returns {Promise<{bindHost: string, code?: string, message: string}[]>} 被占用的地址。
+ */
+export async function findPortConflicts(port, options = {}) {
+  const bindHosts = options.bindHosts ?? getGatewayBindHosts()
+  if (options.ignorePort !== undefined && options.ignorePort === port) return []
+  const conflicts = []
+  for (const bindHost of bindHosts) {
+    const result = await probePortAvailable(bindHost, port)
+    if (!result.available) {
+      conflicts.push({ bindHost, code: result.code, message: describeBindFailure(bindHost, port, result) })
+    }
+  }
+  return conflicts
+}
+
+/** 169.254.0.0/16 是链路本地（APIPA）地址：只在本链路有效，跨主机不可达，不能对外公布。 */
+const LINK_LOCAL_PREFIX = '169.254.'
+
+/**
+ * 列出本机可用的局域网 IPv4 地址。
+ *
+ * 过滤掉回环、链路本地（`169.254.x.x`）以及未配置的网卡；顺序沿用系统枚举顺序。
+ * 这份列表是「局域网」语义：界面展示的访问地址与 `requestRejection` 的局域网
+ * 放行判定都用它，因此**不含**回环地址。网关要监听的地址见
+ * {@link getGatewayBindHosts}。
+ */
 export function getLocalLanAddresses() {
   try {
     return Object.values(networkInterfaces())
       .flat()
       .filter((iface) => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
       .map((iface) => iface.address)
+      .filter((address) => typeof address === 'string'
+        && !isLoopbackHost(address)
+        && !address.startsWith(LINK_LOCAL_PREFIX))
   } catch {
     return []
   }
+}
+
+/** 网关始终额外监听的回环地址。 */
+export const LOOPBACK_BIND_HOST = '127.0.0.1'
+
+/**
+ * 局域网网关要监听的地址：每一块网卡的 IPv4 加上回环地址。
+ *
+ * 回环也要监听，`http://127.0.0.1:<lanGatewayPort>` 才能走同一个入口（例如本机
+ * 浏览器、端口转发或 SSH 隧道只转发回环端口时）。回环放最后，且不与局域网地址
+ * 重复。链路上没有可用网卡时仍会返回回环地址，网关照常可用。
+ */
+export function getGatewayBindHosts() {
+  const hosts = getLocalLanAddresses()
+  if (!hosts.includes(LOOPBACK_BIND_HOST)) hosts.push(LOOPBACK_BIND_HOST)
+  return hosts
 }
 
 /**
@@ -393,6 +455,8 @@ export function getServerNetworkInfo(ctx) {
   const bindLocked = isDesktopHostedProfile(ctx)
   // 宿主绑回环时，局域网入口由插件自己的反代端口提供。
   const lanGatewayActive = lanGatewayRuntime.active === true
+  // 没起来的监听地址与原因（端口占用等），供设置页提示，空数组表示全部正常。
+  const lanGatewayFailures = Array.isArray(lanGatewayRuntime.failures) ? [...lanGatewayRuntime.failures] : []
 
   return {
     port,
@@ -402,6 +466,7 @@ export function getServerNetworkInfo(ctx) {
     trustedHosts,
     bindLocked,
     lanGatewayActive,
+    lanGatewayFailures,
   }
 }
 
@@ -430,6 +495,7 @@ async function status(ctx, options, token) {
     trustedHosts: network.trustedHosts,
     bindLocked: network.bindLocked,
     lanGatewayActive: network.lanGatewayActive,
+    lanGatewayFailures: network.lanGatewayFailures,
     lanGatewayPort: current.lanGatewayPort,
   }
 }
@@ -455,6 +521,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
           lanGatewayActive: value.lanGatewayActive,
+          lanGatewayFailures: value.lanGatewayFailures,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -477,6 +544,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
           lanGatewayActive: value.lanGatewayActive,
+          lanGatewayFailures: value.lanGatewayFailures,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -501,6 +569,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
           lanGatewayActive: value.lanGatewayActive,
+          lanGatewayFailures: value.lanGatewayFailures,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -533,6 +602,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
           lanGatewayActive: value.lanGatewayActive,
+          lanGatewayFailures: value.lanGatewayFailures,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -555,6 +625,7 @@ export async function handleConfigRpc(ctx, options, method, payload) {
           trustedHosts: value.trustedHosts,
           bindLocked: value.bindLocked,
           lanGatewayActive: value.lanGatewayActive,
+          lanGatewayFailures: value.lanGatewayFailures,
           lanGatewayPort: value.lanGatewayPort,
         },
       }
@@ -850,15 +921,17 @@ export function apply(ctx, config) {
   ctx.inject(['connection', 'webServer'], (gatewayCtx) => {
     gatewayCtx.effect(() => {
       if (!shouldStartLanGateway(gatewayCtx)) return
-      const lanIp = pickLanBindHost()
+      /* 逐块网卡都要监听（含回环）：只绑系统枚举到的第一个地址会让真实局域网 IP
+         打不开，见 startLanGateways 的说明。 */
+      const lanIps = getGatewayBindHosts()
       const targetPort = Number(gatewayCtx.webServer?.port) || undefined
-      if (!lanIp || !targetPort) return
+      if (lanIps.length === 0 || !targetPort) return
       const gatewayPort = normalizeBindPort(options().lanGatewayPort ?? DEFAULT_LAN_GATEWAY_PORT)
       let handle
       let disposed = false
       const stop = async () => {
         disposed = true
-        lanGatewayRuntime = { host: undefined, port: undefined, active: false }
+        lanGatewayRuntime = { hosts: [], port: undefined, active: false, failures: [] }
         const current = handle
         handle = undefined
         await current?.close()
@@ -871,13 +944,28 @@ export function apply(ctx, config) {
         })
         return typeof cookie === 'string' && cookie.length > 0 ? cookie : undefined
       }
-      startLanGateway({ bindHost: lanIp, port: gatewayPort, targetPort, mintCookie }).then((started) => {
+      startLanGateways({ bindHosts: lanIps, port: gatewayPort, targetPort, mintCookie }).then((started) => {
         if (disposed) { void started.close(); return }
         handle = started
-        lanGatewayRuntime = { host: lanIp, port: gatewayPort, active: true }
-        gatewayCtx.logger?.info?.('remote-control: LAN gateway on %s:%s', lanIp, gatewayPort)
+        lanGatewayRuntime = {
+          hosts: started.addresses,
+          port: gatewayPort,
+          active: true,
+          /* 冲突信息留在状态里，设置页能直接告诉用户哪个地址没起来、为什么。 */
+          failures: started.failures.map((failure) => ({ bindHost: failure.bindHost, message: failure.message })),
+        }
+        gatewayCtx.logger?.info?.('remote-control: LAN gateway on %s:%s', started.addresses.join(', '), gatewayPort)
+        for (const failure of started.failures) {
+          gatewayCtx.logger?.warn?.('remote-control: %s', failure.message)
+        }
       }, (error) => {
-        gatewayCtx.logger?.warn?.('remote-control: LAN gateway failed on %s:%s: %s', lanIp, gatewayPort, error?.message ?? error)
+        lanGatewayRuntime = {
+          hosts: [],
+          port: gatewayPort,
+          active: false,
+          failures: lanIps.map((bindHost) => ({ bindHost, message: describeBindFailure(bindHost, gatewayPort, error) })),
+        }
+        gatewayCtx.logger?.warn?.('remote-control: LAN gateway failed on %s:%s: %s', lanIps.join(', '), gatewayPort, error?.message ?? error)
       })
       return stop
     }, 'remote-control: LAN gateway')
@@ -951,6 +1039,9 @@ export const internals = {
   matchesRemoteControlSecret,
   remoteControlSecret,
   getLocalLanAddresses,
+  getGatewayBindHosts,
+  findPortConflicts,
+  LOOPBACK_BIND_HOST,
   pickLanBindHost,
   normalizeBindHost,
   isLoopbackHost,

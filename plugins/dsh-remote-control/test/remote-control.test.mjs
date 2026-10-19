@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import * as plugin from '../lib/index.js'
-import { DEFAULT_LAN_GATEWAY_PORT, startLanGateway } from '../lib/lan-gateway.js'
+import { DEFAULT_LAN_GATEWAY_PORT, startLanGateway, startLanGateways, probePortAvailable, isPortTakenError, describeBindFailure } from '../lib/lan-gateway.js'
 
 const {
   CONFIG_RPC_CHANNEL,
@@ -108,6 +108,31 @@ function makeHost(doc) {
   const webServer = new FakeWebServer(ctx)
   const apiProxy = new FakeApiProxy(ctx)
   return { ctx, settings, credentials, connection, webServer, apiProxy }
+}
+
+/** 取一个当前空闲的端口：绑 0 拿到系统分配的端口后立刻释放。 */
+async function freePort() {
+  const probe = createServer()
+  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve))
+  const { port } = probe.address()
+  await new Promise((resolve) => probe.close(resolve))
+  return port
+}
+
+/**
+ * 等某个网关真正启动完成。
+ *
+ * `lanGatewayRuntime` 是模块级状态，多个用例共用一个进程时会互相覆盖，
+ * 因此必须按端口认出「本次用例自己的那个网关」，不能只等「有失败」或「已启动」。
+ */
+async function waitForGateway(port, predicate = () => true, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const runtime = internals.lanGatewayRuntime()
+    if (runtime.port === port && predicate(runtime)) return runtime
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  return internals.lanGatewayRuntime()
 }
 
 /**
@@ -1029,6 +1054,206 @@ test('局域网代理端口默认 3081，且可配置', () => {
   }
 })
 
+test('每块局域网网卡都要监听，不能只绑系统枚举到的第一个地址', async () => {
+  // 真实故障：本机 networkInterfaces() 先返回虚拟网卡 10.11.8.5（EasyTier），
+  // 只绑第一个地址时真实局域网 192.168.68.106:3081 根本没有 socket，
+  // 浏览器 ERR_CONNECTION_REFUSED，而设置页却把这个地址列成可访问 URL。
+  const lanIps = internals.getLocalLanAddresses()
+  if (lanIps.length === 0) return // 无局域网网卡的环境跳过
+
+  const upstream = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' })
+    res.end('ok')
+  })
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve))
+  const targetPort = upstream.address().port
+  const gateway = await startLanGateways({ bindHosts: lanIps, port: 0, targetPort })
+  try {
+    assert.deepEqual(gateway.addresses, lanIps, '每个局域网地址都要有监听')
+    assert.equal(gateway.servers.length, lanIps.length)
+    assert.deepEqual(gateway.failures, [])
+    for (const ip of lanIps) {
+      const port = gateway.servers[gateway.addresses.indexOf(ip)].address().port
+      const text = await new Promise((resolve, reject) => {
+        get(`http://${ip}:${port}/`, (response) => {
+          let body = ''
+          response.setEncoding('utf8')
+          response.on('data', (chunk) => { body += chunk })
+          response.on('end', () => resolve(body))
+        }).on('error', reject)
+      })
+      assert.equal(text, 'ok', ip + ' 必须真的能连上')
+    }
+  } finally {
+    await gateway.close()
+    await new Promise((resolve) => upstream.close(resolve))
+  }
+})
+
+test('网关同时监听回环地址，且回环不进入 lanIps', async () => {
+  // 回环必须能走同一个对外端口（本机浏览器 / 端口转发 / SSH 隧道只转发回环时）。
+  const hosts = internals.getGatewayBindHosts()
+  const lanIps = internals.getLocalLanAddresses()
+  assert.ok(hosts.includes('127.0.0.1'), '网关必须监听回环')
+  assert.equal(hosts[hosts.length - 1], '127.0.0.1', '回环排在最后')
+  assert.equal(hosts.length, lanIps.length + (lanIps.includes('127.0.0.1') ? 0 : 1))
+  assert.equal(lanIps.includes('127.0.0.1'), false, 'lanIps 仍只含局域网地址')
+  assert.equal(new Set(hosts).size, hosts.length, '地址不重复')
+
+  const upstream = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' })
+    res.end('ok')
+  })
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve))
+  const targetPort = upstream.address().port
+  const gateway = await startLanGateways({ bindHosts: hosts, port: 0, targetPort })
+  try {
+    const index = gateway.addresses.indexOf('127.0.0.1')
+    assert.notEqual(index, -1, '回环监听必须启动成功')
+    const port = gateway.servers[index].address().port
+    const text = await new Promise((resolve, reject) => {
+      get(`http://127.0.0.1:${port}/`, (response) => {
+        let body = ''
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => { body += chunk })
+        response.on('end', () => resolve(body))
+      }).on('error', reject)
+    })
+    assert.equal(text, 'ok', 'http://127.0.0.1:<lanGatewayPort> 必须能打开')
+  } finally {
+    await gateway.close()
+    await new Promise((resolve) => upstream.close(resolve))
+  }
+})
+
+test('单个网卡监听失败不影响其它网卡，全部失败才抛错', async () => {
+  const lanIps = internals.getLocalLanAddresses()
+  if (lanIps.length === 0) return
+  const upstream = createServer((req, res) => res.end('ok'))
+  await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve))
+  const targetPort = upstream.address().port
+  // 先占住一个端口，让该地址的监听必然失败
+  const blocker = createServer(() => {})
+  await new Promise((resolve) => blocker.listen(0, lanIps[0], resolve))
+  const takenPort = blocker.address().port
+  try {
+    const bindHosts = lanIps.length > 1 ? [lanIps[0], lanIps[1]] : [lanIps[0]]
+    const gateway = await startLanGateways({ bindHosts, port: takenPort, targetPort })
+    try {
+      assert.deepEqual(gateway.addresses, bindHosts.slice(1), '被占用的地址失败，其余地址照常监听')
+      assert.equal(gateway.failures.length, 1)
+      assert.equal(gateway.failures[0].bindHost, lanIps[0])
+    } finally {
+      await gateway.close()
+    }
+    // 全部失败时整体抛出
+    await assert.rejects(() => startLanGateways({ bindHosts: [lanIps[0]], port: takenPort, targetPort }))
+  } finally {
+    await new Promise((resolve) => blocker.close(resolve))
+    await new Promise((resolve) => upstream.close(resolve))
+  }
+})
+
+test('getLocalLanAddresses 过滤回环与 169.254 链路本地地址', () => {
+  for (const ip of internals.getLocalLanAddresses()) {
+    assert.equal(ip.startsWith('127.'), false, ip + ' 不应是回环')
+    assert.equal(ip.startsWith('169.254.'), false, ip + ' 不应是链路本地地址')
+  }
+})
+
+test('probePortAvailable 能分辨空闲端口与被占用端口', async () => {
+  const blocker = createServer(() => {})
+  await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve))
+  const takenPort = blocker.address().port
+  try {
+    const taken = await probePortAvailable('127.0.0.1', takenPort)
+    assert.equal(taken.available, false, '已被占用的端口应判定为不可用')
+    assert.equal(taken.code, 'EADDRINUSE')
+    assert.equal(isPortTakenError({ code: taken.code }), true)
+    assert.match(describeBindFailure('127.0.0.1', takenPort, taken), new RegExp(`端口 ${takenPort} 在 127\\.0\\.0\\.1 上已被占用`))
+  } finally {
+    await new Promise((resolve) => blocker.close(resolve))
+  }
+
+  // 端口释放后应判定为可用
+  const free = await probePortAvailable('127.0.0.1', takenPort)
+  assert.equal(free.available, true, '释放后的端口应可用')
+
+  // 权限类错误不应被说成“占用”
+  const denied = describeBindFailure('127.0.0.1', 80, { code: 'EACCES', message: 'permission denied' })
+  assert.match(denied, /没有权限监听/)
+  assert.equal(isPortTakenError({ code: 'EACCES' }), false)
+})
+
+test('findPortConflicts 报出被占用的地址，并跳过宿主当前端口', async () => {
+  const blocker = createServer(() => {})
+  await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve))
+  const takenPort = blocker.address().port
+  try {
+    // 只探回环，避免依赖真实网卡
+    const conflicts = await internals.findPortConflicts(takenPort, { bindHosts: ['127.0.0.1'] })
+    assert.equal(conflicts.length, 1)
+    assert.equal(conflicts[0].bindHost, '127.0.0.1')
+    assert.match(conflicts[0].message, new RegExp(`端口 ${takenPort}`))
+
+    // 宿主自己就监听着这个端口时不能算冲突（否则永远改不了端口）
+    const ignored = await internals.findPortConflicts(takenPort, { bindHosts: ['127.0.0.1'], ignorePort: takenPort })
+    assert.deepEqual(ignored, [], '宿主当前端口要跳过')
+  } finally {
+    await new Promise((resolve) => blocker.close(resolve))
+  }
+
+  const free = await internals.findPortConflicts(takenPort, { bindHosts: ['127.0.0.1'] })
+  assert.deepEqual(free, [], '端口空闲时无冲突')
+})
+
+test('setLanGatewayPort 拒绝已被占用的端口，不写进配置', async () => {
+  const blocker = createServer(() => {})
+  await new Promise((resolve) => blocker.listen(0, '127.0.0.1', resolve))
+  const takenPort = blocker.address().port
+  const { ctx, webServer } = makeHost()
+  webServer.host = '127.0.0.1'
+  webServer.port = 19387
+  await ctx.plugin(plugin).await()
+  const settings = ctx.get('settings')
+  const before = settings.doc[plugin.NS]?.lanGatewayPort
+  try {
+    // 网关会监听回环，因此回环上的占用足以判定冲突
+    await assert.rejects(
+      () => internals.setLanGatewayPort(ctx, takenPort),
+      new RegExp(`端口 ${takenPort} 已被占用`),
+    )
+    assert.equal(settings.doc[plugin.NS]?.lanGatewayPort, before, '冲突时不应写入配置')
+  } finally {
+    await new Promise((resolve) => blocker.close(resolve))
+  }
+})
+
+test('网关端口冲突进入 status，其余网卡照常监听', async () => {
+  // 回环端口被占住：网关只在回环这一条监听上失败，其它网卡照常起来，
+  // 冲突原因通过 status 暴露给设置页，而不是静默失败。
+  const port = await freePort()
+  const blocker = createServer(() => {})
+  await new Promise((resolve) => blocker.listen(port, '127.0.0.1', resolve))
+  const { ctx, connection, webServer } = makeHost()
+  webServer.host = '127.0.0.1'
+  webServer.port = 19387
+  connection.browserAuth = { isAuthenticated: () => false }
+  try {
+    await ctx.plugin(plugin, { lanGatewayPort: port }).await()
+    const configure = connection.registrations.get(CONFIG_RPC_CHANNEL).handler
+    await waitForGateway(port, (runtime) => runtime.failures.length > 0)
+    const value = (await configure('status', {})).value
+    assert.ok(Array.isArray(value.lanGatewayFailures), '冲突列表必须是数组')
+    assert.equal(value.lanGatewayActive, true, '其它网卡仍应监听成功')
+    const loopbackFailure = value.lanGatewayFailures.find((failure) => failure.bindHost === '127.0.0.1')
+    assert.ok(loopbackFailure, '回环上的占用必须被报出来，实际: ' + JSON.stringify(value.lanGatewayFailures))
+    assert.match(loopbackFailure.message, new RegExp(`端口 ${port} 在 127\\.0\\.0\\.1 上已被占用`))
+  } finally {
+    await new Promise((resolve) => blocker.close(resolve))
+  }
+})
+
 test('宿主绑回环时由插件反代提供局域网入口', () => {
   // 桌面端固定 127.0.0.1；web profile 也可以这么配（0.2.x 拒绝 0.0.0.0），
   // 两种情况下局域网入口都只能由插件自己的反代端口提供。
@@ -1048,16 +1273,21 @@ test('宿主绑回环时由插件反代提供局域网入口', () => {
 test('status 报告的局域网代理状态以 webServer 服务为键，跨子上下文可见', async () => {
   // status 由另一个 inject 子上下文发起，只有 webServer 实例是共享的；
   // 若把状态挂在各自的 ctx 上，界面永远看不到「反代已启动」。
+  const port = await freePort()
   const { ctx, connection, webServer } = makeHost()
   webServer.host = '127.0.0.1'
+  webServer.port = 19387
   connection.browserAuth = { isAuthenticated: () => false }
-  await ctx.plugin(plugin).await()
+  await ctx.plugin(plugin, { lanGatewayPort: port }).await()
 
   const configure = connection.registrations.get(CONFIG_RPC_CHANNEL).handler
-  const before = await configure('status', {})
-  assert.equal(before.ok, true)
-  assert.equal(before.value.lanGatewayActive, false, '未启动反代时应为 false')
-  assert.equal(before.value.lanGatewayPort, DEFAULT_LAN_GATEWAY_PORT)
+  await waitForGateway(port, (runtime) => runtime.active === true && runtime.failures.length === 0)
+  const value = (await configure('status', {})).value
+  assert.equal(value.lanGatewayActive, true, '反代启动后另一个子上下文必须看得到')
+  assert.equal(value.lanGatewayPort, port)
+  assert.deepEqual(value.lanGatewayFailures, [], '空闲端口上不应有冲突')
+  // 监听地址至少覆盖回环，且与界面展示的局域网地址一致
+  assert.ok(internals.lanGatewayRuntime().hosts.includes('127.0.0.1'))
 })
 
 test('normalizeBindHost 把通配地址换成具体网卡 IP，宿主只接受 IP 字面量', () => {

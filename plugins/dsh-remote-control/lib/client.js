@@ -679,7 +679,34 @@ window.__ModuleLoader__.load({
                   )
                 );
               })
-            ) : null
+            ) : null,
+            /* 端口冲突提示：网关会为每块网卡各起一个监听，某个地址没起来时
+               必须让用户看到原因，而不是以为「地址列出来就一定通」。 */
+            Array.isArray(remote.lanGatewayFailures) && remote.lanGatewayFailures.length > 0
+              ? react.createElement("div", {
+                  className: "dsh-remote-port-conflict",
+                  role: "alert",
+                  style: {
+                    marginTop: "8px",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    lineHeight: "1.5",
+                    color: "var(--dsw-alias-label-primary)",
+                    background: "var(--dsw-alias-bg-warning, rgba(255,170,0,0.12))",
+                  },
+                },
+                  react.createElement("div", { style: { fontWeight: 600, marginBottom: "2px" } },
+                    "部分地址未能监听"),
+                  react.createElement("ul", { style: { margin: 0, paddingLeft: "16px" } },
+                    remote.lanGatewayFailures.map((failure, index) =>
+                      react.createElement("li", { key: failure.bindHost || index }, failure.message)
+                    )
+                  ),
+                  react.createElement("div", { style: { marginTop: "4px", opacity: 0.8 } },
+                    "换一个「局域网对外端口」即可避开冲突。")
+                )
+              : null
           ) : null,
 
           /* 底部操作区 */
