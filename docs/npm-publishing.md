@@ -61,6 +61,12 @@ Release 资产 : dsh-terminal-0.1.16.tgz
 
 ## 三、一次性配置 Trusted Publishing
 
+> **新增插件时必读**：每新增一个插件，都要人工做三件事 ——
+> ① `npm login --auth-type=web`；② 在 `plugins/<plugin>` 里 `npm publish --access public`
+> 完成首版；③ 到 `https://www.npmjs.com/package/@weniatall/<plugin>/access` 配一次
+> trusted publisher（`veildawn` / `dsh-plugins` / `release-plugin.yml`）。
+> 仓库根 [README](../README.md#️-新增插件时必须手动做的三步操作一次性) 有同样的清单。
+
 对**每一个**包都要做一次。包必须先存在，因此首次发布需要手动完成（见第四节）。
 
 ### 3.1 进入包设置页
@@ -81,7 +87,7 @@ Release 资产 : dsh-terminal-0.1.16.tgz
 > 注意 `Organization or user` 填的是 **GitHub 仓库归属**（`veildawn`），
 > 不是 npm 账号名（`weniatall`）。两者不同是正常的，npm 校验的是仓库身份。
 
-### 3.3 重复 12 次
+### 3.3 重复 13 次
 
 需要配置的包列表：
 
@@ -96,6 +102,7 @@ Release 资产 : dsh-terminal-0.1.16.tgz
 @weniatall/dsh-plugin-manager
 @weniatall/dsh-prompt-history
 @weniatall/dsh-remote-control
+@weniatall/dsh-task-models
 @weniatall/dsh-terminal
 @weniatall/dsh-zcode-theme
 ```

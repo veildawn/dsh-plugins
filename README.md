@@ -20,7 +20,7 @@
 | **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | ZCode 官方 Zai 主题（193 项官方色板逐值对齐并由快照测试守护、单色品牌体系、轨迹色与 Mention 节点语义、终端 ANSI 16 色、首屏直出零闪烁） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.2.0) |
 | **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | 决策模型原生工具插件（可直接下拉选择 dsh 已配置的提供商与模型，此时接口地址与 API Key 完全由提供商配置解析；也可手写 baseURL/Key/模型 ID。决策模型按 `/v1/models` 的 `modality`、静态 `modality`（含 dsh-ai-proxy 材料化写入）、classifier 协议、模型类型与名称识别；默认仍为 TypeSafe Jev 官方地址、Choice/Score/Noul 三大决策原语、/v1/systemone 与 /v1/decisions 端点切换、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.2.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.2.5) |
 | **`dsh-image-gen`** | [`plugins/dsh-image-gen`](plugins/dsh-image-gen) | DSH 原生生图插件（把文生图作为原生工具暴露，可直接下拉选择 dsh 已配置的提供商与模型、或手动填写 baseURL/Key，内置尺寸与画质选择，支持 http/https/socks5 代理；设置面板可实时切换并测试连通性） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-image-gen@v0.1.5) |
-| **`dsh-task-models`** | [`plugins/dsh-task-models`](plugins/dsh-task-models) | 独立子任务模型路由插件（按任务类型为子代理选择模型、规则命中零额外调用、可选 TypeSafe Jev 决策、可选轻量分类回退、workflow 成员实际模型标注、不依赖任何 Agent Preset 或角色路由插件） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-task-models@v0.2.0) |
+| **`dsh-task-models`** | [`plugins/dsh-task-models`](plugins/dsh-task-models) | 独立子任务模型路由插件（按任务类型为子代理选择模型、规则命中零额外调用、可选 TypeSafe Jev 决策、可选轻量分类回退、workflow 成员实际模型标注、不依赖任何 Agent Preset 或角色路由插件） | [`v0.2.1`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-task-models@v0.2.1) |
 
 ---
 
@@ -84,8 +84,7 @@ dsh plugin --profile web add @weniatall/dsh-jev
 dsh plugin --profile web add @weniatall/dsh-image-gen
 
 # 13. 安装独立子任务模型路由 (按任务类型为子代理选模型)
-#     npm 包 @weniatall/dsh-task-models 尚未首次发布，先用 Release tarball 安装
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.2.0/dsh-task-models-0.2.0.tgz
+dsh plugin --profile web add @weniatall/dsh-task-models
 ```
 
 ### 从旧版 tarball 安装迁移
@@ -157,6 +156,55 @@ pin 住的旧来源，不需要先卸载。
 npm 包名带 scope（`@weniatall/dsh-terminal`），GitHub tag 保持短名（`dsh-terminal@v0.1.16`）——
 两者刻意不同，原因见 [npm 发布指引](docs/npm-publishing.md#二命名约定重要)。
 
+### ⚠️ 新增插件时必须手动做的三步操作（一次性）
+
+下面三件事**无法由 CI 完成**，每新增一个插件都要人工执行一次。漏做任何一步，
+后续推 tag 的自动发布会直接失败（`E404` 或 `403`）。
+
+**第 1 步：本地登录 npm（每个开发者/每台机器一次）**
+
+```bash
+npm login --auth-type=web
+```
+
+> Trusted Publishing 只能给**已存在**的包配置，所以每个新包的首个版本必须先在本地发出去。
+
+**第 2 步：首次发布该包（每个新包一次）**
+
+```bash
+cd plugins/dsh-terminal && npm publish --access public
+```
+
+> 首次发布**不要**加 `--provenance`（本地没有 OIDC 身份，加了会报错）。CI 后续发布的新版本
+> 才会带上 provenance。发布前记得先跑 `npm test` 与
+> `node scripts/verify-pack-contents.mjs --plugin <插件目录名>`。
+
+**第 3 步：给这个包配置一次 trusted publisher（每个新包一次）**
+
+打开该包的设置页，例如：
+
+<https://www.npmjs.com/package/@weniatall/dsh-terminal/access>
+
+在 **Trusted publishing** 区域点 **Add trusted publisher**，按下表填写：
+
+| 字段 | 值 |
+| --- | --- |
+| Publisher | **GitHub Actions** |
+| Organization or user | `veildawn` |
+| Repository | `dsh-plugins` |
+| Workflow filename | `release-plugin.yml` |
+| Environment name | 留空（不使用 environment 保护） |
+
+> **`Organization or user` 填的是 GitHub 仓库归属（`veildawn`），不是 npm 账号名
+> （`weniatall`）**，两者不同是正常的 —— npm 校验的是仓库身份。
+>
+> 工作流文件名必须逐字符一致（`release-plugin.yml`，含扩展名）。配好后建议同时把
+> **Publishing access** 设为 “Require two-factor authentication and disallow tokens”，
+> 彻底关掉 token 通道。
+
+三步都完成后，该插件之后的所有版本都可以只靠**推 tag** 自动发布（见下方方式 1）。
+完整背景与故障排查见 [npm 发布指引](docs/npm-publishing.md)。
+
 ### 方式 1：推送 Tag（推荐，默认即发布 npm）
 改好 `plugins/<plugin>/package.json` 的 `version` 并推送到 `main` 后，打并推送
 `<plugin-name>@v<version>` 形式的 Tag，CI 会跑测试、校验打包内容、发布 npm（走
@@ -184,7 +232,7 @@ git push origin "dsh-terminal@v0.1.16"
 ./scripts/release.sh dsh-mobile-adapter 0.1.41
 ./scripts/release.sh dsh-file-viewer 0.1.49
 ./scripts/release.sh dsh-terminal 0.1.13
-./scripts/release.sh dsh-task-models 0.2.0
+./scripts/release.sh dsh-task-models 0.2.1
 ```
 脚本会自动：
 1. 运行对应插件的单元测试；

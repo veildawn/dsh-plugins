@@ -22,16 +22,21 @@ TypeSafe Jev（System One 决策模型）参与“这个子任务属于哪一类
 
 ## 安装
 
-从 GitHub Release 安装（插件管理器的「自有插件」页也能直接点安装）：
+从 npm registry 安装（推荐，自动跟随最新版；插件管理器的「自有插件」页也能直接点安装）：
 
 ```bash
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.2.0/dsh-task-models-0.2.0.tgz
+dsh plugin --profile web add @weniatall/dsh-task-models
 ```
 
-> 包名已在 `package.json` 中迁移到 npm scope `@weniatall/dsh-task-models`，但该包尚未
-> 首次发布到 npm registry（Trusted Publishing 只能给已存在的包授权）。在完成首次发布前，
-> 请使用上面的 GitHub Release tarball 安装；插件管理器在 `allowTarball` 开启时也走这条
-> 渠道。
+或锁定版本，从 GitHub Release 安装 tarball：
+
+```bash
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.2.1/dsh-task-models-0.2.1.tgz
+```
+
+> 本包已发布到 npm scope `@weniatall/dsh-task-models`，后续版本由 CI 通过 Trusted
+> Publishing 发布，并附带 provenance 来源证明。插件管理器在 `allowTarball` 开启时
+> （离线/内网环境）会回落到上面的 Release tarball 渠道。
 
 或在仓库内打包安装：
 
@@ -39,7 +44,7 @@ dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/do
 cd plugins/dsh-task-models
 npm test
 npm pack
-dsh plugin --profile web add ./dsh-task-models-0.2.0.tgz
+dsh plugin --profile web add ./weniatall-dsh-task-models-0.2.1.tgz
 ```
 
 > 本仓库的 `AGENTS.md` 规定：除非用户明确要求，不在本机部署插件或重启服务。开发验证请只运行
