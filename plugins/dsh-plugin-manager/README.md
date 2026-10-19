@@ -14,6 +14,7 @@ DeepSeek Harness (DSH) 可视化**插件管理**与本仓库专属更新管理�
 - **自有插件专属管理**：专为 `veildawn/dsh-plugins` 独立多插件仓库设计，实时拉取 GitHub Releases（如 `dsh-model-roles@v0.4.9`、`dsh-remote-control@v0.1.6` 等），并自动读取当前 DSH profile 中已安装插件的版本，逐项标记「已安装 → 最新 / 可更新 / 卸载」。
 - **一键批量更新 (N)**：在「自有插件」与「社区插件」栏目中均提供「🚀 一键更新全部 (N)」按钮，自动统计可更新数量并批量执行更新（更新后绝不自动重启）。
 - **一键安装 / 更新 / 卸载**：真实执行 `dsh plugin add` 和 `dsh plugin remove`（服务端白名单校验来源后运行），带实时流式进度日志；支持一键卸载已装插件并自动刷新状态；自有插件支持「安装 / 更新到最新 / 已是最新 / 卸载」，社区插件按 npm 包一键安装与卸载。
+- **Scoped 别名安装与冲突彻底清理**：使用 GitHub Release tarball 安装时一律采用 pnpm alias 语法（`@weniatall/dsh-xxx@url`），确保无论历史 tarball 内 package.json 是否有 scope 前缀，统一在 profile 中以 scoped 规范包名安装，消除磁盘双份共存；自动检测 dependencies、bundles 及物理目录中的历史无 scope 旧短名冲突，并在安装/批量更新/卸载时自动清理残留，同时在界面提供「⚠️ 存在旧版冲突」徽章与「一键清理冲突」操作。
 - **更新按界面提示的版本精确安装**：更新时把界面已知的 `latestVersion` 一并传给宿主（`pnpm add <pkg>@<version>`），而不是让 pnpm 再解析一次 `@latest`。安装目标因此与「可更新到 vX」的提示完全一致，不受 dist-tag 漂移与 pnpm 元数据缓存过期影响。
 - **更新结果校验**：`pnpm` 退出码 0 不代表版本真的变了（它可能判定 `Already up to date` 后原样退出）。安装完成后回读 `node_modules` 中的实际版本，与目标不一致时明确报「更新未生效」，而不是显示成功后仍一直提示可更新；装完会把 `dependencies` 的精确版本恢复为 `^<version>`，保持后续可更新。
 - **静默直接复制指令**：点击「复制指令」直接将精准的 CLI 安装/更新命令写入系统剪贴板，绝不跳出弹窗确认。

@@ -267,7 +267,8 @@ window.__ModuleLoader__.load({
       .dm-action-btn.primary.copied{background:#10b981;border-color:transparent;color:#fff}
       .dm-action-btn.primary.copied:hover{opacity:1}
       .dm-action-btn.success{background:#10b981;border-color:transparent;color:#fff}
-      .dm-action-btn.warning{border-color:var(--dsw-alias-border-l2,var(--dsw-alias-border-default,#d0d7de));color:var(--dsw-alias-label-primary,#1f2328)}
+      .dm-action-btn.warning{border-color:color-mix(in srgb,#f59e0b 45%,transparent);color:#b45309}
+      .dm-action-btn.warning:hover{background:color-mix(in srgb,#f59e0b 12%,transparent)}
       .dm-action-btn.danger{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 45%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
       .dm-action-btn.danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 12%,transparent)}
       .dm-close-btn{padding:2px 6px;border:0;background:transparent;color:var(--dsw-alias-label-tertiary,#656d76);font-size:12px;cursor:pointer}
@@ -284,6 +285,7 @@ window.__ModuleLoader__.load({
       .dm-badge{font-size:11px;padding:2px 6px;border-radius:4px;background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1,#f6f8fa));color:var(--dsw-alias-label-secondary,#57606a);font-weight:500;white-space:nowrap;flex-shrink:0}
       .dm-badge.installed{color:var(--dsw-alias-label-primary,#1f2328)}
       .dm-badge.update{color:#b45309;background:color-mix(in srgb,#f59e0b 16%,transparent);font-weight:500}
+      .dm-badge.conflict{color:#b45309;background:color-mix(in srgb,#f59e0b 20%,transparent);font-weight:600}
       .dm-badge.uninstalled{color:var(--dsw-alias-label-tertiary,#656d76)}
       .dm-version-row{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#656d76);line-height:16px}
       .dm-ver-installed{color:var(--dsw-alias-label-primary,#1f2328);font-weight:500}
@@ -805,6 +807,66 @@ window.__ModuleLoader__.load({
           }
         };
 
+        const startCleanConflict = async (plugin) => {
+          if (taskState && taskState.status === "running") {
+            notify(`已有任务进行中（${taskState.name}），请等待完成`, "error");
+            return;
+          }
+          const reasons = plugin.duplicateConflict?.reasons?.join("\n· ") || "检测到该插件存在历史旧短名与 scope 包名并存";
+          const ok = await askConfirm({
+            title: "清理旧版冲突",
+            message: `确定要自动清理插件 ${plugin.title || plugin.name} 的旧版残留吗？\n\n冲突原因：\n· ${reasons}\n\n操作将保留新版 (@weniatall/...)，彻底移除旧版 dependencies、bundles 配置与残留目录。`,
+            icon: react.createElement(IconTrash, { size: 20 }),
+            confirmText: "确认清理",
+            variant: "warning",
+          });
+          if (!ok) return;
+
+          try {
+            setBusy(true);
+            const res = await callRpc("cleanDuplicatePlugin", { name: plugin.name });
+            if (res && res.cleaned) {
+              notify(`✓ ${plugin.title || plugin.name} 旧版冲突已彻底清理`, "ok");
+              void loadRepo();
+            } else {
+              notify(`清理失败: ${res?.error || "未知原因"}`, "error");
+            }
+          } catch (err) {
+            notify(err instanceof Error ? err.message : String(err), "error");
+          } finally {
+            setBusy(false);
+          }
+        };
+
+        const startCleanAllConflicts = async () => {
+          if (taskState && taskState.status === "running") {
+            notify(`已有任务进行中（${taskState.name}），请等待完成`, "error");
+            return;
+          }
+          const conflictCount = repoPlugins.filter((p) => p.hasDuplicate).length;
+          const ok = await askConfirm({
+            title: "一键清理全部旧版冲突",
+            message: `检测到当前有 ${conflictCount} 款插件存在新旧版本双份残留。确定要一键自动清理所有旧版残留并保留新版吗？`,
+            icon: react.createElement(IconTrash, { size: 20 }),
+            confirmText: "一键清理",
+            variant: "warning",
+          });
+          if (!ok) return;
+
+          try {
+            setBusy(true);
+            const res = await callRpc("cleanAllDuplicatePlugins", {});
+            if (res && res.cleaned) {
+              notify(`✓ 成功清理 ${res.count} 款插件的旧版冲突`, "ok");
+              void loadRepo();
+            }
+          } catch (err) {
+            notify(err instanceof Error ? err.message : String(err), "error");
+          } finally {
+            setBusy(false);
+          }
+        };
+
         const startAsyncRestart = async () => {
           const ok = await askConfirm({
             title: "平滑重启服务",
@@ -1011,7 +1073,11 @@ window.__ModuleLoader__.load({
               react.createElement("div", { className: "dm-card-head" },
                 react.createElement("div", { className: "dm-card-title-row" },
                   react.createElement("h3", { className: "dm-card-title" }, plugin.title || plugin.name),
-                  badgeClass ? react.createElement("span", { className: badgeClass }, badgeText) : null
+                  badgeClass ? react.createElement("span", { className: badgeClass }, badgeText) : null,
+                  plugin.hasDuplicate ? react.createElement("span", {
+                    className: "dm-badge conflict",
+                    title: plugin.duplicateConflict?.reasons?.join("；") || "检测到旧版与新版冲突（例如无 scope 旧版残留），建议点击右侧清理修复"
+                  }, "存在旧版冲突") : null
                 ),
                 react.createElement("div", { className: "dm-version-row" },
                   versionDetails,
@@ -1050,6 +1116,12 @@ window.__ModuleLoader__.load({
                     disabled: busy,
                     onClick: () => void startRemove(removeTargetOf(plugin, kind)),
                   }, "卸载") : null,
+                  plugin.hasDuplicate ? react.createElement("button", {
+                    className: "dm-action-btn warning",
+                    type: "button",
+                    disabled: busy,
+                    onClick: () => void startCleanConflict(plugin),
+                  }, "清理冲突") : null,
                   btnLabel && canInstall ? react.createElement("button", {
                     className: btnClass,
                     type: "button",
@@ -1101,6 +1173,7 @@ window.__ModuleLoader__.load({
         });
 
         const repoUpdateCount = repoPlugins.filter((p) => p.installedVersion && p.hasUpdate).length;
+        const repoConflictCount = repoPlugins.filter((p) => p.hasDuplicate).length;
         const communityUpdateCount = communityPlugins.filter((p) => p.installedVersion && p.hasUpdate && p.npm).length;
 
         const taskStatusText = taskState
@@ -1162,6 +1235,23 @@ window.__ModuleLoader__.load({
                 }
               }, dshCmdCopied ? "✓ 已复制" : "复制更新命令")
             )
+          ) : null,
+          repoConflictCount > 0 ? react.createElement("div", {
+            className: "dm-feedback warning",
+            style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", marginTop: "10px", padding: "10px 14px", borderRadius: "8px" }
+          },
+            react.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", flex: 1 } },
+              react.createElement("span", { style: { fontSize: "15px" } }, "⚠️"),
+              react.createElement("span", { style: { fontSize: "12.5px" } },
+                `检测到 ${repoConflictCount} 款插件存在新旧版本双份并存冲突（同时存在历史无 scope 短名与 scope 包名），容易导致功能重复加载或卸载失败。`
+              )
+            ),
+            react.createElement("button", {
+              className: "dm-action-btn warning",
+              type: "button",
+              disabled: busy,
+              onClick: () => void startCleanAllConflicts(),
+            }, "一键清理全部冲突")
           ) : null,
           react.createElement("div", { className: "dm-console-card" },
             react.createElement("div", { className: "dm-console-row" },

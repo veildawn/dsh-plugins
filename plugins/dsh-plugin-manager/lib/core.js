@@ -8,7 +8,7 @@
  * - Local profile plugin inspection (installed versions) and update-state merge
  */
 
-import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -659,6 +659,9 @@ export function readAllInstalledPackages({ home = findDshHome(), profile = findP
               try {
                 const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
                 if (pkg.name && pkg.version) map.set(pkg.name, pkg.version)
+                // 同时也以物理相对路径注册，如 @weniatall/dsh-model-roles
+                const relPath = `${entry}/${sub}`
+                if (pkg.version) map.set(relPath, pkg.version)
               } catch {}
             }
           }
@@ -669,6 +672,7 @@ export function readAllInstalledPackages({ home = findDshHome(), profile = findP
           try {
             const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
             if (pkg.name && pkg.version) map.set(pkg.name, pkg.version)
+            if (pkg.version) map.set(entry, pkg.version)
           } catch {}
         }
       }
@@ -755,16 +759,200 @@ export function resolveRemoveTarget(name, dependencies = {}) {
 }
 
 /**
+ * Detect whether a plugin has conflicting duplicate installations in the profile
+ * (e.g. legacy unscoped vs new scoped package names across dependencies, bundles,
+ * or node_modules directories).
+ */
+export function detectPluginConflict(pluginOrName, {
+  home = findDshHome(),
+  profile = findProfileName(),
+  dependencies = null,
+  bundles = null,
+  installedMap = null,
+} = {}) {
+  const name = typeof pluginOrName === 'string' ? pluginOrName : pluginOrName?.name
+  const valid = safePackageName(name)
+  if (!valid) return { hasConflict: false }
+
+  const bareName = valid.startsWith('@') ? valid.slice(valid.indexOf('/') + 1) : valid
+  const scopedName = valid.startsWith('@') ? valid : npmNameOf(valid)
+  if (bareName.toLowerCase() === scopedName.toLowerCase()) return { hasConflict: false }
+
+  const deps = dependencies || readProfileDependencies({ home, profile })
+  let bundlesList = bundles
+  if (!bundlesList) {
+    try {
+      const manifestPath = join(home, 'profiles', profile, 'package.json')
+      if (existsSync(manifestPath)) {
+        const m = JSON.parse(readFileSync(manifestPath, 'utf8'))
+        bundlesList = Array.isArray(m?.dsh?.profile?.bundles) ? m.dsh.profile.bundles : []
+      }
+    } catch {
+      bundlesList = []
+    }
+  }
+
+  // 1. dependencies check: both bare and scoped keys declared?
+  const hasBareDep = Object.keys(deps).some((k) => k.toLowerCase() === bareName.toLowerCase())
+  const hasScopedDep = Object.keys(deps).some((k) => k.toLowerCase() === scopedName.toLowerCase())
+  const depConflict = hasBareDep && hasScopedDep
+
+  // 2. bundles check: both bare and scoped bundles listed?
+  const hasBareBundle = (bundlesList || []).some((b) => b.toLowerCase() === bareName.toLowerCase())
+  const hasScopedBundle = (bundlesList || []).some((b) => b.toLowerCase() === scopedName.toLowerCase())
+  const bundleConflict = hasBareBundle && hasScopedBundle
+
+  // 3. node_modules physical directory check: both bare dir and scoped dir exist?
+  const pDir = profilePluginDir(home, profile)
+  const bareDirExists = existsSync(join(pDir, bareName))
+  const scopedDirExists = existsSync(join(pDir, scopedName))
+  const dirConflict = bareDirExists && scopedDirExists
+
+  // 4. legacy single unscoped check (only unscoped is installed, but repo standard is scoped)
+  const isLegacyUnscoped = (hasBareDep && !hasScopedDep) || (bareDirExists && !scopedDirExists && !hasScopedDep)
+
+  const hasConflict = depConflict || bundleConflict || dirConflict
+
+  const reasons = []
+  if (depConflict) reasons.push('dependencies 中同时存在旧短名与 scope 包名')
+  if (bundleConflict) reasons.push('bundles 配置中同时注册了旧短名与 scope 包名')
+  if (dirConflict) reasons.push('node_modules 中同时存在旧短名目录与 scope 目录')
+
+  return {
+    hasConflict,
+    isLegacyUnscoped,
+    bareName,
+    scopedName,
+    hasBareDep,
+    hasScopedDep,
+    hasBareBundle,
+    hasScopedBundle,
+    bareDirExists,
+    scopedDirExists,
+    reasons,
+  }
+}
+
+/**
+ * Clean up duplicate/legacy conflict for a plugin in the profile.
+ * Retains the scoped version (@weniatall/dsh-xxx) and purges the legacy
+ * unscoped version (dsh-xxx) from dependencies, bundles, lockfile, and node_modules.
+ */
+export function cleanupPluginConflict(pluginOrName, {
+  home = findDshHome(),
+  profile = findProfileName(),
+  removeOrphanDir = true,
+} = {}) {
+  const name = typeof pluginOrName === 'string' ? pluginOrName : pluginOrName?.name
+  const valid = safePackageName(name)
+  if (!valid) return { cleaned: false, error: 'invalid plugin name' }
+
+  const bareName = valid.startsWith('@') ? valid.slice(valid.indexOf('/') + 1) : valid
+  const scopedName = valid.startsWith('@') ? valid : npmNameOf(valid)
+  if (bareName.toLowerCase() === scopedName.toLowerCase()) return { cleaned: false }
+
+  const logs = []
+  let modifiedManifest = false
+  const manifestPath = join(home, 'profiles', profile, 'package.json')
+
+  try {
+    if (existsSync(manifestPath)) {
+      const raw = readFileSync(manifestPath, 'utf8')
+      const manifest = JSON.parse(raw)
+      if (manifest && typeof manifest === 'object') {
+        // 1. Clean dependencies: remove bareName if scopedName or another dep exists
+        if (manifest.dependencies && typeof manifest.dependencies === 'object') {
+          for (const key of Object.keys(manifest.dependencies)) {
+            if (key.toLowerCase() === bareName.toLowerCase()) {
+              delete manifest.dependencies[key]
+              modifiedManifest = true
+              logs.push(`已从 dependencies 移除旧依赖键 ${key}`)
+            }
+          }
+        }
+        // 2. Clean bundles: remove bareName
+        if (manifest.dsh?.profile && Array.isArray(manifest.dsh.profile.bundles)) {
+          const beforeLen = manifest.dsh.profile.bundles.length
+          manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
+            (b) => b.toLowerCase() !== bareName.toLowerCase()
+          )
+          if (manifest.dsh.profile.bundles.length !== beforeLen) {
+            modifiedManifest = true
+            logs.push(`已从 bundles 移除旧条目 ${bareName}`)
+          }
+          // Ensure scopedName is registered in bundles if scoped dependency exists or was kept
+          if (manifest.dependencies && manifest.dependencies[scopedName]) {
+            if (!manifest.dsh.profile.bundles.some((b) => b.toLowerCase() === scopedName.toLowerCase())) {
+              manifest.dsh.profile.bundles.push(scopedName)
+              modifiedManifest = true
+              logs.push(`已在 bundles 确保注册 ${scopedName}`)
+            }
+          }
+        }
+        if (modifiedManifest) {
+          writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+        }
+      }
+    }
+  } catch (err) {
+    return { cleaned: false, error: `修改 package.json 失败: ${err.message}` }
+  }
+
+  // 3. Clean lockfile
+  try {
+    const lockRes = stripPluginFromLockfile(bareName, { home, profile })
+    if (lockRes.removed > 0) {
+      logs.push(`已从 lockfile 清理 ${lockRes.removed} 条旧短名记录`)
+    }
+  } catch {}
+
+  // 4. Remove orphan directory in node_modules
+  if (removeOrphanDir) {
+    try {
+      const pDir = profilePluginDir(home, profile)
+      const orphanPath = join(pDir, bareName)
+      if (existsSync(orphanPath) && statSync(orphanPath).isDirectory()) {
+        rmSync(orphanPath, { recursive: true, force: true })
+        logs.push(`已清理 node_modules/${bareName} 物理目录`)
+      }
+    } catch (err) {
+      logs.push(`清理目录 node_modules/${bareName} 异常: ${err.message}`)
+    }
+  }
+
+  return { cleaned: true, bareName, scopedName, logs }
+}
+
+/**
  * Attach installed-version facts (installedVersion / hasUpdate) to a repo catalog.
  */
 export function mergeInstalledVersions(catalog, { home = findDshHome(), profile = findProfileName() } = {}) {
   const installedMap = readAllInstalledPackages({ home, profile })
+  const profileDeps = readProfileDependencies({ home, profile })
+  let profileBundles = []
+  try {
+    const manifestPath = join(home, 'profiles', profile, 'package.json')
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      profileBundles = Array.isArray(manifest?.dsh?.profile?.bundles) ? manifest.dsh.profile.bundles : []
+    }
+  } catch {}
+
   const plugins = catalog.map((p) => {
     const installedVersion = resolveInstalledVersion(installedMap, p)
+    const duplicateConflict = detectPluginConflict(p, {
+      home,
+      profile,
+      dependencies: profileDeps,
+      bundles: profileBundles,
+      installedMap,
+    })
     return {
       ...p,
       installedVersion,
       hasUpdate: installedVersion ? isUpgrade(installedVersion, p.version || p.latestVersion) : false,
+      hasDuplicate: duplicateConflict.hasConflict,
+      duplicateConflict,
     }
   })
   return {

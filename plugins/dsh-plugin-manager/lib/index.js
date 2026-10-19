@@ -65,6 +65,9 @@ import {
   monorepoNpmNames,
   NPM_PLUGIN_SCOPE,
   readInstalledVersion,
+  detectPluginConflict,
+  cleanupPluginConflict,
+  profilePluginDir,
 } from './core.js'
 
 export const name = 'plugin-manager'
@@ -787,6 +790,30 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
       return handleRemovePlugin(options, payload, deps)
     }
 
+    if (method === 'cleanDuplicatePlugin') {
+      const name = typeof payload?.name === 'string' ? payload.name.trim() : ''
+      if (!name) return errorResult('cleanDuplicatePlugin requires a valid plugin name')
+      const profile = safeProfileName(findProfileName())
+      const home = findDshHome()
+      const res = cleanupPluginConflict(name, { home, profile, removeOrphanDir: true })
+      if (!res.cleaned && res.error) return errorResult(res.error)
+      return { ok: true, value: { ...res, name } }
+    }
+
+    if (method === 'cleanAllDuplicatePlugins') {
+      const profile = safeProfileName(findProfileName())
+      const home = findDshHome()
+      const cleaned = []
+      for (const p of LOCAL_MONOREPO_PLUGINS) {
+        const conflict = detectPluginConflict(p.name, { home, profile })
+        if (conflict.hasConflict) {
+          const res = cleanupPluginConflict(p.name, { home, profile, removeOrphanDir: true })
+          if (res.cleaned) cleaned.push(p.name)
+        }
+      }
+      return { ok: true, value: { cleaned, count: cleaned.length } }
+    }
+
     if (method === 'restartHost') {
       return handleRestartHost(options, payload, deps)
     }
@@ -928,7 +955,10 @@ async function resolveInstallSource(name, kind, resolved, targetVersion) {
       if (!isAllowedRepoUrl(plugin.downloadUrl, resolved.repoOrigin, resolved.mirrorUrl)) {
         return { error: `拒绝安装：来源不在白名单内（${plugin.downloadUrl}）` }
       }
-      return { source: plugin.downloadUrl, kind: 'repo', pkgName, channel: 'tarball' }
+      // 使用 pnpm alias 语法：@weniatall/dsh-xxx@https://...
+      // 确保无论历史 tarball 内的 package.json name 是什么，一律以 scoped 名安装到 node_modules/@weniatall/...，避免双份并存冲突
+      const aliasedSource = `${pkgName}@${plugin.downloadUrl}`
+      return { source: aliasedSource, kind: 'repo', pkgName, channel: 'tarball' }
     }
 
     const pinned = pinVersion(pkgName, targetVersion)
@@ -1045,7 +1075,29 @@ async function runInstallWithLockfileRecovery({ name, profile, source, pkgName, 
     }
   }
 
+  // 同时清理可能残留的无 scope 旧短名 lockfile 记录，防止 pnpm 触发 integrity 异常
+  const barePkg = targetPkg.startsWith('@') ? targetPkg.slice(targetPkg.indexOf('/') + 1) : null
+  if (barePkg) {
+    const bareRes = stripPluginFromLockfile(barePkg, { home, profile })
+    if (bareRes.removed > 0) {
+      push(`  ↻ lockfile 已清理 ${bareRes.removed} 条 ${barePkg} 旧短名条目`)
+      steps.push('pre-clean-bare')
+    }
+  }
+
   let actualSource = source
+
+  // 支持带有 alias 前缀的 URL，例如 `@weniatall/dsh-model-roles@https://...`
+  let aliasPrefix = ''
+  let downloadUrl = source
+  const aliasMatch = source.match(/^(@[a-z0-9-]+\/[a-z0-9-_.]+)@(https?:\/\/.+)$/i)
+  if (aliasMatch) {
+    aliasPrefix = aliasMatch[1]
+    downloadUrl = aliasMatch[2]
+  } else if (targetPkg && targetPkg.startsWith('@') && (source.startsWith('http://') || source.startsWith('https://'))) {
+    aliasPrefix = targetPkg
+    downloadUrl = source
+  }
 
   // In pnpm v11 (bundled with Desktop), installing directly from an HTTP/HTTPS URL
   // triggers `ERR_PNPM_MISSING_TARBALL_INTEGRITY`: pnpm neither records an integrity
@@ -1055,35 +1107,38 @@ async function runInstallWithLockfileRecovery({ name, profile, source, pkgName, 
   // pnpm then computes the sha512 integrity itself and the lockfile stays healthy.
   // The cache file must be kept: pnpm records `"pkg": "file:<path>"` in package.json,
   // and deleting the tarball would break every later pnpm run in the profile.
-  if (/^https?:\/\//.test(source)) {
+  if (downloadUrl.startsWith('http://') || downloadUrl.startsWith('https://')) {
     try {
       const downloadDir = join(findDshHome(), 'profiles', profile, '.plugin-manager', 'downloads')
       mkdirSync(downloadDir, { recursive: true })
-      const rawName = basename(new URL(source).pathname) || `${name}.tgz`
+      const rawName = basename(new URL(downloadUrl).pathname) || `${name}.tgz`
       const fileName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_')
       const cachedPath = join(downloadDir, fileName)
       if (existsSync(cachedPath)) {
-        actualSource = cachedPath
+        actualSource = aliasPrefix ? `${aliasPrefix}@${cachedPath}` : cachedPath
         push(`  ✓ 使用本地缓存的插件包: ${fileName}`)
       } else {
         push(`  ⬇ 正在预先下载插件包至本地缓存...`)
-        const res = await httpFetch(source, {
+        const res = await httpFetch(downloadUrl, {
           headers: { 'User-Agent': 'dsh-market-plugin', 'Accept': 'application/octet-stream' },
           signal: AbortSignal.timeout(180_000),
         })
         if (res.ok) {
           const buf = Buffer.from(await res.arrayBuffer())
           writeFileSync(cachedPath, buf)
-          actualSource = cachedPath
+          actualSource = aliasPrefix ? `${aliasPrefix}@${cachedPath}` : cachedPath
           push(`  ✓ 预下载成功 (${(buf.length / 1024).toFixed(1)} KB)，改用本地文件安装`)
         } else {
           push(`  ⚠ 预下载返回 HTTP ${res.status}，回退直接使用远程 URL`)
+          actualSource = aliasPrefix ? `${aliasPrefix}@${downloadUrl}` : downloadUrl
         }
       }
     } catch (err) {
       push(`  ⚠ 预下载失败，回退直接使用远程 URL: ${String(err && err.message ? err.message : err)}`)
-      actualSource = source
+      actualSource = aliasPrefix ? `${aliasPrefix}@${downloadUrl}` : downloadUrl
     }
+  } else if (aliasPrefix && (actualSource.endsWith('.tgz') || actualSource.startsWith('file:')) && !actualSource.includes('@')) {
+    actualSource = `${aliasPrefix}@${actualSource}`
   }
 
   if (actualSource !== source) {
@@ -1176,6 +1231,16 @@ export function handleInstallPlugin(options, payload, deps = {}) {
       })
       task.code = result.code
       if (result.ok) {
+        // 自动清理同名插件旧版冲突（清除旧 bareName 依赖键、旧 bundles 条目、旧 lockfile 记录与残留的孤儿 node_modules 目录）
+        try {
+          const cleanConflict = cleanupPluginConflict(pkgName || name, { home: findDshHome(), profile, removeOrphanDir: true })
+          if (cleanConflict.cleaned && cleanConflict.logs?.length > 0) {
+            for (const logLine of cleanConflict.logs) {
+              task.log.push(`  ↻ ${logLine}`)
+            }
+          }
+        } catch {}
+
         // Automatically sync dsh.profile.bundles in package.json for the profile
         try {
           const home = findDshHome()
@@ -1325,6 +1390,9 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
         })
         if (result.ok) {
           try {
+            cleanupPluginConflict(targetPkg, { home: findDshHome(), profile, removeOrphanDir: true })
+          } catch {}
+          try {
             const home = findDshHome()
             const manifestPath = join(home, 'profiles', profile, 'package.json')
             if (existsSync(manifestPath)) {
@@ -1441,9 +1509,29 @@ export function handleRemovePlugin(options, payload, deps = {}) {
                        b.toLowerCase() !== bareRemove.toLowerCase() &&
                        b.toLowerCase() !== scopedRemove.toLowerCase()
               )
+              if (manifest.dependencies && typeof manifest.dependencies === 'object') {
+                delete manifest.dependencies[name]
+                delete manifest.dependencies[bareRemove]
+                delete manifest.dependencies[scopedRemove]
+              }
               writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
               task.log.push(`✓ 已从 profile bundles 中移除 ${name}`)
             }
+          }
+        } catch {}
+
+        // 同时确保清理残留的孤儿 node_modules 目录与 lockfile 记录
+        try {
+          const home = findDshHome()
+          const pDir = profilePluginDir(home, profile)
+          const bareRemove = name.startsWith('@') ? name.slice(name.indexOf('/') + 1) : name
+          const scopedRemove = name.startsWith('@') ? name : `${NPM_PLUGIN_SCOPE}/${name}`
+          for (const d of [name, bareRemove, scopedRemove]) {
+            const orphan = join(pDir, d)
+            if (existsSync(orphan)) {
+              rmSync(orphan, { recursive: true, force: true })
+            }
+            stripPluginFromLockfile(d, { home, profile })
           }
         } catch {}
 

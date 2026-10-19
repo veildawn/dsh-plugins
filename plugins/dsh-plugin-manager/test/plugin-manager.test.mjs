@@ -40,6 +40,8 @@ import {
   parseDshReleaseTag,
   checkDshUpdate,
   parseReleasesAtom,
+  detectPluginConflict,
+  cleanupPluginConflict,
 } from '../lib/core.js'
 import {
   handleMarketRpc,
@@ -1406,14 +1408,16 @@ describe('dsh-market install tasks (fake spawn)', () => {
       assert.equal(task.status, 'success')
       assert.equal(captured.calls.length, 1)
       const arg = captured.calls[0].args[4]
+      assert.ok(arg.startsWith('@weniatall/dsh-model-roles@'), `tarball install must use scoped alias syntax, got: ${arg}`)
+      const cachePath = arg.slice(arg.indexOf('@', 1) + 1)
       assert.ok(
-        arg.includes(join('profiles', 'web', '.plugin-manager', 'downloads')),
-        `install must use the local cache path, got: ${arg}`
+        cachePath.includes(join('profiles', 'web', '.plugin-manager', 'downloads')),
+        `install must use the local cache path, got: ${cachePath}`
       )
-      assert.ok(arg.endsWith('dsh-model-roles-0.4.8.tgz'))
+      assert.ok(cachePath.endsWith('dsh-model-roles-0.4.8.tgz'))
       // The cached tarball must be KEPT: pnpm records `"pkg": "file:<path>"` in
       // package.json, so deleting it would break every later pnpm run.
-      assert.equal(existsSync(arg), true)
+      assert.equal(existsSync(cachePath), true)
       assert.equal(task.log.some((l) => l.includes('实际执行')), true)
 
       // A second install of the same version reuses the cached file verbatim.
@@ -2291,6 +2295,144 @@ it('Config: every field this section owns is live, and unwraps to plain data', (
   const plain = unwrapConfig(resolved)
   for (const key of keys) assert.equal(isVolatileRef(plain[key]), false, key + ' unwraps to plain data')
   assert.deepEqual(Object.keys(plain).sort(), [...keys].sort(), 'unwrapping keeps every declared field')
+})
+
+describe('dsh-market duplicate plugin conflict detection and cleanup', () => {
+  let home
+  const originalHome = process.env.DSH_HOME
+  const originalProfile = process.env.DSH_PROFILE
+
+  before(() => {
+    delete process.env.DSH_PROFILE
+    home = mkdtempSync(join(tmpdir(), 'dsh-dup-test-'))
+    process.env.DSH_HOME = home
+  })
+
+  after(() => {
+    if (originalHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = originalHome
+    if (originalProfile === undefined) delete process.env.DSH_PROFILE
+    else process.env.DSH_PROFILE = originalProfile
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  it('detects no conflict when profile has only modern scoped package', () => {
+    const profileDir = join(home, 'profiles', 'web')
+    mkdirSync(profileDir, { recursive: true })
+    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies: { '@weniatall/dsh-model-roles': '^0.4.32' },
+      dsh: { profile: { bundles: ['@weniatall/dsh-model-roles'] } },
+    }))
+
+    const res = detectPluginConflict('dsh-model-roles', { home, profile: 'web' })
+    assert.equal(res.hasConflict, false)
+    assert.equal(res.bareName, 'dsh-model-roles')
+    assert.equal(res.scopedName, '@weniatall/dsh-model-roles')
+  })
+
+  it('detects conflict when dependencies has both bare and scoped packages', () => {
+    const profileDir = join(home, 'profiles', 'web')
+    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies: {
+        'dsh-model-roles': 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.6/dsh-model-roles-0.4.6.tgz',
+        '@weniatall/dsh-model-roles': '^0.4.32',
+      },
+      dsh: { profile: { bundles: ['@weniatall/dsh-model-roles', 'dsh-model-roles'] } },
+    }))
+
+    const res = detectPluginConflict('dsh-model-roles', { home, profile: 'web' })
+    assert.equal(res.hasConflict, true)
+    assert.equal(res.hasBareDep, true)
+    assert.equal(res.hasScopedDep, true)
+    assert.equal(res.hasBareBundle, true)
+    assert.equal(res.hasScopedBundle, true)
+    assert.ok(res.reasons.some((r) => r.includes('dependencies')))
+    assert.ok(res.reasons.some((r) => r.includes('bundles')))
+  })
+
+  it('detects conflict when physical node_modules has both bare and scoped directories', () => {
+    const profileDir = join(home, 'profiles', 'web')
+    const bareDir = join(profileDir, 'node_modules', 'dsh-model-roles')
+    const scopedDir = join(profileDir, 'node_modules', '@weniatall', 'dsh-model-roles')
+    mkdirSync(bareDir, { recursive: true })
+    mkdirSync(scopedDir, { recursive: true })
+    writeFileSync(join(bareDir, 'package.json'), JSON.stringify({ name: 'dsh-model-roles', version: '0.4.6' }))
+    writeFileSync(join(scopedDir, 'package.json'), JSON.stringify({ name: '@weniatall/dsh-model-roles', version: '0.4.32' }))
+
+    const res = detectPluginConflict('dsh-model-roles', { home, profile: 'web' })
+    assert.equal(res.hasConflict, true)
+    assert.equal(res.bareDirExists, true)
+    assert.equal(res.scopedDirExists, true)
+    assert.ok(res.reasons.some((r) => r.includes('node_modules')))
+  })
+
+  it('cleans up duplicate conflict by removing bare entries and orphan directories', () => {
+    const profileDir = join(home, 'profiles', 'web')
+    const bareDir = join(profileDir, 'node_modules', 'dsh-model-roles')
+    const scopedDir = join(profileDir, 'node_modules', '@weniatall', 'dsh-model-roles')
+    mkdirSync(bareDir, { recursive: true })
+    mkdirSync(scopedDir, { recursive: true })
+    writeFileSync(join(bareDir, 'package.json'), JSON.stringify({ name: 'dsh-model-roles', version: '0.4.6' }))
+    writeFileSync(join(scopedDir, 'package.json'), JSON.stringify({ name: '@weniatall/dsh-model-roles', version: '0.4.32' }))
+
+    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies: {
+        'dsh-model-roles': 'https://github.com/.../dsh-model-roles-0.4.6.tgz',
+        '@weniatall/dsh-model-roles': '^0.4.32',
+      },
+      dsh: { profile: { bundles: ['dsh-model-roles', '@weniatall/dsh-model-roles'] } },
+    }, null, 2))
+
+    const cleanRes = cleanupPluginConflict('dsh-model-roles', { home, profile: 'web', removeOrphanDir: true })
+    assert.equal(cleanRes.cleaned, true)
+
+    // Verify package.json
+    const manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
+    assert.equal(manifest.dependencies['dsh-model-roles'], undefined)
+    assert.equal(manifest.dependencies['@weniatall/dsh-model-roles'], '^0.4.32')
+    assert.deepEqual(manifest.dsh.profile.bundles, ['@weniatall/dsh-model-roles'])
+
+    // Verify node_modules: bareDir should be deleted, scopedDir kept
+    assert.equal(existsSync(bareDir), false)
+    assert.equal(existsSync(scopedDir), true)
+
+    // Now conflict check should be clean
+    const postCheck = detectPluginConflict('dsh-model-roles', { home, profile: 'web' })
+    assert.equal(postCheck.hasConflict, false)
+  })
+
+  it('handles cleanDuplicatePlugin RPC request', async () => {
+    const res = await handleMarketRpc({}, {}, 'cleanDuplicatePlugin', { name: 'dsh-model-roles' })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.cleaned, true)
+    assert.equal(res.value.name, 'dsh-model-roles')
+  })
+
+  it('handles cleanAllDuplicatePlugins RPC request', async () => {
+    const res = await handleMarketRpc({}, {}, 'cleanAllDuplicatePlugins', {})
+    assert.equal(res.ok, true)
+    assert.equal(Array.isArray(res.value.cleaned), true)
+  })
+
+  it('merges hasDuplicate flag in mergeInstalledVersions', () => {
+    const profileDir = join(home, 'profiles', 'web')
+    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies: {
+        'dsh-model-roles': '0.4.6',
+        '@weniatall/dsh-model-roles': '0.4.32',
+      },
+      dsh: { profile: { bundles: ['dsh-model-roles', '@weniatall/dsh-model-roles'] } },
+    }))
+
+    const catalog = [{ id: 'dsh-model-roles', name: 'dsh-model-roles', version: '0.4.32' }]
+    const merged = mergeInstalledVersions(catalog, { home, profile: 'web' })
+    assert.equal(merged.plugins[0].hasDuplicate, true)
+    assert.equal(merged.plugins[0].duplicateConflict.hasConflict, true)
+  })
 })
 
 // ── fixtures ───────────────────────────────────────────────────────────────
