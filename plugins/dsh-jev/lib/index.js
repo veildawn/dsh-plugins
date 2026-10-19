@@ -30,9 +30,13 @@ import {
 } from './proxy.js';
 import {
   FALLBACK_KEY_ENVS,
+  activeProfile,
   getDshSystemProviders,
   inferDefaultProvider,
   isDecisionModel,
+  listProfiles,
+  providerConfigSources,
+  resolveDshHome,
   resolveToken,
 } from './provider.js';
 import {
@@ -1573,6 +1577,11 @@ async function buildConfigView(config) {
     configSource: describeConfigSource(loaded),
     settingsFile: loaded.path,
     legacySettingsFile: loaded.legacyPath,
+    /** 实际解析出的 profile 与主目录：提供商列表为空时，这是唯一能定位问题的事实。 */
+    profile: activeProfile(),
+    dshHome: resolveDshHome(),
+    profileConfigFiles: providerConfigSources(),
+    profilesOnDisk: listProfiles(),
     inferred: { provider: inferred.provider, model: inferred.model },
     modelsApi: modelsApi
       ? {

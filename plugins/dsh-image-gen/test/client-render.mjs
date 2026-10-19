@@ -444,6 +444,8 @@ check('a failed save shows the error', statusText(tree).includes('保存失败')
 // ---------------------------------------------------------------------------
 // 6. 没有任何提供商时的降级
 // ---------------------------------------------------------------------------
+// 桌面端曾经因为只认 $DSH_PROFILE 而落到不存在的 web profile，面板整块提供商
+// 列表为空；光提示「去 llm-pi-ai 里加」会让人去翻一个根本没被读取的文件。
 const EMPTY = {
   ...CONFIG,
   providers: [],
@@ -451,12 +453,25 @@ const EMPTY = {
   availableModels: [],
   availableImageModels: [],
   model: '',
+  profile: 'desktop',
+  dshHome: 'C:\\Users\\someone\\.dsh',
+  profilesOnDisk: ['desktop'],
+  profileConfigFiles: ['C:\\Users\\someone\\.dsh\\profiles\\desktop\\cordis.patch.yml'],
 };
 tree = await renderLoaded(async () => EMPTY);
 const emptyProviderSelect = findAll(tree, isSelect)[1];
 check('no providers still renders a select', emptyProviderSelect !== undefined);
 check('no providers still offers a way to pick', optionValues(emptyProviderSelect).length >= 1, optionValues(emptyProviderSelect).join(','));
-check('no providers explains what to do', findAll(tree, (n) => n.type === 'p' && String(n.children?.[0] ?? '').includes('未在 dsh 模型配置里找到提供商'))[0] !== undefined);
+const emptyHint = findAll(tree, (n) => n.type === 'p' && String(n.children?.[0] ?? '').includes('未在 dsh 模型配置里找到提供商'))[0];
+check('no providers explains what to do', emptyHint !== undefined);
+const emptyHintText = String(emptyHint?.children?.[0] ?? '');
+check('the hint names the resolved profile', emptyHintText.includes('profile=desktop'), emptyHintText);
+check('the hint names the harness home', emptyHintText.includes('C:\\Users\\someone\\.dsh'), emptyHintText);
+check(
+  'the hint names the config file that was actually read',
+  emptyHintText.includes('profiles\\desktop\\cordis.patch.yml'),
+  emptyHintText,
+);
 check('no providers still renders the size and quality dropdowns', findAll(tree, isSelect).length >= 4);
 
 console.log('');

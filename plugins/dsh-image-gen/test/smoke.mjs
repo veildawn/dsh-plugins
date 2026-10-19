@@ -518,7 +518,10 @@ globalThis.document = {
 };
 {
   const { readFileSync } = await import('node:fs');
-  const clientPath = new URL('../lib/client.js', import.meta.url).pathname;
+  const { fileURLToPath } = await import('node:url');
+  // URL.pathname 在 Windows 上是 "/D:/..." 形式，直接当路径用会拼出
+  // "D:\D:\..." 并报 ENOENT；必须走 fileURLToPath 才是本地路径。
+  const clientPath = fileURLToPath(new URL('../lib/client.js', import.meta.url));
   // eslint-disable-next-line no-eval
   (0, eval)(readFileSync(clientPath, 'utf8'));
 }

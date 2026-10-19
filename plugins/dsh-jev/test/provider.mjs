@@ -131,6 +131,12 @@ await writeFile(join(profileDir, 'cordis.yml'), '# profile root\n[]\n');
 await writeFile(join(profileDir, 'cordis.patch.yml'), REAL_PROFILE, 'utf8');
 await mkdir(join(workDir, 'profiles', 'tagged'), { recursive: true });
 await writeFile(join(workDir, 'profiles', 'tagged', 'cordis.patch.yml'), JS_TAGGED, 'utf8');
+// 只有单个 profile 的主目录：用来验证「唯一候选」兜底。
+await mkdir(join(workDir, 'profiles-single', 'profiles', 'desktop'), { recursive: true });
+await writeFile(join(workDir, 'profiles-single', 'profiles', 'desktop', 'cordis.yml'), '# root\n[]\n');
+await writeFile(join(workDir, 'profiles-single', 'profiles', 'desktop', 'cordis.patch.yml'), REAL_PROFILE, 'utf8');
+// 空主目录：什么都不该被推断出来。
+await mkdir(join(workDir, 'profiles-empty'), { recursive: true });
 await writeFile(join(workDir, 'settings.yaml'), LEGACY_SETTINGS, 'utf8');
 await writeFile(join(workDir, '.credentials.yaml'), `
 refs:
@@ -307,7 +313,114 @@ const undeclared = resolveToken({ apiKeyEnv: '' }, { dshHome: workDir, env: { JE
 check('an undeclared provider falls back to the shared Jev variable', undeclared.token === 'jev-key', JSON.stringify(undeclared));
 
 // ---------------------------------------------------------------------------
-// 6. built-in YAML fallback
+// 6. active-profile resolution (the desktop regression)
+// ---------------------------------------------------------------------------
+// 桌面端宿主不会把 DSH_PROFILE 写进进程环境（只有模型 shell 调用时由
+// dsh-shell-env 临时注入），旧实现一律退回 'web'，于是在只有 desktop profile
+// 的机器上 providers 全空。这里逐级锁住解析顺序。
+const desktopArgv = [
+  'DeepSeek Harness.exe',
+  '--expose-internals',
+  '...\\dsh-desktop-host\\lib\\index.js',
+  '...\\app.asar\\dsh',
+  join(workDir, 'profiles', 'desktop'),
+  '...\\runtime\\primary-runtime',
+];
+check(
+  'DSH_PROFILE still wins when it is set',
+  provider.resolveActiveProfile({ env: { DSH_PROFILE: 'web' }, argv: ['node'] }) === 'web',
+);
+check(
+  'a --profile flag is honoured',
+  provider.resolveActiveProfile({ env: {}, argv: ['node', 'dsh', '--profile', 'tui'] }) === 'tui',
+);
+check(
+  'a --profile=<name> flag is honoured',
+  provider.resolveActiveProfile({ env: {}, argv: ['node', 'dsh', '--profile=desk'] }) === 'desk',
+);
+check(
+  'the desktop host profile directory (argv) is honoured',
+  provider.resolveActiveProfile({ env: {}, argv: desktopArgv }) === 'desktop',
+);
+check(
+  'the install path under profiles/<name>/ carries the profile',
+  provider.resolveActiveProfile({
+    env: {},
+    argv: ['node'],
+    moduleUrl: 'file:///C:/u/.dsh/profiles/desktop/node_modules/@weniatall/dsh-jev/lib/provider.js',
+  }) === 'desktop',
+);
+check(
+  'a single profile on disk is used instead of the web fallback',
+  provider.resolveActiveProfile({
+    env: {},
+    argv: ['node'],
+    moduleUrl: 'file:///tmp/unpacked/lib/provider.js',
+    dshHome: join(workDir, 'profiles-single'),
+  }) === 'desktop',
+  provider.resolveActiveProfile({
+    env: {},
+    argv: ['node'],
+    moduleUrl: 'file:///tmp/unpacked/lib/provider.js',
+    dshHome: join(workDir, 'profiles-single'),
+  }),
+);
+check(
+  'no evidence at all still falls back to web',
+  provider.resolveActiveProfile({
+    env: {},
+    argv: ['node'],
+    moduleUrl: 'file:///tmp/unpacked/lib/provider.js',
+    dshHome: join(workDir, 'profiles-empty'),
+  }) === 'web',
+);
+check(
+  'listProfiles ignores directories without cordis.yml',
+  provider.listProfiles(workDir).join(',') === 'web',
+  provider.listProfiles(workDir).join(','),
+);
+check(
+  'the harness home can be inferred from the install path',
+  provider.homeFromModulePath(
+    'file:///C:/u/.dsh/profiles/desktop/node_modules/@weniatall/dsh-jev/lib/provider.js',
+  ) === join('C:', 'u', '.dsh'),
+  provider.homeFromModulePath(
+    'file:///C:/u/.dsh/profiles/desktop/node_modules/@weniatall/dsh-jev/lib/provider.js',
+  ),
+);
+check(
+  'the home-level cordis.patch.yml layer is part of the sources',
+  providerConfigSources({ dshHome: workDir, profile: 'web' }).slice(-1)[0] === join(workDir, 'cordis.patch.yml'),
+  providerConfigSources({ dshHome: workDir, profile: 'web' }).slice(-1)[0],
+);
+
+// dsh 把 $DSH_HOME/cordis.patch.yml 叠加在每个 profile 之上，里面的 llm-pi-ai
+// 行同样生效；只读 profile 目录会漏掉只在家庭层配置的提供商。
+const homeLayer = await mkdtemp(join(tmpdir(), 'dsh-jev-home-layer-'));
+await mkdir(join(homeLayer, 'profiles', 'desktop'), { recursive: true });
+await writeFile(join(homeLayer, 'profiles', 'desktop', 'cordis.yml'), '# root\n[]\n');
+await writeFile(join(homeLayer, 'profiles', 'desktop', 'cordis.patch.yml'), '- id: webserver\n  config:\n    port: 3080\n', 'utf8');
+await writeFile(
+  join(homeLayer, 'cordis.patch.yml'),
+  '- id: llm-pi-ai\n  config:\n    providers:\n      home-layer:\n        displayName: Home Layer\n        apiKeyEnv: HOME_KEY\n        baseURL: http://home.local/v1\n        models:\n          - id: home-decision\n            modality: decision\n',
+  'utf8',
+);
+const homeProviders = getDshSystemProviders({ dshHome: homeLayer, profile: 'desktop' });
+check('a provider declared only in the home layer is collected', homeProviders['home-layer'] !== undefined, Object.keys(homeProviders).join(','));
+check(
+  'the home-layer provider exposes its decision model',
+  homeProviders['home-layer']?.decisionModels.join(',') === 'home-decision',
+  JSON.stringify(homeProviders['home-layer']?.decisionModels),
+);
+check(
+  'the home layer is part of the profile layer used for inference',
+  inferDefaultProvider({ dshHome: homeLayer, profile: 'desktop' }).provider === 'home-layer',
+  JSON.stringify(inferDefaultProvider({ dshHome: homeLayer, profile: 'desktop' })),
+);
+await rm(homeLayer, { recursive: true, force: true });
+
+// ---------------------------------------------------------------------------
+// 7. built-in YAML fallback
 // ---------------------------------------------------------------------------
 const fallback = _internals.parseSimpleYaml(`
 llm-pi-ai:

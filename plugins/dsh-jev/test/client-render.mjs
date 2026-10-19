@@ -433,6 +433,50 @@ check('a config-pinned proxy disables the input', findAll(fieldOf(tree, '代理�
 const lockedProxyHint = findAll(tree, (n) => n.type === 'p' && String(n.children[0] ?? '').includes('proxy）固定'))[0];
 check('the hint explains why the proxy is locked', lockedProxyHint !== undefined);
 
+// ---------------------------------------------------------------------------
+// 9. 没有提供商时把「读的是哪个 profile」显示出来
+// ---------------------------------------------------------------------------
+// 桌面端曾经因为只认 $DSH_PROFILE 而落到不存在的 web profile，面板整块提供商
+// 列表为空；光提示「去 llm-pi-ai 里加」会让人去翻一个根本没被读取的文件。
+ctx.rpcResult = {
+  ok: true,
+  value: {
+    source: 'provider',
+    provider: '',
+    providers: [],
+    model: 'jev-latest',
+    models: [],
+    decisionModels: [],
+    baseURL: '',
+    endpoint: '/v1/decisions',
+    endpointDefaults: { manual: '/v1/systemone', provider: '/v1/decisions' },
+    proxy: '',
+    configured: false,
+    apiKey: '',
+    profile: 'desktop',
+    dshHome: 'C:\\Users\\someone\\.dsh',
+    profilesOnDisk: ['desktop'],
+    profileConfigFiles: ['C:\\Users\\someone\\.dsh\\profiles\\desktop\\cordis.patch.yml'],
+  },
+};
+tree = render();
+await effectFns[0]();
+await flush();
+tree = render();
+const emptyHint = findAll(
+  tree,
+  (n) => n.type === 'p' && String(n.children[0] ?? '').includes('未在 dsh 模型配置里找到提供商'),
+)[0];
+check('no providers explains what to do', emptyHint !== undefined);
+const emptyHintText = String(emptyHint?.children?.[0] ?? '');
+check('the hint names the resolved profile', emptyHintText.includes('profile=desktop'), emptyHintText);
+check('the hint names the harness home', emptyHintText.includes('C:\\Users\\someone\\.dsh'), emptyHintText);
+check(
+  'the hint names the config file that was actually read',
+  emptyHintText.includes('profiles\\desktop\\cordis.patch.yml'),
+  emptyHintText,
+);
+
 console.log('');
 console.log(failures === 0 ? 'CLIENT OK' : 'CLIENT FAILED: ' + failures + ' check(s)');
 process.exit(failures === 0 ? 0 : 1);

@@ -153,6 +153,10 @@ window.__ModuleLoader__.load({
       const [proxy, setProxy] = react.useState("");
       const [proxyLocked, setProxyLocked] = react.useState(false);
       const [configSource, setConfigSource] = react.useState("");
+      const [profile, setProfile] = react.useState("");
+      const [dshHome, setDshHome] = react.useState("");
+      const [profilesOnDisk, setProfilesOnDisk] = react.useState([]);
+      const [profileConfigFiles, setProfileConfigFiles] = react.useState([]);
       const [modelWarning, setModelWarning] = react.useState("");
       const [modelsApi, setModelsApi] = react.useState(null);
       const [status, setStatus] = react.useState(null);
@@ -188,6 +192,10 @@ window.__ModuleLoader__.load({
             if (typeof data.proxy === "string") setProxy(data.proxy);
             setProxyLocked(data.proxyLocked === true);
             setConfigSource(typeof data.configSource === "string" ? data.configSource : "");
+            setProfile(typeof data.profile === "string" ? data.profile : "");
+            setDshHome(typeof data.dshHome === "string" ? data.dshHome : "");
+            setProfilesOnDisk(Array.isArray(data.profilesOnDisk) ? data.profilesOnDisk : []);
+            setProfileConfigFiles(Array.isArray(data.profileConfigFiles) ? data.profileConfigFiles : []);
             setModelWarning(typeof data.modelWarning === "string" ? data.modelWarning : "");
             setModelsApi(data.modelsApi && typeof data.modelsApi === "object" ? data.modelsApi : null);
             if (data.configError) setStatus({ ok: false, msg: data.configError });
@@ -272,6 +280,10 @@ window.__ModuleLoader__.load({
           setApiKeyConfigured(data.configured === true);
           setApiKeyFrom(typeof data.apiKeyFrom === "string" ? data.apiKeyFrom : "");
           if (typeof data.proxy === "string") setProxy(data.proxy);
+          setProfile(typeof data.profile === "string" ? data.profile : "");
+          setDshHome(typeof data.dshHome === "string" ? data.dshHome : "");
+          setProfilesOnDisk(Array.isArray(data.profilesOnDisk) ? data.profilesOnDisk : []);
+          setProfileConfigFiles(Array.isArray(data.profileConfigFiles) ? data.profileConfigFiles : []);
           setModelWarning(typeof data.modelWarning === "string" ? data.modelWarning : "");
           setModelsApi(data.modelsApi && typeof data.modelsApi === "object" ? data.modelsApi : null);
         }).catch(() => {});
@@ -324,8 +336,17 @@ window.__ModuleLoader__.load({
       const keyHint = apiKeyConfigured
         ? "Key 来源：" + (apiKeyFrom || "本地配置") + "。留空保存表示保持原值；清空后保存可删除已存 Key。"
         : "该 Key 只写入本机设置文件，不会进入模型上下文。";
+      // 找不到提供商时必须把「插件读的是哪个 profile / 哪个主目录」摆出来：
+      // 桌面端曾经因为解析不到 profile 而整块列表为空，只写「去 llm-pi-ai 里加」
+      // 会让人去翻一个根本没被读取的配置文件。
       const providerKeyHint = providers.length === 0
-        ? "未在 dsh 模型配置里找到提供商：可切到「手动配置」，或先在 Profile 的 llm-pi-ai 行里添加。"
+        ? "未在 dsh 模型配置里找到提供商：可切到「手动配置」先用手写地址，" +
+          "或确认该 profile 的 llm-pi-ai 行里有 providers。本次读取：profile=" +
+          (profile || "web") + "，主目录=" + (dshHome || "~/.dsh") +
+          (profilesOnDisk.length > 0 ? "，现有 profile：" + profilesOnDisk.join("、") : "") +
+          "。检查 " +
+          (profileConfigFiles.length > 0 ? profileConfigFiles.join("、") : "该 profile 的 cordis.patch.yml") +
+          " 里的 llm-pi-ai providers。"
         : "选中的提供商决定 baseUrl、请求头与 API Key 的来源。" +
           (apiKeyConfigured
             ? " 已从提供商配置解析到 Key。"

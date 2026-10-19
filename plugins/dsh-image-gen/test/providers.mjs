@@ -21,11 +21,13 @@ import {
   collectProviderBlocks,
   getCredentials,
   getDshSystemProviders,
+  homeFromModulePath,
   inferDefaultConfig,
   isEditOnlyModel,
   isImageModel,
   loadDshYaml,
   providerConfigSources,
+  resolveActiveProfile,
   resolveToken,
 } from '../lib/provider.js';
 
@@ -223,6 +225,86 @@ check('gpt-image-1 is an image model', isImageModel('gpt-image-1'));
 check('gemini-2.5-flash-image-edit is edit-only', isEditOnlyModel('gemini-2.5-flash-image-edit'));
 check('a plain generation model is not edit-only', !isEditOnlyModel('grok-imagine-image'));
 check('an id merely containing "edit" as a word is edit-only', isEditOnlyModel('some/edit/model'));
+
+// ---------------------------------------------------------------------------
+// 6b. active-profile resolution (the desktop regression)
+// ---------------------------------------------------------------------------
+// 桌面端宿主不会把 DSH_PROFILE 写进进程环境（只有模型 shell 调用时由
+// dsh-shell-env 临时注入），旧实现一律退回 'web'，于是在只有 desktop profile
+// 的机器上 providers 全空。这里逐级锁住解析顺序。
+const desktopArgv = [
+  'DeepSeek Harness.exe',
+  '--expose-internals',
+  '...\\dsh-desktop-host\\lib\\index.js',
+  join(workDir, 'profiles', 'desktop'),
+];
+check(
+  'DSH_PROFILE still wins when it is set',
+  resolveActiveProfile({ env: { DSH_PROFILE: 'web' }, argv: ['node'] }) === 'web',
+);
+check(
+  'a --profile flag is honoured',
+  resolveActiveProfile({ env: {}, argv: ['node', 'dsh', '--profile', 'tui'] }) === 'tui',
+);
+check(
+  'the desktop host profile directory (argv) is honoured',
+  resolveActiveProfile({ env: {}, argv: desktopArgv }) === 'desktop',
+);
+check(
+  'the install path under profiles/<name>/ carries the profile',
+  resolveActiveProfile({
+    env: {},
+    argv: ['node'],
+    moduleUrl: 'file:///C:/u/.dsh/profiles/desktop/node_modules/@weniatall/dsh-image-gen/lib/provider.js',
+  }) === 'desktop',
+);
+check(
+  'no evidence at all still falls back to web',
+  resolveActiveProfile({
+    env: {},
+    argv: ['node'],
+    moduleUrl: 'file:///tmp/unpacked/lib/provider.js',
+    dshHome: join(workDir, 'nowhere'),
+  }) === 'web',
+);
+check(
+  'the harness home can be inferred from the install path',
+  homeFromModulePath(
+    'file:///C:/u/.dsh/profiles/desktop/node_modules/@weniatall/dsh-image-gen/lib/provider.js',
+  ) === join('C:', 'u', '.dsh'),
+  homeFromModulePath(
+    'file:///C:/u/.dsh/profiles/desktop/node_modules/@weniatall/dsh-image-gen/lib/provider.js',
+  ),
+);
+check(
+  'the home-level cordis.patch.yml layer is part of the sources',
+  providerConfigSources({ dshHome: workDir, profile: 'web' }).slice(-1)[0] === join(workDir, 'cordis.patch.yml'),
+  providerConfigSources({ dshHome: workDir, profile: 'web' }).slice(-1)[0],
+);
+
+// dsh 把 $DSH_HOME/cordis.patch.yml 叠加在每个 profile 之上，里面的 llm-pi-ai
+// 行同样生效；只读 profile 目录会漏掉只在家庭层配置的提供商。
+const homeLayer = await mkdtemp(join(tmpdir(), 'dsh-image-home-layer-'));
+await mkdir(join(homeLayer, 'profiles', 'desktop'), { recursive: true });
+await writeFile(join(homeLayer, 'profiles', 'desktop', 'cordis.yml'), '# root\n[]\n');
+await writeFile(
+  join(homeLayer, 'cordis.patch.yml'),
+  '- id: llm-pi-ai\n  config:\n    providers:\n      home-layer:\n        displayName: Home Layer\n        apiKeyEnv: HOME_KEY\n        baseURL: http://home.local/v1\n        models:\n          - id: home-image\n',
+  'utf8',
+);
+const homeProviders = getDshSystemProviders({ dshHome: homeLayer, profile: 'desktop' });
+check('a provider declared only in the home layer is collected', homeProviders['home-layer'] !== undefined, Object.keys(homeProviders).join(','));
+check(
+  'the home-layer provider exposes its image model',
+  homeProviders['home-layer']?.imageModels.join(',') === 'home-image',
+  JSON.stringify(homeProviders['home-layer']?.imageModels),
+);
+check(
+  'the home layer is part of the profile layer used for inference',
+  inferDefaultConfig({ dshHome: homeLayer, profile: 'desktop' }).provider === 'home-layer',
+  JSON.stringify(inferDefaultConfig({ dshHome: homeLayer, profile: 'desktop' })),
+);
+await rm(homeLayer, { recursive: true, force: true });
 
 // ---------------------------------------------------------------------------
 // 7. default inference

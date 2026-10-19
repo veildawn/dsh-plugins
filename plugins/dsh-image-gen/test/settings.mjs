@@ -54,7 +54,10 @@ check('an empty value resolves to the default', resolveSettingsPath('') === DEFA
 check('undefined resolves to the default', resolveSettingsPath(undefined) === DEFAULT_SETTINGS_PATH);
 check('~ expands to the home directory', resolveSettingsPath('~/x/settings.json') === join(homedir(), 'x', 'settings.json'));
 check('a relative path resolves against the cwd', resolveSettingsPath('cfg.json') === resolve(process.cwd(), 'cfg.json'));
-check('an absolute path is kept', resolveSettingsPath('/tmp/abc.json') === '/tmp/abc.json');
+// Windows 没有 POSIX 的 "/tmp" 绝对路径，path.resolve 会把它变成 "<当前盘>:\tmp\abc.json"，
+// 因此按平台各取一个真正的绝对路径来断言「绝对路径原样保留」。
+const absoluteSample = process.platform === 'win32' ? 'C:\\temp\\abc.json' : '/tmp/abc.json';
+check('an absolute path is kept', resolveSettingsPath(absoluteSample) === absoluteSample, resolveSettingsPath(absoluteSample));
 check('a temp path is kept', resolveSettingsPath(join(workDir, 's.json')) === join(workDir, 's.json'));
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ DeepSeek Harness (DSH) 原生「决策模型」插件：把结构化决策能力
 - **两种配置来源**：
   - **dsh 已配置的提供商**：下拉选择 `llm-pi-ai` 里已有的 provider 与模型（例如本机的 `ai-proxy` / `jev-latest`），baseUrl、请求头、API Key 都按 dsh 自己的配置解析；
   - **手动配置**：手写 baseUrl + API Key + 模型 ID，默认仍是官方地址 `https://api.typesafe.ai`。
+- **桌面端与 web 端同样可用**：插件不会只认 `$DSH_PROFILE`（那个变量只在模型 shell 调用时才由 dsh 临时注入，宿主进程里并没有），而是按 `$DSH_PROFILE` → 进程参数里的 profile 目录 / `--profile` → 插件自身的安装路径 → 机器上唯一的 profile → `web` 逐级解析当前 profile，因此 Electron 桌面端（profile 名是 `desktop`）同样能列出本机配置的提供商。设置面板在找不到提供商时会直接显示本次解析到的 profile、主目录与实际读取的配置文件。
 - **进程内直连**：零子进程冷启动开销，原生注册 `jev_decide` 工具。
 - **三类决策原语**：原生支持 `choice`（单选）、`score`（阶梯打分）、`noul`（Yes/No 概率）。
 - **多级密钥解析**：显式 Key（插件配置 / 设置面板）→ 提供商 `apiKeyEnv`（`~/.dsh/.credentials.yaml` 优先，其次环境变量）→ 本地密钥文件 → 历史 `.env` 兜底。

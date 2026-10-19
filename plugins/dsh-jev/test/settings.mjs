@@ -27,8 +27,11 @@ function check(label, condition, extra) {
 }
 
 const workDir = await mkdtemp(join(tmpdir(), 'dsh-jev-settings-'));
-// settings.js 在模块加载时用 homedir() 计算默认路径，必须在动态 import 前改 HOME。
+// settings.js 在模块加载时用 homedir() 计算默认路径，必须在动态 import 前改家目录。
+// Windows 上 homedir() 读的是 USERPROFILE 而不是 HOME，两个都要设，否则测试会
+// 去读写真实的 ~/.dsh/jev/settings.json。
 process.env.HOME = workDir;
+process.env.USERPROFILE = workDir;
 
 const settings = await import('../lib/settings.js');
 const {
@@ -72,7 +75,13 @@ check('merge-write keeps earlier fields', onDisk.source === 'provider' && onDisk
 check('merge-write adds the new field', onDisk.model === 'jev-latest', JSON.stringify(onDisk));
 check('merge-write stores the source marker', onDisk._source === 'user-set', JSON.stringify(onDisk));
 const mode = (await stat(target)).mode & 0o777;
-check('the settings file is written with 0600 permissions', mode === 0o600, mode.toString(8));
+// Windows 的 NTFS 不支持 POSIX 的 0600，chmod 只能表达只读位，实际模式恒为 666。
+// 权限收紧在 POSIX 上才有意义，因此只在支持它的平台上断言。
+if (process.platform === 'win32') {
+  check('the settings file mode is left to the filesystem on Windows', mode !== 0, mode.toString(8));
+} else {
+  check('the settings file is written with 0600 permissions', mode === 0o600, mode.toString(8));
+}
 
 const explicit = loadUserSettings(target);
 check('explicit paths never read the legacy file', explicit.legacyPath === null, String(explicit.legacyPath));

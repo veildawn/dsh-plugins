@@ -41,9 +41,13 @@ import {
   writeSettingsFile,
 } from './settings.js';
 import {
+  activeProfile,
   getDshSystemProviders,
   inferDefaultConfig,
   isEditOnlyModel,
+  listProfiles,
+  providerConfigSources,
+  resolveDshHome,
   resolveToken,
 } from './provider.js';
 
@@ -483,6 +487,11 @@ function buildConfigView(resolved) {
       apiKeyEnv: false,
     },
     inferred: { provider: inferred.provider, model: inferred.model },
+    /** 实际解析出的 profile 与主目录：提供商列表为空时，这是唯一能定位问题的事实。 */
+    profile: activeProfile(),
+    dshHome: resolveDshHome(),
+    profileConfigFiles: providerConfigSources(),
+    profilesOnDisk: listProfiles(),
     providers,
     availableProviders: providers.map((provider) => provider.id),
     sizeOptions: SIZE_OPTIONS,

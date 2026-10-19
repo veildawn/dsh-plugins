@@ -106,6 +106,10 @@ window.__ModuleLoader__.load({
       const [proxyLocked, setProxyLocked] = react.useState(false);
       const [locked, setLocked] = react.useState({});
       const [configSource, setConfigSource] = react.useState("");
+      const [profile, setProfile] = react.useState("");
+      const [dshHome, setDshHome] = react.useState("");
+      const [profilesOnDisk, setProfilesOnDisk] = react.useState([]);
+      const [profileConfigFiles, setProfileConfigFiles] = react.useState([]);
       const [status, setStatus] = react.useState(null);
       const [loading, setLoading] = react.useState(false);
       const [testing, setTesting] = react.useState(false);
@@ -134,6 +138,10 @@ window.__ModuleLoader__.load({
             setProxyLocked(data.proxyLocked === true);
             setLocked(data.locked || {});
             setConfigSource(typeof data.configSource === "string" ? data.configSource : "");
+            setProfile(typeof data.profile === "string" ? data.profile : "");
+            setDshHome(typeof data.dshHome === "string" ? data.dshHome : "");
+            setProfilesOnDisk(Array.isArray(data.profilesOnDisk) ? data.profilesOnDisk : []);
+            setProfileConfigFiles(Array.isArray(data.profileConfigFiles) ? data.profileConfigFiles : []);
             if (data.apiKeyConfigured === true) {
               setApiKey("");
             }
@@ -251,7 +259,13 @@ window.__ModuleLoader__.load({
               locked.provider === true
                 ? "提供商已由插件配置（provider）固定，如需修改请编辑 Profile 配置后重启。"
                 : (providers.length === 0
-                  ? "未在 dsh 模型配置里找到提供商：可切到「手动配置」，或先在 Profile 的 llm-pi-ai 行里添加。"
+                  ? "未在 dsh 模型配置里找到提供商：可切到「手动配置」先用手写地址，" +
+                    "或确认该 profile 的 llm-pi-ai 行里有 providers。本次读取：profile=" +
+                    (profile || "web") + "，主目录=" + (dshHome || "~/.dsh") +
+                    (profilesOnDisk.length > 0 ? "，现有 profile：" + profilesOnDisk.join("、") : "") +
+                    "。检查 " +
+                    (profileConfigFiles.length > 0 ? profileConfigFiles.join("、") : "该 profile 的 cordis.patch.yml") +
+                    " 里的 llm-pi-ai providers。"
                   : "选中的提供商决定 baseUrl、请求头与 API Key 的来源。")
             )
           ),

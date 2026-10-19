@@ -10,6 +10,20 @@
  *   - 零 npm 依赖：js-yaml 通过 createRequire 从宿主 dsh 安装里解析，
  *     解析失败时退回到内置的极简 YAML 子集解析器，保证插件永远能列出提供商。
  *
+ * 【当前 profile 的解析】插件加载时必须先知道「宿主启动的是哪个 profile」。
+ * `$DSH_PROFILE` 只在模型 shell 调用时才由 dsh-shell-env 临时注入，宿主进程自身
+ * 的环境里并没有它（`dsh` 启动 profile 时只把 profile 名放进 ctx.profileContext）。
+ * 因此 Electron 桌面端读 `$DSH_PROFILE` 会落空，默认值 `web` 又指向并不存在的
+ * `~/.dsh/profiles/web`，于是设置面板一个提供商都列不出来——而 `dsh web` 恰好
+ * 就是 web profile，同样的代码却正常工作。可靠的做法是按优先级解析：
+ *   1. `$DSH_PROFILE`（显式环境变量，测试与自定义启动器）；
+ *   2. 进程参数里的 profile 目录（`<home>/profiles/<name>` 或 `--profile <name>`，
+ *      桌面端宿主正是以 profile 目录作为 argv 启动的）；
+ *   3. 安装路径：插件装在 `<home>/profiles/<name>/node_modules/<pkg>/lib/` 下，
+ *      当前位置本身就是「当前 profile」的直接证据；
+ *   4. 只剩一个 profile 目录时的唯一候选；
+ *   5. 兜底 `web`。
+ *
  * @module dsh-image-gen/provider
  */
 
@@ -38,9 +52,158 @@ export const DSH_HOME = process.env.DSH_HOME
   ? String(process.env.DSH_HOME)
   : join(homedir(), '.dsh');
 
+/** 没有更多线索时才用的 profile 名。 */
+export const FALLBACK_PROFILE = 'web';
+
+/**
+ * 从一段路径参数里认出 profile 名。
+ *
+ * 桌面端宿主以 `<home>/profiles/desktop` 这样的绝对目录作为 argv，
+ * 命令行启动器则写成 `--profile web`，两种形式都要认。
+ * @param {string} value 单个进程参数。
+ * @returns {string} profile 名，认不出时返回空字符串。
+ */
+function profileNameFromArg(value) {
+  if (typeof value !== 'string' || value === '') return '';
+  const fromDir = /[\\/]profiles[\\/]([^\\/]+)[\\/]?$/.exec(value);
+  if (fromDir) return fromDir[1];
+  return '';
+}
+
+/**
+ * 从进程参数里认出 profile 名（`--profile <name>` 与 profile 目录两种写法）。
+ * @param {string[]} argv 进程参数列表。
+ * @returns {string} profile 名，认不出时返回空字符串。
+ */
+export function profileFromArgv(argv = process.argv) {
+  const list = Array.isArray(argv) ? argv : [];
+  for (let index = 0; index < list.length; index += 1) {
+    const value = list[index];
+    if (value === '--profile') {
+      const next = list[index + 1];
+      if (typeof next === 'string' && next !== '' && !next.startsWith('-')) return next;
+      continue;
+    }
+    if (typeof value === 'string' && value.startsWith('--profile=')) {
+      const inline = value.slice('--profile='.length);
+      if (inline !== '' && !inline.startsWith('-')) return inline;
+      continue;
+    }
+    const found = profileNameFromArg(value);
+    if (found) return found;
+  }
+  return '';
+}
+
+/**
+ * 从本包的安装位置推断 profile 名。
+ *
+ * 插件由 `dsh plugin add` 装进 `<home>/profiles/<name>/node_modules/<pkg>/`，
+ * 所以模块自身的绝对路径里就带着当前 profile。这里要求 `profiles/<name>/
+ * node_modules/` 连在一起，避免主目录里恰好也有个 `profiles` 目录时认错。
+ * 解包到临时目录（npm pack 后直接从 tar 里跑测试）时匹配不到，属于预期情况，
+ * 交给下一级兜底。
+ * @param {string} [moduleUrl] 模块自身的 file: URL。
+ * @returns {string} profile 名，认不出时返回空字符串。
+ */
+export function profileFromModulePath(moduleUrl = import.meta.url) {
+  try {
+    const file = fileURLToPath(moduleUrl);
+    const match = /[\\/]profiles[\\/]([^\\/]+)[\\/]node_modules[\\/]/.exec(file);
+    return match ? match[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 列出 `$DSH_HOME/profiles` 下真正的 profile 目录。
+ *
+ * 只认含 `cordis.yml`（dsh 的 profile 根配置）的目录，跳过隐藏目录、
+ * 暂存目录和 `node_modules*` 之类的工作残留——把那些也当成 profile 会让
+ * 「唯一候选」这条兜底失效。
+ * @param {string} dshHome Harness 主目录。
+ * @returns {string[]} 目录名列表。
+ */
+export function listProfiles(dshHome = DSH_HOME) {
+  const root = join(dshHome, 'profiles');
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => entry.name)
+      .filter((name) => existsSync(join(root, name, 'cordis.yml')))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 解析当前生效的 profile 名。
+ *
+ * 顺序：`$DSH_PROFILE` → 进程参数 → 本包安装路径 → 唯一的 profile 目录 → `web`。
+ * 前三级都是「明确证据」；第四级只在机器上恰好只有一个 profile 时才用，
+ * 免得在只有 desktop profile 的机器上继续去读并不存在的 web profile。
+ *
+ * @param {{ env?: Record<string, string | undefined>, argv?: string[], moduleUrl?: string, dshHome?: string }} [opts]
+ * @returns {string} profile 名。
+ */
+export function resolveActiveProfile(opts = {}) {
+  const env = opts.env ?? process.env;
+  const declared = env.DSH_PROFILE ? String(env.DSH_PROFILE).trim() : '';
+  if (declared !== '') return declared;
+
+  const fromArgv = profileFromArgv(opts.argv ?? process.argv);
+  if (fromArgv !== '') return fromArgv;
+
+  const fromModule = profileFromModulePath(opts.moduleUrl);
+  if (fromModule !== '') return fromModule;
+
+  const profiles = listProfiles(opts.dshHome ?? resolveDshHome());
+  if (profiles.length === 1) return profiles[0];
+
+  return FALLBACK_PROFILE;
+}
+
 /** 便于测试注入的 profile 名。 */
 export function activeProfile(env = process.env) {
-  return env.DSH_PROFILE ? String(env.DSH_PROFILE) : 'web';
+  return resolveActiveProfile({ env });
+}
+
+/**
+ * 从本包的安装位置推断 Harness 主目录。
+ *
+ * 安装布局是 `<home>/profiles/<name>/node_modules/<pkg>/lib/provider.js`，
+ * 往上数四级就是 `<home>`。桌面端宿主不会把 `$DSH_HOME` 写进环境变量，
+ * 这条推断让「自定义主目录 + 桌面端」也能读到正确的配置。
+ * @param {string} [moduleUrl] 模块自身的 file: URL。
+ * @returns {string} 主目录，认不出时返回空字符串。
+ */
+export function homeFromModulePath(moduleUrl = import.meta.url) {
+  try {
+    const file = fileURLToPath(moduleUrl);
+    // <home>/profiles/<name>/node_modules/<pkg>/lib/provider.js → <home>
+    const match = /^(.*)[\\/]profiles[\\/][^\\/]+[\\/]node_modules[\\/]/.exec(file);
+    return match && match[1] ? match[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 解析当前生效的 Harness 主目录。
+ *
+ * 顺序：`$DSH_HOME` → 本包安装路径推断 → `~/.dsh`。
+ * @param {{ env?: Record<string, string | undefined>, moduleUrl?: string }} [opts]
+ * @returns {string} 主目录绝对路径。
+ */
+export function resolveDshHome(opts = {}) {
+  const env = opts.env ?? process.env;
+  const declared = env.DSH_HOME ? String(env.DSH_HOME).trim() : '';
+  if (declared !== '') return declared;
+  const inferred = homeFromModulePath(opts.moduleUrl);
+  if (inferred !== '') return inferred;
+  return join(homedir(), '.dsh');
 }
 
 /**
@@ -63,7 +226,7 @@ export function activeProfile(env = process.env) {
 export function loadYamlModule(from) {
   const candidates = [];
   if (from) candidates.push(from);
-  candidates.push(join(DSH_HOME, 'profiles', activeProfile(), 'node_modules', 'dsh-image-gen', 'lib', 'index.js'));
+  candidates.push(join(resolveDshHome(), 'profiles', activeProfile(), 'node_modules', 'dsh-image-gen', 'lib', 'index.js'));
   candidates.push(fileURLToPath(import.meta.url));
   for (const base of candidates) {
     try {
@@ -300,7 +463,7 @@ export function collectProviderBlocks(node, out = {}) {
  * @returns {string[]} 文件绝对路径。
  */
 export function providerConfigSources(opts = {}) {
-  const dshHome = opts.dshHome ?? DSH_HOME;
+  const dshHome = opts.dshHome ?? resolveDshHome();
   const profile = opts.profile ?? activeProfile();
   // 旧来源放在前面作为兜底；profile 层放在后面，确保当前生效的 profile 优先（后面的覆盖前面的）
   const sources = [
@@ -315,6 +478,9 @@ export function providerConfigSources(opts = {}) {
   } catch {
     /* profile 目录不存在时跳过 */
   }
+  // 家庭级用户层（$DSH_HOME/cordis.patch.yml）在 dsh 里叠加在每个 profile 之上，
+  // 里面的 llm-pi-ai 行同样会生效，所以放在最后（优先级最高）。
+  sources.push(join(dshHome, 'cordis.patch.yml'));
   return sources;
 }
 
@@ -324,24 +490,28 @@ export function providerConfigSources(opts = {}) {
  * @returns {Record<string, any>}
  */
 export function getProfileProviders(opts = {}) {
-  const dshHome = opts.dshHome ?? DSH_HOME;
+  const dshHome = opts.dshHome ?? resolveDshHome();
   const profile = opts.profile ?? activeProfile();
   const raw = {};
-  let profileDir;
+  const profileFiles = [];
   try {
-    profileDir = join(dshHome, 'profiles', profile);
+    const profileDir = join(dshHome, 'profiles', profile);
     for (const file of readdirSync(profileDir).sort()) {
-      if (!/^cordis.*\.ya?ml$/.test(file)) continue;
-      try {
-        collectProviderBlocks(loadDshYaml(readFileSync(join(profileDir, file), 'utf8')), raw);
-      } catch {
-        // 单个文件读失败不影响其它来源
-      }
+      if (/^cordis.*\.ya?ml$/.test(file)) profileFiles.push(join(profileDir, file));
     }
   } catch {
     /* profile 目录不存在 */
   }
-  void profileDir;
+  // 家庭级用户层在 dsh 里叠加在 profile 之上，它的 llm-pi-ai 行也是「当前部署」的一部分。
+  profileFiles.push(join(dshHome, 'cordis.patch.yml'));
+  for (const file of profileFiles) {
+    try {
+      if (!existsSync(file)) continue;
+      collectProviderBlocks(loadDshYaml(readFileSync(file, 'utf8')), raw);
+    } catch {
+      // 单个文件读失败不影响其它来源
+    }
+  }
   return finalizeProviders(raw);
 }
 
@@ -418,7 +588,7 @@ export function getDshSystemProviders(opts = {}) {
  * @returns {Record<string, string>}
  */
 export function getCredentials(opts = {}) {
-  const dshHome = opts.dshHome ?? DSH_HOME;
+  const dshHome = opts.dshHome ?? resolveDshHome();
   const path = join(dshHome, '.credentials.yaml');
   const creds = {};
   try {

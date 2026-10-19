@@ -255,7 +255,13 @@ check(
   (fallbackError === null ? '' : fallbackError.message + ' / ') + 'order=' + String(fallback.sections[0]?.order),
 );
 
-check('ACX plugin keeps the hard dependency list inject=[\'tools\'] (SPEC outputs.schema(4))', Array.isArray(pluginInject) && pluginInject.join(',') === 'tools', JSON.stringify(pluginInject));
+// 设置 RPC 需要 webServer 才能在 connection.rpc.handle 里注册路由，因此硬依赖
+// 是 ['tools', 'webServer']：tools 是工具注册本身，webServer 是设置面板通道。
+check(
+  "ACX plugin keeps the hard dependency list inject=['tools','webServer'] (SPEC outputs.schema(4))",
+  Array.isArray(pluginInject) && pluginInject.join(',') === 'tools,webServer',
+  JSON.stringify(pluginInject),
+);
 
 // --- ACX2 (anti-shortcut): A and B must share one policy block -----------------
 // SPEC context: the description (A) and the section (B) must be assembled from

@@ -15,7 +15,9 @@ DSH 原生生图插件：把「文生图」作为原生工具 `image_generate` �
 | `dsh 已配置的提供商` | 提供商下拉 + 模型下拉（按生图/非生图分组） | 用 dsh 里已经配好的 `ai-proxy` 等（推荐） |
 | `手动配置` | 接口地址 baseUrl + API Key + 自定义模型输入框 | 指向另一个外部 OpenAI 兼容生图服务（如 SiliconFlow、Together AI、自建 Flux 接口等） |
 
-提供商列表不是硬编码的：插件会扫描 dsh 自身的模型配置（`~/.dsh/settings.yaml`、`settings.yaml.imported`、`~/.dsh/profiles/<profile>/cordis*.yml` 里 `llm-pi-ai` 行的 `providers`），把每个提供商的 `baseURL`、`apiKeyEnv`、请求头和模型列表读出来。选中一个提供商，模型下拉就列出它名下的模型，识别到的生图模型排在「生图模型」分组里，其余模型归到另一组并标注「不保证支持生图」。在「手动配置」模式下，模型字段自动切换为文本输入框，用户可随意填写任意兼容生图服务的模型 ID。
+提供商列表不是硬编码的：插件会扫描 dsh 自身的模型配置（`~/.dsh/settings.yaml`、`settings.yaml.imported`、`~/.dsh/cordis.patch.yml`、`~/.dsh/profiles/<profile>/cordis*.yml` 里 `llm-pi-ai` 行的 `providers`），把每个提供商的 `baseURL`、`apiKeyEnv`、请求头和模型列表读出来。选中一个提供商，模型下拉就列出它名下的模型，识别到的生图模型排在「生图模型」分组里，其余模型归到另一组并标注「不保证支持生图」。在「手动配置」模式下，模型字段自动切换为文本输入框，用户可随意填写任意兼容生图服务的模型 ID。
+
+`<profile>` 的解析不依赖 `$DSH_PROFILE`（那个变量只在模型 shell 调用时才由 dsh 临时注入，宿主进程里并没有）：顺序是 `$DSH_PROFILE` → 进程参数里的 profile 目录 / `--profile` → 插件自身的安装路径 → 机器上唯一的 profile → `web`。所以 Electron 桌面端（profile 名是 `desktop`）与 `dsh web` 都能列出本机配置的提供商；一个都找不到时，设置面板会直接显示本次解析到的 profile、主目录与实际读取的配置文件。
 
 API Key 的解析与安全：
 - 优先级：显式入参 > 插件静态配置里的 `apiKey` > **本地保存的手动配置 Key (`settings.json`)** > `~/.dsh/.credentials.yaml` 的 `refs`（按提供商的 `apiKeyEnv` 找）→ 同名环境变量。
