@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-archive-manager",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "description": "Archive manager for DeepSeek Harness: restore, permanent delete, counter badges with full mobile responsive adaptation",
   "type": "module",
   "main": "lib/index.js",
