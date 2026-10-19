@@ -18,6 +18,7 @@ import zlib from 'node:zlib'
 import {
   DEFAULT_JEV,
   DEFAULT_ROUTING,
+  analyzeRules,
   childRouteIsExplicit,
   isSubagent,
   parseJevChoice,
@@ -26,7 +27,6 @@ import {
   profileJevRequest,
   profileSystem,
   resolveConfig,
-  selectProfile,
   taskTextOf,
 } from './core.js'
 
@@ -111,6 +111,7 @@ export const Config = z.object({
     fallback: z.string().default('taskRole'),
     useJev: z.boolean().default(true),
     respectExplicitChildModel: z.boolean().default(true),
+    decisionTimeoutMs: z.number().step(1).min(100).max(60_000).default(DEFAULT_ROUTING.decisionTimeoutMs),
     classifier: routeEntry.default({}),
   }).default({})),
   profiles: liveField(z.array(profileEntry).default([])),
@@ -203,6 +204,7 @@ async function requestJev(jev, input, signal, overrideKey, keyPath = keyFilePath
     throw new Error('task-models: Jev questions must be a non-empty object')
   }
   const apiKey = await resolveApiKey(overrideKey, keyPath)
+  throwIfAborted(signal)
   if (apiKey === undefined) {
     const error = new Error(`task-models: no TypeSafe API key. Save one in Settings -> 任务模型 -> Jev (${keyPath}).`)
     error.code = 'unconfigured'
@@ -264,8 +266,40 @@ async function pingJev(jev, overrideKey, signal, keyPath = keyFilePath()) {
   return { latencyMs: Date.now() - startedAt, answers: data.answers }
 }
 
+/** Pure, zero-model-call preview shared with the live router's rule analysis. */
+export function previewRules(cfg, label, text) {
+  const ruleAnalysis = analyzeRules(cfg.profiles, label, text)
+  if (!cfg.routing.enabled) return { ruleAnalysis, next: 'current', reason: 'routing-disabled' }
+  if (![...cfg.profiles.values()].some((profile) => profile.enabled)) {
+    return { ruleAnalysis, next: 'current', reason: 'no-profiles' }
+  }
+  if (label.trim() === '' && text.trim() === '') return { ruleAnalysis, next: 'current', reason: 'no-task' }
+  const profile = cfg.profiles.get(ruleAnalysis.profileId)
+  if (profile !== undefined) {
+    return {
+      ruleAnalysis,
+      profile: { id: profile.id, name: profile.name, ...toRoute(profile) },
+      next: 'rules',
+      reason: ruleAnalysis.source === 'explicit-label' ? 'rules-explicit-label' : 'rules-keywords',
+    }
+  }
+  if (cfg.routing.useJev && cfg.jev.enabled) return { ruleAnalysis, next: 'jev', reason: 'rules-unmatched' }
+  if (cfg.routing.fallback === 'llm') {
+    return cfg.routing.classifier.provider && cfg.routing.classifier.model
+      ? { ruleAnalysis, next: 'llm', reason: 'rules-unmatched' }
+      : { ruleAnalysis, next: 'current', reason: 'classifier-unconfigured' }
+  }
+  return { ruleAnalysis, next: 'current', reason: ruleAnalysis.source === 'tie' ? 'rules-tie' : 'no-match' }
+}
+
+function validChildIds(payload, keys) {
+  return keys.length === 1 && Object.hasOwn(payload, 'childIds')
+    && Array.isArray(payload.childIds) && payload.childIds.length <= 500
+    && payload.childIds.every((id) => typeof id === 'string' && id !== '')
+}
+
 /** Dedicated host RPC wire for a namespace hidden by DSH's settings allowlist. */
-export async function handleSettingsRpc(settingsProvider, method, payload, currentSettings = {}, targetNs = NS, getChildModels, keyPath = keyFilePath()) {
+export async function handleSettingsRpc(settingsProvider, method, payload, currentSettings = {}, targetNs = NS, getChildModels, keyPath = keyFilePath(), getRoutingDetails) {
   const keys = payload === null || typeof payload !== 'object' || Array.isArray(payload)
     ? null
     : Reflect.ownKeys(payload)
@@ -293,7 +327,12 @@ export async function handleSettingsRpc(settingsProvider, method, payload, curre
       if (!Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0) {
         return badSettingsRequest('task-models expectedRevision must be a non-negative integer')
       }
-      await settingsProvider.replace(NS, payload.section, payload.expectedRevision)
+      try {
+        resolveConfig(payload.section)
+      } catch (error) {
+        return badSettingsRequest(error instanceof Error ? error.message : 'Invalid task-models settings')
+      }
+      await settingsProvider.replace(targetNs, payload.section, payload.expectedRevision)
       return { ok: true, value: settingsRpcView(settingsProvider, payload.section, targetNs) }
     }
     if (method === 'jevStatus') {
@@ -311,16 +350,34 @@ export async function handleSettingsRpc(settingsProvider, method, payload, curre
       await saveJevKey(payload.apiKey, keyPath)
       return { ok: true, value: { configured: true, model: current.jev.model } }
     }
-    if (method === 'childModels') {
-      if (keys.length !== 1
-        || !Object.hasOwn(payload, 'childIds')
-        || !Array.isArray(payload.childIds)
-        || payload.childIds.length > 500
-        || payload.childIds.some((id) => typeof id !== 'string' || id === '')) {
-        return badSettingsRequest('task-models childModels requests require a childIds string array (max 500)')
+    if (method === 'previewRules') {
+      if (keys.some((key) => !['label', 'text', 'section'].includes(key))
+        || typeof payload.label !== 'string' || payload.label.length > 300
+        || typeof payload.text !== 'string' || payload.text.length > 6_000
+        || (Object.hasOwn(payload, 'section') && (payload.section === null
+          || typeof payload.section !== 'object' || Array.isArray(payload.section)))) {
+        return badSettingsRequest('task-models previewRules requires label (max 300 chars), text (max 6000 chars), and an optional section object')
       }
-      const models = typeof getChildModels === 'function' ? await getChildModels(payload.childIds) : {}
-      return { ok: true, value: { models: models !== null && typeof models === 'object' ? models : {} } }
+      let cfg
+      try {
+        cfg = resolveConfig(Object.hasOwn(payload, 'section') ? payload.section : currentSettings)
+      } catch (error) {
+        return badSettingsRequest(error instanceof Error ? error.message : 'Invalid task-models preview settings')
+      }
+      return { ok: true, value: previewRules(cfg, payload.label, payload.text) }
+    }
+    if (method === 'childModels' || method === 'routingDetails') {
+      if (!validChildIds(payload, keys)) {
+        return badSettingsRequest(`task-models ${method} requests require a childIds string array (max 500)`)
+      }
+      const childIds = [...new Set(payload.childIds)]
+      if (method === 'routingDetails' && typeof getRoutingDetails === 'function') {
+        return { ok: true, value: await getRoutingDetails(childIds) }
+      }
+      const models = typeof getChildModels === 'function' ? await getChildModels(childIds) : {}
+      const value = { models: models !== null && typeof models === 'object' ? models : {} }
+      if (method === 'routingDetails') value.details = {}
+      return { ok: true, value }
     }
     if (method === 'testJev') {
       if (keys.length > 2
@@ -387,6 +444,30 @@ function applyRoute(config, route) {
   }
 }
 
+function cancellationError() {
+  const error = new Error('task-models: routing decision was cancelled by the caller')
+  error.name = 'AbortError'
+  error.code = 'aborted'
+  return error
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : cancellationError()
+}
+
+/** Bound even an adapter that ignores AbortSignal, without leaking listeners. */
+function waitWithSignal(value, signal) {
+  const promise = Promise.resolve(value)
+  if (signal === undefined) return promise
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', abort)
+    const abort = () => { cleanup(); reject(signal.reason instanceof Error ? signal.reason : cancellationError()) }
+    promise.then((result) => { cleanup(); resolve(result) }, (error) => { cleanup(); reject(error) })
+    if (signal.aborted) abort()
+    else signal.addEventListener('abort', abort, { once: true })
+  })
+}
+
 /** Register settings, the Jev client, and the subagent request router. */
 export function apply(ctx, config = {}) {
   const scope = openSettingsScope(ctx, NS, Config, config)
@@ -404,16 +485,17 @@ export function apply(ctx, config = {}) {
   const subagentLabels = new WeakMap()
   const taskDecisions = new WeakMap()
   const childModels = new Map()
+  const effectiveChildModels = new Map()
+  const routingDetails = new Map()
   const historicalModels = new Map()
   let jevFailureLogged = false
 
   /**
-   * Remember the effective route of every delegated child request. The
-   * workflow UI asks for these by child session id, so a member row can show
-   * the model that actually served the child even when another role router,
-   * an explicit subagent model, or this plugin selected it.
+   * Preserve the legacy proposal map for childModels. The new routingDetails
+   * surface separately tracks only committed request/header routes as effective;
+   * neither map claims the provider has already returned a successful response.
    */
-  function rememberChildModel(agent, config) {
+  function rememberChildModel(agent, config, effective = false) {
     if (!isSubagent(agent)) return
     const provider = typeof config?.provider === 'string' ? config.provider : ''
     const model = typeof config?.model === 'string' ? config.model : ''
@@ -428,6 +510,11 @@ export function apply(ctx, config = {}) {
         ? { reasoningEffort: config.reasoningEffort }
         : {}),
     })
+    if (effective) {
+      effectiveChildModels.delete(id)
+      effectiveChildModels.set(id, next)
+      if (effectiveChildModels.size > 2_000) effectiveChildModels.delete(effectiveChildModels.keys().next().value)
+    }
     if (previous !== undefined && previous.provider === next.provider
       && previous.model === next.model && previous.reasoningEffort === next.reasoningEffort) {
       return
@@ -441,12 +528,35 @@ export function apply(ctx, config = {}) {
   }
 
   function modelsFor(childIds) {
-    const models = {}
+    const models = Object.create(null)
     for (const id of childIds) {
       const entry = childModels.get(id)
       if (entry !== undefined) models[id] = entry
     }
     return models
+  }
+
+  function rememberRoutingDetail(agent, decision) {
+    const id = agent?.session?.id ?? agent?.id
+    if (typeof id !== 'string' || id === '') return
+    const { route: _route, ...detail } = decision
+    routingDetails.delete(id)
+    routingDetails.set(id, Object.freeze(detail))
+    if (routingDetails.size > 2_000) routingDetails.delete(routingDetails.keys().next().value)
+  }
+
+  function detailsFor(childIds) {
+    return Object.fromEntries(childIds.flatMap((id) => {
+      const detail = routingDetails.get(id)
+      if (detail === undefined) return []
+      const effectiveRoute = effectiveChildModels.get(id)
+      return [[id, { ...detail, ...(effectiveRoute === undefined ? {} : { effectiveRoute }) }]]
+    }))
+  }
+
+  function keepCurrent(agent, current, reason) {
+    rememberRoutingDetail(agent, { status: 'current', source: 'current', reason, durationMs: 0 })
+    return current
   }
 
   /**
@@ -604,6 +714,7 @@ export function apply(ctx, config = {}) {
   }
 
   async function askJev(agent, cfg, label, text, signal) {
+    throwIfAborted(signal)
     const parent = parentOf(agent)
     const request = profileJevRequest({
       parentTask: parent === undefined ? '' : taskTextOf(parent).slice(-2_000),
@@ -612,20 +723,33 @@ export function apply(ctx, config = {}) {
       profiles: cfg.profiles,
       maxStateChars: cfg.jev.maxStateChars,
     })
-    const data = await requestJev(cfg.jev, request, signal)
-    return parseJevChoice(data, cfg.profiles, cfg.jev.minConfidence)
+    const data = await waitWithSignal(requestJev(cfg.jev, request, signal), signal)
+    const id = parseJevChoice(data, cfg.profiles, cfg.jev.minConfidence)
+    let answer = data.answers?.task_profile
+    if (answer === null || typeof answer !== 'object' || Array.isArray(answer)) {
+      answer = Object.values(data.answers ?? {}).find((entry) => entry !== null
+        && typeof entry === 'object' && !Array.isArray(entry) && 'choice' in entry)
+    }
+    const confidence = answer?.confidence
+    if (id !== undefined) return { id, confidence }
+    const validConfidence = typeof confidence === 'number' && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1
+    return {
+      reason: !validConfidence ? 'jev-invalid-response'
+        : confidence < cfg.jev.minConfidence ? 'jev-low-confidence'
+          : answer?.choice === 'general' ? 'no-match' : 'jev-invalid-response',
+    }
   }
 
   async function classifyWithLlm(cfg, label, text, signal) {
+    throwIfAborted(signal)
     const route = cfg.routing.classifier
-    if (!route?.provider || !route?.model) return undefined
     const task = [
       typeof label === 'string' && label.trim() !== '' ? `Subtask label:\n${label}` : '',
       typeof text === 'string' && text.trim() !== '' ? `<subtask>\n${text}\n</subtask>` : '',
     ].filter(Boolean).join('\n\n').slice(-6_000)
     if (task === '') return undefined
     const assembler = new BlockAssembler()
-    for await (const chunk of ctx.llm.stream({
+    const iterator = ctx.llm.stream({
       provider: route.provider,
       model: route.model,
       ...(route.reasoningEffort === '' ? {} : { reasoningEffort: route.reasoningEffort }),
@@ -636,8 +760,25 @@ export function apply(ctx, config = {}) {
       system: profileSystem(cfg.profiles),
       temperature: 0,
       maxTokens: 128,
-      ...(signal === undefined ? {} : { signal }),
-    })) assembler.push(chunk)
+      signal,
+    })[Symbol.asyncIterator]()
+    let finish
+    try {
+      while (true) {
+        throwIfAborted(signal)
+        const chunk = await waitWithSignal(iterator.next(), signal)
+        if (chunk.done) break
+        assembler.push(chunk.value)
+        if (chunk.value.type === 'finish') finish = chunk.value.reason?.kind
+      }
+    } finally {
+      // An uncooperative stream must not hold the routing deadline hostage.
+      if (signal.aborted && typeof iterator.return === 'function') {
+        try { void Promise.resolve(iterator.return()).catch(() => {}) } catch { /* Best effort. */ }
+      }
+    }
+    throwIfAborted(signal)
+    if (finish !== 'stop') throw new Error('task-models: classifier did not finish successfully')
     const output = assembler.blocks()
       .filter((block) => block?.type === 'text')
       .map((block) => block.text)
@@ -645,53 +786,123 @@ export function apply(ctx, config = {}) {
     return parseProfile(output, cfg.profiles)
   }
 
-  async function decideProfile(agent, cfg, label, text, signal) {
-    const deterministic = selectProfile(cfg.profiles, label, text)
-    if (deterministic !== undefined) return { profile: deterministic, source: 'rules' }
-
-    if (cfg.routing.useJev && cfg.jev.enabled) {
-      try {
-        const id = await askJev(agent, cfg, label, text, signal)
-        const profile = id === undefined ? undefined : cfg.profiles.get(id)
-        if (profile?.enabled) return { profile, source: 'jev' }
-      } catch (error) {
-        if (!(error?.name === 'AbortError' && signal?.aborted === true)) {
-          warnJevOnce('task-models: Jev task classification failed; falling back', error)
-        }
+  async function decideProfile(agent, cfg, label, text, signal, ruleAnalysis) {
+    throwIfAborted(signal)
+    const deterministic = cfg.profiles.get(ruleAnalysis.profileId)
+    if (deterministic !== undefined) {
+      return {
+        profile: deterministic, source: 'rules',
+        reason: ruleAnalysis.source === 'explicit-label' ? 'rules-explicit-label' : 'rules-keywords',
       }
     }
-
-    if (cfg.routing.fallback === 'llm') {
-      const id = await classifyWithLlm(cfg, label, text, signal)
-      const profile = id === undefined ? undefined : cfg.profiles.get(id)
-      if (profile?.enabled) return { profile, source: 'llm' }
+    let reason = ruleAnalysis.source === 'tie' ? 'rules-tie' : 'no-match'
+    if (cfg.routing.useJev && cfg.jev.enabled) {
+      try {
+        const result = await askJev(agent, cfg, label, text, signal)
+        const profile = cfg.profiles.get(result.id)
+        if (profile?.enabled) return { profile, source: 'jev', reason: 'jev-selected', confidence: result.confidence }
+        reason = result.reason ?? 'no-match'
+      } catch {
+        throwIfAborted(signal)
+        reason = 'jev-unavailable'
+        warnJevOnce('task-models: Jev task classification failed; falling back')
+      }
     }
-    return undefined
+    throwIfAborted(signal)
+    if (cfg.routing.fallback === 'llm') {
+      if (!cfg.routing.classifier.provider || !cfg.routing.classifier.model) return { reason: 'classifier-unconfigured' }
+      try {
+        const id = await classifyWithLlm(cfg, label, text, signal)
+        const profile = cfg.profiles.get(id)
+        if (profile?.enabled) return { profile, source: 'llm', reason: 'llm-selected' }
+        reason = 'no-match'
+      } catch {
+        throwIfAborted(signal)
+        reason = 'classifier-failed'
+        ctx.logger.warn?.('task-models: lightweight classification failed; keeping the current route')
+      }
+    }
+    return { reason }
+  }
+
+  async function validatedDecision(agent, cfg, label, text, callerSignal) {
+    const startedAt = Date.now()
+    const ruleAnalysis = analyzeRules(cfg.profiles, label, text)
+    const controller = new AbortController()
+    const abort = () => controller.abort(cancellationError())
+    if (callerSignal?.aborted) throw cancellationError()
+    callerSignal?.addEventListener('abort', abort, { once: true })
+    const timer = setTimeout(() => {
+      const error = new Error('task-models: routing decision budget exhausted')
+      error.code = 'decision-timeout'
+      controller.abort(error)
+    }, cfg.routing.decisionTimeoutMs)
+    const signal = controller.signal
+    let selected
+    try {
+      selected = await decideProfile(agent, cfg, label, text, signal, ruleAnalysis)
+      throwIfAborted(signal)
+      if (selected.profile === undefined) {
+        return { status: 'current', source: 'current', reason: selected.reason, ruleAnalysis, durationMs: Date.now() - startedAt }
+      }
+      const route = Object.freeze(toRoute(selected.profile))
+      if (typeof ctx.llm?.resolveCallConfig === 'function') {
+        try {
+          await waitWithSignal(ctx.llm.resolveCallConfig(route, signal), signal)
+        } catch {
+          throwIfAborted(signal)
+          return {
+            status: 'current', source: selected.source, reason: 'route-unusable',
+            profileId: selected.profile.id, profileName: selected.profile.name,
+            selectedRoute: route, ruleAnalysis, durationMs: Date.now() - startedAt,
+          }
+        }
+      }
+      throwIfAborted(signal)
+      return {
+        status: 'adopted', source: selected.source, reason: selected.reason,
+        profileId: selected.profile.id, profileName: selected.profile.name,
+        ...(selected.confidence === undefined ? {} : { confidence: selected.confidence }),
+        selectedRoute: route, route, ruleAnalysis, durationMs: Date.now() - startedAt,
+      }
+    } catch (error) {
+      if (callerSignal?.aborted) throw cancellationError()
+      return {
+        status: 'current', source: 'current',
+        reason: signal.aborted && signal.reason?.code === 'decision-timeout' ? 'decision-timeout' : 'classifier-failed',
+        ruleAnalysis, durationMs: Date.now() - startedAt,
+      }
+    } finally {
+      clearTimeout(timer)
+      callerSignal?.removeEventListener('abort', abort)
+    }
+  }
+
+  function activeDecision(agent) {
+    const cached = taskDecisions.get(agent)
+    if (cached?.pending && cached.signal?.aborted) {
+      taskDecisions.delete(agent)
+      return undefined
+    }
+    return cached
   }
 
   function decisionFor(agent, cfg, label, text, signal) {
-    const signature = `${label ?? ''}\u0000${text ?? ''}`
-    const cached = taskDecisions.get(agent)
-    if (cached !== undefined && cached.signature === signature) return cached.promise
-    const promise = decideProfile(agent, cfg, label, text, signal).catch((error) => {
-      ctx.logger.warn?.('task-models: task profile classification failed; keeping the current route')
-      ctx.logger.warn?.(error)
-      return undefined
+    const cached = activeDecision(agent)
+    if (cached !== undefined) return cached.promise
+    const entry = { signal, pending: true }
+    entry.promise = validatedDecision(agent, cfg, label, text, signal).then((result) => {
+      entry.pending = false
+      return result
+    }, (error) => {
+      // Cancellation is not an abstention: the next uncancelled first request
+      // may retry classification. An old rejection must not evict a newer retry.
+      entry.pending = false
+      if (taskDecisions.get(agent) === entry) taskDecisions.delete(agent)
+      throw error
     })
-    taskDecisions.set(agent, { signature, promise })
-    return promise
-  }
-
-  async function routeUsable(route, signal) {
-    if (typeof ctx.llm?.resolveCallConfig !== 'function') return true
-    try {
-      await ctx.llm.resolveCallConfig(route, signal)
-      return true
-    } catch (error) {
-      ctx.logger.warn?.('task-models: selected profile route is not usable; keeping the current route')
-      ctx.logger.warn?.(error)
-      return false
-    }
+    taskDecisions.set(agent, entry)
+    return entry.promise
   }
 
   scope.watch((next) => {
@@ -717,6 +928,19 @@ export function apply(ctx, config = {}) {
         settings,
         targetNs,
         (childIds) => modelsForWithHistory(childIds),
+        keyFilePath(),
+        async (childIds) => {
+          const entries = await Promise.all(childIds.map(async (id) => {
+            // Never treat the legacy proposal map as confirmed, including while
+            // the first classifier is still pending and no detail exists yet.
+            let model = effectiveChildModels.get(id)
+            if (model === undefined && !childModels.has(id) && !routingDetails.has(id)) {
+              model = await historicalModelOf(id)
+            }
+            return model === undefined ? [] : [[id, model]]
+          }))
+          return { models: Object.fromEntries(entries.flat()), details: detailsFor(childIds) }
+        },
       ),
       { authority: 'trusted-host' },
     )
@@ -739,6 +963,9 @@ export function apply(ctx, config = {}) {
     if (event?.type === 'subagent/descriptor' && typeof event.data?.label === 'string') {
       subagentLabels.set(session, event.data.label)
     }
+    if (event?.type === 'request/header') {
+      rememberChildModel({ session }, event.data?.header?.config ?? event.data?.config, true)
+    }
   })
 
   // Prepending makes this router the outermost agent/request listener: it
@@ -746,34 +973,48 @@ export function apply(ctx, config = {}) {
   // profile last. It only touches delegated children.
   ctx.on('agent/request', async ({ agent, signal }, next) => {
     const current = await next()
+    if (!isSubagent(agent)) return current
+    throwIfAborted(signal)
     rememberChildModel(agent, current)
     const cfg = routingConfig
-    if (!cfg.routing.enabled || cfg.profiles.size === 0) return current
-    if (!isSubagent(agent)) return current
-    if (agent?.options?.modelRole !== undefined) return current
-    if (planModeActive(agent?.session?.events)) return current
+    if (agent?.options?.modelRole !== undefined) return keepCurrent(agent, current, 'internal-role')
+    if (planModeActive(agent?.session?.events)) return keepCurrent(agent, current, 'plan-mode')
+    if (!cfg.routing.enabled) return keepCurrent(agent, current, 'routing-disabled')
 
-    const label = labelOf(agent)
-    const captured = firstStepText.get(agent)
-    const text = typeof captured === 'string' && captured !== '' ? captured : taskTextOf(agent)
-    if ((label ?? '') === '' && (text ?? '') === '') return current
-
-    const firstRequest = requestHeaderOf(agent) === undefined
-    let decision
-    const cached = taskDecisions.get(agent)
-    if (cached !== undefined) {
-      decision = await cached.promise
-    } else {
-      if (!firstRequest) return current
-      if (cfg.routing.respectExplicitChildModel && childHasExplicitRoute(agent)) return current
-      decision = await decisionFor(agent, cfg, label, text, signal)
+    // An adopted snapshot survives edits, disablement and removal of its profile.
+    // Only the explicit global switch and the existing bypasses suspend replay.
+    let cached = activeDecision(agent)
+    if (cached === undefined) {
+      if (![...cfg.profiles.values()].some((profile) => profile.enabled)) return keepCurrent(agent, current, 'no-profiles')
+      if (requestHeaderOf(agent) !== undefined) return keepCurrent(agent, current, 'existing-request')
+      if (cfg.routing.respectExplicitChildModel && childHasExplicitRoute(agent)) return keepCurrent(agent, current, 'explicit-child-model')
+      const label = labelOf(agent)
+      const captured = firstStepText.get(agent)
+      const text = typeof captured === 'string' && captured !== '' ? captured : taskTextOf(agent)
+      if ((label ?? '') === '' && (text ?? '') === '') return keepCurrent(agent, current, 'no-task')
+      decisionFor(agent, cfg, label, text, signal)
+      cached = taskDecisions.get(agent)
     }
-
-    if (decision?.profile === undefined || !cfg.profiles.has(decision.profile.id)) return current
-    const route = toRoute(decision.profile)
-    if (route === undefined) return current
-    if (firstRequest && !(await routeUsable(route, signal))) return current
-    const routed = applyRoute(current, route)
+    const decision = await waitWithSignal(cached.promise, signal)
+    throwIfAborted(signal)
+    // A validated candidate is not yet an adopted route. If a bypass appears
+    // during classification, never activate that unused candidate on re-enable.
+    const bypass = !routingConfig.routing.enabled ? 'routing-disabled'
+      : agent?.options?.modelRole !== undefined ? 'internal-role'
+        : planModeActive(agent?.session?.events) ? 'plan-mode' : undefined
+    if (bypass !== undefined) {
+      if (!cached.applied) {
+        cached.promise = Promise.resolve({
+          status: 'current', source: 'current', reason: bypass,
+          ruleAnalysis: decision.ruleAnalysis, durationMs: decision.durationMs,
+        })
+      }
+      return keepCurrent(agent, current, bypass)
+    }
+    rememberRoutingDetail(agent, decision)
+    if (decision.route === undefined) return current
+    const routed = applyRoute(current, decision.route)
+    cached.applied = true
     rememberChildModel(agent, routed)
     return routed
   }, { prepend: true })

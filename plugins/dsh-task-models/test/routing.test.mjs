@@ -109,9 +109,9 @@ async function preStep(harness, agent, text, { turn = 1, step = 1 } = {}) {
   }, () => Promise.resolve({ kind: 'enter', messages: [message(text)] }))
 }
 
-async function request(harness, agent, config = { provider: 'base', model: 'base-model', maxTokens: 100 }) {
+async function request(harness, agent, config = { provider: 'base', model: 'base-model', maxTokens: 100 }, signal = AbortSignal.timeout(5_000)) {
   return harness.listeners.get('agent/request')({
-    agent, turn: 1, signal: AbortSignal.timeout(5_000),
+    agent, turn: 1, signal,
   }, () => Promise.resolve(config))
 }
 
@@ -253,6 +253,10 @@ test('Jev chooses a configured profile and caches the decision per child', async
     assert.equal(requests[0].body.model, 'jev-latest')
     assert.equal(requests[0].body.questions.task_profile.type, 'choice')
     assert.equal(typeof requests[0].body.questions.task_profile.criteria.review, 'string')
+    const detail = (await harness.rpc('routingDetails', { childIds: [child.id] })).value.details.child
+    assert.equal(detail.confidence, 0.9)
+    assert.equal(detail.source, 'jev')
+    assert.equal(detail.reason, 'jev-selected')
   } finally {
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
@@ -294,6 +298,38 @@ test('low-confidence Jev decisions keep the current route', async () => {
   }
 })
 
+test('Jev missing confidence falls through to the configured lightweight classifier', async () => {
+  const server = createServer((req, res) => {
+    req.on('data', () => {})
+    req.on('end', () => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+      answers: { task_profile: { type: 'choice', choice: 'review' } },
+    })))
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const home = await mkdtemp(join(tmpdir(), 'task-models-confidence-'))
+  const previousHome = process.env.DSH_HOME
+  await mkdir(join(home, 'task-models'), { recursive: true })
+  await writeFile(join(home, 'task-models', 'typesafe.key'), 'ts_isolated_test', { mode: 0o600 })
+  process.env.DSH_HOME = home
+  try {
+    const harness = createHarness(baseConfig({ fallback: 'llm', classifier: { provider: 'classifier', model: 'tiny' } }, [], {
+      enabled: true, baseURL: `http://127.0.0.1:${server.address().port}`, timeoutMs: 1000,
+    }))
+    const child = makeAgent()
+    await preStep(harness, child, 'Assess the patch.')
+    assert.equal((await request(harness, child)).model, 'review-model')
+    assert.equal(harness.streams.length, 1)
+    const { value } = await harness.rpc('routingDetails', { childIds: [child.id] })
+    assert.equal(value.details.child.source, 'llm')
+    assert.equal(value.details.child.confidence, undefined)
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    assert(home.startsWith(join(tmpdir(), 'task-models-confidence-')))
+    await rm(home, { recursive: true, force: true })
+    await new Promise((resolve) => server.close(resolve))
+  }
+})
 
 test('the host exposes each child effective model to the workflow panel', async () => {
   const harness = createHarness(baseConfig())
@@ -378,4 +414,282 @@ test('routing is independent of Agent Preset and never reads the preset registry
   })
 
   assert.equal(harness.requestedServices.includes('agentPresets'), false)
+})
+
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+function commitHeader(harness, child, config) {
+  child.session.setRequestHeader({ config })
+  harness.listeners.get('session/event')(child.session, { type: 'request/header', data: { header: { config } } })
+}
+
+test('an unusable candidate never becomes a later replay route', async () => {
+  const harness = createHarness(baseConfig())
+  let validations = 0
+  harness.ctx.llm.resolveCallConfig = async () => { validations++; throw new Error('unsupported effort') }
+  const child = makeAgent()
+  await preStep(harness, child, 'Review this diff.')
+  const first = await request(harness, child)
+  commitHeader(harness, child, first)
+  assert.deepEqual(await request(harness, child), first)
+  assert.equal(first.model, 'base-model')
+  assert.equal(validations, 1)
+  const { value } = await harness.rpc('routingDetails', { childIds: [child.id] })
+  assert.equal(value.details.child.status, 'current')
+  assert.equal(value.details.child.reason, 'route-unusable')
+  assert.equal(value.details.child.selectedRoute.model, 'review-model')
+  assert.equal(value.models.child.model, 'base-model')
+})
+
+test('adopted routes freeze across profile edits, disablement and removal; new children use the new table', async () => {
+  for (const change of ['edit', 'disable', 'remove']) {
+    const harness = createHarness(baseConfig())
+    const child = makeAgent({ id: `existing-${change}` })
+    await preStep(harness, child, 'Review this diff.')
+    const first = await request(harness, child)
+    commitHeader(harness, child, first)
+    const updated = baseConfig()
+    if (change === 'edit') updated.profiles[0] = { ...updated.profiles[0], model: 'new-model', reasoningEffort: 'low' }
+    if (change === 'disable') updated.profiles[0].enabled = false
+    if (change === 'remove') updated.profiles = []
+    harness.update(updated)
+    assert.deepEqual(await request(harness, child), first, change)
+    const newcomer = makeAgent({ id: `new-${change}` })
+    await preStep(harness, newcomer, 'Review this diff.')
+    assert.equal((await request(harness, newcomer)).model, change === 'edit' ? 'new-model' : 'base-model', change)
+  }
+})
+
+test('the global routing switch suspends and restores adopted routes, while bypasses still win', async () => {
+  const harness = createHarness(baseConfig())
+  const child = makeAgent()
+  await preStep(harness, child, 'Review this diff.')
+  const adopted = await request(harness, child)
+  commitHeader(harness, child, adopted)
+  harness.update(baseConfig({ enabled: false }))
+  const baseline = await request(harness, child)
+  assert.equal(baseline.model, 'base-model')
+  commitHeader(harness, child, baseline)
+  assert.equal((await harness.rpc('routingDetails', { childIds: ['child'] })).value.details.child.reason, 'routing-disabled')
+  harness.update({ ...baseConfig(), profiles: [] })
+  assert.deepEqual(await request(harness, child), adopted)
+  child.session.events.push({ type: 'plan/mode', data: { active: true } })
+  assert.equal((await request(harness, child)).model, 'base-model')
+  child.session.events.push({ type: 'plan/mode', data: { active: false } })
+  assert.deepEqual(await request(harness, child), adopted)
+  child.options.modelRole = 'advisor'
+  assert.equal((await request(harness, child)).model, 'base-model')
+})
+
+test('concurrent first requests share one classifier and one candidate validation', async () => {
+  const harness = createHarness(baseConfig({ fallback: 'llm', classifier: { provider: 'classifier', model: 'tiny' } }))
+  const started = deferred()
+  const release = deferred()
+  let calls = 0
+  let validations = 0
+  harness.ctx.llm.stream = async function* () {
+    calls++
+    started.resolve()
+    await release.promise
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'review' } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+  harness.ctx.llm.resolveCallConfig = async () => { validations++ }
+  const child = makeAgent()
+  await preStep(harness, child, 'Assess the patch.')
+  const one = request(harness, child)
+  const two = request(harness, child)
+  await started.promise
+  const pendingDetails = (await harness.rpc('routingDetails', { childIds: [child.id] })).value
+  assert.equal(pendingDetails.models[child.id], undefined)
+  assert.equal(pendingDetails.details[child.id], undefined)
+  release.resolve()
+  const [a, b] = await Promise.all([one, two])
+  assert.deepEqual(a, b)
+  assert.equal(a.model, 'review-model')
+  assert.equal(calls, 1)
+  assert.equal(validations, 1)
+})
+
+test('caller cancellation evicts a pending decision and a fresh signal can retry', async () => {
+  const harness = createHarness(baseConfig({ fallback: 'llm', classifier: { provider: 'classifier', model: 'tiny' } }))
+  const started = deferred()
+  const release = deferred()
+  let calls = 0
+  let cancelledSignal
+  harness.ctx.llm.stream = async function* ({ signal }) {
+    calls++
+    if (calls === 1) {
+      cancelledSignal = signal
+      started.resolve()
+      await release.promise
+    }
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'review' } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+  const child = makeAgent()
+  await preStep(harness, child, 'Assess the patch.')
+  const controller = new AbortController()
+  const pending = request(harness, child, undefined, controller.signal)
+  const rejected = assert.rejects(pending, { name: 'AbortError' })
+  await started.promise
+  controller.abort()
+  const retry = request(harness, child)
+  await rejected
+  assert.equal(cancelledSignal.aborted, true)
+  release.resolve()
+  assert.equal((await retry).model, 'review-model', 'a retry started before the cancelled promise settles must get a fresh decision')
+  assert.equal(calls, 2)
+})
+
+test('completed no-op decisions remain cached when an old caller signal later aborts', async () => {
+  const harness = createHarness(baseConfig({ fallback: 'llm', classifier: { provider: 'classifier', model: 'tiny' } }))
+  const child = makeAgent()
+  const controller = new AbortController()
+  await preStep(harness, child, 'A neutral subtask.')
+  assert.equal((await request(harness, child, undefined, controller.signal)).model, 'base-model')
+  assert.equal(harness.streams.length, 1)
+  controller.abort()
+  assert.equal((await request(harness, child)).model, 'base-model')
+  assert.equal(harness.streams.length, 1, 'completed abstentions are not aborted pending decisions')
+})
+
+test('the decision budget bounds an uncooperative classifier and caches the safe fallback', async () => {
+  const harness = createHarness(baseConfig({ decisionTimeoutMs: 100, fallback: 'llm', classifier: { provider: 'classifier', model: 'tiny' } }))
+  const release = deferred()
+  let calls = 0
+  let classifierSignal
+  harness.ctx.llm.stream = async function* ({ signal }) {
+    calls++
+    classifierSignal = signal
+    await release.promise
+  }
+  const child = makeAgent()
+  await preStep(harness, child, 'Assess the patch.')
+  const first = await request(harness, child)
+  assert.equal(first.model, 'base-model')
+  assert.equal(classifierSignal.aborted, true)
+  commitHeader(harness, child, first)
+  assert.deepEqual(await request(harness, child), first)
+  assert.equal(calls, 1)
+  release.resolve()
+  const detail = (await harness.rpc('routingDetails', { childIds: [child.id] })).value.details.child
+  assert.equal(detail.reason, 'decision-timeout')
+  assert(detail.durationMs >= 80 && detail.durationMs < 2000)
+})
+
+test('candidate capability validation is covered by the same decision budget', async () => {
+  const harness = createHarness(baseConfig({ decisionTimeoutMs: 100 }))
+  const release = deferred()
+  let validations = 0
+  harness.ctx.llm.resolveCallConfig = async () => { validations++; await release.promise }
+  const child = makeAgent()
+  await preStep(harness, child, 'Review this diff.')
+  assert.equal((await request(harness, child)).model, 'base-model')
+  assert.equal((await request(harness, child)).model, 'base-model')
+  assert.equal(validations, 1)
+  assert.equal((await harness.rpc('routingDetails', { childIds: [child.id] })).value.details.child.reason, 'decision-timeout')
+  release.resolve()
+})
+
+test('turning routing off during classification never applies the pending candidate', async () => {
+  const harness = createHarness(baseConfig({ fallback: 'llm', classifier: { provider: 'classifier', model: 'tiny' } }))
+  const started = deferred()
+  const release = deferred()
+  harness.ctx.llm.stream = async function* () {
+    started.resolve()
+    await release.promise
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'review' } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+  const child = makeAgent()
+  await preStep(harness, child, 'Assess the patch.')
+  const pending = request(harness, child)
+  await started.promise
+  harness.update(baseConfig({ enabled: false }))
+  release.resolve()
+  const baseline = await pending
+  assert.equal(baseline.model, 'base-model')
+  assert.equal((await harness.rpc('routingDetails', { childIds: [child.id] })).value.details.child.reason, 'routing-disabled')
+  commitHeader(harness, child, baseline)
+  harness.update(baseConfig({ fallback: 'llm', classifier: { provider: 'classifier', model: 'tiny' } }))
+  assert.equal((await request(harness, child)).model, 'base-model', 'a never-adopted pending candidate must not wake up on re-enable')
+})
+
+test('failed terminal classifier chunks do not authorize a partial profile answer', async () => {
+  const harness = createHarness(baseConfig({ fallback: 'llm', classifier: { provider: 'classifier', model: 'tiny' } }))
+  harness.ctx.llm.stream = async function* () {
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'review' } }
+    yield { type: 'finish', reason: { kind: 'error', failure: { code: 'NETWORK', message: 'failed' } } }
+  }
+  const child = makeAgent()
+  await preStep(harness, child, 'Assess the patch.')
+  assert.equal((await request(harness, child)).model, 'base-model')
+  assert.equal((await harness.rpc('routingDetails', { childIds: [child.id] })).value.details.child.reason, 'classifier-failed')
+})
+
+test('routing explanations distinguish selected candidates from committed effective headers', async () => {
+  const harness = createHarness(baseConfig())
+  const child = makeAgent({ events: [{ type: 'subagent/descriptor', data: { label: '[review]' } }] })
+  await preStep(harness, child, 'Inspect the patch.')
+  const proposal = await request(harness, child)
+  let value = (await harness.rpc('routingDetails', { childIds: ['child'] })).value
+  assert.equal(value.details.child.selectedRoute.model, 'review-model')
+  assert.equal(value.details.child.reason, 'rules-explicit-label')
+  assert.equal(value.details.child.effectiveRoute, undefined)
+  assert.equal(value.models.child, undefined)
+  commitHeader(harness, child, { ...proposal, reasoningEffort: 'low' })
+  value = (await harness.rpc('routingDetails', { childIds: ['child'] })).value
+  assert.equal(value.models.child.reasoningEffort, 'low')
+  assert.equal(value.details.child.effectiveRoute.reasoningEffort, 'low')
+  assert.equal(value.details.child.selectedRoute.reasoningEffort, 'high')
+  assert.equal(value.details.child.source, 'rules')
+  assert.equal(value.details.child.ruleAnalysis.profileId, 'review')
+  assert.equal(JSON.stringify(value).includes('Inspect the patch'), false)
+})
+
+test('Jev caller cancellation does not start the fallback LLM', async () => {
+  const received = deferred()
+  const server = createServer((req) => {
+    req.on('data', () => {})
+    req.on('end', () => received.resolve())
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const home = await mkdtemp(join(tmpdir(), 'task-models-cancel-'))
+  const previousHome = process.env.DSH_HOME
+  await mkdir(join(home, 'task-models'), { recursive: true })
+  await writeFile(join(home, 'task-models', 'typesafe.key'), 'ts_isolated_test', { mode: 0o600 })
+  process.env.DSH_HOME = home
+  try {
+    const harness = createHarness(baseConfig({ fallback: 'llm', classifier: { provider: 'classifier', model: 'tiny' } }, [], {
+      enabled: true, baseURL: `http://127.0.0.1:${server.address().port}`, timeoutMs: 1000,
+    }))
+    const child = makeAgent()
+    await preStep(harness, child, 'Assess the patch.')
+    const controller = new AbortController()
+    const pending = request(harness, child, undefined, controller.signal)
+    const rejected = assert.rejects(pending, { name: 'AbortError' })
+    await received.promise
+    controller.abort()
+    await rejected
+    assert.equal(harness.streams.length, 0)
+    harness.update(baseConfig())
+    await preStep(harness, child, 'Assess the patch.')
+    assert.equal((await request(harness, child)).model, 'base-model')
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = previousHome
+    assert(home.startsWith(join(tmpdir(), 'task-models-cancel-')))
+    await rm(home, { recursive: true, force: true })
+    server.closeAllConnections()
+    await new Promise((resolve) => server.close(resolve))
+  }
 })

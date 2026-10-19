@@ -1,7 +1,7 @@
 {
   "name": "@weniatall/dsh-task-models",
-  "version": "0.2.2",
-  "description": "子任务模型路由插件：按任务类型为子代理选择模型，规则命中零额外调用，可选 TypeSafe Jev 决策与轻量分类回退，并标注 workflow 成员实际模型。",
+  "version": "0.3.0",
+  "description": "子任务模型路由插件：按任务类型为子代理选择模型，显式标签优先、规则试运行与路由解释，可选 TypeSafe Jev 决策与轻量分类回退，并区分预选与请求头确认的 workflow 成员模型。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

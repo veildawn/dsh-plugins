@@ -26,6 +26,7 @@
           fallback: taskRole
           useJev: true
           respectExplicitChildModel: true
+          decisionTimeoutMs: 5000
         profiles: []
         jev:
           enabled: false

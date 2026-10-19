@@ -26,6 +26,7 @@
         fallback: "taskRole",
         useJev: true,
         respectExplicitChildModel: true,
+        decisionTimeoutMs: 5000,
         classifier: { provider: "", model: "", reasoningEffort: "" },
       };
       const DEFAULT_JEV = {
@@ -46,7 +47,10 @@
         .tm-select,.tm-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:8px;outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
         .tm-select:focus-visible,.tm-input:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.tm-select:disabled,.tm-input:disabled{opacity:.55}
         .tm-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px}.tm-button{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 14px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:18px;background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);cursor:pointer}.tm-button:disabled{cursor:default;opacity:.45}.tm-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:#fff}.tm-danger{color:var(--dsw-alias-state-error-primary)}
-        .tm-feedback{padding:9px 11px;border-radius:8px;font-size:12px;line-height:18px}.tm-feedback.tm-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}.tm-status{min-height:18px;color:var(--dsw-alias-label-tertiary);font-size:12px}
+        .tm-feedback{padding:9px 11px;border-radius:8px;font-size:12px;line-height:18px}.tm-feedback.tm-error{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}.tm-feedback.tm-warn{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d98e00) 12%,transparent);color:var(--dsw-alias-state-warning-primary,#d98e00);display:flex;align-items:center;justify-content:space-between;gap:8px}.tm-status{min-height:18px;color:var(--dsw-alias-label-tertiary);font-size:12px}
+        .tm-preview-result{padding:10px 12px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-label-secondary) 8%,transparent);font-size:12px;line-height:20px;display:flex;flex-direction:column;gap:4px}
+        .tm-textarea{box-sizing:border-box;width:100%;min-height:72px;padding:8px 10px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:8px;outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);resize:vertical}
+        .tm-textarea:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.tm-textarea:disabled{opacity:.55}
         .tm-check{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-secondary);font-size:13px}.tm-note{padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 7%,transparent);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
         .tm-grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}.tm-field-actions{justify-content:flex-end}.tm-actions-left{justify-content:flex-start}
         .tm-badge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:510;white-space:nowrap;flex:none}
@@ -144,9 +148,172 @@
       }
       function validateRouting(routing) {
         if (!FALLBACKS.includes(routing?.fallback)) return "子任务回退方式无效";
+        if (routing?.decisionTimeoutMs !== undefined && routing?.decisionTimeoutMs !== null) {
+          const ms = Number(routing.decisionTimeoutMs);
+          if (!Number.isInteger(ms) || ms < 100 || ms > 60000) return "决策总超时须在 100 到 60000 毫秒之间";
+        }
         const classifier = routing?.classifier || {};
         if ((classifier.provider === "") !== (classifier.model === "")) return "轻量分类模型需要同时选择 Provider 与模型";
         return "";
+      }
+      function buildDraftSection(draft) {
+        const routing = draft?.routing;
+        const profiles = draft?.profiles;
+        const jev = draft?.jev;
+        const normalizedProfiles = (Array.isArray(profiles) ? profiles : []).map((row) => ({
+          id: normalizeId(row.id),
+          name: row.name || "",
+          detail: row.detail || "",
+          keywords: normalizeKeywords(row.keywords),
+          provider: row.provider,
+          model: row.model,
+          reasoningEffort: row.reasoningEffort || "",
+          enabled: row.enabled !== false,
+        }));
+        const normJev = normalizeJev(jev);
+        return {
+          routing: {
+            ...DEFAULT_ROUTING,
+            ...(routing || {}),
+            decisionTimeoutMs: clampNumber(Math.round(Number(routing?.decisionTimeoutMs) || DEFAULT_ROUTING.decisionTimeoutMs), DEFAULT_ROUTING.decisionTimeoutMs, 100, 60000),
+            classifier: { ...DEFAULT_ROUTING.classifier, ...(routing?.classifier || {}) },
+          },
+          profiles: normalizedProfiles,
+          jev: {
+            enabled: normJev.enabled === true,
+            baseURL: normJev.baseURL,
+            model: normJev.model,
+            minConfidence: clampNumber(normJev.minConfidence, DEFAULT_JEV.minConfidence, 0, 1),
+            timeoutMs: clampNumber(normJev.timeoutMs, DEFAULT_JEV.timeoutMs, 100, 60000),
+            maxStateChars: clampNumber(normJev.maxStateChars, DEFAULT_JEV.maxStateChars, 500, 100000),
+          },
+        };
+      }
+      function reconcileSettings({
+        currentRevision,
+        currentWritable,
+        remoteRevision,
+        remoteWritable,
+        silent,
+        dirty,
+      }) {
+        if (silent && dirty) {
+          const conflict = remoteRevision !== currentRevision;
+          return {
+            conflict,
+            revision: currentRevision,
+            writable: currentWritable,
+            shouldApplyRemote: false,
+          };
+        }
+        return {
+          conflict: false,
+          revision: remoteRevision,
+          writable: remoteWritable,
+          shouldApplyRemote: !silent || !dirty,
+        };
+      }
+      function formatRoutingDetail(reason) {
+        const REASONS = {
+          "rules-explicit-label": "规则匹配（显式标签）",
+          "rules-keywords": "规则匹配（关键词）",
+          "rules-unmatched": "规则未命中",
+          "jev-selected": "Jev 决策",
+          "llm-selected": "轻量模型分类",
+          "no-match": "无规则命中",
+          "rules-tie": "规则冲突平局",
+          "classifier-unconfigured": "分类模型未配置",
+          "jev-low-confidence": "Jev 置信度不足",
+          "jev-invalid-response": "Jev 响应无效",
+          "jev-unavailable": "Jev 服务不可用",
+          "classifier-failed": "轻量模型分类失败",
+          "decision-timeout": "决策超时",
+          "route-unusable": "目标路由不可用",
+          "explicit-child-model": "子代理指定模型",
+          "routing-disabled": "任务路由已禁用",
+          "no-profiles": "未配置任务模型",
+          "internal-role": "内部角色",
+          "plan-mode": "计划模式",
+          "existing-request": "已有会话延续",
+          "no-task": "无任务内容",
+        };
+        return (reason && REASONS[reason]) || (reason ? String(reason) : "原因未知");
+      }
+      function formatMemberTitle({ info, detail, pending }) {
+        const effective = detail?.effectiveRoute || info;
+        const hasEffectiveModel = Boolean(effective?.model);
+        if (pending && !hasEffectiveModel && !detail) return "等待子代理首次请求";
+        const parts = [];
+        if (hasEffectiveModel) {
+          const modelText = effective?.provider && effective?.model
+            ? `${effective.provider}/${effective.model}${effective.reasoningEffort ? ` · ${effective.reasoningEffort}` : ""}`
+            : (effective?.model || "");
+          if (modelText) parts.push(modelText);
+        } else if (detail?.selectedRoute) {
+          if (detail.status === "adopted") {
+            parts.push(`待请求头确认 (预选: ${detail.selectedRoute.provider}/${detail.selectedRoute.model})`);
+          } else {
+            parts.push(`未采用候选: ${detail.selectedRoute.provider}/${detail.selectedRoute.model}`);
+          }
+        } else if (pending) {
+          parts.push("等待子代理首次请求");
+        }
+        if (detail) {
+          const profile = detail.profileName || detail.profileId;
+          if (profile) parts.push(`类别: ${profile}`);
+          if (detail.source) {
+            const sourceMap = { rules: "规则", jev: "Jev", llm: "轻量模型", current: "保持当前" };
+            parts.push(`来源: ${sourceMap[detail.source] || detail.source}`);
+          }
+          if (typeof detail.confidence === "number") {
+            parts.push(`置信度: ${Math.round(detail.confidence * 100)}%`);
+          }
+          if (typeof detail.durationMs === "number") {
+            parts.push(`耗时: ${detail.durationMs}ms`);
+          }
+          if (detail.reason) {
+            parts.push(`原因: ${formatRoutingDetail(detail.reason)}`);
+          }
+        } else if (hasEffectiveModel) {
+          parts.push("原因未知");
+        }
+        return parts.join(" · ");
+      }
+      function formatNextStep(next) {
+        const MAP = {
+          rules: "规则命中",
+          jev: "交由 Jev 决策",
+          llm: "交由轻量模型分类",
+          current: "保持当前路由",
+        };
+        return MAP[next] || (next ? String(next) : "未知走向");
+      }
+      function formatRuleAnalysisSummary(analysis) {
+        if (!analysis || typeof analysis !== "object") return "";
+        const parts = [];
+        if (analysis.source) {
+          const srcMap = {
+            "explicit-label": "显式标签匹配",
+            keywords: "关键词匹配",
+            none: "无匹配",
+            tie: "平局冲突",
+          };
+          parts.push(`来源: ${srcMap[analysis.source] || analysis.source}`);
+        }
+        if (analysis.profileId) {
+          parts.push(`候选类型: ${analysis.profileId}`);
+        }
+        if (Array.isArray(analysis.matches) && analysis.matches.length > 0) {
+          const details = analysis.matches.map((m) => {
+            const kw = (m.matchedKeywords || []).map((k) => `${k.keyword}(${k.in === "label" ? "标题" : "内容"})`).join("、");
+            return `${m.id}(${m.score}分${kw ? `: ${kw}` : ""})`;
+          }).join("；");
+          parts.push(`命中项: ${details}`);
+        }
+        if (Array.isArray(analysis.tiedIds) && analysis.tiedIds.length > 0) {
+          parts.push(`平局: ${analysis.tiedIds.join("、")}`);
+        }
+        return parts.join(" | ");
       }
       function validateProfiles(rows) {
         const seen = new Set();
@@ -234,9 +401,10 @@
 
       function TaskProfileCard(props) {
         const {
-          profileId, template, profile, modelRows, groups, saving, custom,
+          profileId, template, profile, modelRows, groups, saving, writable = true, custom,
           onChangeModel, onSetField, onRemove, onRename,
         } = props;
+        const disabled = saving || !writable;
         const selected = profile?.provider && profile?.model
           ? modelRows.find(({ group, model }) => group.id === profile.provider && model.id === profile.model)
           : null;
@@ -259,27 +427,27 @@
               react.createElement("h3", { className: "tm-title" }, title),
               react.createElement("p", { className: "tm-detail" }, detail)),
             custom ? react.createElement("button", {
-              className: "tm-button tm-danger", type: "button", disabled: saving, onClick: () => onRemove(profileId),
+              className: "tm-button tm-danger", type: "button", disabled, onClick: () => onRemove(profileId),
             }, "删除") : null),
           custom ? react.createElement("div", { className: "tm-grid" },
             react.createElement("label", { className: "tm-field" },
               react.createElement("span", { className: "tm-label" }, "任务类型 ID"),
               react.createElement("input", {
-                className: "tm-input", value: profileId, disabled: saving,
+                className: "tm-input", value: profileId, disabled,
                 onChange: (event) => onRename(profileId, event.target.value),
                 "aria-label": `${profileId} 任务类型 ID`,
               })),
             react.createElement("label", { className: "tm-field" },
               react.createElement("span", { className: "tm-label" }, "显示名称"),
               react.createElement("input", {
-                className: "tm-input", value: profile?.name ?? "", disabled: saving,
+                className: "tm-input", value: profile?.name ?? "", disabled,
                 onChange: (event) => onSetField(profileId, { name: event.target.value }),
                 "aria-label": `${profileId} 显示名称`,
               }))) : null,
           custom ? react.createElement("label", { className: "tm-field" },
             react.createElement("span", { className: "tm-label" }, "任务描述（供 Jev / 轻量模型判断）"),
             react.createElement("input", {
-              className: "tm-input", value: profile?.detail ?? "", disabled: saving,
+              className: "tm-input", value: profile?.detail ?? "", disabled,
               onChange: (event) => onSetField(profileId, { detail: event.target.value }),
               "aria-label": `${profileId} 任务描述`,
             })) : null,
@@ -287,7 +455,7 @@
             react.createElement("label", { className: "tm-field" },
               react.createElement("span", { className: "tm-label" }, "模型"),
               react.createElement("select", {
-                className: "tm-select", value: profile?.provider && profile?.model ? modelKey(profile.provider, profile.model) : "", disabled: saving,
+                className: "tm-select", value: profile?.provider && profile?.model ? modelKey(profile.provider, profile.model) : "", disabled,
                 onChange: (event) => onChangeModel(profileId, event.target.value), "aria-label": `${profileId} 任务模型`,
               },
               react.createElement("option", { value: "" }, "不启用（保持当前路由）"),
@@ -295,7 +463,7 @@
             react.createElement("label", { className: "tm-field" },
               react.createElement("span", { className: "tm-label" }, "思考档位"),
               react.createElement("select", {
-                className: "tm-select", value: profile?.reasoningEffort || "", disabled: !profile || efforts.length === 0 || saving,
+                className: "tm-select", value: profile?.reasoningEffort || "", disabled: !profile || efforts.length === 0 || disabled,
                 onChange: (event) => onSetField(profileId, { reasoningEffort: event.target.value }), "aria-label": `${profileId} 任务思考档位`,
               },
               react.createElement("option", { value: "" }, "模型默认"),
@@ -303,13 +471,13 @@
           react.createElement("label", { className: "tm-field" },
             react.createElement("span", { className: "tm-label" }, "匹配关键词（逗号分隔；留空则只依赖 Jev/轻量模型）"),
             react.createElement("input", {
-              className: "tm-input", value: keywords, disabled: !profile || saving,
+              className: "tm-input", value: keywords, disabled: !profile || disabled,
               onChange: (event) => onSetField(profileId, { keywords: splitKeywords(event.target.value) }),
               "aria-label": `${profileId} 匹配关键词`,
             })),
           react.createElement("label", { className: "tm-check" },
             react.createElement("input", {
-              type: "checkbox", checked: profile?.enabled !== false && profile !== undefined, disabled: !profile || saving,
+              type: "checkbox", checked: profile?.enabled !== false && profile !== undefined, disabled: !profile || disabled,
               onChange: (event) => onSetField(profileId, { enabled: event.target.checked }),
             }),
             "启用此任务类型"));
@@ -357,6 +525,15 @@
           return value?.models && typeof value.models === "object" ? value.models : {};
         }
 
+        async function loadRoutingDetails(childIds) {
+          if (!Array.isArray(childIds) || childIds.length === 0) return { models: {}, details: {} };
+          const value = await settingsRequest("routingDetails", { childIds });
+          return {
+            models: value?.models && typeof value.models === "object" ? value.models : {},
+            details: value?.details && typeof value.details === "object" ? value.details : {},
+          };
+        }
+
         function sameNavigable(next, previous) {
           if (next === previous) return true;
           if (!Array.isArray(next) || !Array.isArray(previous) || next.length !== previous.length) return false;
@@ -385,7 +562,7 @@
          * request. The durable node and Definition stay owned by the host.
          */
         function WorkflowRunPanel(props) {
-          const { node, sessionId, openSession, loadModels, useSessions, useSessionStatus } = props;
+          const { node, sessionId, openSession, loadModels, loadDetails, useSessions, useSessionStatus } = props;
           const phases = Array.isArray(node?.data?.phases) ? node.data.phases : [];
           const allMembers = phases.flatMap((phase) => (Array.isArray(phase.members) ? phase.members : []));
           const [runOpen, setRunOpen] = react.useState(node?.data?.status !== "completed");
@@ -393,6 +570,7 @@
             phases.filter((phase) => (phase.members || []).some((member) => member.status !== "completed")).map((phase) => phase.key),
           ));
           const [models, setModels] = react.useState({});
+          const [details, setDetails] = react.useState({});
           const statuses = typeof useSessionStatus === "function"
             ? useSessionStatus((value) => value)
             : new Map();
@@ -407,14 +585,34 @@
 
           react.useEffect(() => {
             const childIds = childKey === "" ? [] : childKey.split("\u0000");
-            if (childIds.length === 0 || typeof loadModels !== "function") return () => {};
+            if (childIds.length === 0 || (typeof loadDetails !== "function" && typeof loadModels !== "function")) return () => {};
             let cancelled = false;
+            let inFlight = false;
             const load = async () => {
+              if (inFlight) return;
+              inFlight = true;
               try {
-                const value = await loadModels(childIds);
-                if (!cancelled) setModels(value || {});
+                if (typeof loadDetails === "function") {
+                  const res = await loadDetails(childIds);
+                  if (!cancelled && res && typeof res === "object") {
+                    if (res.models && typeof res.models === "object") setModels((prev) => ({ ...prev, ...res.models }));
+                    if (res.details && typeof res.details === "object") setDetails((prev) => ({ ...prev, ...res.details }));
+                  }
+                } else if (typeof loadModels === "function") {
+                  const res = await loadModels(childIds);
+                  if (!cancelled && res && typeof res === "object") {
+                    if ("models" in res || "details" in res) {
+                      if (res.models && typeof res.models === "object") setModels((prev) => ({ ...prev, ...res.models }));
+                      if (res.details && typeof res.details === "object") setDetails((prev) => ({ ...prev, ...res.details }));
+                    } else {
+                      setModels((prev) => ({ ...prev, ...res }));
+                    }
+                  }
+                }
               } catch {
                 // The model badge is additive; keep the last known values.
+              } finally {
+                inFlight = false;
               }
             };
             void load();
@@ -423,7 +621,7 @@
               cancelled = true;
               if (timer !== undefined) clearInterval(timer);
             };
-          }, [childKey, loadModels, hasRunning]);
+          }, [childKey, loadDetails, loadModels, hasRunning]);
 
           const toggleRun = () => setRunOpen((value) => !value);
           const togglePhase = (key) => setOpenPhases((current) => {
@@ -462,10 +660,13 @@
                   phaseOpen ? react.createElement("div", { className: "tm-wf-members" },
                     ...members.map((member, memberIndex) => {
                       const info = models[member.childId];
-                      const model = typeof info?.model === "string" ? info.model : "";
+                      const detail = details[member.childId];
+                      const effective = detail?.effectiveRoute || info;
+                      const model = typeof effective?.model === "string" ? effective.model : "";
                       const pending = model === "" && member.status === "running";
                       const target = navigable.find((entry) => entry.id === member.childId);
                       const clickable = target !== undefined && typeof openSession === "function";
+                      const tooltip = formatMemberTitle({ info, detail, pending });
                       const content = [
                         react.createElement("span", { className: `tm-wf-dot tm-wf-${member.status || "running"}`, key: "dot" }),
                         react.createElement("span", { className: "tm-wf-label", key: "label", title: member.label || "" }, member.label || "空成员名"),
@@ -473,9 +674,8 @@
                           ? react.createElement("span", {
                               className: `tm-wf-model ${pending ? "tm-wf-model-pending" : ""}`,
                               key: "model",
-                              title: info
-                                ? `${info.provider}/${info.model}${info.reasoningEffort ? ` · ${info.reasoningEffort}` : ""}`
-                                : "等待子代理首次请求",
+                              title: tooltip,
+                              "aria-label": tooltip,
                             }, model || "模型…")
                           : null,
                         react.createElement("span", { className: "tm-wf-member-status", key: "status" }, statusText(member.status || "running")),
@@ -502,6 +702,7 @@
           const [error, setError] = react.useState("");
           const [writable, setWritable] = react.useState(false);
           const [revision, setRevision] = react.useState(0);
+          const [conflict, setConflict] = react.useState(false);
           const [groups, setGroups] = react.useState([]);
           const [failures, setFailures] = react.useState([]);
           const [routing, setRouting] = react.useState({ ...DEFAULT_ROUTING, classifier: { ...DEFAULT_ROUTING.classifier } });
@@ -513,7 +714,68 @@
           const [jevTest, setJevTest] = react.useState("");
           const [saved, setSaved] = react.useState("");
           const [saving, setSaving] = react.useState(false);
+
+          const [previewLabel, setPreviewLabel] = react.useState("");
+          const [previewText, setPreviewText] = react.useState("");
+          const [previewRunning, setPreviewRunning] = react.useState(false);
+          const [previewResult, setPreviewResult] = react.useState(null);
+          const [previewError, setPreviewError] = react.useState("");
+
           const dirtyRef = react.useRef(false);
+          const revisionRef = react.useRef(0);
+          const writableRef = react.useRef(false);
+          const previewReqIdRef = react.useRef(0);
+          const jevTestReqIdRef = react.useRef(0);
+          revisionRef.current = revision;
+          writableRef.current = writable;
+
+          const clearPreview = () => {
+            previewReqIdRef.current++;
+            setPreviewResult(null);
+            setPreviewError("");
+            setPreviewRunning(false);
+          };
+
+          const clearJevTest = () => {
+            jevTestReqIdRef.current++;
+            setJevTest("");
+            setJevTesting(false);
+          };
+
+          const updateRouting = (updater) => {
+            clearPreview();
+            dirtyRef.current = true;
+            setRouting(updater);
+          };
+
+          const updateProfiles = (updater) => {
+            clearPreview();
+            dirtyRef.current = true;
+            setProfiles(updater);
+          };
+
+          const updateJev = (updater) => {
+            clearPreview();
+            clearJevTest();
+            dirtyRef.current = true;
+            setJev(updater);
+          };
+
+          const updateJevKey = (value) => {
+            clearJevTest();
+            dirtyRef.current = true;
+            setJevKey(value);
+          };
+
+          const changePreviewLabel = (value) => {
+            clearPreview();
+            setPreviewLabel(value);
+          };
+
+          const changePreviewText = (value) => {
+            clearPreview();
+            setPreviewText(value);
+          };
 
           const load = async (silent = false) => {
             if (!silent) {
@@ -539,26 +801,47 @@
               const nextRouting = {
                 ...DEFAULT_ROUTING,
                 ...(settingsView.value?.routing || {}),
+                decisionTimeoutMs: Number.isFinite(Number(settingsView.value?.routing?.decisionTimeoutMs))
+                  ? clampNumber(Math.round(Number(settingsView.value?.routing?.decisionTimeoutMs)), DEFAULT_ROUTING.decisionTimeoutMs, 100, 60000)
+                  : DEFAULT_ROUTING.decisionTimeoutMs,
                 classifier: { ...DEFAULT_ROUTING.classifier, ...(settingsView.value?.routing?.classifier || {}) },
               };
               const nextProfiles = normalizeProfiles(settingsView.value?.profiles);
               const nextJev = normalizeJev(settingsView.value?.jev);
-              setWritable(settingsView.writable);
-              setRevision(settingsView.revision);
               setGroups(modelsValue.groups || []);
               setFailures(modelsValue.failures || []);
-              if (!silent || !dirtyRef.current) {
+
+              const reconciliation = reconcileSettings({
+                currentRevision: revisionRef.current,
+                currentWritable: writableRef.current,
+                remoteRevision: settingsView.revision,
+                remoteWritable: settingsView.writable,
+                silent,
+                dirty: dirtyRef.current,
+              });
+
+              setConflict(reconciliation.conflict);
+              setWritable(reconciliation.writable);
+              setRevision(reconciliation.revision);
+
+              if (reconciliation.shouldApplyRemote) {
+                clearPreview();
+                clearJevTest();
                 setRouting(nextRouting);
                 setProfiles(nextProfiles);
                 setJev(nextJev);
                 setSaved(JSON.stringify({ routing: nextRouting, profiles: nextProfiles, jev: nextJev }));
               }
               settingsRequest("jevStatus", {}, props.api)
-                .then((value) => setJevStatus({
-                  configured: value?.configured === true,
-                  model: typeof value?.model === "string" ? value.model : "",
-                }))
-                .catch(() => setJevStatus({ configured: false, model: "" }));
+                .then((value) => {
+                  if (value && typeof value?.configured === "boolean") {
+                    setJevStatus({
+                      configured: value.configured,
+                      model: typeof value?.model === "string" ? value.model : "",
+                    });
+                  }
+                })
+                .catch(() => {});
               setStatus("ready");
             } catch (cause) {
               if (!silent) {
@@ -589,7 +872,7 @@
           const statusText = statusMessage(status, writable, dirty);
 
           const setProfile = (id, patch) => {
-            setProfiles((current) => {
+            updateProfiles((current) => {
               const target = normalizeId(id);
               const index = current.findIndex((entry) => normalizeId(entry.id) === target);
               if (patch === null) return current.filter((entry) => normalizeId(entry.id) !== target);
@@ -615,12 +898,12 @@
             let suffix = 1;
             while (byProfile.has(`custom-${suffix}`)) suffix++;
             const id = `custom-${suffix}`;
-            setProfiles((current) => [...current, normalizeProfile({ id, name: `自定义任务 ${suffix}`, provider: "", model: "" })]);
+            updateProfiles((current) => [...current, normalizeProfile({ id, name: `自定义任务 ${suffix}`, provider: "", model: "" })]);
           };
 
           const renameProfile = (oldId, nextValue) => {
             const target = normalizeId(oldId);
-            setProfiles((current) => current.map((entry) => normalizeId(entry.id) === target
+            updateProfiles((current) => current.map((entry) => normalizeId(entry.id) === target
               ? normalizeProfile({ ...entry, id: normalizeId(nextValue) })
               : entry));
           };
@@ -630,11 +913,11 @@
           const changeClassifier = (value) => {
             const selected = parseModelKey(value);
             if (!selected) {
-              setRouting((current) => ({ ...current, classifier: { provider: "", model: "", reasoningEffort: "" } }));
+              updateRouting((current) => ({ ...current, classifier: { provider: "", model: "", reasoningEffort: "" } }));
               return;
             }
             const row = modelRows.find(({ group, model }) => group.id === selected.provider && model.id === selected.model);
-            setRouting((current) => ({
+            updateRouting((current) => ({
               ...current,
               classifier: {
                 provider: selected.provider,
@@ -647,24 +930,60 @@
           const refreshJevStatus = async () => {
             try {
               const value = await settingsRequest("jevStatus", {}, props.api);
-              setJevStatus({ configured: value?.configured === true, model: typeof value?.model === "string" ? value.model : "" });
+              if (value && typeof value?.configured === "boolean") {
+                setJevStatus({ configured: value.configured, model: typeof value?.model === "string" ? value.model : "" });
+              }
             } catch {
-              setJevStatus({ configured: false, model: "" });
+              // 网络 status 失败不能误改已保存状态
             }
           };
 
           const testJev = async () => {
+            const reqId = ++jevTestReqIdRef.current;
             setJevTesting(true);
             setJevTest("");
             try {
               const payload = { ...(jevKey.trim() === "" ? {} : { apiKey: jevKey.trim() }), jev: normalizeJev(jev) };
               const result = await settingsRequest("testJev", payload, props.api);
-              setJevTest(`✓ Jev 连接成功${result?.latencyMs === undefined ? "" : `（${result.latencyMs}ms）`}`);
-              setJevStatus((current) => ({ ...current, configured: true }));
+              if (jevTestReqIdRef.current === reqId) {
+                setJevTest(`✓ Jev 连接测试成功${result?.latencyMs === undefined ? "" : `（${result.latencyMs}ms）`}`);
+              }
             } catch (cause) {
-              setJevTest(`Jev 测试失败：${cause instanceof Error ? cause.message : String(cause)}`);
+              if (jevTestReqIdRef.current === reqId) {
+                setJevTest(`Jev 测试失败：${cause instanceof Error ? cause.message : String(cause)}`);
+              }
             } finally {
-              setJevTesting(false);
+              if (jevTestReqIdRef.current === reqId) {
+                setJevTesting(false);
+              }
+            }
+          };
+
+          const runPreview = async () => {
+            if (validation || previewRunning || (!previewLabel.trim() && !previewText.trim())) return;
+            const reqId = ++previewReqIdRef.current;
+            setPreviewRunning(true);
+            setPreviewError("");
+            setPreviewResult(null);
+            try {
+              const section = buildDraftSection({ routing, profiles, jev });
+              const res = await settingsRequest("previewRules", {
+                label: previewLabel.slice(0, 300),
+                text: previewText.slice(0, 6000),
+                section,
+              }, props.api);
+              if (previewReqIdRef.current === reqId) {
+                setPreviewResult(res);
+              }
+            } catch {
+              // error不暴露原文任务或Key
+              if (previewReqIdRef.current === reqId) {
+                setPreviewError("规则试运行请求失败");
+              }
+            } finally {
+              if (previewReqIdRef.current === reqId) {
+                setPreviewRunning(false);
+              }
             }
           };
 
@@ -677,32 +996,8 @@
                 await settingsRequest("saveJevKey", { apiKey: jevKey.trim() }, props.api);
                 setJevKey("");
               }
-              const normalizedProfiles = profiles.map((row) => ({
-                id: normalizeId(row.id),
-                name: row.name || "",
-                detail: row.detail || "",
-                keywords: normalizeKeywords(row.keywords),
-                provider: row.provider,
-                model: row.model,
-                reasoningEffort: row.reasoningEffort || "",
-                enabled: row.enabled !== false,
-              }));
               await settingsRequest("replace", {
-                section: {
-                  routing: {
-                    ...routing,
-                    classifier: { ...routing.classifier },
-                  },
-                  profiles: normalizedProfiles,
-                  jev: {
-                    enabled: jev.enabled === true,
-                    baseURL: jev.baseURL,
-                    model: jev.model,
-                    minConfidence: clampNumber(jev.minConfidence, DEFAULT_JEV.minConfidence, 0, 1),
-                    timeoutMs: clampNumber(jev.timeoutMs, DEFAULT_JEV.timeoutMs, 100, 60000),
-                    maxStateChars: clampNumber(jev.maxStateChars, DEFAULT_JEV.maxStateChars, 500, 100000),
-                  },
-                },
+                section: buildDraftSection({ routing, profiles, jev }),
                 expectedRevision: revision,
               }, props.api);
               await load(false);
@@ -726,39 +1021,56 @@
             react.createElement("h2", null, "任务模型"),
             react.createElement("p", { className: "tm-intro" }, INTRO_TEXT),
             feedback ? react.createElement("div", { className: "tm-feedback tm-error", role: "alert" }, feedback) : null,
+            conflict ? react.createElement("div", { className: "tm-feedback tm-warn", role: "alert" },
+              react.createElement("span", null, "外部配置已更新，当前草稿存在冲突。"),
+              react.createElement("button", {
+                className: "tm-button", type: "button", style: { height: 26, padding: "0 10px", fontSize: 12 },
+                onClick: () => load(false),
+              }, "重新加载最新配置")) : null,
             react.createElement("section", { className: "tm-card" },
               react.createElement("div", null,
                 react.createElement("h3", { className: "tm-title" }, "子任务路由"),
                 react.createElement("p", { className: "tm-detail" }, "对所有会话委派的子任务生效；不要求任何 Agent Preset，也不会改写主会话模型。")),
               react.createElement("label", { className: "tm-check" },
                 react.createElement("input", {
-                  type: "checkbox", checked: routing.enabled, disabled: saving,
-                  onChange: (event) => setRouting((current) => ({ ...current, enabled: event.target.checked })),
+                  type: "checkbox", checked: routing.enabled, disabled: saving || !writable,
+                  onChange: (event) => updateRouting((current) => ({ ...current, enabled: event.target.checked })),
                 }),
                 "启用按任务类型路由子任务"),
               react.createElement("div", { className: "tm-grid" },
                 react.createElement("label", { className: "tm-field" },
                   react.createElement("span", { className: "tm-label" }, "规则未命中时"),
                   react.createElement("select", {
-                    className: "tm-select", value: routing.fallback, disabled: saving,
-                    onChange: (event) => setRouting((current) => ({ ...current, fallback: event.target.value })),
+                    className: "tm-select", value: routing.fallback, disabled: saving || !writable,
+                    onChange: (event) => updateRouting((current) => ({ ...current, fallback: event.target.value })),
                   },
                   react.createElement("option", { value: "taskRole" }, "保持当前路由"),
                   react.createElement("option", { value: "llm" }, "用轻量模型分类"))),
-                react.createElement("div", { className: "tm-field" },
-                  react.createElement("span", { className: "tm-label" }, "决策选项"),
-                  react.createElement("label", { className: "tm-check" },
-                    react.createElement("input", {
-                      type: "checkbox", checked: routing.useJev, disabled: saving,
-                      onChange: (event) => setRouting((current) => ({ ...current, useJev: event.target.checked })),
-                    }),
-                    "规则未命中时优先问 Jev"),
-                  react.createElement("label", { className: "tm-check" },
-                    react.createElement("input", {
-                      type: "checkbox", checked: routing.respectExplicitChildModel, disabled: saving,
-                      onChange: (event) => setRouting((current) => ({ ...current, respectExplicitChildModel: event.target.checked })),
-                    }),
-                    "尊重子任务显式选择的模型"))),
+                react.createElement("label", { className: "tm-field" },
+                  react.createElement("span", { className: "tm-label" }, "决策总超时（毫秒，100-60000）"),
+                  react.createElement("input", {
+                    className: "tm-input", type: "number", min: 100, max: 60000, step: 100,
+                    value: routing.decisionTimeoutMs ?? DEFAULT_ROUTING.decisionTimeoutMs, disabled: saving || !writable,
+                    onChange: (event) => updateRouting((current) => ({
+                      ...current,
+                      decisionTimeoutMs: clampNumber(Math.round(Number(event.target.value) || DEFAULT_ROUTING.decisionTimeoutMs), DEFAULT_ROUTING.decisionTimeoutMs, 100, 60000),
+                    })),
+                    "aria-label": "决策总超时",
+                  }))),
+              react.createElement("div", { className: "tm-field" },
+                react.createElement("span", { className: "tm-label" }, "决策选项"),
+                react.createElement("label", { className: "tm-check" },
+                  react.createElement("input", {
+                    type: "checkbox", checked: routing.useJev, disabled: saving || !writable,
+                    onChange: (event) => updateRouting((current) => ({ ...current, useJev: event.target.checked })),
+                  }),
+                  "规则未命中时优先问 Jev"),
+                react.createElement("label", { className: "tm-check" },
+                  react.createElement("input", {
+                    type: "checkbox", checked: routing.respectExplicitChildModel, disabled: saving || !writable,
+                    onChange: (event) => updateRouting((current) => ({ ...current, respectExplicitChildModel: event.target.checked })),
+                  }),
+                  "尊重子任务显式选择的模型")),
               react.createElement("p", { className: "tm-note" }, "任务类型按子代理首次请求决定一次，后续请求沿用同一模型。规则并列时不会按配置顺序随机选择。")),
             react.createElement("div", { className: "tm-card" },
               react.createElement("div", null,
@@ -768,7 +1080,7 @@
                 react.createElement("label", { className: "tm-field" },
                   react.createElement("span", { className: "tm-label" }, "分类模型"),
                   react.createElement("select", {
-                    className: "tm-select", value: classifier.provider && classifier.model ? modelKey(classifier.provider, classifier.model) : "", disabled: saving,
+                    className: "tm-select", value: classifier.provider && classifier.model ? modelKey(classifier.provider, classifier.model) : "", disabled: saving || !writable,
                     onChange: (event) => changeClassifier(event.target.value),
                   },
                   react.createElement("option", { value: "" }, "不配置"),
@@ -777,8 +1089,8 @@
                 react.createElement("label", { className: "tm-field" },
                   react.createElement("span", { className: "tm-label" }, "分类思考档位"),
                   react.createElement("select", {
-                    className: "tm-select", value: classifier.reasoningEffort || "", disabled: classifierEfforts.length === 0 || saving,
-                    onChange: (event) => setRouting((current) => ({
+                    className: "tm-select", value: classifier.reasoningEffort || "", disabled: classifierEfforts.length === 0 || saving || !writable,
+                    onChange: (event) => updateRouting((current) => ({
                       ...current,
                       classifier: { ...current.classifier, reasoningEffort: event.target.value },
                     })),
@@ -794,6 +1106,7 @@
                 modelRows,
                 groups,
                 saving,
+                writable,
                 custom: false,
                 onChangeModel: changeProfileModel,
                 onSetField: setProfileField,
@@ -808,6 +1121,7 @@
                 modelRows,
                 groups,
                 saving,
+                writable,
                 custom: true,
                 onChangeModel: changeProfileModel,
                 onSetField: setProfileField,
@@ -817,58 +1131,105 @@
             react.createElement("div", { className: "tm-actions" },
               react.createElement("button", { className: "tm-button", type: "button", disabled: saving || !writable, onClick: addProfile }, "添加任务类型")),
             react.createElement("section", { className: "tm-card" },
+              react.createElement("div", null,
+                react.createElement("h3", { className: "tm-title" }, "规则试运行"),
+                react.createElement("p", { className: "tm-detail" }, "输入子任务标题与描述，测试规则匹配与路由决策走向（含未保存草稿）；不调用任何模型或写配置。")),
+              react.createElement("label", { className: "tm-field" },
+                react.createElement("span", { className: "tm-label" }, "子任务 Label / 标题（最多 300 字符）"),
+                react.createElement("input", {
+                  className: "tm-input",
+                  maxLength: 300,
+                  value: previewLabel,
+                  disabled: previewRunning || saving,
+                  placeholder: "例如：实现用户登录校验",
+                  onChange: (event) => changePreviewLabel(event.target.value),
+                  "aria-label": "试运行任务 Label",
+                })),
+              react.createElement("label", { className: "tm-field" },
+                react.createElement("span", { className: "tm-label" }, "子任务内容 / 描述（最多 6000 字符）"),
+                react.createElement("textarea", {
+                  className: "tm-textarea",
+                  maxLength: 6000,
+                  value: previewText,
+                  disabled: previewRunning || saving,
+                  placeholder: "例如：任务详细描述或提示词内容…",
+                  onChange: (event) => changePreviewText(event.target.value),
+                  "aria-label": "试运行任务内容",
+                })),
+              react.createElement("div", { className: "tm-actions tm-actions-left" },
+                react.createElement("button", {
+                  className: "tm-button tm-primary",
+                  type: "button",
+                  disabled: Boolean(validation) || previewRunning || saving || (!previewLabel.trim() && !previewText.trim()),
+                  onClick: runPreview,
+                }, previewRunning ? "试运行中…" : "试运行规则")),
+              previewError ? react.createElement("p", { className: "tm-feedback tm-error", role: "alert" }, previewError) : null,
+              previewResult ? react.createElement("div", { className: "tm-preview-result" },
+                react.createElement("div", null,
+                  react.createElement("strong", null, "走向："),
+                  formatNextStep(previewResult.next),
+                  " · ",
+                  react.createElement("span", null, formatRoutingDetail(previewResult.reason))),
+                previewResult.profile ? react.createElement("div", null,
+                  react.createElement("strong", null, "目标模型："),
+                  `${previewResult.profile.name || previewResult.profile.id} (${previewResult.profile.provider}/${previewResult.profile.model}${previewResult.profile.reasoningEffort ? ` · ${previewResult.profile.reasoningEffort}` : ""})`) : null,
+                formatRuleAnalysisSummary(previewResult.ruleAnalysis) ? react.createElement("div", null,
+                  react.createElement("strong", null, "规则分析："),
+                  formatRuleAnalysisSummary(previewResult.ruleAnalysis)) : null
+              ) : null),
+            react.createElement("section", { className: "tm-card" },
               react.createElement("div", { className: "tm-card-head" },
                 react.createElement("div", null,
                   react.createElement("h3", { className: "tm-title" }, "Jev 决策"),
                   react.createElement("p", { className: "tm-detail" }, "可选。规则未命中时由 TypeSafe Jev 在已配置任务类型中选择。")),
                 jevStatus.configured
-                  ? react.createElement("span", { className: "tm-badge tm-badge-ok" }, "已连接")
+                  ? react.createElement("span", { className: "tm-badge tm-badge-ok" }, "已配置")
                   : react.createElement("span", { className: "tm-badge tm-badge-warn" }, "未配置")),
               react.createElement("label", { className: "tm-check" },
                 react.createElement("input", {
-                  type: "checkbox", checked: jev.enabled, disabled: saving,
-                  onChange: (event) => setJev((current) => ({ ...current, enabled: event.target.checked })),
+                  type: "checkbox", checked: jev.enabled, disabled: saving || !writable,
+                  onChange: (event) => updateJev((current) => ({ ...current, enabled: event.target.checked })),
                 }),
                 "启用 Jev 决策"),
               react.createElement("div", { className: "tm-grid" },
                 react.createElement("label", { className: "tm-field" },
                   react.createElement("span", { className: "tm-label" }, "API Key"),
                   react.createElement("input", {
-                    className: "tm-input", type: "password", value: jevKey, disabled: saving,
+                    className: "tm-input", type: "password", value: jevKey, disabled: saving || !writable,
                     placeholder: jevStatus.configured ? "已保存，留空不修改" : "ts-...",
-                    onChange: (event) => setJevKey(event.target.value),
+                    onChange: (event) => updateJevKey(event.target.value),
                   })),
                 react.createElement("label", { className: "tm-field" },
                   react.createElement("span", { className: "tm-label" }, "Base URL"),
                   react.createElement("input", {
-                    className: "tm-input", value: jev.baseURL, disabled: saving,
-                    onChange: (event) => setJev((current) => ({ ...current, baseURL: event.target.value })),
+                    className: "tm-input", value: jev.baseURL, disabled: saving || !writable,
+                    onChange: (event) => updateJev((current) => ({ ...current, baseURL: event.target.value })),
                   }))),
               react.createElement("div", { className: "tm-grid tm-grid-3" },
                 react.createElement("label", { className: "tm-field" },
                   react.createElement("span", { className: "tm-label" }, "模型"),
                   react.createElement("input", {
-                    className: "tm-input", value: jev.model, disabled: saving,
-                    onChange: (event) => setJev((current) => ({ ...current, model: event.target.value })),
+                    className: "tm-input", value: jev.model, disabled: saving || !writable,
+                    onChange: (event) => updateJev((current) => ({ ...current, model: event.target.value })),
                   })),
                 react.createElement("label", { className: "tm-field" },
                   react.createElement("span", { className: "tm-label" }, "最低置信度"),
                   react.createElement("input", {
-                    className: "tm-input", type: "number", min: 0, max: 1, step: 0.05, value: jev.minConfidence, disabled: saving,
-                    onChange: (event) => setJev((current) => ({ ...current, minConfidence: clampNumber(event.target.value, DEFAULT_JEV.minConfidence, 0, 1) })),
+                    className: "tm-input", type: "number", min: 0, max: 1, step: 0.05, value: jev.minConfidence, disabled: saving || !writable,
+                    onChange: (event) => updateJev((current) => ({ ...current, minConfidence: clampNumber(event.target.value, DEFAULT_JEV.minConfidence, 0, 1) })),
                   })),
                 react.createElement("label", { className: "tm-field" },
                   react.createElement("span", { className: "tm-label" }, "超时（毫秒）"),
                   react.createElement("input", {
-                    className: "tm-input", type: "number", min: 100, max: 60000, step: 100, value: jev.timeoutMs, disabled: saving,
-                    onChange: (event) => setJev((current) => ({ ...current, timeoutMs: clampNumber(event.target.value, DEFAULT_JEV.timeoutMs, 100, 60000) })),
+                    className: "tm-input", type: "number", min: 100, max: 60000, step: 100, value: jev.timeoutMs, disabled: saving || !writable,
+                    onChange: (event) => updateJev((current) => ({ ...current, timeoutMs: clampNumber(event.target.value, DEFAULT_JEV.timeoutMs, 100, 60000) })),
                   }))),
               react.createElement("div", { className: "tm-grid" },
                 react.createElement("label", { className: "tm-field" },
                   react.createElement("span", { className: "tm-label" }, "发送上下文字符上限"),
                   react.createElement("input", {
-                    className: "tm-input", type: "number", min: 500, max: 100000, step: 500, value: jev.maxStateChars, disabled: saving,
-                    onChange: (event) => setJev((current) => ({ ...current, maxStateChars: clampNumber(event.target.value, DEFAULT_JEV.maxStateChars, 500, 100000) })),
+                    className: "tm-input", type: "number", min: 500, max: 100000, step: 500, value: jev.maxStateChars, disabled: saving || !writable,
+                    onChange: (event) => updateJev((current) => ({ ...current, maxStateChars: clampNumber(event.target.value, DEFAULT_JEV.maxStateChars, 500, 100000) })),
                   })),
                 react.createElement("div", { className: "tm-field tm-field-actions" },
                   react.createElement("span", { className: "tm-label" }, "连接"),
@@ -911,6 +1272,7 @@
           priority: -1,
           inject: () => ({
             loadModels: loadChildModels,
+            loadDetails: loadRoutingDetails,
             openSession: (target) => {
               if (typeof ctx.uiWorkspace?.openSession === "function") ctx.uiWorkspace.openSession(target);
             },
@@ -926,6 +1288,8 @@
         splitKeywords, normalizeKeywords, rowsFromGroups, taskTemplateOf, profileDefaults, normalizeProfile,
         normalizeProfiles, profilesById, validateRouting, validateProfiles, normalizeJev, validateJev, clampNumber,
         statusMessage, createSettingsRequest, TaskProfileCard,
+        buildDraftSection, reconcileSettings, formatRoutingDetail, formatMemberTitle,
+        formatNextStep, formatRuleAnalysisSummary,
       };
       return module.exports;
     },

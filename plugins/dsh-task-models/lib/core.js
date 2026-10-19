@@ -19,6 +19,7 @@ export const DEFAULT_ROUTING = Object.freeze({
   enabled: false,
   fallback: 'taskRole',
   useJev: true,
+  decisionTimeoutMs: 5_000,
   respectExplicitChildModel: true,
   classifier: Object.freeze({ provider: '', model: '', reasoningEffort: '' }),
 })
@@ -44,10 +45,13 @@ function readString(value, fallback, label) {
   return value.trim()
 }
 
-function readNumber(value, fallback, label, min, max) {
+function readNumber(value, fallback, label, min, max, requireInteger = false) {
   if (value === undefined || value === null || value === '') return fallback
   const number = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(number)) throw new Error(`task-models: ${label} must be a finite number`)
+  if (requireInteger && !Number.isInteger(number)) {
+    throw new Error(`task-models: ${label} must be an integer`)
+  }
   if (number < min || number > max) {
     throw new Error(`task-models: ${label} must be between ${String(min)} and ${String(max)}`)
   }
@@ -112,6 +116,14 @@ export function resolveConfig(raw = {}) {
     enabled: readBoolean(routingRaw.enabled, DEFAULT_ROUTING.enabled, 'routing.enabled'),
     fallback,
     useJev: readBoolean(routingRaw.useJev, DEFAULT_ROUTING.useJev, 'routing.useJev'),
+    decisionTimeoutMs: readNumber(
+      routingRaw.decisionTimeoutMs,
+      DEFAULT_ROUTING.decisionTimeoutMs,
+      'routing.decisionTimeoutMs',
+      100,
+      60_000,
+      true,
+    ),
     respectExplicitChildModel: readBoolean(
       routingRaw.respectExplicitChildModel,
       DEFAULT_ROUTING.respectExplicitChildModel,
@@ -182,40 +194,132 @@ export function resolveConfig(raw = {}) {
   return Object.freeze({ routing, profiles, jev })
 }
 
+const ASCII_IDENTIFIER_PATTERN = /^[a-z0-9_]+$/i
+
+function matchKeyword(target, keyword) {
+  if (typeof target !== 'string' || typeof keyword !== 'string') return false
+  const t = target.toLowerCase()
+  const k = keyword.toLowerCase()
+  if (t === '' || k === '') return false
+  if (ASCII_IDENTIFIER_PATTERN.test(k)) {
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${k}(?![\\p{L}\\p{N}_])`, 'u')
+    return pattern.test(t)
+  }
+  return t.includes(k)
+}
+
+/**
+ * Explainable rule analysis over candidate profiles against a subtask label and prompt text.
+ */
+export function analyzeRules(profiles, label, text) {
+  const labelText = typeof label === 'string' ? label.trim().toLowerCase() : ''
+  const taskText = typeof text === 'string' ? text.trim().toLowerCase() : ''
+  const values = profiles instanceof Map ? profiles.values() : profiles ?? []
+
+  const matches = []
+
+  for (const profile of values) {
+    if (!profile?.enabled) continue
+    const id = String(profile.id ?? '').trim().toLowerCase()
+    if (id === '') continue
+
+    const explicitLabel = labelText === id
+      || labelText.startsWith(`[${id}]`)
+      || labelText.startsWith(`${id}:`)
+
+    let score = 0
+    const matchedKeywords = []
+    const seenKeywords = new Set()
+
+    for (const rawKeyword of profile.keywords ?? []) {
+      const keyword = String(rawKeyword ?? '').trim().toLowerCase()
+      if (keyword === '' || seenKeywords.has(keyword)) continue
+      seenKeywords.add(keyword)
+
+      if (matchKeyword(labelText, keyword)) {
+        score += 3
+        matchedKeywords.push({ keyword, in: 'label' })
+      } else if (matchKeyword(taskText, keyword)) {
+        score += 1
+        matchedKeywords.push({ keyword, in: 'text' })
+      }
+    }
+
+    if (explicitLabel || matchedKeywords.length > 0) {
+      matches.push({
+        id: profile.id,
+        score,
+        explicitLabel,
+        matchedKeywords,
+      })
+    }
+  }
+
+  matches.sort((a, b) => {
+    if (a.explicitLabel !== b.explicitLabel) return a.explicitLabel ? -1 : 1
+    if (b.score !== a.score) return b.score - a.score
+    return a.id.localeCompare(b.id)
+  })
+
+  const explicitMatches = matches.filter((m) => m.explicitLabel)
+  if (explicitMatches.length === 1) {
+    return {
+      profileId: explicitMatches[0].id,
+      source: 'explicit-label',
+      matches,
+      tiedIds: [],
+    }
+  }
+  if (explicitMatches.length > 1) {
+    return {
+      source: 'tie',
+      matches,
+      tiedIds: explicitMatches.map((m) => m.id).sort(),
+    }
+  }
+
+  let maxScore = 0
+  for (const match of matches) {
+    if (match.score > maxScore) maxScore = match.score
+  }
+
+  if (maxScore === 0) {
+    return {
+      source: 'none',
+      matches,
+      tiedIds: [],
+    }
+  }
+
+  const topMatches = matches.filter((m) => m.score === maxScore)
+  if (topMatches.length === 1) {
+    return {
+      profileId: topMatches[0].id,
+      source: 'keywords',
+      matches,
+      tiedIds: [],
+    }
+  }
+
+  return {
+    source: 'tie',
+    matches,
+    tiedIds: topMatches.map((m) => m.id).sort(),
+  }
+}
+
 /**
  * Pick one enabled profile from a label and task text. A tie is deliberately
  * no decision; configuration order must never choose the model.
  */
 export function selectProfile(profiles, label, text) {
-  const labelText = typeof label === 'string' ? label.trim().toLowerCase() : ''
-  const taskText = typeof text === 'string' ? text.trim().toLowerCase() : ''
-  const values = profiles instanceof Map ? profiles.values() : profiles ?? []
-  let best
-  let bestScore = 0
-  let tied = false
-  for (const profile of values) {
-    if (!profile?.enabled) continue
-    let score = 0
-    const id = String(profile.id ?? '').toLowerCase()
-    if (id !== '' && (labelText === id || labelText.startsWith(`[${id}]`) || labelText.startsWith(`${id}:`))) {
-      score += 5
-    }
-    for (const rawKeyword of profile.keywords ?? []) {
-      const keyword = String(rawKeyword).trim().toLowerCase()
-      if (keyword === '') continue
-      if (labelText.includes(keyword)) score += 3
-      else if (taskText.includes(keyword)) score += 1
-    }
-    if (score === 0) continue
-    if (score > bestScore) {
-      best = profile
-      bestScore = score
-      tied = false
-    } else if (score === bestScore) {
-      tied = true
-    }
+  const analysis = analyzeRules(profiles, label, text)
+  if (!analysis.profileId) return undefined
+  if (profiles instanceof Map) {
+    return profiles.get(analysis.profileId)
+      ?? [...profiles.values()].find((p) => String(p?.id ?? '').toLowerCase() === analysis.profileId.toLowerCase())
   }
-  return tied ? undefined : best
+  return (profiles ?? []).find((p) => String(p?.id ?? '').toLowerCase() === analysis.profileId.toLowerCase())
 }
 
 /** Accept one exact configured profile id from a classifier reply. */
@@ -303,8 +407,12 @@ export function parseJevChoice(payload, allowedIds, minConfidence = 0, key = 'ta
   if (answer === null || answer === undefined || typeof answer !== 'object' || Array.isArray(answer)) return undefined
   const choice = typeof answer.choice === 'string' ? answer.choice.trim().toLowerCase() : ''
   if (choice === '' || !allowed.has(choice)) return undefined
-  const confidence = Number(answer.confidence)
-  if (Number.isFinite(confidence) && confidence < minConfidence) return undefined
+  if (typeof answer.confidence !== 'number' || !Number.isFinite(answer.confidence)) {
+    return undefined
+  }
+  if (answer.confidence < 0 || answer.confidence > 1 || answer.confidence < minConfidence) {
+    return undefined
+  }
   return choice
 }
 
