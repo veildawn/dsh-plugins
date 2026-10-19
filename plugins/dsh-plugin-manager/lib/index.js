@@ -70,6 +70,7 @@ import {
   profilePluginDir,
   syncProfileBundle,
   migrateProfilePatch,
+  resolveNpmRegistry,
 } from './core.js'
 
 export const name = 'plugin-manager'
@@ -347,11 +348,11 @@ export async function fetchDshNpmMeta(pkgName = DSH_PACKAGE_NAME, registry = DEF
  * @param registry npm registry 基址。
  * @returns Map<npm 包名, { version, publishedAt, tarball }>
  */
-export async function fetchPluginNpmVersions(names, registry = DEFAULT_NPM_REGISTRY) {
+export async function fetchPluginNpmVersions(names, registry = resolveNpmRegistry(), { force = false } = {}) {
   const now = Date.now()
-  if (cachedPluginNpm && now - lastPluginNpmFetchTime < CACHE_TTL_MS) return cachedPluginNpm
+  if (!force && cachedPluginNpm && now - lastPluginNpmFetchTime < CACHE_TTL_MS) return cachedPluginNpm
 
-  const cleanRegistry = String(registry).replace(/\/+$/, '')
+  const cleanRegistry = String(registry || resolveNpmRegistry()).replace(/\/+$/, '')
   const results = new Map()
 
   const entries = await Promise.all(
@@ -454,6 +455,8 @@ export function resetMarketCaches() {
   lastDshReleasesFetchTime = 0
   cachedDshNpm = null
   lastDshNpmFetchTime = 0
+  cachedPluginNpm = null
+  lastPluginNpmFetchTime = 0
 }
 
 /**
@@ -526,15 +529,23 @@ function applyMirror(plugins, mirrorUrl) {
  * @param resolved 已解析的插件配置（含 repoOrigin / mirrorUrl / registry）。
  * @returns catalog 数组。
  */
-async function buildRepoCatalog(resolved) {
+async function buildRepoCatalog(resolved, { force = false } = {}) {
+  if (force) {
+    cachedReleases = null
+    lastReleasesFetchTime = 0
+    cachedPluginNpm = null
+    lastPluginNpmFetchTime = 0
+  }
   const ghReleases = await fetchGitHubReleases(resolved.repoOrigin, resolved.githubToken)
   const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
 
+  const registry = resolveNpmRegistry()
   let npmVersions = new Map()
   try {
     npmVersions = await fetchPluginNpmVersions(
       LOCAL_MONOREPO_PLUGINS.map((plugin) => plugin.name),
-      DEFAULT_NPM_REGISTRY,
+      registry,
+      { force },
     )
   } catch {
     npmVersions = new Map()
@@ -603,10 +614,7 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
       const shouldCheck = resolved.autoCheckUpdates || Boolean(payload && payload.force)
       if (shouldCheck) {
         try {
-          const ghReleases = await fetchGitHubReleases(resolved.repoOrigin, resolved.githubToken)
-          const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
-          catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
-          catalog = applyMirror(catalog, resolved.mirrorUrl)
+          catalog = await buildRepoCatalog(resolved, { force: Boolean(payload && payload.force) })
         } catch {
           catalog = resolveRepoCatalog(new Map(), resolved.repoOrigin)
         }
@@ -743,7 +751,7 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
     if (method === 'checkUpdates') {
       // npm registry 是发布事实本身，优先采用；GitHub Release 只作兜底，
       // 因为它的 tag/资产命名历史上出现过与 package.json 不一致的情况。
-      const repoCatalog = await buildRepoCatalog(resolved)
+      const repoCatalog = await buildRepoCatalog(resolved, { force: Boolean(payload && payload.force) })
       const pluginNames = LOCAL_MONOREPO_PLUGINS.map((p) => p.name)
       const installed = readInstalledList(pluginNames)
       const results = checkPluginUpdates(installed, repoCatalog)
@@ -771,6 +779,8 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
         lastReleasesFetchTime = 0
         cachedDshReleases = null
         lastDshReleasesFetchTime = 0
+        cachedPluginNpm = null
+        lastPluginNpmFetchTime = 0
       }
       if (Object.hasOwn(payload, 'communityCatalogUrl')) {
         cachedCommunity = null
@@ -1363,9 +1373,7 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
     try {
       let targets = []
       if (kind === 'repo') {
-        const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
-        const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
-        const catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
+        const catalog = await buildRepoCatalog(resolved, { force: true })
         const merged = mergeInstalledVersions(catalog)
         targets = merged.plugins.filter((p) => p.installedVersion && p.hasUpdate)
       } else {

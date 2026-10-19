@@ -753,6 +753,21 @@ describe('dsh-market RPC handler (network stubbed)', () => {
           }),
         }
       }
+      if (String(url).includes('dsh-model-roles') && (String(url).includes('%40weniatall') || String(url).includes('@weniatall'))) {
+        return {
+          ok: true,
+          json: async () => ({
+            name: '@weniatall/dsh-model-roles',
+            'dist-tags': { latest: '0.4.99' },
+            time: { '0.4.99': '2026-10-19T12:00:00.000Z' },
+            versions: {
+              '0.4.99': {
+                dist: { tarball: 'https://registry.npmjs.org/@weniatall/dsh-model-roles/-/dsh-model-roles-0.4.99.tgz' },
+              },
+            },
+          }),
+        }
+      }
       return { ok: false, status: 404, json: async () => ({}) }
     })
   })
@@ -779,6 +794,18 @@ describe('dsh-market RPC handler (network stubbed)', () => {
     assert.ok(res.value.plugins.length >= 7)
     assert.equal(typeof res.value.profile, 'string')
     assert.equal(typeof res.value.checkedAt, 'string')
+  })
+
+  it('getRepoPlugins adopts higher latest version from npm registry over GitHub release tags', async () => {
+    resetMarketCaches()
+    const res = await handleMarketRpc({}, { repoOrigin: 'veildawn/dsh-plugins' }, 'getRepoPlugins', { force: true })
+    assert.equal(res.ok, true)
+    const modelRoles = res.value.plugins.find((p) => p.name === 'dsh-model-roles')
+    assert.ok(modelRoles)
+    assert.equal(modelRoles.version, '0.4.99')
+    assert.equal(modelRoles.latestVersion, '0.4.99')
+    assert.equal(modelRoles.channel, 'npm')
+    assert.equal(modelRoles.installSource, '@weniatall/dsh-model-roles')
   })
 
   it('handles getCommunityPlugins RPC', async () => {

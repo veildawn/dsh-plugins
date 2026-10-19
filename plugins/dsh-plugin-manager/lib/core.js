@@ -220,6 +220,38 @@ export function installChannelOf(spec) {
 }
 
 /**
+ * 解析当前环境生效的 npm registry 地址。
+ * 优先级：
+ * 1. 环境变量 npm_config_registry / NPM_CONFIG_REGISTRY
+ * 2. profile 目录下的 .npmrc (registry=...)
+ * 3. DEFAULT_NPM_REGISTRY (https://registry.npmjs.org)
+ */
+export function resolveNpmRegistry({ home = findDshHome(), profile = findProfileName() } = {}) {
+  const envRegistry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY
+  if (typeof envRegistry === 'string' && envRegistry.trim().startsWith('http')) {
+    return envRegistry.trim().replace(/\/+$/, '')
+  }
+
+  try {
+    const npmrcPath = join(home, 'profiles', profile, '.npmrc')
+    if (existsSync(npmrcPath)) {
+      const text = readFileSync(npmrcPath, 'utf8')
+      for (const rawLine of text.split('\n')) {
+        const line = rawLine.trim()
+        if (line.startsWith('#') || !line.includes('=')) continue
+        const [k, ...v] = line.split('=')
+        if (k.trim() === 'registry') {
+          const val = v.join('=').trim()
+          if (val.startsWith('http')) return val.replace(/\/+$/, '')
+        }
+      }
+    }
+  } catch {}
+
+  return DEFAULT_NPM_REGISTRY
+}
+
+/**
  * 本仓库插件的 npm 包名清单（供版本检测批量查询用）。
  */
 export function monorepoNpmNames() {
