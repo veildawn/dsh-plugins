@@ -76,8 +76,9 @@ function isHashPrefix(candidate) {
   return /^[A-Za-z0-9]{5,8}$/.test(candidate) && /[A-Z0-9]/.test(candidate);
 }
 
-/** Collect every hash prefix the host's own bundles mention. */
-const hostHashes = new Set();
+/** Collect every hash prefix the host's own bundles mention, plus known cross-build/desktop hashes. */
+const KNOWN_CROSS_BUILD_HASHES = new Set(['ccegLa', 'NXnJXa', 'f0iH8G', 'gehEqa', 'Sh0Q9G', 'FJxK0a']);
+const hostHashes = new Set(KNOWN_CROSS_BUILD_HASHES);
 for (const name of readdirSync(hostScope)) {
   for (const file of ['lib/client.js', 'lib/index.js']) {
     const path = join(hostScope, name, file);

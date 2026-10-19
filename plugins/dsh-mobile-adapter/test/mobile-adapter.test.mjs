@@ -358,6 +358,8 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.doesNotMatch(css, /\.ccegLa_tools\{[^}]*overflow-y:hidden/)
   assert.match(css, /\.ccegLa_trailing\{flex:none;max-width:calc\(100% - 36px\);margin-left:auto;[^}]*gap:6px!important/)
   assert.match(css, /.ccegLa_add{display:none!important}/)
+  assert.match(css, /\.uV2eYG_add,[^}]*\[class\*="_add"\][^}]*\{display:none!important\}/)
+  assert.match(css, /button\[aria-haspopup="listbox"\]/)
   assert.match(css, /.dsh-mobile-upload-btn[^{]*{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /.ccegLa_primary{[^}]*width:32px!important;[^}]*height:32px!important;[^}]*min-width:32px!important;[^}]*min-height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /.ccegLa_primary{transform:none!important}/)
@@ -914,5 +916,47 @@ test('tools button mounts reliably with new and old host tools container class n
     globalThis.MutationObserver = previous.MutationObserver
   }
 })
+
+test('mobile view permanently hides the add button via CSS and JS fallback', async () => {
+  const css = client.internals.css
+  assert.match(css, /\.ccegLa_add\{display:none!important\}/)
+  assert.match(css, /\.uV2eYG_add,[^}]*\{display:none!important\}/)
+  assert.match(css, /\[data-composer-card\]\s*\[class\*="_add"\]/)
+  assert.match(css, /\[data-composer-card\]\s*button\[aria-haspopup="listbox"\]/)
+
+  const f = fixture()
+  const addBtn = new Element('button', f.doc)
+  addBtn.className = 'uV2eYG_add'
+  addBtn.setAttribute('aria-haspopup', 'listbox')
+  f.doc.tools.append(addBtn)
+
+  const origQS = f.doc.querySelector.bind(f.doc)
+  f.doc.querySelector = (sel) => {
+    if (sel.includes('_add') || sel.includes('listbox')) return addBtn
+    return origQS(sel)
+  }
+
+  const previous = {
+    document: globalThis.document,
+    window: globalThis.window,
+    MutationObserver: globalThis.MutationObserver,
+  }
+  globalThis.document = f.doc
+  globalThis.window = f.win
+  globalThis.MutationObserver = f.Observer
+  try {
+    client.apply(f.ctx)
+    f.doc.notifyMutation()
+    assert.equal(addBtn.style.getPropertyValue('display'), 'none')
+
+    f.cleanup()
+    assert.equal(addBtn.style.getPropertyValue('display'), '')
+  } finally {
+    globalThis.document = previous.document
+    globalThis.window = previous.window
+    globalThis.MutationObserver = previous.MutationObserver
+  }
+})
+
 
 

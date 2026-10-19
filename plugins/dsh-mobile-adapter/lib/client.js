@@ -127,6 +127,7 @@ window.__ModuleLoader__.load({
         .ccegLa_modes{flex:none;flex-wrap:nowrap!important;align-items:center;gap:4px!important;overflow:visible!important}
         .ccegLa_trailing{flex:none;max-width:calc(100% - 36px);margin-left:auto;justify-content:flex-end;gap:6px!important;overflow:visible}
         .ccegLa_add{display:none!important}
+        .uV2eYG_add,[data-composer-card] [class*="_add"],[data-composer-card] button[aria-haspopup="listbox"],button[aria-label*="指令"],button[aria-label*="commands" i]{display:none!important}
         /* Unified Mobile Action Button Spec (32x32 round circle, subtle background, clean border, centered icon) */
         .dsh-mobile-upload-btn,
         .dsh-mobile-tools-btn,
@@ -728,6 +729,10 @@ window.__ModuleLoader__.load({
           const toolsEl = doc.querySelector('[data-composer-card] .ccegLa_tools, [data-composer-card] .uV2eYG_tools, [data-composer-card] [class*="_tools"]')
           if (toolsEl) {
             if (!toolsEl.contains(uploadBtn)) toolsEl.prepend(uploadBtn)
+            const addBtn = doc.querySelector('[data-composer-card] .ccegLa_add, [data-composer-card] .uV2eYG_add, [data-composer-card] [class*="_add"], [data-composer-card] button[aria-haspopup="listbox"]')
+            if (addBtn && addBtn.style?.display !== 'none') {
+              addBtn.style.setProperty('display', 'none')
+            }
             const hasFv = typeof win.__dsh_open_file_viewer === 'function' || doc.querySelector('button[aria-label="查看项目文件"], button[title="查看项目文件"]') != null
             const hasTerm = typeof win.__dsh_open_terminal === 'function' || doc.querySelector('button[aria-label="打开本地终端"], button[title="打开本地终端"]') != null
             const hasPh = typeof win.__dsh_open_prompt_history === 'function' || doc.querySelector('button[aria-label="提示词历史"], button[title="提示词历史"]') != null
@@ -768,6 +773,10 @@ window.__ModuleLoader__.load({
           toolsBtn.remove()
           closeToolsMenu()
           infoEl.remove()
+          const addBtn = doc.querySelector('[data-composer-card] .ccegLa_add, [data-composer-card] .uV2eYG_add, [data-composer-card] [class*="_add"], [data-composer-card] button[aria-haspopup="listbox"]')
+          if (addBtn && typeof addBtn.style?.removeProperty === 'function') {
+            addBtn.style.removeProperty('display')
+          }
         }
       }
 
@@ -981,6 +990,10 @@ window.__ModuleLoader__.load({
         toolsBackdrop.remove()
         toolsMenu.remove()
         infoEl.remove()
+        const addBtn = doc.querySelector('[data-composer-card] .ccegLa_add, [data-composer-card] .uV2eYG_add, [data-composer-card] [class*="_add"], [data-composer-card] button[aria-haspopup="listbox"]')
+        if (addBtn && typeof addBtn.style?.removeProperty === 'function') {
+          addBtn.style.removeProperty('display')
+        }
       }
     }
 
