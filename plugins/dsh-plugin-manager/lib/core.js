@@ -723,6 +723,38 @@ export function resolveInstalledVersion(installedMap, entry) {
 }
 
 /**
+ * Resolve the package name a `dsh plugin remove` / `pnpm remove` must target.
+ *
+ * The UI hands over whatever the catalog entry carries, which for repo plugins
+ * may be the unscoped short name (`dsh-model-roles`) even though the profile
+ * declares the scoped package (`@weniatall/dsh-model-roles`). Passing the short
+ * name to `pnpm remove` fails with "Command failed with exit code 1" because no
+ * such dependency exists.
+ *
+ * The profile's own dependency keys are authoritative: pick the declared key
+ * that matches the requested name in any of its historical spellings, and fall
+ * back to the scoped form when nothing is declared.
+ *
+ * @param name - Requested name, scoped or short.
+ * @param dependencies - Record from readProfileDependencies.
+ * @returns the name to remove, or null when the input is not a valid package name.
+ */
+export function resolveRemoveTarget(name, dependencies = {}) {
+  const valid = safePackageName(name)
+  if (!valid) return null
+  const scoped = valid.startsWith('@') ? valid : npmNameOf(valid)
+  const bare = valid.startsWith('@') ? valid.slice(valid.indexOf('/') + 1) : valid
+  const wanted = [scoped.toLowerCase(), bare.toLowerCase()]
+
+  for (const key of Object.keys(dependencies || {})) {
+    if (typeof key !== 'string') continue
+    const lowered = key.toLowerCase()
+    if (wanted.includes(lowered)) return key
+  }
+  return scoped
+}
+
+/**
  * Attach installed-version facts (installedVersion / hasUpdate) to a repo catalog.
  */
 export function mergeInstalledVersions(catalog, { home = findDshHome(), profile = findProfileName() } = {}) {

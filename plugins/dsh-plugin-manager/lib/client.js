@@ -403,6 +403,22 @@ window.__ModuleLoader__.load({
       return npmNameOf(plugin.name);
     }
 
+    /**
+     * 卸载时要移除的包名，规则必须与 installSourceOf 对称。
+     *
+     * 仓库插件的 catalog 条目带的是短名 `name` 与 scoped 的 `npmName`；
+     * 若按短名卸载，`pnpm remove dsh-model-roles` 会因 profile 里声明的是
+     * `@weniatall/dsh-model-roles` 而失败（exit 1）。宿主侧
+     * resolveRemoveTarget 会再按 profile 实际声明的键纠正一次，两处都做
+     * 兜底才能在名称形态不一致时稳定卸载。
+     */
+    function removeTargetOf(plugin, kind) {
+      if (kind === "community") return plugin.npm || plugin.name;
+      if (plugin.npmName) return plugin.npmName;
+      if (plugin.installSource) return plugin.installSource;
+      return npmNameOf(plugin.name);
+    }
+
     function apply(ctx) {
       if (typeof document !== "undefined" && !document.getElementById(NAV_STYLE_ID)) {
         const style = document.createElement("style");
@@ -1032,7 +1048,7 @@ window.__ModuleLoader__.load({
                     className: "dm-action-btn danger",
                     type: "button",
                     disabled: busy,
-                    onClick: () => void startRemove(plugin.npm || plugin.name),
+                    onClick: () => void startRemove(removeTargetOf(plugin, kind)),
                   }, "卸载") : null,
                   btnLabel && canInstall ? react.createElement("button", {
                     className: btnClass,

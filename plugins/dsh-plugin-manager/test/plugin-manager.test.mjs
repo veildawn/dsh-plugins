@@ -1556,8 +1556,33 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(task.kind, 'remove')
     assert.equal(captured.calls.length, 1)
     assert.equal(captured.calls[0].cmd, 'dsh')
-    assert.deepEqual(captured.calls[0].args, ['plugin', '--profile', 'web', 'remove', 'dsh-model-roles'])
+    /*
+     * 回归：UI 传来的可能是无 scope 短名，但 profile 里声明的是 scope 包名。
+     * 用短名跑 `pnpm remove` 会 exit 1（线上日志里只有
+     * "Command failed with exit code 1: pnpm remove dsh-model-roles"），
+     * 因此这里必须以 scope 包名为准。
+     */
+    assert.deepEqual(captured.calls[0].args, ['plugin', '--profile', 'web', 'remove', '@weniatall/dsh-model-roles'])
     assert.equal(task.log.some((l) => l.includes('plugin') && l.includes('remove')), true)
+  })
+
+  it('removes the exact scoped dependency key declared by the profile', async () => {
+    await sleep(100)
+    // profile 里声明的是 scope 包名，UI 却传来短名 —— 这正是线上报错的场景。
+    writeFileSync(join(testHome, 'profiles', 'web', 'package.json'), JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies: { '@weniatall/dsh-model-roles': '^0.4.32' },
+    }))
+    try {
+      captured.calls.length = 0
+      const res = handleRemovePlugin({}, { name: 'dsh-model-roles' }, { spawnFn: fakeSpawn })
+      assert.equal(res.ok, true)
+      const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+      assert.equal(task.status, 'success')
+      assert.deepEqual(captured.calls[0].args, ['plugin', '--profile', 'web', 'remove', '@weniatall/dsh-model-roles'])
+    } finally {
+      rmSync(join(testHome, 'profiles', 'web', 'package.json'), { force: true })
+    }
   })
 
   it('rejects invalid plugin names for removePlugin', () => {

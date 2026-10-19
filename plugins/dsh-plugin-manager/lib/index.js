@@ -58,6 +58,8 @@ import {
   formatPluginCliCommand,
   buildReleaseDownloadUrl,
   npmNameOf,
+  resolveRemoveTarget,
+  readProfileDependencies,
   installChannelOf,
   isNpmRegistrySpec,
   monorepoNpmNames,
@@ -1379,8 +1381,8 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
 export function handleRemovePlugin(options, payload, deps = {}) {
   if (payload === null || typeof payload !== 'object') return errorResult('removePlugin requests must carry an object')
   const rawName = typeof payload.name === 'string' ? payload.name.trim() : ''
-  const name = safePackageName(rawName)
-  if (!name) return errorResult('removePlugin requires a valid package name')
+  const requested = safePackageName(rawName)
+  if (!requested) return errorResult('removePlugin requires a valid package name')
 
   if (activeTaskId) {
     const active = installTasks.get(activeTaskId)
@@ -1389,6 +1391,13 @@ export function handleRemovePlugin(options, payload, deps = {}) {
 
   const profile = safeProfileName(findProfileName())
   if (!profile) return errorResult('无法解析当前 profile 名称，已拒绝卸载')
+
+  /*
+   * 前端可能传来无 scope 的短名（`dsh-model-roles`），而 profile 里声明的是
+   * scope 包名（`@weniatall/dsh-model-roles`）。直接拿短名跑 `pnpm remove`
+   * 会因依赖不存在而 exit 1，因此以 profile 实际声明的键为准解析一次。
+   */
+  const name = resolveRemoveTarget(requested, readProfileDependencies({ profile })) || requested
 
   const taskId = `task-rm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   const task = {
