@@ -211,7 +211,7 @@ window.__ModuleLoader__.load({
     }
 
     const css = `
-      .dm-container{display:flex;flex-direction:column;gap:14px;width:100%;max-width:960px;min-width:0;overflow-x:hidden;color:var(--dsw-alias-label-primary,#1f2328);font-family:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);color-scheme:light dark;-webkit-tap-highlight-color:transparent}
+      .dm-container{display:flex;flex-direction:column;gap:14px;width:100%;max-width:960px;min-width:0;overflow-x:hidden;color:var(--dsw-alias-label-primary,#1f2328);font-family:var(--dsw-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);-webkit-tap-highlight-color:transparent}
       .dm-container button,.dm-container input:not([type="checkbox"]),.dm-container a.dm-action-btn{-webkit-appearance:none;appearance:none;font-family:inherit;color:inherit;min-width:0;min-height:0}
       .dm-container button{margin:0}
       .dm-title{font-size:16px;font-weight:500;line-height:24px;margin:0;display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-primary,#1f2328)}

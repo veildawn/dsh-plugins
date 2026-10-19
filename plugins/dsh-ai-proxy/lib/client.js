@@ -45,7 +45,7 @@ window.__ModuleLoader__.load({
     ];
 
     const uiCss = `
-      .ai-proxy-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:720px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
+      .ai-proxy-settings{display:flex;flex-direction:column;gap:12px;width:100%;max-width:720px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family)}
       .ai-proxy-settings h2{margin:0;font:var(--dsw-font-l-20)}.ai-proxy-intro{margin:0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14)}
       .ai-proxy-field{display:flex;flex-direction:column;gap:6px}.ai-proxy-label{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14);font-weight:500}
       .ai-proxy-input{box-sizing:border-box;width:100%;height:36px;padding:0 12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}

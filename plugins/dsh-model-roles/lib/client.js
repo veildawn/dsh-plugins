@@ -58,7 +58,7 @@ window.__ModuleLoader__.load({
     const INTRO_TEXT = "系统会自动为任务选择合适模型；未命中已配置角色时使用当前会话选择的模型。";
     const ADVISOR_HELP_TEXT = "请先为顾问选择模型。";
     const css = `
-      .mr-page{display:flex;flex-direction:column;gap:14px;width:100%;max-width:780px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
+      .mr-page{display:flex;flex-direction:column;gap:14px;width:100%;max-width:780px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family)}
       .mr-page h2,.mr-page h3,.mr-page p{margin:0}.mr-page h2{font:var(--dsw-font-l-20)}.mr-intro{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14);line-height:20px}
       .mr-list{display:flex;flex-direction:column;gap:10px}.mr-card{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-l,12px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform))}
       .mr-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.mr-title{font:var(--dsw-font-m-16);font-weight:600}.mr-detail{margin-top:3px!important;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}.mr-grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(150px,1fr);gap:10px}

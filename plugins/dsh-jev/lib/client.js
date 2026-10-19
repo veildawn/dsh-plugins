@@ -27,7 +27,7 @@ window.__ModuleLoader__.load({
     const DEFAULT_ENDPOINTS = { manual: "/v1/systemone", provider: "/v1/decisions" };
 
     const css = `
-      .jev-settings{display:flex;flex-direction:column;gap:14px;width:100%;max-width:760px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
+      .jev-settings{display:flex;flex-direction:column;gap:14px;width:100%;max-width:760px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family)}
       .jev-settings h2,.jev-settings p{margin:0}
       .jev-settings h2{font:var(--dsw-font-l-20);display:flex;align-items:center;gap:8px}
       .jev-intro{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14);line-height:20px}

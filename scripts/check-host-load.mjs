@@ -62,13 +62,54 @@ function collectHostServices(hostModules) {
   const services = new Set();
   const scope = join(hostModules, '@deepseek-ai');
   for (const name of readdirSync(scope)) {
-    const lib = join(scope, name, 'lib', 'index.js');
-    if (!existsSync(lib)) continue;
-    const source = readFileSync(lib, 'utf8');
-    for (const match of source.matchAll(/super\(\s*[A-Za-z_$][\w$]*\s*,\s*["']([a-zA-Z.]+)["']/g)) services.add(match[1]);
-    for (const match of source.matchAll(/(?:ctx\.)?provide\(\s*["']([a-zA-Z.]+)["']/g)) services.add(match[1]);
+    // 子路径入口同样会 provide 服务：web-app 的 `webStartup` 来自
+    // package.json exports 的 `./startup` -> lib/startup.js，只在 lib/ 下
+    // 找 index.js 会漏掉它，导致所有 inject webStartup 的插件被误判。
+    const packageDir = join(scope, name);
+    for (const file of hostEntryFiles(packageDir)) {
+      const source = readFileSync(file, 'utf8');
+      for (const match of source.matchAll(/super\(\s*[A-Za-z_$][\w$]*\s*,\s*["']([a-zA-Z.]+)["']/g)) services.add(match[1]);
+      for (const match of source.matchAll(/(?:ctx\.)?provide\(\s*["']([a-zA-Z.]+)["']/g)) services.add(match[1]);
+      // provide(SOME_CONST, ...) 也是常见写法（如 web-app 的
+      // `ctx.provide(WEB_STARTUP_SERVICE, …)`），按同文件内的常量声明还原。
+      for (const match of source.matchAll(/(?:ctx\.)?provide\(\s*([A-Za-z_$][\w$]*)\s*[,)]/g)) {
+        const constant = new RegExp('(?:const|let|var)\\s+' + match[1] + '\\s*=\\s*["\']([a-zA-Z.]+)["\']').exec(source);
+        if (constant !== null) services.add(constant[1]);
+      }
+    }
   }
   return services;
+}
+
+/** 宿主包可供扫描的入口文件：lib/index.js 加上 exports 里其余 .js 子路径。 */
+function hostEntryFiles(packageDir) {
+  const files = new Set();
+  const libIndex = join(packageDir, 'lib', 'index.js');
+  if (existsSync(libIndex)) files.add(libIndex);
+  const manifestPath = join(packageDir, 'package.json');
+  if (!existsSync(manifestPath)) return files;
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return files;
+  }
+  for (const target of exportsTargets(manifest.exports)) {
+    // 只收包内相对路径的 .js 文件，跳过通配与 node_modules 之外的引用。
+    if (typeof target !== 'string' || target.includes('*')) continue;
+    const resolved = join(packageDir, target);
+    if (!resolved.startsWith(packageDir) || !resolved.endsWith('.js')) continue;
+    if (existsSync(resolved)) files.add(resolved);
+  }
+  return files;
+}
+
+/** 展开 exports 字段（字符串 / 条件对象 / 子路径映射）里的目标路径。 */
+function exportsTargets(value, collected = []) {
+  if (typeof value === 'string') collected.push(value);
+  else if (Array.isArray(value)) for (const item of value) exportsTargets(item, collected);
+  else if (value !== null && typeof value === 'object') for (const item of Object.values(value)) exportsTargets(item, collected);
+  return collected;
 }
 
 /**

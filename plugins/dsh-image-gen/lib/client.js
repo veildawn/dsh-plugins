@@ -21,7 +21,7 @@ window.__ModuleLoader__.load({
     const RPC_CHANNEL = "/dsh-image-gen-settings";
 
     const css = `
-      .img-settings{display:flex;flex-direction:column;gap:14px;width:100%;max-width:760px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
+      .img-settings{display:flex;flex-direction:column;gap:14px;width:100%;max-width:760px;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family)}
       .img-settings h2,.img-settings p{margin:0}
       .img-settings h2{font:var(--dsw-font-l-20);display:flex;align-items:center;gap:8px}
       .img-intro{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14);line-height:20px}

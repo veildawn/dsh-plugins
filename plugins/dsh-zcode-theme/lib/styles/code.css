@@ -1,14 +1,22 @@
 /* Code Block 是一级组件：官方容器为 bg-background + 圆角，头部 banner 用 panel 层。
-   不用品牌色，避免代码块变成彩色块。 */
+   不用品牌色，避免代码块变成彩色块。
+   注意只认宿主 Markdown 渲染出来的代码块容器（.md-code-block 及其内部 pre）：
+   裸 `pre` 会把插件的任务日志框（如插件管理的 .dm-install-log）一并改写成
+   代码块皮肤，日志背景与文字色被主题接管后反而更难读。 */
 [data-dsh-theme="zcode"] .md-code-block,
-[data-dsh-theme="zcode"] pre,
-[data-dsh-theme="zcode"] [class*="_code"] {
+[data-dsh-theme="zcode"] .md-code-block pre {
   background: var(--color-background);
   border: 1px solid var(--color-border);
   border-radius: 12px;
   /* Shiki 代码高亮作用域内，默认文字与注释跟随主题色阶 */
   --shiki-foreground: var(--color-foreground);
   --shiki-token-comment: var(--color-foreground-subtle);
+}
+
+/* 代码块内部由 .md-code-block 提供外框，内层 pre 不再重复描边圆角。 */
+[data-dsh-theme="zcode"] .md-code-block pre {
+  border: 0;
+  border-radius: 0;
 }
 
 [data-dsh-theme="zcode"] .md-code-block [class*="_banner"],

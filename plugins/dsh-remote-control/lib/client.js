@@ -83,7 +83,7 @@ window.__ModuleLoader__.load({
     const inject = ["slots", "connection"];
 
     const uiCss = `
-      .dsh-remote-gate,.dsh-remote-settings{color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);color-scheme:light dark}
+      .dsh-remote-gate,.dsh-remote-settings{color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family)}
       .dsh-remote-gate{position:fixed;inset:0;z-index:2147483647;display:grid;min-height:100dvh;place-items:center;overflow:auto;padding:24px;box-sizing:border-box;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-base))}
       .dsh-remote-gate-mask{position:absolute;inset:0;background:var(--dsw-alias-background-overlay,var(--dsw-alias-bg-mask-1));backdrop-filter:var(--dsw-mask-blur);-webkit-backdrop-filter:var(--dsw-mask-blur)}
       .dsh-remote-gate-card{position:relative;width:min(100%,430px);box-sizing:border-box;padding:24px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-xl,24px);background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));box-shadow:var(--dsw-shadow-lv3);animation:dsh-remote-gate-in var(--ds-transition-duration) var(--ds-ease-in-out)}
