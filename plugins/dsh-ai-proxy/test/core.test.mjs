@@ -15,6 +15,7 @@ const {
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey, buildProviderProfile,
   extractEffortRungs,
   routeCompatFor,
+  isGeminiModel, isGemini3Model, sanitizeGeminiSchema, sanitizeGeminiTools, sanitizeWindowsPathText, sanitizeGeminiMessages,
 } = internals
 
 test('pkcePair: verifier/challenge/state shapes and S256 binding', () => {
@@ -460,4 +461,148 @@ test('settingsBase: the legacy seam receives raw config, never live references',
   const entryConfig = { baseURL: 'http://localhost:18080', clientId: 'dsh' }
   assert.deepEqual(settingsBase({ fiber: { entry: { options: { config: entryConfig } } } }, resolved), entryConfig)
   assert.deepEqual(settingsBase({ fiber: undefined }, undefined), {})
+})
+
+test('isGeminiModel & isGemini3Model: identifies Gemini models accurately', () => {
+  assert.equal(isGeminiModel('gemini-3.8-flash'), true)
+  assert.equal(isGeminiModel('gemini-2.5-flash'), true)
+  assert.equal(isGeminiModel('gemini/gemini-3-pro'), true)
+  assert.equal(isGeminiModel('deepseek-v4.1-flash'), false)
+  assert.equal(isGeminiModel('step-5-preview'), false)
+  assert.equal(isGeminiModel(undefined), false)
+
+  assert.equal(isGemini3Model('gemini-3.8-flash'), true)
+  assert.equal(isGemini3Model('gemini-3.8-flash-high'), true)
+  assert.equal(isGemini3Model('gemini-3.1-pro-preview'), true)
+  assert.equal(isGemini3Model('gemini-3-flash'), true)
+  assert.equal(isGemini3Model('gemini-2.5-flash'), false)
+  assert.equal(isGemini3Model('deepseek-v4.1-flash'), false)
+})
+
+test('sanitizeGeminiSchema: purges $schema, strips type:null from anyOf, normalizes type arrays', () => {
+  const schema = {
+    $schema: 'http://json-schema.org/draft-07/schema#',
+    $id: 'https://example.com/schema.json',
+    type: 'object',
+    properties: {
+      region: {
+        description: 'Crop bounds',
+        anyOf: [
+          { type: 'array', items: { type: 'integer' } },
+          { type: 'null' },
+        ],
+      },
+      status: {
+        type: ['string', 'null'],
+      },
+      multiUnion: {
+        oneOf: [
+          { type: 'string' },
+          { type: 'number' },
+          { type: 'null' },
+        ],
+      },
+    },
+  }
+
+  const cleaned = sanitizeGeminiSchema(schema)
+  assert.equal(cleaned.$schema, undefined)
+  assert.equal(cleaned.$id, undefined)
+  assert.deepEqual(cleaned.properties.region, {
+    description: 'Crop bounds',
+    type: 'array',
+    items: { type: 'integer' },
+    nullable: true,
+  })
+  assert.equal(cleaned.properties.status.type, 'string')
+  assert.equal(cleaned.properties.status.nullable, true)
+  assert.deepEqual(cleaned.properties.multiUnion, {
+    oneOf: [
+      { type: 'string' },
+      { type: 'number' },
+    ],
+    nullable: true,
+  })
+})
+
+test('sanitizeGeminiTools: cleans parameters for all tools in list', () => {
+  const tools = [
+    {
+      name: 'computer_use_zoom',
+      description: 'Zoom into screen region',
+      parameters: {
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        type: 'object',
+        properties: {
+          region: {
+            anyOf: [{ type: 'string' }, { type: 'null' }],
+          },
+        },
+      },
+    },
+    {
+      name: 'simple_tool',
+      description: 'Simple tool without nullable unions',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+        },
+      },
+    },
+  ]
+
+  const cleaned = sanitizeGeminiTools(tools)
+  assert.equal(cleaned[0].parameters.$schema, undefined)
+  assert.equal(cleaned[0].parameters.properties.region.type, 'string')
+  assert.equal(cleaned[0].parameters.properties.region.nullable, true)
+  assert.equal(cleaned[1].parameters.properties.query.type, 'string')
+})
+
+test('sanitizeWindowsPathText: cleans verbose host-local attachment copy paths', () => {
+  const raw = 'The approval policy changed from "ask" to "never" (changed by the user). Image "image.png" (sha256:84179d5bef613c245de7a5cf6a3f04c248e6b2625457ca0a0ef05d65a2f64f19); request preview 418x150px. Normalized copy (read-only; may be resized or re-encoded): "C:\\Users\\weni09\\.dsh\\attachments\\84179d5bef613c245de7a5cf6a3f04c248e6b2625457ca0a0ef05d65a2f64f19.png" (418x150px, image/png). Source dimensions, format, and byte size may differ. Copy to a writable path ending in .png before editing.'
+  const cleaned = sanitizeWindowsPathText(raw)
+  assert.equal(
+    cleaned.trim(),
+    'The approval policy changed from "ask" to "never" (changed by the user). Image "image.png" (sha256:84179d5bef613c245de7a5cf6a3f04c248e6b2625457ca0a0ef05d65a2f64f19); request preview 418x150px.'
+  )
+})
+
+test('sanitizeGeminiMessages: degrades historical tool calls and tool results to text to avoid thought_signature 400', () => {
+  const messages = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: '请执行命令' }],
+    },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: '好的，我来执行：' },
+        {
+          type: 'tool-call',
+          id: 'call_123',
+          name: 'default_api:bash',
+          arguments: '{"command":"ls"}',
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      toolCallId: 'call_123',
+      content: [{ type: 'text', text: 'file1.txt\nfile2.txt' }],
+    },
+  ]
+
+  const cleaned = sanitizeGeminiMessages(messages)
+  assert.equal(cleaned.length, 3)
+  assert.equal(cleaned[0].role, 'user')
+  assert.equal(cleaned[1].role, 'assistant')
+  // tool-call degraded to text block
+  assert.equal(cleaned[1].content[0].type, 'text')
+  assert.equal(cleaned[1].content[1].type, 'text')
+  assert.match(cleaned[1].content[1].text, /\[Called tool: default_api:bash\({"command":"ls"}\)\]/)
+  // tool role degraded to user role with clear context text
+  assert.equal(cleaned[2].role, 'user')
+  assert.equal(cleaned[2].content[0].type, 'text')
+  assert.match(cleaned[2].content[0].text, /\[Tool result for call_123\]:\nfile1\.txt\nfile2\.txt/)
 })

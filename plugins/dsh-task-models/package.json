@@ -1,7 +1,7 @@
 {
   "name": "@weniatall/dsh-task-models",
-  "version": "0.2.1",
-  "description": "Per-task-type subagent model routing for DeepSeek Harness, optional TypeSafe Jev decisions, and workflow member model labels",
+  "version": "0.2.2",
+  "description": "子任务模型路由插件：按任务类型为子代理选择模型，规则命中零额外调用，可选 TypeSafe Jev 决策与轻量分类回退，并标注 workflow 成员实际模型。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

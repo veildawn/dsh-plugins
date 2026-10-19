@@ -305,6 +305,33 @@ describe('dsh-market releases formatting and updates detection', () => {
     assert.ok(promptHist)
     assert.equal(promptHist.title, '提示词历史与修改重发')
     assert.ok(promptHist.description.includes('提示词历史导航'))
+
+    // dsh-task-models 必须走静态清单而不是「动态发现」分支：否则卡片会退回
+    // 英文包名标题 + 英文 package.json 描述。
+    const taskModels = catalog.find((p) => p.name === 'dsh-task-models')
+    assert.ok(taskModels)
+    assert.equal(taskModels.title, '子任务模型路由')
+    assert.ok(taskModels.description.includes('按任务类型为子代理选择模型'))
+  })
+
+  it('keeps every repo plugin card title and description in Chinese', () => {
+    // 动态发现分支用 `title: name`、用 Release 说明首行当描述，二者都是英文，
+    // 所以每个自有插件都必须在静态清单里登记中文元数据。
+    const catalog = resolveRepoCatalog(new Map([
+      ['dsh-brand-new-plugin', {
+        name: 'dsh-brand-new-plugin',
+        version: '1.0.0',
+        downloadUrl: 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-brand-new-plugin@v1.0.0/dsh-brand-new-plugin-1.0.0.tgz',
+        releaseNotes: 'Brand new official plugin released',
+      }],
+    ]))
+
+    for (const plugin of catalog) {
+      if (plugin.name === 'dsh-brand-new-plugin') continue // 未登记的新插件走动态发现
+      assert.notEqual(plugin.title, plugin.name, `${plugin.name} 缺少中文标题`)
+      assert.match(plugin.title, /[\u4e00-\u9fa5]/, `${plugin.name} 标题必须为中文: ${plugin.title}`)
+      assert.match(plugin.description, /[\u4e00-\u9fa5]/, `${plugin.name} 描述必须为中文: ${plugin.description}`)
+    }
   })
 
   it('dynamically discovers newly added repo plugins not in hardcoded base list', () => {

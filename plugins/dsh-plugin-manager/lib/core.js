@@ -386,6 +386,19 @@ export const LOCAL_MONOREPO_PLUGINS = [
     path: 'plugins/dsh-image-gen',
     isRepoPlugin: true,
   },
+  {
+    id: 'dsh-task-models',
+    name: 'dsh-task-models',
+    title: '子任务模型路由',
+    description: '按任务类型为子代理选择模型：规则命中零额外调用，可选 TypeSafe Jev 决策与轻量分类回退，并标注 workflow 成员实际模型。',
+    author: 'veildawn',
+    category: 'ai',
+    tags: ['task-models', 'subagent', 'routing', 'jev', 'workflow'],
+    icon: 'branch',
+    repo: 'veildawn/dsh-plugins',
+    path: 'plugins/dsh-task-models',
+    isRepoPlugin: true,
+  },
 ]
 
 /**

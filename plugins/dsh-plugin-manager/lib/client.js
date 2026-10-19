@@ -369,6 +369,7 @@ window.__ModuleLoader__.load({
       { id: "dsh-zcode-theme", name: "dsh-zcode-theme", title: "ZCode 全平台视觉主题", description: "ZCode Design System：深炭灰画布、暖橙红品牌色，Desktop / Tablet / Mobile 共享同一套视觉 Token。", author: "veildawn", category: "ui", version: "0.1.30", latestVersion: "0.1.30", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.1.30/dsh-zcode-theme-0.1.30.tgz", isRepoPlugin: true },
       { id: "dsh-jev", name: "dsh-jev", title: "TypeSafe Jev 决策模型", description: "TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key。", author: "veildawn", category: "ai", version: "0.1.5", latestVersion: "0.1.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.5/dsh-jev-0.1.5.tgz", isRepoPlugin: true },
       { id: "dsh-image-gen", name: "dsh-image-gen", title: "文生图与图像生成", description: "DSH 原生文生图插件，支持配置/下拉提供商与模型、尺寸与画质选择，内置 HTTP/HTTPS/SOCKS5 代理。", author: "veildawn", category: "ai", version: "0.1.0", latestVersion: "0.1.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-image-gen@v0.1.0/dsh-image-gen-0.1.0.tgz", isRepoPlugin: true },
+      { id: "dsh-task-models", name: "dsh-task-models", title: "子任务模型路由", description: "按任务类型为子代理选择模型：规则命中零额外调用，可选 TypeSafe Jev 决策与轻量分类回退，并标注 workflow 成员实际模型。", author: "veildawn", category: "ai", version: "0.2.2", latestVersion: "0.2.2", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.2.2/dsh-task-models-0.2.2.tgz", isRepoPlugin: true },
     ];
 
     /**

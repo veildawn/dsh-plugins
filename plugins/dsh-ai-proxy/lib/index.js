@@ -326,6 +326,181 @@ export function streamOptionsWithPreferredEffort(streamOptions, efforts, configu
   return { ...streamOptions, reasoningEffort: ReasoningEffortId(target) }
 }
 
+/** Check whether a model identifier represents any Google Gemini model. */
+export function isGeminiModel(modelId) {
+  if (typeof modelId !== 'string') return false
+  return modelId.toLowerCase().includes('gemini')
+}
+
+/** Check whether a model identifier represents a Gemini 3+ model. */
+export function isGemini3Model(modelId) {
+  if (typeof modelId !== 'string') return false
+  const lower = modelId.toLowerCase()
+  return /gemini-?3(?:\.\d+)?-(?:pro|flash)/.test(lower) ||
+    lower.includes('gemini-3') ||
+    lower.startsWith('gemini-3')
+}
+
+/**
+ * Recursively cleans JSON Schema parameters for Gemini API compatibility:
+ * 1. Strips meta-keywords ($schema, $id, definitions, etc.)
+ * 2. Purges `type: "null"` from `anyOf` / `oneOf` unions to prevent 400 Bad Request
+ * 3. Normalizes `type: ["string", "null"]` into `type: "string", nullable: true`
+ */
+export function sanitizeGeminiSchema(schema) {
+  if (!schema || typeof schema !== 'object') return schema
+  if (Array.isArray(schema)) {
+    return schema.map(sanitizeGeminiSchema)
+  }
+
+  const out = {}
+  for (const [k, v] of Object.entries(schema)) {
+    if (k === '$schema' || k === '$id' || k === '$defs' || k === 'definitions') {
+      continue
+    }
+    out[k] = sanitizeGeminiSchema(v)
+  }
+
+  // Handle type arrays like ["string", "null"] -> "string" + nullable: true
+  if (Array.isArray(out.type)) {
+    const nonNull = out.type.filter((t) => t !== 'null')
+    out.type = nonNull.length === 1 ? nonNull[0] : (nonNull.length > 0 ? nonNull[0] : 'string')
+    out.nullable = true
+  }
+
+  // Handle anyOf / oneOf containing null branches
+  for (const unionKey of ['anyOf', 'oneOf']) {
+    if (Array.isArray(out[unionKey])) {
+      const branches = out[unionKey]
+      const nonNull = branches.filter((branch) => !(branch && typeof branch === 'object' && branch.type === 'null'))
+      if (nonNull.length !== branches.length) {
+        if (nonNull.length === 1) {
+          const single = sanitizeGeminiSchema(nonNull[0])
+          delete out[unionKey]
+          Object.assign(out, single)
+          out.nullable = true
+        } else if (nonNull.length > 1) {
+          out[unionKey] = nonNull.map(sanitizeGeminiSchema)
+          out.nullable = true
+        } else {
+          delete out[unionKey]
+          out.type = 'string'
+          out.nullable = true
+        }
+      }
+    }
+  }
+
+  return out
+}
+
+/** Clean all tool definitions in a stream request for Gemini compatibility. */
+export function sanitizeGeminiTools(tools) {
+  if (!Array.isArray(tools)) return tools
+  return tools.map((tool) => {
+    if (!tool || typeof tool !== 'object') return tool
+    if (!tool.parameters || typeof tool.parameters !== 'object') return tool
+    return {
+      ...tool,
+      parameters: sanitizeGeminiSchema(tool.parameters),
+    }
+  })
+}
+
+/**
+ * Normalizes Windows file paths and clears noisy local attachment copy paths.
+ */
+export function sanitizeWindowsPathText(text) {
+  if (typeof text !== 'string' || text.length === 0) return text
+  // Remove verbose host-local Normalized copy attachment hints that contain Windows paths
+  let cleaned = text.replace(
+    /\s*Normalized copy \(read-only; may be resized or re-encoded\):[\s\S]*?before editing\./g,
+    ''
+  )
+  // Normalize remaining Windows drive backslash paths like C:\Users\... to C:/Users/...
+  cleaned = cleaned.replace(/([A-Za-z]:)\\[^\s"'\n\r]*/g, (m) => m.replace(/\\/g, '/'))
+  return cleaned
+}
+
+/**
+ * Sanitize conversation messages for Gemini 3 models to prevent 400 Bad Request:
+ * 1. Gemini 3 strictly validates `thought_signature` on historical functionCall parts.
+ *    Since DSH session storage does not preserve Google's ephemeral encrypted thought signatures,
+ *    historical tool calls and their results are gracefully converted into dialogue text blocks.
+ * 2. Sanitize Windows local file paths in normalized image placeholder descriptions.
+ */
+export function sanitizeGeminiMessages(messages) {
+  if (!Array.isArray(messages)) return messages
+
+  const out = []
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (!msg || typeof msg !== 'object') {
+      out.push(msg)
+      continue
+    }
+
+    if (msg.role === 'assistant') {
+      const content = Array.isArray(msg.content) ? msg.content : []
+      const hasToolCall = content.some((b) => b && b.type === 'tool-call')
+      if (hasToolCall) {
+        const newBlocks = []
+        for (const block of content) {
+          if (!block || typeof block !== 'object') continue
+          if (block.type === 'tool-call') {
+            const toolCallText = `[Called tool: ${block.name || 'unknown'}(${block.arguments || ''})]`
+            newBlocks.push({
+              type: 'text',
+              text: toolCallText,
+            })
+          } else if (block.type === 'text') {
+            newBlocks.push({
+              ...block,
+              text: sanitizeWindowsPathText(block.text),
+            })
+          } else {
+            newBlocks.push(block)
+          }
+        }
+        out.push({
+          ...msg,
+          content: newBlocks,
+        })
+      } else {
+        out.push({
+          ...msg,
+          content: content.map((b) => (b && b.type === 'text' ? { ...b, text: sanitizeWindowsPathText(b.text) } : b)),
+        })
+      }
+    } else if (msg.role === 'tool') {
+      const rawText = Array.isArray(msg.content)
+        ? msg.content.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n')
+        : (typeof msg.content === 'string' ? msg.content : '')
+      const safeText = sanitizeWindowsPathText(rawText)
+      const label = msg.toolCallId ? `[Tool result for ${msg.toolCallId}]` : '[Tool result]'
+      out.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `${label}:\n${safeText || '(no output)'}`,
+          },
+        ],
+      })
+    } else if (msg.role === 'user') {
+      const content = Array.isArray(msg.content) ? msg.content : []
+      out.push({
+        ...msg,
+        content: content.map((b) => (b && b.type === 'text' ? { ...b, text: sanitizeWindowsPathText(b.text) } : b)),
+      })
+    } else {
+      out.push(msg)
+    }
+  }
+
+  return out
+}
+
 /**
  * Pick one model's own default effort from its selector rungs.
  *
@@ -1348,17 +1523,28 @@ export function apply(ctx, config) {
     }
 
     ctx.on('llm/stream', (streamOptions, next) => {
-      if (origResolveModelInfo === undefined) return next()
       if (streamOptions?.provider !== PROVIDER) return next()
       return (async function* () {
         try {
-          const info = await origResolveModelInfo(streamOptions.provider, streamOptions.model, streamOptions.signal)
-          const resolved = streamOptionsWithPreferredEffort(streamOptions, info?.reasoning?.efforts, preference())
-          if (resolved !== streamOptions) {
-            if (resolved.reasoningEffort !== undefined) {
-              streamOptions.reasoningEffort = resolved.reasoningEffort
-            } else if (streamOptions.reasoningEffort !== undefined) {
-              delete streamOptions.reasoningEffort
+          if (origResolveModelInfo !== undefined) {
+            const info = await origResolveModelInfo(streamOptions.provider, streamOptions.model, streamOptions.signal)
+            const resolved = streamOptionsWithPreferredEffort(streamOptions, info?.reasoning?.efforts, preference())
+            if (resolved !== streamOptions) {
+              if (resolved.reasoningEffort !== undefined) {
+                streamOptions.reasoningEffort = resolved.reasoningEffort
+              } else if (streamOptions.reasoningEffort !== undefined) {
+                delete streamOptions.reasoningEffort
+              }
+            }
+          }
+          if (isGeminiModel(streamOptions.model)) {
+            if (Array.isArray(streamOptions.tools) && streamOptions.tools.length > 0) {
+              streamOptions.tools = sanitizeGeminiTools(streamOptions.tools)
+            }
+          }
+          if (isGemini3Model(streamOptions.model)) {
+            if (Array.isArray(streamOptions.messages) && streamOptions.messages.length > 0) {
+              streamOptions.messages = sanitizeGeminiMessages(streamOptions.messages)
             }
           }
         } catch {}
@@ -1396,6 +1582,7 @@ export const internals = {
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey,
   clampEffortToLadder, extractEffortRungs,
   effortName, resolveDefaultEffort, inputModalitiesOf,
+  isGeminiModel, isGemini3Model, sanitizeGeminiSchema, sanitizeGeminiTools, sanitizeWindowsPathText, sanitizeGeminiMessages,
   httpErrorCode, errorFromResponse, handleAuthRpc,
   pkcePair, base64url,
   discoverEndpoints, tokenRequest, startCallbackListener,
