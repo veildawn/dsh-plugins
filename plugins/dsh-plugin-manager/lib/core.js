@@ -670,14 +670,8 @@ export function readAllInstalledPackages({ home = findDshHome(), profile = findP
  * Returns null when the plugin is not installed in the profile (or unreadable).
  */
 export function readInstalledVersion(pkgName, { home = findDshHome(), profile = findProfileName() } = {}) {
-  try {
-    const manifestPath = join(profilePluginDir(home, profile), pkgName, 'package.json')
-    if (!existsSync(manifestPath)) return null
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-    return typeof manifest.version === 'string' && manifest.version ? manifest.version : null
-  } catch {
-    return null
-  }
+  const installedMap = readAllInstalledPackages({ home, profile })
+  return resolveInstalledVersion(installedMap, { name: pkgName })
 }
 
 /**
@@ -690,24 +684,29 @@ export function readInstalledVersion(pkgName, { home = findDshHome(), profile = 
  * name; without this fallback every such plugin reads as "not installed" and
  * its update check silently disappears.
  *
+ * When both an unscoped legacy package and the new scoped package are present
+ * in node_modules, this prefers the scoped package (or the higher semantic
+ * version) so that updating to the scoped package immediately reflects the
+ * new version in the UI instead of sticking to the stale legacy folder.
+ *
  * @param installedMap - Map<packageName, version> from readAllInstalledPackages.
  * @param entry - catalog entry carrying `name` and `id`.
  * @returns the installed version string, or null.
  */
 export function resolveInstalledVersion(installedMap, entry) {
   const candidates = [entry?.name, entry?.id].filter((value) => typeof value === 'string' && value !== '')
+  const matched = new Set()
   for (const candidate of candidates) {
-    const direct = installedMap.get(candidate)
-    if (direct !== undefined) return direct
-    // Strip any scope: "@weniatall/dsh-terminal" -> "dsh-terminal".
+    const scoped = candidate.startsWith('@') ? candidate : `${NPM_PLUGIN_SCOPE}/${candidate}`
     const bare = candidate.startsWith('@') ? candidate.slice(candidate.indexOf('/') + 1) : candidate
-    const bareVersion = installedMap.get(bare)
-    if (bareVersion !== undefined) return bareVersion
-    // A bare catalog name may also be installed under our own scope.
-    const scopedVersion = installedMap.get(`@weniatall/${candidate}`)
-    if (scopedVersion !== undefined) return scopedVersion
+    for (const key of [scoped, candidate, bare]) {
+      const v = installedMap.get(key)
+      if (v !== undefined && v !== null && v !== '') matched.add(v)
+    }
   }
-  return null
+  if (matched.size === 0) return null
+  // 两个或多个版本并存时，按语义化版本排序取最高者（优先认新装的 scope 版）
+  return [...matched].sort((a, b) => compareVersions(b, a))[0]
 }
 
 /**
@@ -739,7 +738,7 @@ export function readInstalledList(pluginNames, { home = findDshHome(), profile =
   const installedMap = readAllInstalledPackages({ home, profile })
   return pluginNames.map((name) => ({
     name,
-    version: installedMap.get(name) || null,
+    version: resolveInstalledVersion(installedMap, { name }),
   })).filter((entry) => entry.version !== null)
 }
 
