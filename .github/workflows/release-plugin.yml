@@ -48,13 +48,24 @@ jobs:
           fetch-depth: 0
 
       # pnpm 11 requires Node >= 22.13, and the plugins' tests use the
-      # node:test runner and Object.hasOwn, both fine on 22.
+      # node:test runner and Object.hasOwn, both fine on 24.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           # 不设置 registry-url：省略它可避免 setup-node 写入一个带 NODE_AUTH_TOKEN
           # 占位符的 .npmrc，从而让后面真正走 OIDC 的 npm publish 不被覆盖。
+
+      # Trusted Publishing（OIDC）需要 npm >= 11.5.1。Node 22/24 自带的
+      # npm 可能是 10.x，此时 `npm publish` 完全不尝试 OIDC，直接报
+      #   npm error code ENEEDAUTH
+      #   npm error need auth This command requires you to be logged in
+      # 因此这里显式升级，避免随 runner 镜像版本漂移。
+      - name: Upgrade npm for Trusted Publishing
+        run: |
+          set -euo pipefail
+          npm install -g npm@11
+          echo "npm version: $(npm --version)"
 
       - name: Parse Tag & Locate Plugin
         id: parse
