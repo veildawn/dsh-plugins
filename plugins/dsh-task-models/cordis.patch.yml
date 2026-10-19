@@ -1,0 +1,36 @@
+# Ensure @deepseek-ai/dsh-client-connection has webStartup + webServer injected
+# so rpc.handle can register HTTP routes.
+# NOTE: webRuntime is intentionally NOT injected: the dsh-web-app web-runtime
+# row that provides it no longer activates on DSH desktop 0.2.1+, so injecting
+# it makes `connection` wait forever and no RPC channel gets registered.
+# webStartup must stay listed because a patch row's `inject` REPLACES the
+# previous one wholesale (last write wins).
+- id: connection
+  inject:
+    - webStartup
+    - webServer
+
+# Mount per-task-type subagent routing with no forced model assignments.
+# Configure mappings in Settings -> 任务模型; an empty profile table preserves
+# native DSH behavior.
+- insert:
+    - id: task-models
+      # `name` is the cordis loader module identifier: it must be the package
+      # name, otherwise `import(name)` looks for a package that does not exist
+      # and the plugin silently fails to load. `@` is a YAML reserved character,
+      # so the scalar must be quoted.
+      name: '@weniatall/dsh-task-models'
+      config:
+        routing:
+          enabled: false
+          fallback: taskRole
+          useJev: true
+          respectExplicitChildModel: true
+        profiles: []
+        jev:
+          enabled: false
+          baseURL: https://api.typesafe.ai
+          model: jev-latest
+          minConfidence: 0.6
+          timeoutMs: 3000
+          maxStateChars: 8000

@@ -20,6 +20,7 @@
 | **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | ZCode 官方 Zai 主题（193 项官方色板逐值对齐并由快照测试守护、单色品牌体系、轨迹色与 Mention 节点语义、终端 ANSI 16 色、首屏直出零闪烁） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.2.0) |
 | **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | 决策模型原生工具插件（可直接下拉选择 dsh 已配置的提供商与模型，此时接口地址与 API Key 完全由提供商配置解析；也可手写 baseURL/Key/模型 ID。决策模型按 `/v1/models` 的 `modality`、静态 `modality`（含 dsh-ai-proxy 材料化写入）、classifier 协议、模型类型与名称识别；默认仍为 TypeSafe Jev 官方地址、Choice/Score/Noul 三大决策原语、/v1/systemone 与 /v1/decisions 端点切换、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.2.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.2.4) |
 | **`dsh-image-gen`** | [`plugins/dsh-image-gen`](plugins/dsh-image-gen) | DSH 原生生图插件（把文生图作为原生工具暴露，可直接下拉选择 dsh 已配置的提供商与模型、或手动填写 baseURL/Key，内置尺寸与画质选择，支持 http/https/socks5 代理；设置面板可实时切换并测试连通性） | [`v0.1.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-image-gen@v0.1.4) |
+| **`dsh-task-models`** | [`plugins/dsh-task-models`](plugins/dsh-task-models) | 独立子任务模型路由插件（按任务类型为子代理选择模型、规则命中零额外调用、可选 TypeSafe Jev 决策、可选轻量分类回退、workflow 成员实际模型标注、不依赖任何 Agent Preset 或角色路由插件） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-task-models@v0.2.0) |
 
 ---
 
@@ -81,6 +82,9 @@ dsh plugin --profile web add @weniatall/dsh-jev
 
 # 12. 安装文生图 (生图模型) 插件
 dsh plugin --profile web add @weniatall/dsh-image-gen
+
+# 13. 安装独立子任务模型路由 (按任务类型为子代理选模型)
+dsh plugin --profile web add @weniatall/dsh-task-models
 ```
 
 ### 从旧版 tarball 安装迁移
@@ -179,6 +183,7 @@ git push origin "dsh-terminal@v0.1.16"
 ./scripts/release.sh dsh-mobile-adapter 0.1.41
 ./scripts/release.sh dsh-file-viewer 0.1.49
 ./scripts/release.sh dsh-terminal 0.1.13
+./scripts/release.sh dsh-task-models 0.2.0
 ```
 脚本会自动：
 1. 运行对应插件的单元测试；
@@ -190,7 +195,7 @@ git push origin "dsh-terminal@v0.1.16"
 > ⚠️ 第 4 步已经触发 CI，第 5 步与 workflow 的 “Create GitHub Release” 存在竞争，
 > 谁先建谁生效。日常发布建议直接用**方式 1**。
 
-> 发布前的本地自检：`node scripts/verify-pack-contents.mjs` 会逐个校验 12 个插件的
+> 发布前的本地自检：`node scripts/verify-pack-contents.mjs` 会逐个校验全部插件的
 > `files` 白名单，确保既不漏发运行期文件，也不会把 `test/`、`node_modules/` 或历史
 > `.tgz` 一起发出去。
 
