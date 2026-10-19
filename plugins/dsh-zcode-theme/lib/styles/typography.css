@@ -1,7 +1,19 @@
-/* 三级文字：主文 / 辅助 / 弱提示，全面对齐 ZCode 官方字体规范 */
+/* 字体与字阶：对齐 ZCode 官方 --font-mono 与 --text-ui-* 体系。
+   官方把 CJK 无衬线字体显式插在通用 monospace 之前，避免 Windows 的 Consolas
+   缺中文字形时回落到宋体。 */
 [data-dsh-theme="zcode"] {
-  --dsw-font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-  --ds-font-family-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --ds-font-family-code: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei",
+    "PingFang SC", "Noto Sans CJK SC", monospace;
+
+  /* 官方界面字号基准与派生阶梯（docs/ui/ui-font-tokens.md）。
+     基准优先跟随宿主的会话字号设置，未设置时回落到官方 14px。 */
+  --ui-font-size: var(--dsh-content-font-size, 14px);
+  --zai-text-ui-base: var(--ui-font-size);
+  --zai-text-ui-sm: calc(var(--ui-font-size) - 2px);
 }
 
 [data-dsh-theme="zcode"],
@@ -9,25 +21,26 @@
 [data-dsh-theme="zcode"] button,
 [data-dsh-theme="zcode"] input,
 [data-dsh-theme="zcode"] textarea {
-  color: var(--dsw-alias-label-primary);
+  color: var(--color-foreground);
   font-family: var(--dsw-font-family);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 消息流与正文排版：重设宿主 markdown 简写字体，彻底消除中英文字号/字形落差 */
+/* 消息流与正文排版：重设宿主 markdown 简写字体，消除中英文字号/字形落差 */
 [data-dsh-theme="zcode"] [class*="_markdown_"],
 [data-dsh-theme="zcode"] [class*="_markdown_"] p,
 [data-dsh-theme="zcode"] [class*="_markdown_"] li,
 [data-dsh-theme="zcode"] [data-chat-flow] p,
 [data-dsh-theme="zcode"] [data-chat-flow] li {
   font-family: var(--dsw-font-family);
-  font-size: 14px;
+  font-size: var(--zai-text-ui-base);
   line-height: 1.65;
   letter-spacing: -0.01em;
-  color: var(--zcode-text-body);
+  color: var(--color-foreground);
 }
 
+/* 官方把等宽字体用于代码、kbd 与行内标签，正文不混入 mono。 */
 [data-dsh-theme="zcode"] pre,
 [data-dsh-theme="zcode"] code,
 [data-dsh-theme="zcode"] kbd,
@@ -36,11 +49,27 @@
 }
 
 [data-dsh-theme="zcode"] ::placeholder {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--color-foreground-subtlest);
 }
 
 [data-dsh-theme="zcode"] [class*="_time"],
 [data-dsh-theme="zcode"] [class*="_meta"],
 [data-dsh-theme="zcode"] [class*="_caption"] {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--color-foreground-subtlest);
+}
+
+/* 官方 word-break 策略：中文按短语换行，标点不被挤到下一行。 */
+[data-dsh-theme="zcode"] [data-chat-flow] p,
+[data-dsh-theme="zcode"] [class*="_markdown_"] p {
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: strict;
+  text-wrap: pretty;
+}
+
+@supports (word-break: auto-phrase) {
+  [data-dsh-theme="zcode"] [data-chat-flow] p,
+  [data-dsh-theme="zcode"] [class*="_markdown_"] p {
+    word-break: auto-phrase;
+  }
 }

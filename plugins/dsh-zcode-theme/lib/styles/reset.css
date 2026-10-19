@@ -1,13 +1,13 @@
 /* 主题作用域：避免污染未启用 ZCode 的页面。color-scheme 跟随宿主 light/dark。 */
 [data-dsh-theme="zcode"] {
   color-scheme: light dark;
-  /* 注入 Shiki 代码高亮默认前景色与注释色，确保跟随主题文字主色 */
-  --shiki-foreground: var(--dsw-alias-label-primary);
-  --shiki-token-comment: var(--dsw-alias-label-tertiary);
+  /* Shiki 代码高亮默认前景色与注释色，跟随官方 --color-foreground 阶梯 */
+  --shiki-foreground: var(--color-foreground);
+  --shiki-token-comment: var(--color-foreground-subtle);
 }
 
 [data-dsh-theme="zcode"],
 [data-dsh-theme="zcode"] body {
-  background: var(--dsw-alias-bg-base);
-  color: var(--dsw-alias-label-primary);
+  background: var(--color-background);
+  color: var(--color-foreground);
 }

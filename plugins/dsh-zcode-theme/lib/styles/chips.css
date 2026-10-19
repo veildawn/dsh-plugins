@@ -1,10 +1,10 @@
-/* Chip：默认胶囊灰底，选中才用品牌色。 */
+/* Chip：默认胶囊灰底，选中才抬升，不用大面积品牌色。 */
 [data-dsh-theme="zcode"] .rS3zOq_chip,
 [data-dsh-theme="zcode"] .uV2eYG_select,
 [data-dsh-theme="zcode"] [class*="_chip"] {
-  background: var(--dsw-alias-bg-module-platform);
-  border: 1px solid var(--dsw-alias-border-l1);
-  color: var(--dsw-alias-label-secondary);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground-subtle);
   border-radius: 999px;
 }
 
@@ -12,15 +12,92 @@
 [data-dsh-theme="zcode"] .rS3zOq_chip[aria-pressed="true"],
 [data-dsh-theme="zcode"] [class*="_chip"][data-selected],
 [data-dsh-theme="zcode"] [class*="_chip"][aria-selected="true"] {
-  background: var(--dsw-alias-interactive-bg-hover-solid);
-  color: var(--dsw-alias-label-primary);
-  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+  border: 1px solid var(--color-border-hover);
 }
 
 /* 欢迎区 / 顶部等通用预览版徽标 (previewBadge)，弱化为低对比胶囊质感 */
 [data-dsh-theme="zcode"] [class*="_previewBadge"] {
-  background: var(--dsw-alias-brand-subtle);
-  color: var(--dsw-alias-brand-primary);
-  border: 1px solid var(--zcode-brand-focus);
+  background: var(--color-surface);
+  color: var(--color-brand);
+  border: 1px solid var(--color-surface-hover);
   border-radius: 999px;
+}
+
+/* Mention 节点：官方为六类引用各配一组 Token（docs/ui/mention-node-tokens.md）。
+   输入框里的 mention 与用户消息回显共用同一组色，保证「写的时候」和
+   「发出去之后」看起来是同一个标签。 */
+[data-dsh-theme="zcode"] [data-composer-chip="file"],
+[data-dsh-theme="zcode"] [data-composer-chip="folder"],
+[data-dsh-theme="zcode"] [data-mention-category="file"] {
+  background: var(--color-file-node);
+  color: var(--color-file-node-foreground);
+  border-radius: var(--dsw-radius-sm);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="skill"],
+[data-dsh-theme="zcode"] [data-mention-category="skill"] {
+  background: var(--color-skill-node);
+  color: var(--color-skill-node-foreground);
+  border-radius: var(--dsw-radius-sm);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="command"],
+[data-dsh-theme="zcode"] [data-mention-category="command"] {
+  background: var(--color-command-node);
+  color: var(--color-command-node-foreground);
+  border-radius: var(--dsw-radius-sm);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="subagent"],
+[data-dsh-theme="zcode"] [data-mention-category="subagent"] {
+  background: var(--color-subagent-node);
+  color: var(--color-subagent-node-foreground);
+  border-radius: var(--dsw-radius-sm);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="session"],
+[data-dsh-theme="zcode"] [data-mention-category="session"] {
+  background: var(--color-session-node);
+  color: var(--color-session-node-foreground);
+  border-radius: var(--dsw-radius-sm);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="plugin"],
+[data-dsh-theme="zcode"] [data-mention-category="plugins"] {
+  background: var(--color-plugin-node);
+  color: var(--color-plugin-node-foreground);
+  border-radius: var(--dsw-radius-sm);
+}
+
+/* 悬停态使用官方 *-node-hover，只加深底色，不改文字色。 */
+[data-dsh-theme="zcode"] [data-composer-chip="file"]:hover,
+[data-dsh-theme="zcode"] [data-composer-chip="folder"]:hover {
+  background: var(--color-file-node-hover);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="skill"]:hover {
+  background: var(--color-skill-node-hover);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="command"]:hover {
+  background: var(--color-command-node-hover);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="subagent"]:hover {
+  background: var(--color-subagent-node-hover);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="session"]:hover {
+  background: var(--color-session-node-hover);
+}
+
+[data-dsh-theme="zcode"] [data-composer-chip="plugin"]:hover {
+  background: var(--color-plugin-node-hover);
+}
+
+/* 官方：mention 是结构化视觉标签而非可点击控件，光标保持默认。 */
+[data-dsh-theme="zcode"] [data-composer-chip] {
+  cursor: default;
 }

@@ -19,8 +19,8 @@ export {
   THEME_SCOPE,
   hostTokenOverrides,
   tokensCss,
-  zcodeLightTokens,
-  zcodeTokens,
+  zaiTokensCss,
+  ZAI_PALETTE,
 } from './tokens.js'
 export { STYLE_FILES, loadThemeCss } from './css.js'
 

@@ -7,6 +7,7 @@ import {
   FORBIDDEN_COLORS,
   FORBIDDEN_HOST_TOKENS,
   HOST_TOKEN_MAP,
+  ZAI_PALETTE,
 } from '../lib/tokens.js'
 import { STYLE_FILES, loadThemeCss } from '../lib/css.js'
 
@@ -30,7 +31,7 @@ async function collectSources() {
   return texts.join('\n')
 }
 
-test('主题产物不含宿主默认蓝色', async () => {
+test('主题产物不含宿主默认蓝色与已废弃的暖橙红', async () => {
   const source = await collectSources()
   for (const color of FORBIDDEN_COLORS) {
     assert.equal(source.includes(color), false, `残留 ${color}`)
@@ -50,6 +51,13 @@ test('HOST_TOKEN_MAP 自身不含禁止色与禁止 Token', () => {
   for (const token of FORBIDDEN_HOST_TOKENS) {
     assert.equal(Object.hasOwn(HOST_TOKEN_MAP, token), false)
   }
+})
+
+test('ZAI_PALETTE 中不含已废弃的暖橙红品牌色', () => {
+  const blob = JSON.stringify(ZAI_PALETTE).toUpperCase()
+  assert.equal(blob.includes('#E85D3A'), false)
+  assert.equal(blob.includes('#F06A48'), false)
+  assert.equal(blob.includes('#D14F2E'), false)
 })
 
 test('styles 目录只有规范列出的 CSS 文件', async () => {

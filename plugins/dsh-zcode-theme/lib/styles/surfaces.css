@@ -1,18 +1,18 @@
-/* Surface 层级：Canvas / Layer1 / Layer2 / Module / Code。 */
+/* Surface 层级对齐官方 Zai 主题：
+   background(画布) → panel(层1/头部) → card(层2/浮层) → input(模块) → menu-hover(悬停)。 */
 [data-dsh-theme="zcode"] body,
 [data-dsh-theme="zcode"] #root,
 [data-dsh-theme="zcode"] [data-slot="root"],
 [data-dsh-theme="zcode"] [data-slot="conversation"] {
-  background: var(--dsw-alias-bg-base);
+  background: var(--color-background);
 }
 
 [data-dsh-theme="zcode"] [data-slot="sidebar"],
 [data-dsh-theme="zcode"] [data-slot="sidebar.settings"] {
-  background: var(--dsw-specific-sidebar-fill);
+  background: var(--color-sidebar);
 }
 
 [data-dsh-theme="zcode"] [role="dialog"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
-[data-dsh-theme="zcode"] [role="menu"],
 [data-dsh-theme="zcode"] [data-slot="details"] {
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--color-card);
 }

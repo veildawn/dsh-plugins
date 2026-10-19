@@ -8,17 +8,17 @@
 [data-dsh-theme="zcode"] .EvIC1a_scroll,
 [data-dsh-theme="zcode"] .EvIC1a_column,
 [data-dsh-theme="zcode"] [data-chat-flow] {
-  background: var(--dsw-alias-bg-base);
+  background: var(--color-background);
   border-radius: 0;
   box-shadow: none;
 }
 
 /* Chat：用户气泡为 Module Surface，AI 消息融入画布。 */
 [data-dsh-theme="zcode"] .Sixlwa_bubble {
-  background: var(--dsw-specific-bubble);
-  border: 1px solid var(--dsw-alias-border-l1);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
-  color: var(--dsw-alias-label-primary);
+  color: var(--color-foreground);
 }
 
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"],
@@ -33,25 +33,26 @@
 
 [data-dsh-theme="zcode"] [data-chat-flow] [class*="_timeStart"],
 [data-dsh-theme="zcode"] [data-chat-flow] [class*="_timeEnd"] {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--color-foreground-subtlest);
 }
 
-/* 思考 / 探索：无底灰字，不要背景框。 */
+/* 思考 / 探索：官方 ReasoningTrigger 的标签是 foreground-subtlest，
+   无底、无背景框，运行态靠宿主的扫光装饰层表达，不额外染色。 */
 [data-dsh-theme="zcode"] .EvIC1a_turnStatus,
 [data-dsh-theme="zcode"] [data-variant="think"],
 [data-dsh-theme="zcode"] [class*="_turnStatus"],
 [data-dsh-theme="zcode"] [data-step-process] {
   background: none;
-  color: var(--dsw-alias-label-secondary);
-  -webkit-text-fill-color: var(--dsw-alias-label-secondary);
+  color: var(--color-foreground-subtlest);
+  -webkit-text-fill-color: var(--color-foreground-subtlest);
   animation: none;
 }
 
 [data-dsh-theme="zcode"] .EvIC1a_turnStatusClock,
 [data-dsh-theme="zcode"] [class*="_turnStatusClock"],
 [data-dsh-theme="zcode"] [data-step-process-icon] {
-  color: var(--dsw-alias-label-tertiary);
-  -webkit-text-fill-color: var(--dsw-alias-label-tertiary);
+  color: var(--color-foreground-subtlest);
+  -webkit-text-fill-color: var(--color-foreground-subtlest);
 }
 
 [data-dsh-theme="zcode"] .lcKema_root,
@@ -71,28 +72,35 @@
 [data-dsh-theme="zcode"] [class*="_requestError"],
 [data-dsh-theme="zcode"] ._5OnbHa_summary[data-error],
 [data-dsh-theme="zcode"] ._5OnbHa_body[data-error] {
-  color: var(--dsw-alias-label-secondary);
+  color: var(--color-foreground-subtle);
 }
 
 [data-dsh-theme="zcode"] [data-tool] [class*="_title"],
 [data-dsh-theme="zcode"] ._5OnbHa_title {
-  color: var(--dsw-alias-label-primary);
+  color: var(--color-foreground);
 }
 
 [data-dsh-theme="zcode"] [class*="_ioText"][data-error] {
-  color: var(--dsw-alias-label-secondary);
+  color: var(--color-foreground-subtle);
 }
 
 [data-dsh-theme="zcode"] [data-tool] {
-  border-color: var(--dsw-alias-border-l1);
+  border-color: var(--color-border);
   background: transparent;
 }
+
+/* 主对话流不套轨迹色。
+   ZCode 的 --color-trajectory-* 只服务于 ModelTrajectoryPane（模型原始轨迹
+   审查抽屉）这类调试视图；聊天流里的工具摘要行与思考块在官方 ToolLayout /
+   ReasoningRow 中一律是 text-foreground-subtlest，运行态才用扫光。
+   给 [data-chat-flow-kind] 里的图标染彩色会让整列工具卡变成一排橙点，
+   与官方的低侵入灰阶相悖，因此这里不做任何覆盖，图标继承宿主默认色。 */
 
 /* 对齐 ZCode 消息正文排版 (Markdown、列表、段落、表格) */
 [data-dsh-theme="zcode"] .Sixlwa_bubble,
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"],
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] {
-  font-size: 14.5px;
+  font-size: var(--zai-text-ui-base);
   line-height: 1.7;
   letter-spacing: -0.01em;
 }
@@ -105,7 +113,7 @@
 
 [data-dsh-theme="zcode"] [data-chat-flow] strong,
 [data-dsh-theme="zcode"] [data-chat-flow] b {
-  color: var(--zcode-text-strong);
+  color: var(--color-primary);
   font-weight: 600;
 }
 
@@ -114,26 +122,26 @@
   margin: 1em 0;
   border-collapse: separate;
   border-spacing: 0;
-  border: 1px solid var(--dsw-alias-border-l1);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
 }
 
 [data-dsh-theme="zcode"] [data-chat-flow] th {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
+  font-size: var(--zai-text-ui-sm);
   font-weight: 500;
   padding: 8px 14px;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
 }
 
 [data-dsh-theme="zcode"] [data-chat-flow] td {
-  color: var(--zcode-text-body);
-  font-size: 14px;
+  color: var(--color-foreground);
+  font-size: var(--zai-text-ui-base);
   padding: 10px 14px;
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: 1px solid var(--color-border);
 }
 
 [data-dsh-theme="zcode"] [data-chat-flow] tr:last-child td {

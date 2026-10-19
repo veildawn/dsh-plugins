@@ -1,45 +1,45 @@
-/* Sidebar / Session：低对比 Surface + 左侧品牌指示条，不用大面积橙色。 */
+/* Sidebar / Session：对齐官方 --color-sidebar + surface 抬升选中态，不用彩色指示条。 */
 [data-dsh-theme="zcode"] [data-slot="sidebar"],
 [data-dsh-theme="zcode"] .hHd-Xa_root {
-  background: var(--dsw-specific-sidebar-fill);
+  background: var(--color-sidebar);
 }
 
-/* 顶部品牌区：消除高亮刺眼的纯白底块，弱化为低对比胶囊质感 */
+/* 顶部品牌区：弱化为低对比文字，不做纯白底块 */
 [data-dsh-theme="zcode"] .hHd-Xa_brand {
-  color: var(--dsw-alias-label-secondary);
+  color: var(--color-foreground-subtle);
 }
 
 [data-dsh-theme="zcode"] .hHd-Xa_brand:hover {
-  color: var(--dsw-alias-label-primary);
+  color: var(--color-foreground);
 }
 
-/* HARNESS 徽标背景与文字：柔和半透明中性灰底，字色为深暗画布色 */
+/* HARNESS 徽标背景与文字：柔和半透明中性灰底 */
 [data-dsh-theme="zcode"] .hHd-Xa_brand svg rect,
 [data-dsh-theme="zcode"] .hHd-Xa_brandName svg rect {
-  fill: var(--dsw-alias-label-secondary);
+  fill: var(--color-foreground-subtle);
   opacity: 0.85;
 }
 
 [data-dsh-theme="zcode"] .hHd-Xa_brand:hover svg rect,
 [data-dsh-theme="zcode"] .hHd-Xa_brandName:hover svg rect {
-  fill: var(--dsw-alias-label-primary);
+  fill: var(--color-foreground);
   opacity: 1;
 }
 
 /* 纯本地开发构建指示器 tag 弱化 */
 [data-dsh-theme="zcode"] .hHd-Xa_buildVersion {
-  background: var(--dsw-alias-border-l2);
-  color: var(--dsw-alias-label-secondary);
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
 }
 
 [data-dsh-theme="zcode"] .hHd-Xa_newSession {
-  background: var(--dsw-alias-bg-module-platform);
-  border-color: var(--dsw-alias-border-l1);
-  color: var(--dsw-alias-label-primary);
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
 }
 
 [data-dsh-theme="zcode"] .hHd-Xa_newSession:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--color-surface-hover);
 }
 
 [data-dsh-theme="zcode"] .YDXeBa_sessionRow,
@@ -51,45 +51,46 @@
 [data-dsh-theme="zcode"] .YDXeBa_sessionRow:hover,
 [data-dsh-theme="zcode"] .YDXeBa_projectRow:hover,
 [data-dsh-theme="zcode"] .YDXeBa_searchResultRow:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--color-surface-hover);
 }
 
+/* 选中态：官方用 --color-surface-hover 抬升，不引入彩色左边条。 */
 [data-dsh-theme="zcode"] .YDXeBa_sessionRow.YDXeBa_selected,
 [data-dsh-theme="zcode"] .YDXeBa_searchResultRow.YDXeBa_selected {
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-primary);
-  box-shadow: inset 3px 0 0 var(--dsw-specific-sidebar-nav-item-active-accent);
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+  box-shadow: none;
 }
 
-/* 工作区 / 项目行选中状态：完全对齐 ZCode 天蓝风格，绝不用红色 */
+/* 工作区 / 项目行选中：官方 --color-file-node 系列（蓝调）而非品牌色 */
 [data-dsh-theme="zcode"] .YDXeBa_projectRow.YDXeBa_selected,
 [data-dsh-theme="zcode"] .YDXeBa_projectRow:has([aria-selected="true"]),
 [data-dsh-theme="zcode"] .YDXeBa_projectRow[data-active="true"] {
-  background: var(--zcode-project-subtle);
-  color: var(--zcode-project);
+  background: var(--color-file-node);
+  color: var(--color-file-node-foreground);
   border: none;
 }
 
 [data-dsh-theme="zcode"] .YDXeBa_folderActive,
 [data-dsh-theme="zcode"] .YDXeBa_projectRow.YDXeBa_selected .YDXeBa_folder,
 [data-dsh-theme="zcode"] .YDXeBa_projectRow.YDXeBa_selected .YDXeBa_title {
-  color: var(--zcode-project);
+  color: var(--color-file-node-foreground);
 }
 
-/* 侧边栏底部连接状态指示器 (ConnectionIndicator)：消除刺眼白底，融入暗色质感 */
+/* 侧边栏底部连接状态指示器：融入 surface 质感，不使用高饱和色块 */
 [data-dsh-theme="zcode"] div[class*="_indicator_tixn7"],
 [data-dsh-theme="zcode"] div[class*="_warning_tixn7"],
 [data-dsh-theme="zcode"] div[class*="_success_tixn7"],
 [data-dsh-theme="zcode"] div[class*="_indicator_"],
 [data-dsh-theme="zcode"] div[class*="_warning_"],
 [data-dsh-theme="zcode"] div[class*="_success_"] {
-  background-color: var(--dsw-alias-interactive-bg-hover);
-  color: var(--zcode-text-body);
-  border: 1px solid var(--dsw-alias-border-l1);
+  background-color: var(--color-surface);
+  color: var(--color-foreground);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
 }
 
 [data-dsh-theme="zcode"] div[class*="_indicator_tixn7"] svg,
 [data-dsh-theme="zcode"] div[class*="_indicator_"] svg {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--color-warning);
 }

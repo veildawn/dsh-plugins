@@ -1,7 +1,7 @@
 {
   "name": "@weniatall/dsh-zcode-theme",
-  "version": "0.1.38",
-  "description": "ZCode theme system for DeepSeek Harness: zero-flash dark canvas, token-driven palettes, and cohesive desktop/mobile visual polish",
+  "version": "0.2.0",
+  "description": "ZCode (Zai) official theme for DeepSeek Harness: zero-flash dark canvas, official Zai palette parity, token-driven palettes",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

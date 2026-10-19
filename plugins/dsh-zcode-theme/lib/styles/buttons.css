@@ -1,29 +1,33 @@
-/* Primary / Secondary / Ghost 按钮：同时兼容历史属性选择器与宿主 CSS Modules 散列类名。 */
+/* Primary / Secondary / Ghost 按钮：同时兼容历史属性选择器与宿主 CSS Modules 散列类名。
+   Zai 主题是单色体系：主按钮 = --color-primary（暗底白字 / 亮底黑字），
+   文字色必须是 --color-primary-foreground，不能写死 #FFFFFF，否则浅色主题下白底白字。 */
 [data-dsh-theme="zcode"] button[data-variant="primary"],
 [data-dsh-theme="zcode"] button[class*="_primary_"],
 [data-dsh-theme="zcode"] button[class*="primary"] {
-  background: var(--dsw-alias-button-primary-fill);
-  color: #FFFFFF;
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
   border-radius: 12px;
 }
 
 [data-dsh-theme="zcode"] button[data-variant="primary"]:hover,
 [data-dsh-theme="zcode"] button[class*="_primary_"]:hover,
 [data-dsh-theme="zcode"] button[class*="primary"]:hover {
-  background: var(--dsw-alias-button-primary-hover);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
 }
 
 [data-dsh-theme="zcode"] button[data-variant="primary"]:active,
 [data-dsh-theme="zcode"] button[class*="_primary_"]:active,
 [data-dsh-theme="zcode"] button[class*="primary"]:active {
-  background: var(--dsw-alias-button-primary-dimmed);
+  background: var(--color-secondary);
+  color: var(--color-foreground);
 }
 
 [data-dsh-theme="zcode"] button[data-variant="secondary"],
 [data-dsh-theme="zcode"] button[class*="_secondary_"] {
-  background: var(--dsw-alias-bg-module-platform);
-  border: 1px solid var(--dsw-alias-border-l1);
-  color: var(--dsw-alias-label-primary);
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground);
   border-radius: 12px;
 }
 
@@ -39,15 +43,15 @@
 [data-dsh-theme="zcode"] button[class*="_ghost_"]:hover,
 [data-dsh-theme="zcode"] .hHd-Xa_iconButton:hover,
 [data-dsh-theme="zcode"] .YDXeBa_iconButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--color-surface);
 }
 
-/* 兼容使用 background: var(--dsw-alias-label-primary) + color: var(--dsw-alias-bg-layer-3) 等高反差配色的实心强调按钮，
-   例如插件中心弹窗的「复制」按钮等，防止文字颜色被通用 typography 的 button 覆盖为白色导致不可见。
-   注：避免使用宽泛的 button[class*="copy"]，防止误伤浅底/暗底普通复制按钮（如远程控制面板复制 IP 按钮）变成黑底黑字隐形。 */
+/* 兼容使用 background: var(--color-foreground) + color: var(--color-input) 等高反差配色的实心强调按钮，
+   例如插件中心弹窗的「复制」按钮，防止文字色被通用 typography 关闭按钮覆盖而不可见。
+   注：避免使用宽泛的 button[class*="copy"]，防止误伤浅底/暗底普通复制按钮变成黑底黑字。 */
 [data-dsh-theme="zcode"] button[class*="CopyBtn"],
 [data-dsh-theme="zcode"] button[class*="copyBtn"],
 [data-dsh-theme="zcode"] button[class*="_done"],
-[data-dsh-theme="zcode"] button[style*="background: var(--dsw-alias-label-primary)"] {
-  color: var(--dsw-alias-bg-layer-3);
+[data-dsh-theme="zcode"] button[style*="background: var(--color-foreground)"] {
+  color: var(--color-input);
 }

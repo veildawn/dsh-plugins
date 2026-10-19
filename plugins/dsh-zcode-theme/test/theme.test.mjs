@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { apply as applyHost, patchIndex, STYLE_ID, THEME_ATTR, THEME_SCOPE, themeInjections } from '../lib/index.js'
-import { HOST_TOKEN_MAP, REQUIRED_HOST_TOKENS } from '../lib/tokens.js'
+import { HOST_TOKEN_MAP, REQUIRED_HOST_TOKENS, ZAI_PALETTE } from '../lib/tokens.js'
 import { loadThemeCss, STYLE_FILES } from '../lib/css.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -21,8 +21,8 @@ test('Host 给 html 打上主题 Scope 并注入 CSS', () => {
   const patched = patchIndex(html)
   assert.match(patched, new RegExp(`<html ${THEME_ATTR}="${THEME_SCOPE}"`))
   assert.match(patched, new RegExp(`<style id="${STYLE_ID}">`))
-  assert.match(patched, /--dsw-alias-bg-base:\s*light-dark\(#F7F7F5, #1A1A1A\)/)
-  assert.match(patched, /--dsw-alias-brand-primary:\s*#E85D3A/)
+  assert.match(patched, /--dsw-alias-bg-base:\s*light-dark\(#f8f8f8, #161616\)/)
+  assert.match(patched, /--color-brand:\s*light-dark\(#000000, #ffffff\)/)
 })
 
 test('Host 幂等替换已有主题标签与属性', () => {
@@ -30,7 +30,7 @@ test('Host 幂等替换已有主题标签与属性', () => {
   const patched = patchIndex(html)
   assert.match(patched, new RegExp(`${THEME_ATTR}="${THEME_SCOPE}"`))
   assert.equal(patched.includes('__stale_theme__'), false)
-  assert.match(patched, /--dsw-alias-bg-base:\s*light-dark\(#F7F7F5, #1A1A1A\)/)
+  assert.match(patched, /--dsw-alias-bg-base:\s*light-dark\(#f8f8f8, #161616\)/)
   assert.equal(patched.split(`id="${STYLE_ID}"`).length - 1, 1)
 })
 
@@ -57,7 +57,7 @@ test('Host themeInjections 生成桌面端与 Web 共用的结构化注入行', 
   assert.equal(htmlRow.kind, 'html')
   assert.equal(htmlRow.placement, 'head')
   assert.match(htmlRow.html, new RegExp(`<style id="${STYLE_ID}">`))
-  assert.match(htmlRow.html, /--dsw-alias-brand-primary:\s*#E85D3A/)
+  assert.match(htmlRow.html, /--color-brand:\s*light-dark\(#000000, #ffffff\)/)
 })
 
 test('Host apply 监听 webserver/index-inject 以支持桌面端 Electron IPC 回放', () => {
@@ -88,9 +88,12 @@ test('Host apply 监听 webserver/index-inject 以支持桌面端 Electron IPC �
   assert.equal(table[1].kind, 'html')
 })
 
-test('Client 注入 theme 服务，Token 映射与宿主一致', () => {
+test('Client 注入 theme 服务，Token 映射与宿主逐项一致', () => {
   assert.deepEqual(client.inject, ['theme'])
   assert.deepEqual(client.internals.HOST_TOKEN_MAP, HOST_TOKEN_MAP)
+  for (const name of Object.keys(HOST_TOKEN_MAP)) {
+    assert.deepEqual(client.internals.HOST_TOKEN_MAP[name], HOST_TOKEN_MAP[name], `${name} 客户端与宿主不一致`)
+  }
   for (const name of REQUIRED_HOST_TOKENS) {
     assert.deepEqual(client.internals.HOST_TOKEN_MAP[name], HOST_TOKEN_MAP[name])
   }
@@ -118,7 +121,8 @@ test('Client mount 写入 Scope 并覆盖宿主 Token，卸载时还原', () => 
   }
   const dispose = client.internals.mount(ctx)
   assert.equal(attrs.get(THEME_ATTR), THEME_SCOPE)
-  assert.equal(layers.get('dsh-zcode-theme')['--dsw-alias-brand-primary'].dark, '#E85D3A')
+  assert.equal(layers.get('dsh-zcode-theme')['--dsw-alias-brand-primary'].dark, ZAI_PALETTE.brand.dark)
+  assert.equal(layers.get('dsh-zcode-theme')['--dsw-alias-brand-primary'].light, ZAI_PALETTE.brand.light)
   dispose()
   assert.equal(attrs.has(THEME_ATTR), false)
   assert.equal(layers.size, 0)
@@ -150,13 +154,32 @@ test('CSS 覆盖规范列出的核心组件', () => {
     ['Bottom Sheet', '[class*="sheet"]'],
     ['Toast', '[class*="toast"]'],
     ['Reduced Motion', 'prefers-reduced-motion'],
-    ['Session Accent', 'inset 3px 0 0 var(--dsw-specific-sidebar-nav-item-active-accent)'],
+    ['Mention File', '[data-composer-chip="file"]'],
+    ['Mention Skill', '[data-composer-chip="skill"]'],
+    ['Mention Command', '[data-composer-chip="command"]'],
+    ['Diff Added Token', 'file-diff-added-bg'],
+    ['Diff Removed Token', 'file-diff-deleted-bg'],
+    ['ANSI Black', '--color-terminal-black'],
+    ['ANSI Bright White', '--color-terminal-bright-white'],
   ]
   for (const [label, needle] of markers) {
     assert.equal(css.includes(needle), true, `缺少 ${label} 覆盖：${needle}`)
   }
   assert.equal(css.includes('path[d*='), false, '权限态不得依赖 SVG path')
   assert.equal(css.includes('[data-dsh-theme="zcode"] [data-error]'), false, '不得用全局 [data-error]')
+})
+
+test('主对话流不套轨迹色，图标保持低侵入灰阶', () => {
+  const css = loadThemeCss()
+  // 官方 --color-trajectory-* 只服务于 ModelTrajectoryPane 这类调试视图；
+  // 聊天流的工具摘要行 / 思考块一律是 foreground-subtlest。
+  // 一旦有人在 [data-chat-flow-kind] 上挂轨迹色，整列工具卡会变成一排彩点。
+  assert.equal(css.includes('--trajectory-accent'), false, '聊天流不得引入轨迹强调色变量')
+  assert.equal(
+    /\[data-chat-flow-kind[^\]]*\][^{]*\{[^}]*--color-trajectory-/.test(css),
+    false,
+    '不得在 [data-chat-flow-kind] 上赋轨迹色',
+  )
 })
 
 test('主题 CSS 全部限定在 ZCode Scope 内，且几乎不用 !important', () => {
@@ -199,5 +222,33 @@ test('主题关键选择器在宿主或社区插件语料中存活', async () =>
   ]
   for (const sel of criticalSelectors) {
     assert.equal(css.includes(sel), true, `主题 CSS 必须包含修复后的活跃选择器: ${sel}`)
+  }
+})
+
+test('主题 CSS 只引用官方或宿主真实存在的 Token', () => {
+  const css = loadThemeCss()
+  const referenced = [...new Set(css.match(/var\((--[a-z0-9-]+)/g) ?? [])].map((v) => v.slice(4))
+  const official = new Set(Object.keys(ZAI_PALETTE).map((k) => `--color-${k}`))
+  const host = new Set(Object.keys(HOST_TOKEN_MAP))
+  const hostInfra = new Set([
+    '--dsw-font-family',
+    '--ds-font-family-code',
+    '--dsw-radius-sm',
+    '--dsw-focus-ring-color',
+    '--dsw-focus-ring-width',
+    '--dsw-elevation-prominent',
+    '--dsh-content-font-size',
+  ])
+  const local = new Set([
+    '--ui-font-size',
+    '--zai-text-ui-base',
+    '--zai-text-ui-sm',
+    '--shiki-foreground',
+    '--shiki-token-comment',
+    '--trajectory-accent',
+  ])
+  const allowed = new Set([...official, ...host, ...hostInfra, ...local])
+  for (const name of referenced) {
+    assert.equal(allowed.has(name), true, `主题 CSS 引用了未定义的 Token：${name}`)
   }
 })

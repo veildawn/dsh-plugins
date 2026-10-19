@@ -1,9 +1,9 @@
-/* Top Bar / 会话头：半透明 Surface + blur，并提供实色 fallback。 */
+/* Top Bar / 会话头：对齐官方 --color-header + 发丝边框，并提供半透明 blur 变体。 */
 [data-dsh-theme="zcode"] [data-slot="conversation.session.header"] > header,
 [data-dsh-theme="zcode"] .wSkVaW_header {
-  background: var(--dsw-alias-bg-base);
-  background: color-mix(in srgb, var(--dsw-alias-bg-base) 92%, transparent);
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--color-header);
+  background: color-mix(in srgb, var(--color-header) 92%, transparent);
+  border-bottom: 1px solid var(--color-border);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
   position: relative;
@@ -13,9 +13,9 @@
 
 /* 移动端顶栏：仅定制背景底色与发丝边框材质，绝不覆盖定位 (position: fixed) 与层级 (z-index: 900) */
 [data-dsh-theme="zcode"] .dsh-mobile-bar {
-  background: var(--dsw-alias-bg-base);
-  background: color-mix(in srgb, var(--dsw-alias-bg-base) 92%, transparent);
-  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--color-header);
+  background: color-mix(in srgb, var(--color-header) 92%, transparent);
+  border-bottom: 1px solid var(--color-border);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
 }
@@ -30,16 +30,21 @@
    必须确保 z-index 处于顶级，且边距与阴影不被裁剪遮挡 */
 [data-dsh-theme="zcode"] .wSkVaW_headerUtilities [role="menu"] {
   z-index: 1000;
-  box-shadow: var(--dsw-shadow-lv3, 0 8px 24px rgba(0,0,0,0.18));
+  box-shadow: var(--dsw-elevation-prominent);
 }
 
+/* 官方 Tab 选中态：--color-tab-active 底 + 主文字色，不做彩色下划线。 */
 [data-dsh-theme="zcode"] .wSkVaW_tab[aria-selected="true"],
-[data-dsh-theme="zcode"] .wSkVaW_tab.wSkVaW_tabActive,
+[data-dsh-theme="zcode"] .wSkVaW_tab.wSkVaW_tabActive {
+  background: var(--color-tab-active);
+  color: var(--color-foreground);
+}
+
 [data-dsh-theme="zcode"] .wSkVaW_crumbCurrent {
-  color: var(--dsw-alias-label-primary);
+  color: var(--color-foreground);
 }
 
 [data-dsh-theme="zcode"] .wSkVaW_tab[aria-selected="true"]:after,
 [data-dsh-theme="zcode"] .wSkVaW_tabActive:after {
-  background: var(--dsw-alias-label-primary);
+  background: var(--color-foreground);
 }

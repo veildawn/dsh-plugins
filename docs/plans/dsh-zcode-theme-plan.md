@@ -1,3 +1,7 @@
+> **⚠️ 本文档已被 [`dsh-zcode-theme-zai-alignment.md`](./dsh-zcode-theme-zai-alignment.md) 取代。**
+> 下文描述的是早期自拟方案（暖橙红 `#E85D3A` 品牌色、`#1A1A1A` 画布），
+> 与 ZCode 官方实际发布的 Zai 主题不一致，仅作历史记录保留。
+
 # ZCode 移动端风格主题设计规范与规划方案 (dsh-zcode-theme)
 
 > **目标**：以官方 ZCode 桌面及手机端 (Remote Control) 的视觉语言为基准，为 DeepSeek Harness (DSH) Web 规划并构建一套沉浸式暗色极简主题。

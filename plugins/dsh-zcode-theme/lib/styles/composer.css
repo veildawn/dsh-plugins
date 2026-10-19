@@ -1,26 +1,26 @@
 /* Composer 输入卡与发送按钮。移动端 44px 触控区由 dsh-mobile-adapter 负责。 */
 [data-dsh-theme="zcode"] [data-composer-card],
 [data-dsh-theme="zcode"] .uV2eYG_card {
-  background: var(--dsw-specific-input-major);
-  border: 1px solid var(--zcode-border-input);
+  background: var(--color-input);
+  border: 1px solid var(--color-input-border);
   border-radius: 14px;
-  color: var(--dsw-alias-label-primary);
+  color: var(--color-foreground);
 }
 
 [data-dsh-theme="zcode"] [data-composer-card]:focus-within,
 [data-dsh-theme="zcode"] .uV2eYG_card:focus-within {
-  border-color: var(--dsw-alias-border-l2);
+  border-color: var(--color-border-hover);
   box-shadow: none;
 }
 
 [data-dsh-theme="zcode"] [data-composer-card] textarea,
 [data-dsh-theme="zcode"] .uV2eYG_input {
-  color: var(--dsw-alias-label-primary);
+  color: var(--color-foreground);
 }
 
 [data-dsh-theme="zcode"] [data-composer-card] textarea::placeholder,
 [data-dsh-theme="zcode"] .uV2eYG_placeholder {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--color-foreground-subtlest);
 }
 
 [data-dsh-theme="zcode"] .uV2eYG_primary {
@@ -30,18 +30,18 @@
   min-height: 32px;
   border: none;
   border-radius: 50%;
-  background: var(--dsw-alias-button-info-fill);
-  color: var(--dsw-alias-bg-base);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
 }
 
 [data-dsh-theme="zcode"] .uV2eYG_primary:hover {
-  background: var(--dsw-alias-button-info-hover);
-  color: var(--dsw-alias-bg-base);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
 }
 
 [data-dsh-theme="zcode"] .uV2eYG_primary:active {
-  background: var(--dsw-alias-label-secondary);
-  color: var(--dsw-alias-bg-base);
+  background: var(--color-secondary);
+  color: var(--color-foreground);
   transform: scale(0.95);
 }
 
@@ -54,7 +54,7 @@
 
 [data-dsh-theme="zcode"] .uV2eYG_add {
   background: transparent;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--color-foreground-subtle);
   width: 28px;
   height: 28px;
   border-radius: 8px;
@@ -64,18 +64,16 @@
 }
 
 [data-dsh-theme="zcode"] .uV2eYG_add:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
+  background: var(--color-surface);
+  color: var(--color-foreground);
 }
 
-/* 权限模式选择器 (Sh0Q9G_trigger 与当前宿主 iWlSmW_trigger) */
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger,
 [data-dsh-theme="zcode"] .iWlSmW_trigger {
   height: 28px;
   padding: 0 8px;
   border-radius: 8px;
   background: transparent;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--color-foreground-subtle);
   font-size: 13px;
   border: none;
   display: inline-flex;
@@ -83,74 +81,49 @@
   gap: 4px;
 }
 
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--color-surface);
 }
 
 /* 下拉箭头始终保持低调暗灰，分离主图标与文字高亮 */
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger .Sh0Q9G_chevron,
 [data-dsh-theme="zcode"] .iWlSmW_trigger [class*="chevron"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger [class*="Chevron"] {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--color-foreground-subtlest);
 }
 
 /* 1. 仅可查看 (read-only)：安全绿高亮 */
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="仅可查看"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="只读"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Read Only" i],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="仅可查看"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="只读"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Read Only" i],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="read-only"] {
-  color: var(--zcode-success);
+  color: var(--color-success);
 }
 
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="仅可查看"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="只读"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Read Only" i]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="read-only"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="仅可查看"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="只读"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Read Only" i]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="read-only"]:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--zcode-success) 12%, transparent);
-  color: var(--zcode-success);
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
 }
 
-/* 2. 工作区内修改 (workspace-write)：ZCode 品牌橙红高亮 */
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区内修改"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区写入"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Workspace Write" i],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"],
+/* 2. 工作区内修改 (workspace-write)：官方品牌色（单色前景，非彩色） */
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="工作区内修改"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="工作区写入"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Workspace Write" i],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="workspace-write"] {
-  color: var(--dsw-alias-brand-primary);
+  color: var(--color-brand);
 }
 
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区内修改"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="工作区写入"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Workspace Write" i]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="workspace-write"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="工作区内修改"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="工作区写入"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Workspace Write" i]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="workspace-write"]:hover:not(:disabled) {
-  background: var(--dsw-alias-brand-subtle);
-  color: var(--dsw-alias-button-primary-hover);
+  background: var(--color-surface);
+  color: var(--color-primary);
 }
 
-/* 3. 完全权限 (danger-full-access)：暖橙色高亮 */
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="完全权限"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="完全访问"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full access" i],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full Access"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="danger-full-access"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="Full file access"],
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"],
+/* 3. 完全权限 (danger-full-access)：官方 warning 语义色 */
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="完全权限"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="完全访问"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Full access" i],
@@ -158,16 +131,9 @@
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="danger-full-access"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[title*="Full file access"],
 [data-dsh-theme="zcode"] .iWlSmW_trigger[title*="完全权限"] {
-  color: var(--zcode-danger-access);
+  color: var(--color-warning);
 }
 
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="完全权限"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="完全访问"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full access" i]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="Full Access"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[aria-label*="danger-full-access"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="Full file access"]:hover:not(:disabled),
-[data-dsh-theme="zcode"] .Sh0Q9G_trigger[title*="完全权限"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="完全权限"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="完全访问"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="Full access" i]:hover:not(:disabled),
@@ -175,8 +141,8 @@
 [data-dsh-theme="zcode"] .iWlSmW_trigger[aria-label*="danger-full-access"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[title*="Full file access"]:hover:not(:disabled),
 [data-dsh-theme="zcode"] .iWlSmW_trigger[title*="完全权限"]:hover:not(:disabled) {
-  background: var(--zcode-danger-access-subtle);
-  color: var(--zcode-danger-access-hover);
+  background: var(--color-warning-surface);
+  color: var(--color-warning-surface-foreground);
 }
 
 /* 模型与思考强度选择器 (_7KE1Ra_trigger) */
@@ -185,7 +151,7 @@
   padding: 0 10px;
   border-radius: 8px;
   background: transparent;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--color-foreground-subtle);
   font-size: 13px;
   font-weight: 400;
   border: none;
@@ -195,21 +161,37 @@
 }
 
 [data-dsh-theme="zcode"] ._7KE1Ra_trigger:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
+  background: var(--color-surface);
+  color: var(--color-foreground);
 }
 
 [data-dsh-theme="zcode"] ._7KE1Ra_triggerEffort {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--color-foreground-subtlest);
   font-size: 12px;
   padding-left: 2px;
 }
 
 [data-dsh-theme="zcode"] .JObwrW_trigger {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--color-foreground-subtlest);
 }
 
 [data-dsh-theme="zcode"] .JObwrW_trigger:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 上下文占用表（ContextMeter）：宿主用 --meter-tint 分三段着色，但取自
+   --dsw-static-neutral-bluish-400 / --dsw-static-blue-450 等基础色板。
+   官方 Zai 为用量图与上下文分解各配了一条蓝色阶（--color-usage-chart-*、
+   --color-context-breakdown-*），这里按官方色阶重新着色。 */
+[data-dsh-theme="zcode"] .JObwrW_colorSystem {
+  --meter-tint: var(--color-context-breakdown-1);
+}
+
+[data-dsh-theme="zcode"] .JObwrW_colorTools {
+  --meter-tint: var(--color-context-breakdown-2);
+}
+
+[data-dsh-theme="zcode"] .JObwrW_colorMessages {
+  --meter-tint: var(--color-context-breakdown-3);
 }

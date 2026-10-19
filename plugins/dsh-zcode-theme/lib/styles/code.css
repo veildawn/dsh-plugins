@@ -1,47 +1,48 @@
-/* Code Block 是一级组件：更深的 Code Surface，不用品牌色。 */
+/* Code Block 是一级组件：官方容器为 bg-background + 圆角，头部 banner 用 panel 层。
+   不用品牌色，避免代码块变成彩色块。 */
 [data-dsh-theme="zcode"] .md-code-block,
 [data-dsh-theme="zcode"] pre,
-[data-dsh-theme="zcode"] [class*="_code"],
-[data-dsh-theme="zcode"] [data-read] {
-  background: var(--dsw-alias-markdown-code-block);
-  border: 1px solid var(--dsw-alias-border-l1);
+[data-dsh-theme="zcode"] [class*="_code"] {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
-  /* 确保 Shiki 代码高亮作用域内，默认文字及注释颜色正确继承主题色彩，避免暗色下黑字黑底 */
-  --shiki-foreground: var(--dsw-alias-label-primary);
-  --shiki-token-comment: var(--dsw-alias-label-tertiary);
+  /* Shiki 代码高亮作用域内，默认文字与注释跟随主题色阶 */
+  --shiki-foreground: var(--color-foreground);
+  --shiki-token-comment: var(--color-foreground-subtle);
 }
 
 [data-dsh-theme="zcode"] .md-code-block [class*="_banner"],
 [data-dsh-theme="zcode"] .md-code-block [class*="banner"] {
-  background: var(--dsw-alias-markdown-code-block-banner);
+  background: var(--color-panel);
 }
 
 [data-dsh-theme="zcode"] .md-code-block [class*="_infostring"],
 [data-dsh-theme="zcode"] .md-code-block [class*="infostring"] {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--color-foreground-subtlest);
 }
 
 [data-dsh-theme="zcode"] .md-code-block button,
 [data-dsh-theme="zcode"] .md-code-block [class*="_copyButton"] {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-secondary);
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
   border-radius: 8px;
 }
 
 [data-dsh-theme="zcode"] .md-code-block button:hover,
 [data-dsh-theme="zcode"] .md-code-block [class*="_copyButton"]:hover {
-  background: var(--dsw-alias-interactive-bg-hover-solid);
+  background: var(--color-surface-hover);
 }
 
-/* 行内代码标签 (Inline Code)：完全对齐 ZCode，浅灰白字体与深灰底，消除中英文基线落差 */
+/* 行内代码标签 (Inline Code)：官方 --color-markdown-inline-code 作底色，
+   文字仍走正文色，保证任何主题下都读得清。 */
 [data-dsh-theme="zcode"] :not(pre) > code {
-  background-color: var(--dsw-alias-markdown-inline-code);
-  color: var(--zcode-inline-code);
-  border: 1px solid var(--dsw-alias-border-l1);
+  background-color: var(--color-markdown-inline-code);
+  color: var(--color-foreground);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 1.5px 6px;
   margin: 0 3px;
-  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  font-family: var(--ds-font-family-code);
   font-size: 12.5px;
   line-height: 1.5;
   vertical-align: baseline;

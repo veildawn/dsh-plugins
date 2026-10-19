@@ -5,10 +5,10 @@
 [data-dsh-theme="zcode"] .dam-modal-card,
 [data-dsh-theme="zcode"] .dam-card,
 [data-dsh-theme="zcode"] .fv-modal {
-  background: var(--dsw-alias-bg-layer-2);
-  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--color-card);
+  border: 1px solid var(--color-border-hover);
   border-radius: 20px;
-  box-shadow: var(--dsw-shadow-lv3);
+  box-shadow: var(--dsw-elevation-prominent);
 }
 
 /* 文件查看器侧边抽屉容器：桌面端必须保持完全透明，无遮罩与白块，露出主会话 */
@@ -19,7 +19,7 @@
 }
 
 [data-dsh-theme="zcode"] .fv-shell {
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--color-card);
 }
 
 /* 模态弹出框与抽屉遮罩层：统一使用低透明度磨砂半透明背景，消除生硬实色黑块与全白遮挡 */
@@ -48,8 +48,8 @@
 }
 
 [data-dsh-theme="zcode"] [role="menu"] {
-  background: var(--dsw-specific-menu);
-  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--color-menu);
+  border: 1px solid var(--color-border-hover);
 }
 
 /* 会话头部工具栏菜单与下拉浮层 (如 open-in-app 本地打开、session-log-export 下载日志更多操作等)：
@@ -66,24 +66,24 @@
 
 [data-dsh-theme="zcode"] [class*="toast"],
 [data-dsh-theme="zcode"] [class*="Toast"] {
-  background: var(--dsw-alias-toast-bg);
-  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--color-toast);
+  border: 1px solid var(--color-border-hover);
   border-radius: 16px;
-  color: var(--dsw-alias-label-primary);
+  color: var(--color-foreground);
 }
 
 [data-dsh-theme="zcode"] [class*="sheet"],
 [data-dsh-theme="zcode"] [class*="Sheet"],
 [data-dsh-theme="zcode"] [class*="drawer"],
 [data-dsh-theme="zcode"] [class*="Drawer"] {
-  background: var(--dsw-specific-sidebar-fill);
-  border-color: var(--dsw-alias-border-l2);
+  background: var(--color-sidebar);
+  border-color: var(--color-border-hover);
 }
 
 [data-dsh-theme="zcode"] [class*="sheet"] [class*="handle"],
 [data-dsh-theme="zcode"] [class*="Sheet"] [class*="Handle"],
 [data-dsh-theme="zcode"] [class*="drawer"] [class*="handle"],
 [data-dsh-theme="zcode"] [class*="Drawer"] [class*="Handle"] {
-  background: var(--zcode-handle);
+  background: var(--color-secondary);
   border-radius: 999px;
 }

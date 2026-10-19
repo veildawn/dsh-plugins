@@ -1,19 +1,25 @@
-/* Hover / Pressed / Active / Focus / Selected / Disabled。主按钮走品牌色，不套通用 Hover。 */
+/* Hover / Pressed / Active / Focus / Selected / Disabled。主按钮走 --color-primary，不套通用 Hover。 */
 [data-dsh-theme="zcode"] :where([role="menuitem"], [role="treeitem"]):hover {
-  background-color: var(--dsw-alias-interactive-bg-hover);
+  background-color: var(--color-surface);
 }
 
 [data-dsh-theme="zcode"] :where([role="menuitem"], [role="treeitem"]):active {
-  background-color: var(--dsw-alias-interactive-bg-hover-solid);
+  background-color: var(--color-surface-hover);
 }
 
+/* 焦点环交给宿主机制（--dsw-focus-ring-*），这里只把它指向 Zai 的前景色，
+   避免主题再叠一层自绘 box-shadow 与组件自身的 ring 打架。 */
 [data-dsh-theme="zcode"] :where(button, a, input, textarea, [tabindex]):focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--zcode-brand-focus);
+  outline-color: var(--dsw-focus-ring-color);
+  outline-width: var(--dsw-focus-ring-width);
+  outline-style: solid;
+  outline-offset: 2px;
+  box-shadow: none;
 }
 
 [data-dsh-theme="zcode"] :disabled,
 [data-dsh-theme="zcode"] [aria-disabled="true"] {
-  opacity: 0.45;
+  opacity: 0.65;
+  color: var(--color-foreground-subtle);
   pointer-events: none;
 }
