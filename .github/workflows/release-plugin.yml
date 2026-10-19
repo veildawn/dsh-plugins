@@ -1,8 +1,8 @@
 name: Release Single Plugin
 
 # 两种触发方式：
-#   1. 推送 dsh-xxx@v1.2.3 形式的 tag（不发布 npm，只建 GitHub Release）；
-#   2. 手动 workflow_dispatch 且 publish_npm=true（完整发布：GitHub Release + npm）。
+#   1. 推送 dsh-xxx@v1.2.3 形式的 tag —— 完整发布：GitHub Release + npm；
+#   2. 手动 workflow_dispatch —— 同样默认发布 npm，可用 publish_npm=false 只建 Release。
 #
 # tag 格式刻意保持**无 scope 短名**（dsh-terminal@v0.1.16），即使 npm 包名是
 # @weniatall/dsh-terminal。原因：
@@ -25,10 +25,10 @@ on:
         required: true
         type: string
       publish_npm:
-        description: '同时发布到 npm registry（需要 Trusted Publishing 已配置）'
+        description: '发布到 npm registry（tag 推送时总是发布；此开关仅对手动触发有效）'
         required: false
         type: boolean
-        default: false
+        default: true
 
 # contents: write —— 创建 GitHub Release
 # id-token: write —— npm Trusted Publishing 通过 GitHub OIDC 换取一次性凭证，
@@ -176,13 +176,39 @@ jobs:
       # 直接签发一次性凭证。不需要 NPM_TOKEN secret，也就没有 token 过期问题，
       # 并会自动生成 provenance。
       # 前提：在 npmjs.com 上给该包配置 trusted publisher（仓库 + workflow 文件名）。
+      #
+      # 推 tag 即发布，不再需要手动勾选。`publish_npm` 只在手动触发时生效
+      # （workflow_dispatch 才存在该 input，push 事件里它为 null）。
+      #
+      # 版本已存在时不要整体失败：重跑 workflow、或重推修正后的 tag 都会撞上
+      # `cannot publish over the previously published versions`，此时跳过即可，
+      # 后面的 GitHub Release 仍然要建出来。
       - name: Publish to npm
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_npm }}
+        if: ${{ github.event_name == 'push' || inputs.publish_npm }}
+        id: npm
         run: |
           set -euo pipefail
           cd ${{ steps.parse.outputs.plugin_dir }}
-          echo "Publishing ${{ steps.parse.outputs.package_name }}@${{ steps.parse.outputs.version }}"
-          npm publish --access public --provenance
+          PACKAGE="${{ steps.parse.outputs.package_name }}"
+          VERSION="${{ steps.parse.outputs.version }}"
+
+          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice title=SkipNpmPublish::$PACKAGE@$VERSION 已存在于 npm，跳过发布"
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Publishing $PACKAGE@$VERSION"
+          if ! npm publish --access public --provenance; then
+            # 探测与发布之间的竞态：另一个运行可能刚好发布了同一版本。
+            if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+              echo "::notice title=SkipNpmPublish::$PACKAGE@$VERSION 已被并发发布，跳过"
+              echo "published=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "published=true" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

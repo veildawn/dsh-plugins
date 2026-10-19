@@ -152,12 +152,24 @@ pin 住的旧来源，不需要先卸载。
 npm 包名带 scope（`@weniatall/dsh-terminal`），GitHub tag 保持短名（`dsh-terminal@v0.1.16`）——
 两者刻意不同，原因见 [npm 发布指引](docs/npm-publishing.md#二命名约定重要)。
 
-### 方式 1：GitHub Actions 手动触发（推荐，同时发 npm）
-在 **Actions → Release Single Plugin → Run workflow** 中填写插件名、版本号，
-并勾选 `publish_npm`。workflow 会跑测试、校验打包内容、发布 npm（走
-Trusted Publishing，无需任何 token）、再创建 GitHub Release。
+### 方式 1：推送 Tag（推荐，默认即发布 npm）
+改好 `plugins/<plugin>/package.json` 的 `version` 并推送到 `main` 后，打并推送
+`<plugin-name>@v<version>` 形式的 Tag，CI 会跑测试、校验打包内容、发布 npm（走
+Trusted Publishing，无需任何 token）、再创建 GitHub Release：
 
-### 方式 2：本地一键脚本（只发 GitHub Release）
+```bash
+git tag -a "dsh-terminal@v0.1.16" -m "dsh-terminal v0.1.16"
+git push origin "dsh-terminal@v0.1.16"
+```
+
+版本已存在于 npm 时该步骤会**自动跳过**而不是让 job 失败（重跑或重推修正后的 tag
+都安全），GitHub Release 仍会正常创建。要发新版本必须升 `package.json` 的 version。
+
+### 方式 2：GitHub Actions 手动触发
+在 **Actions → Release Single Plugin → Run workflow** 中填写插件名、版本号。
+`publish_npm` 默认已勾选；取消勾选则只建 GitHub Release。执行内容与方式 1 相同。
+
+### 方式 3：本地一键脚本
 ```bash
 # 格式: ./scripts/release.sh <插件目录名> [版本号(可选)]
 ./scripts/release.sh dsh-plugin-manager 0.3.38
@@ -172,11 +184,11 @@ Trusted Publishing，无需任何 token）、再创建 GitHub Release。
 1. 运行对应插件的单元测试；
 2. 校验宿主兼容性与 npm 发布内容（`verify-pack-contents.mjs`）；
 3. 执行 `npm pack` 并把产物重命名为 `<短名>-<版本>.tgz`；
-4. 打上 `plugin@vX.Y.Z` 格式的 Git Tag 并推送；
-5. 自动创建对应的独立 GitHub Release 并上传 `.tgz`。
+4. 打上 `plugin@vX.Y.Z` 格式的 Git Tag 并推送（**因此同样会触发 CI 发布 npm**）；
+5. 再用 `gh release create` 自己建一次 Release。
 
-### 方式 3：推送 Tag 触发 CI
-只要给仓库推送形如 `dsh-model-roles@v0.4.31` 的 Tag，GitHub Actions 将会自动检测对应插件目录并构建专属 Release（此路径不发 npm）。
+> ⚠️ 第 4 步已经触发 CI，第 5 步与 workflow 的 “Create GitHub Release” 存在竞争，
+> 谁先建谁生效。日常发布建议直接用**方式 1**。
 
 > 发布前的本地自检：`node scripts/verify-pack-contents.mjs` 会逐个校验 12 个插件的
 > `files` 白名单，确保既不漏发运行期文件，也不会把 `test/`、`node_modules/` 或历史

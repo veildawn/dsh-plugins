@@ -132,26 +132,48 @@ npm publish --access public
 
 ## 五、后续发布
 
-### 方式 A：GitHub Actions 手动触发（推荐）
+### 方式 A：推 tag（推荐，默认即发布 npm）
 
-在仓库 **Actions → Release Single Plugin → Run workflow** 中填：
+日常发布只需要**推一个 tag**，npm 与 GitHub Release 一起产出，不需要再手动触发：
 
-- `plugin`：`dsh-terminal`
-- `version`：`0.1.16`（必须与 `package.json` 一致，否则 job 报错退出）
-- `publish_npm`：**勾选**
+```bash
+# 1. 改 plugins/<plugin>/package.json 的 version
+# 2. 提交并推送
+git add plugins/dsh-terminal && git commit -m "feat(dsh-terminal): ... (v0.1.16)"
+git push origin main
+
+# 3. 打 tag 并推送 —— 这就是完整发布
+git tag -a "dsh-terminal@v0.1.16" -m "dsh-terminal v0.1.16"
+git push origin "dsh-terminal@v0.1.16"
+```
 
 workflow 会依次执行：跑测试 → 校验打包内容 → `npm pack` 并重命名 →
 `npm publish --access public --provenance`（走 OIDC）→ 创建 GitHub Release。
 
-### 方式 B：本地脚本（只发 GitHub Release，不发 npm）
+> **版本已存在时会自动跳过 npm 发布，而不是让整个 job 失败。**
+> 重跑 workflow、或重推修正后的同名 tag 都不会再报
+> `cannot publish over the previously published versions`，GitHub Release 仍会正常创建。
+> 想发新版本就必须升 `package.json` 的 version —— 已发布的版本无法覆盖。
+
+### 方式 B：GitHub Actions 手动触发
+
+在仓库 **Actions → Release Single Plugin → Run workflow** 中填 `plugin` 与 `version`。
+`publish_npm` 默认已勾选；取消勾选则只建 GitHub Release，不发 npm。
+
+### 方式 C：本地脚本
 
 ```bash
 ./scripts/release.sh dsh-terminal 0.1.16
 ```
 
-这个脚本只推 tag + 建 GitHub Release。若需要同时发 npm，用方式 A 或第三节。
+该脚本会跑本地预检与测试、打包，然后**推 tag**（因此同样会触发 workflow 并发布 npm），
+随后再用 `gh release create` 自己建一次 Release。
 
-### 方式 C：本地手动发 npm
+> ⚠️ 因为推 tag 已经会触发 CI，脚本里的 `gh release create` 与 workflow 的
+> “Create GitHub Release” 步骤存在竞争：谁先创建谁生效，另一方会因 tag 已有 Release 而失败。
+> 日常发布建议直接用**方式 A**（只推 tag），让 CI 统一产出 npm 包与 Release。
+
+### 方式 D：本地手动发 npm
 
 ```bash
 cd plugins/dsh-terminal
