@@ -716,13 +716,17 @@ window.__ModuleLoader__.load({
           }, 1200);
         }, [tab, loadRepo, loadCommunity]);
 
-        const startInstall = async (name, kind) => {
+        const startInstall = async (name, kind, targetVersion) => {
           if (taskState && taskState.status === "running") {
             notify(`已有任务进行中（${taskState.name}），请等待完成`, "error");
             return;
           }
           try {
-            const value = await callRpc("installPlugin", { name, kind });
+            /* 把界面已知的目标版本一并传给宿主：让 pnpm 装确定的版本，
+               而不是自己再解析一次 @latest（可能命中过期缓存或 dist-tag 漂移）。 */
+            const payload = { name, kind };
+            if (typeof targetVersion === "string" && targetVersion) payload.version = targetVersion;
+            const value = await callRpc("installPlugin", payload);
             setTaskState({ id: value.taskId, name, kind, status: "running", log: [], error: null });
             pollTask(value.taskId);
           } catch (err) {
@@ -1033,7 +1037,7 @@ window.__ModuleLoader__.load({
                     className: btnClass,
                     type: "button",
                     disabled: btnDisabled,
-                    onClick: () => void startInstall(plugin.name, kind),
+                    onClick: () => void startInstall(plugin.name, kind, plugin.latestVersion || plugin.version),
                   }, btnLabel) : null
                 )
               )

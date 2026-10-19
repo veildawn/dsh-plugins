@@ -62,6 +62,7 @@ import {
   isNpmRegistrySpec,
   monorepoNpmNames,
   NPM_PLUGIN_SCOPE,
+  readInstalledVersion,
 } from './core.js'
 
 export const name = 'plugin-manager'
@@ -896,8 +897,18 @@ export function runDshPluginCommand(args, { onLog, timeoutMs = 600_000, spawnFn 
 /**
  * Resolve and validate the install source for a plugin.
  * Returns { source, kind } or { error }.
+ *
+ * `targetVersion` 可选：给了就装 `<pkg>@<version>`，而不是让 pnpm 自己解析
+ * `@latest`。界面已经把「可更新到哪个版本」算出来了（`latestVersion`），
+ * 再让 pnpm 重新解析一次 dist-tag 是多余的一次决策——两者不一致时，用户会
+ * 看到「更新成功」但版本没变，然后一直提示可更新。
+ *
+ * 显式版本还顺带带来三个好处：
+ *   - 不受 dist-tag 漂移影响（发布方改了 latest 也不会装错版本）；
+ *   - 不受 pnpm 缓存里过期 metadata 影响（`@latest` 走缓存，显式版本走精确解析）；
+ *   - 装完能直接比对实际版本，真正验证「更新是否生效」。
  */
-async function resolveInstallSource(name, kind, resolved) {
+async function resolveInstallSource(name, kind, resolved, targetVersion) {
   if (kind === 'repo') {
     // 仓库插件已发布到 npm（@weniatall/dsh-*），默认走 registry 安装：
     // tarball URL 会把版本锁死到某一版，且依赖 GitHub 可达性与资产命名一致。
@@ -918,7 +929,8 @@ async function resolveInstallSource(name, kind, resolved) {
       return { source: plugin.downloadUrl, kind: 'repo', pkgName, channel: 'tarball' }
     }
 
-    return { source: pkgName, kind: 'repo', pkgName, channel: 'npm' }
+    const pinned = pinVersion(pkgName, targetVersion)
+    return { source: pinned, kind: 'repo', pkgName, channel: 'npm', targetVersion: targetVersion || null }
   }
   if (kind === 'community') {
     const raw = await fetchCommunityCatalog(resolved.communityCatalogUrl)
@@ -926,9 +938,26 @@ async function resolveInstallSource(name, kind, resolved) {
     const entry = catalog.find((p) => p.name === name || p.npm === name)
     const pkg = safePackageName(entry && entry.npm)
     if (!entry || !pkg) return { error: `社区目录中不存在可安装的插件: ${name}` }
-    return { source: pkg, kind: 'community', pkgName: pkg, channel: 'npm' }
+    return { source: pinVersion(pkg, targetVersion), kind: 'community', pkgName: pkg, channel: 'npm', targetVersion: targetVersion || null }
   }
   return { error: `未知插件来源: ${kind}` }
+}
+
+/**
+ * 把包名拼成带显式版本的安装源；版本不合法时退回裸包名（让 pnpm 自己解析）。
+ *
+ * 只接受形如 `1.2.3` / `1.2.3-beta.1` 的语义化版本：来自远端目录的字段不能
+ * 直接拼进命令行，否则 `latest`、`1.0.0 || 2.0.0` 这类值会让 `pnpm add` 的
+ * 行为变得不可预测。
+ * @param {string} pkgName npm 包名。
+ * @param {string|undefined} version 目标版本。
+ * @returns {string} `<pkg>@<version>` 或裸 `<pkg>`。
+ */
+export function pinVersion(pkgName, version) {
+  if (typeof version !== 'string') return pkgName
+  const trimmed = version.trim().replace(/^v/, '')
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(trimmed)) return pkgName
+  return `${pkgName}@${trimmed}`
 }
 
 /**
@@ -1130,7 +1159,9 @@ export function handleInstallPlugin(options, payload, deps = {}) {
 
   void (async () => {
     try {
-      const { source, error, pkgName } = await resolveInstallSource(name, kind, resolved)
+      /* payload.version 来自界面已知的 latestVersion；缺省时保持旧行为（pnpm 自己解析）。 */
+      const targetVersion = typeof payload.version === 'string' ? payload.version : undefined
+      const { source, error, pkgName } = await resolveInstallSource(name, kind, resolved, targetVersion)
       if (error) throw new Error(error)
       task.source = source
       const result = await runInstallWithLockfileRecovery({
@@ -1162,6 +1193,15 @@ export function handleInstallPlugin(options, payload, deps = {}) {
                 (b) => b.toLowerCase() !== bundleName.toLowerCase() && b.toLowerCase() !== bareName.toLowerCase()
               )
               manifest.dsh.profile.bundles.push(bundleName)
+              /* 显式版本安装会把 dependencies 写成精确版 `0.1.39`，之后
+                 `pnpm add <pkg>` 再也不会自动升级到新版本。装完立刻恢复成
+                 `^<version>` 范围，保持「以后还能更新」的语义。 */
+              const depName = pkgName || name
+              const installedNow = readInstalledVersion(depName, { home, profile })
+              if (installedNow && manifest.dependencies && manifest.dependencies[depName] === installedNow) {
+                manifest.dependencies[depName] = `^${installedNow}`
+                task.log.push(`  ↻ 依赖约束已恢复为 ^${installedNow}`)
+              }
               writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
               if (!hadExact || manifest.dsh.profile.bundles.length !== beforeLen) {
                 task.log.push(`✓ 已自动将 ${bundleName} 注册到 profile bundles`)
@@ -1172,6 +1212,20 @@ export function handleInstallPlugin(options, payload, deps = {}) {
 
         task.status = 'success'
         task.log.push(`✓ ${name} 安装/更新完成`)
+
+        /* pnpm 退出码 0 不等于「版本真的变了」：它可能在 dist-tag / 缓存 / 冷却
+           策略下判定 Already up to date 然后原样退出。这里比对磁盘上的实际版本，
+           把「假成功」变成一条明确的失败，而不是让界面继续显示「可更新」。 */
+        if (targetVersion) {
+          const actual = readInstalledVersion(pkgName || name, { home: findDshHome(), profile })
+          if (actual && actual !== targetVersion) {
+            task.status = 'error'
+            task.error = `更新未生效：目标是 ${targetVersion}，实际仍是 ${actual}`
+            task.log.push(`✗ ${task.error}`)
+          } else if (actual === targetVersion) {
+            task.log.push(`✓ 已确认安装版本为 ${actual}`)
+          }
+        }
       } else {
         task.status = 'error'
         task.error = (result.stderr || result.stdout || '操作失败').split('\n').filter(Boolean).slice(-3).join(' ')
@@ -1250,8 +1304,9 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
 
       for (let i = 0; i < targets.length; i++) {
         const p = targets[i]
-        task.log.push(`[${i + 1}/${targets.length}] 正在更新 ${p.name} (v${p.installedVersion} → v${p.version || p.latestVersion})...`)
-        const { source, error, pkgName } = await resolveInstallSource(p.name, kind, resolved)
+        const targetVersion = p.version || p.latestVersion || undefined
+        task.log.push(`[${i + 1}/${targets.length}] 正在更新 ${p.name} (v${p.installedVersion} → v${targetVersion || 'latest'})...`)
+        const { source, error, pkgName } = await resolveInstallSource(p.name, kind, resolved, targetVersion)
         if (error) {
           task.log.push(`✗ ${p.name} 解析失败: ${error}`)
           failureCount++
@@ -1282,6 +1337,15 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
               }
             }
           } catch {}
+          /* 同样要核对实际版本：pnpm 可能判定 Already up to date 后原样退出。 */
+          const actual = targetVersion
+            ? readInstalledVersion(targetPkg, { home: findDshHome(), profile })
+            : null
+          if (targetVersion && actual && actual !== targetVersion) {
+            task.log.push(`✗ [${i + 1}/${targets.length}] ${p.name} 更新未生效：目标是 ${targetVersion}，实际仍是 ${actual}`)
+            failureCount++
+            continue
+          }
           task.log.push(`✓ [${i + 1}/${targets.length}] ${p.name} 更新成功`)
           successCount++
         } else {

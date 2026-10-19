@@ -62,6 +62,7 @@ import {
   liveField,
   settingsBase,
   unwrapConfig,
+  pinVersion,
 } from '../lib/index.js'
 
 describe('dsh-market core & version comparison', () => {
@@ -78,6 +79,17 @@ describe('dsh-market core & version comparison', () => {
     assert.equal(isUpgrade('0.4.7', '0.4.8'), true)
     assert.equal(isUpgrade('0.4.8', '0.4.7'), false)
     assert.equal(isUpgrade('0.1.0', '0.1.0'), false)
+  })
+
+  it('pinVersion 只接受语义化版本，其余一律退回裸包名', () => {
+    // 显式版本是修复「更新不生效」的关键：装确定版本而不是让 pnpm 重新解析 @latest。
+    assert.equal(pinVersion('@weniatall/dsh-x', '0.4.8'), '@weniatall/dsh-x@0.4.8')
+    assert.equal(pinVersion('@weniatall/dsh-x', 'v0.4.8'), '@weniatall/dsh-x@0.4.8')
+    assert.equal(pinVersion('@weniatall/dsh-x', '0.4.8-beta.1'), '@weniatall/dsh-x@0.4.8-beta.1')
+    // 来自远端目录的字段不能直接拼进命令行
+    for (const bad of ['latest', '^0.4.8', '1.0.0 || 2.0.0', '', undefined, null, '0.4']) {
+      assert.equal(pinVersion('@weniatall/dsh-x', bad), '@weniatall/dsh-x', String(bad))
+    }
   })
 
   it('parses monorepo tag formats', () => {
@@ -1247,6 +1259,64 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.deepEqual(captured.calls[0].args, ['plugin', '--profile', 'web', 'add', '@weniatall/dsh-model-roles'])
     assert.equal(task.log.some((l) => l.includes('plugin') && l.includes('add')), true)
     assert.equal(task.log.some((l) => l.includes('installing...')), true)
+  })
+
+  it('installs the exact version the UI reported instead of letting pnpm re-resolve @latest', async () => {
+    // 真实故障：界面显示「可更新到 v0.4.8」，点更新后 pnpm 因为缓存/dist-tag
+    // 判定 Already up to date，版本没变却报成功，于是永远提示可更新。
+    // 显式传版本号可以让安装目标与界面提示完全一致。
+    captured.calls.length = 0
+    const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo', version: '0.4.8' }, { spawnFn: fakeSpawn })
+    assert.equal(res.ok, true)
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(captured.calls[0].args[4], '@weniatall/dsh-model-roles@0.4.8')
+    // 断言日志里出现过显式版本，避免日后被改回 @latest
+    assert.ok(task.log.some((l) => l.includes('@0.4.8')))
+  })
+
+  it('rejects an unparsable version by falling back to the bare package name', async () => {
+    // 远端目录字段不能直接拼进命令行：`latest`、`1.0.0 || 2.0.0` 这类值会让
+    // pnpm 行为不可预测，必须退回裸包名让它自己解析。
+    captured.calls.length = 0
+    const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo', version: 'latest' }, { spawnFn: fakeSpawn })
+    const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+    assert.equal(captured.calls[0].args[4], '@weniatall/dsh-model-roles')
+    assert.equal(task.status, 'success')
+  })
+
+  it('reports failure when the installed version does not match the requested one', async () => {
+    // pnpm 退出码 0 不等于版本真的变了。装完必须核对磁盘上的版本，
+    // 否则界面会一直显示「可更新」而用户以为已经更新成功。
+    const profileDir = join(testHome, 'profiles', 'web')
+    const installedPkg = join(profileDir, 'node_modules', '@weniatall', 'dsh-model-roles')
+    mkdirSync(installedPkg, { recursive: true })
+    writeFileSync(join(installedPkg, 'package.json'), JSON.stringify({ name: '@weniatall/dsh-model-roles', version: '0.4.7' }), 'utf8')
+    try {
+      const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo', version: '0.4.8' }, { spawnFn: fakeSpawn })
+      const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+      // 假 spawn 不会真的写入新版本，磁盘上仍是 0.4.7 → 必须判定为「未生效」
+      assert.equal(task.status, 'error')
+      assert.match(task.error, /更新未生效/)
+      assert.match(task.error, /0\.4\.8/)
+      assert.match(task.error, /0\.4\.7/)
+    } finally {
+      rmSync(installedPkg, { recursive: true, force: true })
+    }
+  })
+
+  it('does not report a false failure when the target version is actually installed', async () => {
+    const profileDir = join(testHome, 'profiles', 'web')
+    const installedPkg = join(profileDir, 'node_modules', '@weniatall', 'dsh-model-roles')
+    mkdirSync(installedPkg, { recursive: true })
+    writeFileSync(join(installedPkg, 'package.json'), JSON.stringify({ name: '@weniatall/dsh-model-roles', version: '0.4.8' }), 'utf8')
+    try {
+      const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo', version: '0.4.8' }, { spawnFn: fakeSpawn })
+      const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+      assert.equal(task.status, 'success')
+      assert.ok(task.log.some((l) => l.includes('已确认安装版本为 0.4.8')))
+    } finally {
+      rmSync(installedPkg, { recursive: true, force: true })
+    }
   })
 
   it('installs a community plugin by spawning `dsh plugin add` with its npm name', async () => {
