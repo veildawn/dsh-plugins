@@ -8,18 +8,18 @@
 
 | 插件名称 | 目录 | 说明 | 最新独立版本 |
 | :--- | :--- | :--- | :--- |
-| **`dsh-plugin-manager`** | [`plugins/dsh-plugin-manager`](plugins/dsh-plugin-manager) | 插件管理中心与自有插件更新/卸载管理器（专属拼图图标、移动端全量响应式触控适配、自有插件一键批量更新(N)、支持配置 GitHub Token 提升 API 配额至 5000次/小时并提供 Atom feed 无感兜底、社区21分类、静默直接复制指令、剪贴板写入全路径兜底、异步平滑重启与自动恢复、桌面端宿主版本识别穿透 asar 归档） | [`v0.3.45`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-plugin-manager@v0.3.45) |
-| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.31`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.31) |
+| **`dsh-plugin-manager`** | [`plugins/dsh-plugin-manager`](plugins/dsh-plugin-manager) | 插件管理中心与自有插件更新/卸载管理器（专属拼图图标、移动端全量响应式触控适配、自有插件一键批量更新(N)、支持配置 GitHub Token 提升 API 配额至 5000次/小时并提供 Atom feed 无感兜底、社区21分类、静默直接复制指令、剪贴板写入全路径兜底、异步平滑重启与自动恢复、桌面端宿主版本识别穿透 asar 归档） | [`v0.3.47`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-plugin-manager@v0.3.47) |
+| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.32`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.32) |
 | **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标、桌面端/Web版局域网地址自识别与端口展示、卡片化设置面板与访问地址一键复制、修复启用远程访问开关点击后不生效、局域网绑定改用具体网卡 IP 以适配 DSH 0.2.x 拒绝通配地址、修复端口行标签与按钮文字被挤成两行） | [`v0.1.37`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.37) |
-| **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接插件（协议层外包给宿主官方 llm-pi-ai 适配器并自动材料化路由、Chat/completions/Anthropic messages/Responses 三格式、最高推理强度开关、OAuth 2.0 PKCE 认证、令牌过期前主动轮换与阶梯推理映射、把网关 `/v1/models` 的 `modality`（text/image/decision）写入材料化路由供静态判断） | [`v0.3.17`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.3.17) |
-| **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、工作区工具箱整合文件查看器/本地终端/提示词历史、移动端右侧栏避让与一键返回对话、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、输入区聚焦防整页放大） | [`v0.1.45`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.45) |
-| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word、安全访问路径双重持久化保存） | [`v0.2.6`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.2.6) |
-| **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.16`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.16) |
-| **`dsh-archive-manager`** | [`plugins/dsh-archive-manager`](plugins/dsh-archive-manager) | 会话归档管理器（侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间） | [`v0.2.14`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-archive-manager@v0.2.14) |
-| **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端提示词按钮归入工作区工具箱、自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.10`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.10) |
-| **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | ZCode Design System 视觉系统（深炭灰画布、暖橙红品牌色、首屏直出零闪烁、全量剔除宿主默认蓝、PC/平板/移动端共享视觉Token与气泡/输入框/终端材质全面重塑） | [`v0.1.37`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.1.37) |
-| **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | 决策模型原生工具插件（可直接下拉选择 dsh 已配置的提供商与模型，此时接口地址与 API Key 完全由提供商配置解析；也可手写 baseURL/Key/模型 ID。决策模型按 `/v1/models` 的 `modality`、静态 `modality`（含 dsh-ai-proxy 材料化写入）、classifier 协议、模型类型与名称识别；默认仍为 TypeSafe Jev 官方地址、Choice/Score/Noul 三大决策原语、/v1/systemone 与 /v1/decisions 端点切换、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.2.3`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.2.3) |
-| **`dsh-image-gen`** | [`plugins/dsh-image-gen`](plugins/dsh-image-gen) | DSH 原生生图插件（把文生图作为原生工具暴露，可直接下拉选择 dsh 已配置的提供商与模型、或手动填写 baseURL/Key，内置尺寸与画质选择，支持 http/https/socks5 代理；设置面板可实时切换并测试连通性） | [`v0.1.3`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-image-gen@v0.1.3) |
+| **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接插件（协议层外包给宿主官方 llm-pi-ai 适配器并自动材料化路由、Chat/completions/Anthropic messages/Responses 三格式、最高推理强度开关、OAuth 2.0 PKCE 认证、令牌过期前主动轮换与阶梯推理映射、把网关 `/v1/models` 的 `modality`（text/image/decision）写入材料化路由供静态判断） | [`v0.3.18`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.3.18) |
+| **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、工作区工具箱整合文件查看器/本地终端/提示词历史、移动端右侧栏避让与一键返回对话、对话框底部全操作按钮圆形统一规范、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、输入区聚焦防整页放大） | [`v0.1.46`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.46) |
+| **`dsh-file-viewer`** | [`plugins/dsh-file-viewer`](plugins/dsh-file-viewer) | 工作区文件查看器（PC端全屏切换、移动端触屏长按右键菜单防抖与底部抽屉、路径复制与@引用、语法高亮、Markdown/JSON、图片、PDF、Excel、Word、安全访问路径双重持久化保存） | [`v0.2.7`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-file-viewer@v0.2.7) |
+| **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.17`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.17) |
+| **`dsh-archive-manager`** | [`plugins/dsh-archive-manager`](plugins/dsh-archive-manager) | 会话归档管理器（侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间） | [`v0.2.15`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-archive-manager@v0.2.15) |
+| **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端提示词按钮归入工作区工具箱、自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.11`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.11) |
+| **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | ZCode Design System 视觉系统（深炭灰画布、暖橙红品牌色、首屏直出零闪烁、全量剔除宿主默认蓝、PC/平板/移动端共享视觉Token与气泡/输入框/终端材质全面重塑） | [`v0.1.38`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.1.38) |
+| **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | 决策模型原生工具插件（可直接下拉选择 dsh 已配置的提供商与模型，此时接口地址与 API Key 完全由提供商配置解析；也可手写 baseURL/Key/模型 ID。决策模型按 `/v1/models` 的 `modality`、静态 `modality`（含 dsh-ai-proxy 材料化写入）、classifier 协议、模型类型与名称识别；默认仍为 TypeSafe Jev 官方地址、Choice/Score/Noul 三大决策原语、/v1/systemone 与 /v1/decisions 端点切换、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.2.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.2.4) |
+| **`dsh-image-gen`** | [`plugins/dsh-image-gen`](plugins/dsh-image-gen) | DSH 原生生图插件（把文生图作为原生工具暴露，可直接下拉选择 dsh 已配置的提供商与模型、或手动填写 baseURL/Key，内置尺寸与画质选择，支持 http/https/socks5 代理；设置面板可实时切换并测试连通性） | [`v0.1.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-image-gen@v0.1.4) |
 
 ---
 
@@ -46,42 +46,87 @@
 > tarball），再重启服务；不要手动往 profile 的 `node_modules` 里拷文件。
 
 ```bash
-# 0. 安装插件管理中心 (自有插件更新与社区市场)
+# 1. 安装插件管理中心 (自有插件更新与社区市场)
 dsh plugin --profile web add @weniatall/dsh-plugin-manager
 
-# 1. 安装模型角色分工插件 (多模型智能路由与识图子代理)
+# 2. 安装模型角色分工插件 (多模型智能路由与识图子代理)
 dsh plugin --profile web add @weniatall/dsh-model-roles
 
-# 2. 安装远程安全通道插件 (推荐所有公网/局域网部署安装)
+# 3. 安装远程安全通道插件 (推荐所有公网/局域网部署安装)
 dsh plugin --profile web add @weniatall/dsh-remote-control
 
-# 3. 安装 AI Proxy 网关插件
+# 4. 安装 AI Proxy 网关插件
 dsh plugin --profile web add @weniatall/dsh-ai-proxy
 
-# 4. 安装移动端适配插件 (手机浏览器访问必备)
+# 5. 安装移动端适配插件 (手机浏览器访问必备)
 dsh plugin --profile web add @weniatall/dsh-mobile-adapter
 
-# 5. 安装文件查看器插件 (会话头部抽屉浏览工作区文件)
+# 6. 安装文件查看器插件 (会话头部抽屉浏览工作区文件)
 dsh plugin --profile web add @weniatall/dsh-file-viewer
 
-# 6. 安装本地终端插件 (跨平台原生终端调用与移动端适配)
+# 7. 安装本地终端插件 (跨平台原生终端调用与移动端适配)
 dsh plugin --profile web add @weniatall/dsh-terminal
 
-# 7. 安装会话归档管理器
+# 8. 安装会话归档管理器
 dsh plugin --profile web add @weniatall/dsh-archive-manager
 
-# 8. 安装提示词历史与跨端漫游
+# 9. 安装提示词历史与跨端漫游
 dsh plugin --profile web add @weniatall/dsh-prompt-history
 
-# 9. 安装 ZCode 主题
+# 10. 安装 ZCode 主题
 dsh plugin --profile web add @weniatall/dsh-zcode-theme
 
-# 10. 安装决策模型（默认 TypeSafe Jev，也可选 dsh 已配置的提供商）
+# 11. 安装决策模型（默认 TypeSafe Jev，也可选 dsh 已配置的提供商）
 dsh plugin --profile web add @weniatall/dsh-jev
 
-# 11. 安装文生图 (生图模型) 插件
+# 12. 安装文生图 (生图模型) 插件
 dsh plugin --profile web add @weniatall/dsh-image-gen
 ```
+
+### 从旧版 tarball 安装迁移
+
+如果你的 profile 里还 pin 着旧的无 scope 版本或 GitHub tarball，直接执行上面的
+`dsh plugin add @weniatall/...` 即可覆盖安装：`dsh plugin add` 会替换 profile 里
+pin 住的旧来源，不需要先卸载。
+
+迁移前，profile 的 `package.json` 里通常长这样（两种历史形态）：
+
+```jsonc
+{
+  // 形态一：插件管理器预下载的本地缓存
+  "dsh-terminal": "file:/home/you/.dsh/profiles/web/.plugin-manager/downloads/dsh-terminal-0.1.16.tgz",
+  // 形态二：GitHub Release tarball，版本被锁死
+  "dsh-model-roles": "https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.31/dsh-model-roles-0.4.31.tgz"
+}
+```
+
+迁移后应变成标准的 registry 依赖：
+
+```jsonc
+{
+  "@weniatall/dsh-terminal": "^0.1.17",
+  "@weniatall/dsh-model-roles": "^0.4.32"
+}
+```
+
+> **注意**：包名本身也变了（`dsh-terminal` → `@weniatall/dsh-terminal`），旧条目不会
+> 自动消失。安装完新版后，需要把 `dependencies` 与 `dsh.profile.bundles` 里的**旧名**
+> 手动删掉，否则宿主会因找不到模块而报错。`dsh-plugin-manager` 已内置新旧名称的双向
+> 兼容匹配，能正确识别这种过渡态（不会把已安装的插件显示成「未安装」），但它不会替你
+> 改写 profile 清单。
+
+### 插件管理器内的安装与更新
+
+`dsh-plugin-manager` 的版本检测、安装、更新与「复制指令」都走 npm 渠道：
+
+- **版本检测**：优先读 npm registry 的 `dist-tags.latest`（发布事实本身），
+  GitHub Release 仅作兜底，避免 tag 与 `package.json` 版本不一致导致的误判；
+- **安装 / 更新**：向 `dsh plugin add` 传入 `@weniatall/dsh-xxx` 包名，而不是锁死
+  版本的 tarball URL；
+- **复制指令**：复制出来的命令是 `dsh plugin --profile web add @weniatall/dsh-xxx`。
+
+离线或内网环境可以在插件管理器设置里打开 `allowTarball`，此时回落到 GitHub Release
+的 tarball（仍会校验来源白名单）。
 
 ### 重启 DSH Web 服务生效
 

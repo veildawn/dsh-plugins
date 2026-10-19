@@ -146,6 +146,87 @@ export function buildReleaseDownloadUrl(repo, pluginName, version) {
 }
 
 /**
+ * 本仓库插件的 npm scope。
+ *
+ * 12 个插件已发布到 npm（`@weniatall/dsh-*`）：无 scope 的包名
+ * （dsh-terminal、dsh-file-viewer 等 9 个）已被第三方占用且不可转让，
+ * 因此统一迁移到 scope 下。安装、更新、版本检测都应以 npm 包名为准，
+ * GitHub Release 的 tarball 仅作为历史/离线兜底渠道保留。
+ */
+export const NPM_PLUGIN_SCOPE = '@weniatall'
+
+/**
+ * 由仓库内插件短名推出 npm 包名。
+ *
+ * 短名与包名的对应关系是固定的前缀拼接（dsh-terminal ->
+ * @weniatall/dsh-terminal），不需要额外映射表；已经是 scope 形态的
+ * 名称原样返回，保证幂等。
+ *
+ * @param name 插件短名或已带 scope 的包名。
+ * @returns npm 包名；name 非法时返回空串。
+ */
+export function npmNameOf(name) {
+  if (typeof name !== 'string') return ''
+  const trimmed = name.trim()
+  if (trimmed === '') return ''
+  if (trimmed.startsWith('@')) return trimmed
+  return `${NPM_PLUGIN_SCOPE}/${trimmed}`
+}
+
+/**
+ * 判断一个安装来源（profile 的 dependencies 值）是不是 npm registry 形态。
+ *
+ * profile 的 dependencies 值有四种历史形态：
+ *   - `^1.2.3` / `1.2.3`      -> npm registry 语义化版本
+ *   - `file:/path/to/x.tgz`   -> 本地 tarball（插件管理器下载缓存）
+ *   - `https://.../x.tgz`     -> 远端 tarball（GitHub Release）
+ *   - `github:owner/repo`     -> git 源
+ * 只有第一种才算「走 npm 安装」。
+ *
+ * @param spec profile dependencies 里的值。
+ * @returns 是否为 npm registry 语义化版本区间。
+ */
+export function isNpmRegistrySpec(spec) {
+  if (typeof spec !== 'string') return false
+  const value = spec.trim()
+  if (value === '') return false
+  if (/^(?:file|link|portal|workspace):/i.test(value)) return false
+  // 同 installChannelOf：`git+https://` 也算 git 源，不能当成 npm 版本区间。
+  if (/^git(?:\+[a-z0-9]+)?:\/\//i.test(value)) return false
+  if (/^(?:git|github|gitlab|bitbucket):/i.test(value)) return false
+  if (/^https?:\/\//i.test(value)) return false
+  if (/^\.{1,2}(?:[/\\]|$)/.test(value)) return false
+  return true
+}
+
+/**
+ * 从 profile 的 dependencies 值判断该插件的安装渠道。
+ *
+ * @param spec profile dependencies 里的值。
+ * @returns 'npm' | 'tarball' | 'path' | 'git' | 'unknown'
+ */
+export function installChannelOf(spec) {
+  if (typeof spec !== 'string' || spec.trim() === '') return 'unknown'
+  const value = spec.trim()
+  if (/^(?:file|link|portal):/i.test(value)) return 'path'
+  // git 源有三种写法：git:、git+<transport>:、以及 github:/gitlab:/bitbucket: 简写。
+  // `git+https://...` 必须在这里先被拦下，否则会落到下面的 npm 分支。
+  if (/^git(?:\+[a-z0-9]+)?:\/\//i.test(value)) return 'git'
+  if (/^(?:git|github|gitlab|bitbucket):/i.test(value)) return 'git'
+  if (/^https?:\/\//i.test(value)) return 'tarball'
+  if (/^\.{1,2}(?:[/\\]|$)/.test(value)) return 'path'
+  if (/^(?:workspace):/i.test(value)) return 'path'
+  return 'npm'
+}
+
+/**
+ * 本仓库插件的 npm 包名清单（供版本检测批量查询用）。
+ */
+export function monorepoNpmNames() {
+  return LOCAL_MONOREPO_PLUGINS.map((plugin) => npmNameOf(plugin.name))
+}
+
+/**
  * Static metadata definition for plugins hosted directly in this monorepo
  */
 export const LOCAL_MONOREPO_PLUGINS = [
@@ -1078,12 +1159,18 @@ export function stripPluginFromPackageJson(pluginName, { home = findDshHome(), p
     const manifest = JSON.parse(raw)
     let removed = false
     if (manifest && typeof manifest === 'object' && manifest.dependencies) {
-      if (manifest.dependencies[pluginName]) {
-        delete manifest.dependencies[pluginName]
-        removed = true
-      }
+      // 容忍 scope 迁移：传入 @weniatall/dsh-x 时顺便清理旧的无 scope 键 dsh-x，
+      // 反之亦然，避免 dependencies 出现同一插件的双份依赖约束。
+      const bareName = pluginName.startsWith('@') ? pluginName.slice(pluginName.indexOf('/') + 1) : pluginName
+      const scopedName = pluginName.startsWith('@') ? pluginName : `${NPM_PLUGIN_SCOPE}/${pluginName}`
+      const targets = new Set([
+        pluginName.toLowerCase(),
+        bareName.toLowerCase(),
+        scopedName.toLowerCase(),
+      ])
+
       for (const key of Object.keys(manifest.dependencies)) {
-        if (key.toLowerCase() === pluginName.toLowerCase()) {
+        if (targets.has(key.toLowerCase())) {
           delete manifest.dependencies[key]
           removed = true
         }

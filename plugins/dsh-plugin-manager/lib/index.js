@@ -56,6 +56,12 @@ import {
   checkDshUpdate,
   resolveDesktopEnvironment,
   formatPluginCliCommand,
+  buildReleaseDownloadUrl,
+  npmNameOf,
+  installChannelOf,
+  isNpmRegistrySpec,
+  monorepoNpmNames,
+  NPM_PLUGIN_SCOPE,
 } from './core.js'
 
 export const name = 'plugin-manager'
@@ -125,6 +131,7 @@ export const Config = z.object({
   communityCatalogUrl: liveField(z.string().default(DEFAULT_COMMUNITY_CATALOG_URL)),
   autoCheckUpdates: liveField(z.boolean().default(true)),
   mirrorUrl: liveField(z.string().default('')),
+  allowTarball: liveField(z.boolean().default(false)),
   githubToken: liveField(z.string().default('')),
 })
 
@@ -137,6 +144,9 @@ export function resolveOptions(raw = {}) {
     communityCatalogUrl: typeof raw.communityCatalogUrl === 'string' && raw.communityCatalogUrl ? raw.communityCatalogUrl : DEFAULT_COMMUNITY_CATALOG_URL,
     autoCheckUpdates: typeof raw.autoCheckUpdates === 'boolean' ? raw.autoCheckUpdates : true,
     mirrorUrl: typeof raw.mirrorUrl === 'string' ? raw.mirrorUrl : '',
+    // 默认走 npm registry；置 true 时回落到 GitHub Release 的 tarball，
+    // 用于离线环境或 npm registry 不可达的内网部署。
+    allowTarball: typeof raw.allowTarball === 'boolean' ? raw.allowTarball : false,
     githubToken,
     configuredGithubToken: configuredToken,
     githubTokenSource: configuredToken ? 'config' : (envToken ? 'env' : 'none'),
@@ -273,6 +283,10 @@ let lastDshReleasesFetchTime = 0
 let cachedDshNpm = null
 let lastDshNpmFetchTime = 0
 
+/** 本仓库插件的 npm 最新版本缓存（Map<npm 包名, {version, publishedAt, tarball}>）。 */
+let cachedPluginNpm = null
+let lastPluginNpmFetchTime = 0
+
 /**
  * Fetch GitHub releases for deepseek-ai/deepseek-harness.
  */
@@ -308,6 +322,66 @@ export async function fetchDshNpmMeta(pkgName = DSH_PACKAGE_NAME, registry = DEF
   } catch {
     return cachedDshNpm || null
   }
+}
+
+/**
+ * 批量查询本仓库插件在 npm registry 上的最新版本。
+ *
+ * 版本检测优先走 npm：GitHub Releases 依赖 tag 与资产名，历史上出现过
+ * tag 与 package.json 版本不一致、资产被改名等问题；npm registry 的
+ * `dist-tags.latest` 是发布事实本身，更可靠，也不受 GitHub 匿名 API
+ * 60 次/小时的速率限制影响。
+ *
+ * 单个包查询失败不影响其它包：返回的 Map 里只包含查询成功的条目，
+ * 调用方据此决定是否回落到 GitHub Release 数据。
+ *
+ * @param names 插件短名或 npm 包名数组。
+ * @param registry npm registry 基址。
+ * @returns Map<npm 包名, { version, publishedAt, tarball }>
+ */
+export async function fetchPluginNpmVersions(names, registry = DEFAULT_NPM_REGISTRY) {
+  const now = Date.now()
+  if (cachedPluginNpm && now - lastPluginNpmFetchTime < CACHE_TTL_MS) return cachedPluginNpm
+
+  const cleanRegistry = String(registry).replace(/\/+$/, '')
+  const results = new Map()
+
+  const entries = await Promise.all(
+    [...new Set(names.map((name) => npmNameOf(name)).filter((name) => name !== ''))].map(async (pkgName) => {
+      try {
+        // registry 的 packument 端点要求 scope 里的 `/` 保留为路径分隔符，
+        // 只对 @ 做编码；整体 encodeURIComponent 会把 / 变成 %2F 导致 404。
+        const url = `${cleanRegistry}/${encodeURIComponent(pkgName).replace(/%2F/gi, '/')}`
+        const data = await fetchJson(url, 8_000)
+        if (!data || typeof data !== 'object') return null
+        const distTags = data['dist-tags'] ?? {}
+        const version = distTags.latest ?? distTags.next ?? null
+        if (typeof version !== 'string') return null
+        const versionMeta = data.versions?.[version] ?? {}
+        return [
+          pkgName,
+          {
+            version,
+            publishedAt: data.time?.[version] ?? null,
+            tarball: versionMeta.dist?.tarball ?? null,
+            description: versionMeta.description ?? null,
+          },
+        ]
+      } catch {
+        return null
+      }
+    }),
+  )
+
+  for (const entry of entries) {
+    if (Array.isArray(entry)) results.set(entry[0], entry[1])
+  }
+
+  // 全部失败时保留上一次成功的结果，避免网络抖动把「有更新」清空。
+  if (results.size === 0 && cachedPluginNpm) return cachedPluginNpm
+  cachedPluginNpm = results
+  lastPluginNpmFetchTime = now
+  return results
 }
 
 /**
@@ -426,11 +500,85 @@ function applyMirror(plugins, mirrorUrl) {
   }))
 }
 
+/**
+ * 构建本仓库插件的 catalog，版本以 npm registry 为准、GitHub Release 兜底。
+ *
+ * 两路数据的分工：
+ *   - npm registry：提供 latest 版本号与发布时间，这是发布的权威事实；
+ *   - GitHub Release：提供历史 release notes 与 tarball 下载地址（离线/兜底）。
+ *
+ * npm 查询失败时完全回落到 GitHub Release，保证插件管理器在 registry 不可达
+ * 或私有镜像场景下仍能工作。
+ *
+ * 每个条目额外带上 npmName / installSource / channel 三个字段：
+ *   - npmName：npm 包名（@weniatall/dsh-xxx）；
+ *   - installSource：传给 `dsh plugin add` 的来源（npm 包名，而非 tarball URL）；
+ *   - channel：安装渠道，供前端展示与迁移提示。
+ *
+ * @param resolved 已解析的插件配置（含 repoOrigin / mirrorUrl / registry）。
+ * @returns catalog 数组。
+ */
+async function buildRepoCatalog(resolved) {
+  const ghReleases = await fetchGitHubReleases(resolved.repoOrigin, resolved.githubToken)
+  const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
+
+  let npmVersions = new Map()
+  try {
+    npmVersions = await fetchPluginNpmVersions(
+      LOCAL_MONOREPO_PLUGINS.map((plugin) => plugin.name),
+      DEFAULT_NPM_REGISTRY,
+    )
+  } catch {
+    npmVersions = new Map()
+  }
+
+  // 先把 npm 版本合并进 releaseMap，让 resolveRepoCatalog 既有的
+  // 「动态发现新插件」逻辑能基于真实版本工作。
+  for (const [npmName, meta] of npmVersions) {
+    const shortName = npmName.startsWith('@') ? npmName.slice(npmName.indexOf('/') + 1) : npmName
+    const existing = releaseMap.get(shortName)
+    releaseMap.set(shortName, {
+      ...(existing ?? {}),
+      name: shortName,
+      version: meta.version,
+      publishedAt: meta.publishedAt ?? existing?.publishedAt ?? null,
+      releaseNotes: existing?.releaseNotes ?? '',
+      downloadUrl: existing?.downloadUrl ?? buildReleaseDownloadUrl(resolved.repoOrigin, shortName, meta.version),
+      npmName,
+      npmTarball: meta.tarball ?? null,
+    })
+  }
+
+  let catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
+
+  catalog = catalog.map((plugin) => {
+    const npmName = npmNameOf(plugin.name)
+    const meta = npmVersions.get(npmName)
+    const version = meta?.version ?? plugin.version ?? plugin.latestVersion
+    return {
+      ...plugin,
+      npmName,
+      version,
+      latestVersion: version,
+      publishedAt: meta?.publishedAt ?? plugin.publishedAt ?? null,
+      // 安装/更新/复制指令一律走 npm 包名：tarball URL 会锁死到某个版本，
+      // 且依赖 GitHub 可达性与资产命名。
+      installSource: npmName,
+      npmTarball: meta?.tarball ?? plugin.npmTarball ?? null,
+      channel: 'npm',
+    }
+  })
+
+  catalog = applyMirror(catalog, resolved.mirrorUrl)
+  return catalog
+}
+
 const CONFIG_KEYS = {
   repoOrigin: (v) => typeof v === 'string' && v !== '',
   communityCatalogUrl: (v) => typeof v === 'string' && v !== '',
   autoCheckUpdates: (v) => typeof v === 'boolean',
   mirrorUrl: (v) => typeof v === 'string',
+  allowTarball: (v) => typeof v === 'boolean',
   githubToken: (v) => typeof v === 'string',
 }
 
@@ -585,10 +733,9 @@ export async function handleMarketRpc(ctx, options, method, payload = {}, deps =
     }
 
     if (method === 'checkUpdates') {
-      const ghReleases = await fetchGitHubReleases(resolved.repoOrigin, resolved.githubToken)
-      const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
-      let repoCatalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
-      repoCatalog = applyMirror(repoCatalog, resolved.mirrorUrl)
+      // npm registry 是发布事实本身，优先采用；GitHub Release 只作兜底，
+      // 因为它的 tag/资产命名历史上出现过与 package.json 不一致的情况。
+      const repoCatalog = await buildRepoCatalog(resolved)
       const pluginNames = LOCAL_MONOREPO_PLUGINS.map((p) => p.name)
       const installed = readInstalledList(pluginNames)
       const results = checkPluginUpdates(installed, repoCatalog)
@@ -752,15 +899,26 @@ export function runDshPluginCommand(args, { onLog, timeoutMs = 600_000, spawnFn 
  */
 async function resolveInstallSource(name, kind, resolved) {
   if (kind === 'repo') {
-    const ghReleases = await fetchGitHubReleases(resolved.repoOrigin)
-    const releaseMap = formatMonorepoReleases(ghReleases, resolved.repoOrigin)
-    const catalog = resolveRepoCatalog(releaseMap, resolved.repoOrigin)
-    const plugin = catalog.find((p) => p.name === name)
+    // 仓库插件已发布到 npm（@weniatall/dsh-*），默认走 registry 安装：
+    // tarball URL 会把版本锁死到某一版，且依赖 GitHub 可达性与资产命名一致。
+    const catalog = await buildRepoCatalog(resolved)
+    const shortName = name.startsWith('@') ? name.slice(name.indexOf('/') + 1) : name
+    const plugin = catalog.find((p) => p.name === name || p.name === shortName || p.npmName === name)
     if (!plugin) return { error: `仓库中不存在插件: ${name}` }
-    if (!isAllowedRepoUrl(plugin.downloadUrl, resolved.repoOrigin, resolved.mirrorUrl)) {
-      return { error: `拒绝安装：来源不在白名单内（${plugin.downloadUrl}）` }
+
+    const pkgName = safePackageName(plugin.npmName || npmNameOf(plugin.name))
+    if (!pkgName) return { error: `插件 ${name} 的 npm 包名不合法: ${plugin.npmName}` }
+
+    // allowTarball：离线或内网镜像场景下显式回落到 GitHub Release tarball。
+    // 回落时仍走既有的来源白名单校验，避免装上任意 URL。
+    if (resolved.allowTarball && plugin.downloadUrl) {
+      if (!isAllowedRepoUrl(plugin.downloadUrl, resolved.repoOrigin, resolved.mirrorUrl)) {
+        return { error: `拒绝安装：来源不在白名单内（${plugin.downloadUrl}）` }
+      }
+      return { source: plugin.downloadUrl, kind: 'repo', pkgName, channel: 'tarball' }
     }
-    return { source: plugin.downloadUrl, kind: 'repo' }
+
+    return { source: pkgName, kind: 'repo', pkgName, channel: 'npm' }
   }
   if (kind === 'community') {
     const raw = await fetchCommunityCatalog(resolved.communityCatalogUrl)
@@ -768,7 +926,7 @@ async function resolveInstallSource(name, kind, resolved) {
     const entry = catalog.find((p) => p.name === name || p.npm === name)
     const pkg = safePackageName(entry && entry.npm)
     if (!entry || !pkg) return { error: `社区目录中不存在可安装的插件: ${name}` }
-    return { source: pkg, kind: 'community', pkgName: pkg }
+    return { source: pkg, kind: 'community', pkgName: pkg, channel: 'npm' }
   }
   return { error: `未知插件来源: ${kind}` }
 }
@@ -940,6 +1098,11 @@ export function handleInstallPlugin(options, payload, deps = {}) {
   const kind = payload.kind === 'repo' || payload.kind === 'community' ? payload.kind : ''
   if (!name || !kind) return errorResult('installPlugin requires name and kind (repo|community)')
 
+  // 单次安装可以显式要求走 tarball（离线/镜像场景），优先级高于配置。
+  if (typeof payload.allowTarball === 'boolean') {
+    resolved.allowTarball = payload.allowTarball
+  }
+
   if (activeTaskId) {
     const active = installTasks.get(activeTaskId)
     return errorResult(`已有任务正在进行（${active?.name || activeTaskId}），请等待其完成`)
@@ -991,11 +1154,12 @@ export function handleInstallPlugin(options, payload, deps = {}) {
               manifest.dsh.profile = manifest.dsh.profile || {}
               manifest.dsh.profile.bundles = Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : []
               const bundleName = pkgName || name
-              // Deduplicate and remove case-mismatched variants (e.g. "DSH-better-sidebar" vs "dsh-better-sidebar")
+              const bareName = bundleName.startsWith('@') ? bundleName.slice(bundleName.indexOf('/') + 1) : bundleName
+              // Deduplicate and remove case-mismatched and legacy unscoped variants (e.g. "dsh-x" when installing "@weniatall/dsh-x")
               const beforeLen = manifest.dsh.profile.bundles.length
               const hadExact = manifest.dsh.profile.bundles.includes(bundleName)
               manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
-                (b) => b.toLowerCase() !== bundleName.toLowerCase()
+                (b) => b.toLowerCase() !== bundleName.toLowerCase() && b.toLowerCase() !== bareName.toLowerCase()
               )
               manifest.dsh.profile.bundles.push(bundleName)
               writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
@@ -1109,8 +1273,9 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
             if (existsSync(manifestPath)) {
               const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
               if (manifest && typeof manifest === 'object' && manifest.dsh && manifest.dsh.profile && Array.isArray(manifest.dsh.profile.bundles)) {
+                const barePkg = targetPkg.startsWith('@') ? targetPkg.slice(targetPkg.indexOf('/') + 1) : targetPkg
                 manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
-                  (b) => b.toLowerCase() !== targetPkg.toLowerCase()
+                  (b) => b.toLowerCase() !== targetPkg.toLowerCase() && b.toLowerCase() !== barePkg.toLowerCase()
                 )
                 manifest.dsh.profile.bundles.push(targetPkg)
                 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
@@ -1196,7 +1361,13 @@ export function handleRemovePlugin(options, payload, deps = {}) {
           if (existsSync(manifestPath)) {
             const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
             if (manifest && typeof manifest === 'object' && manifest.dsh && manifest.dsh.profile && Array.isArray(manifest.dsh.profile.bundles)) {
-              manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter((b) => b.toLowerCase() !== name.toLowerCase())
+              const bareRemove = name.startsWith('@') ? name.slice(name.indexOf('/') + 1) : name
+              const scopedRemove = name.startsWith('@') ? name : `${NPM_PLUGIN_SCOPE}/${name}`
+              manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
+                (b) => b.toLowerCase() !== name.toLowerCase() &&
+                       b.toLowerCase() !== bareRemove.toLowerCase() &&
+                       b.toLowerCase() !== scopedRemove.toLowerCase()
+              )
               writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
               task.log.push(`✓ 已从 profile bundles 中移除 ${name}`)
             }

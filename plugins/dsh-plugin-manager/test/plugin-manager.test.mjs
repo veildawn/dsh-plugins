@@ -21,6 +21,10 @@ import {
   safePackageName,
   isAllowedRepoUrl,
   LOCAL_MONOREPO_PLUGINS,
+  npmNameOf,
+  installChannelOf,
+  isNpmRegistrySpec,
+  NPM_PLUGIN_SCOPE,
   stripPluginFromLockfile,
   stripPluginFromPackageJson,
   lockfileHealthForPlugin,
@@ -167,6 +171,60 @@ describe('dsh-market core & version comparison', () => {
       formatPluginCliCommand('add', 'desktop', 'pkg.tgz', linuxDesktop),
       'ELECTRON_RUN_AS_NODE=1 "/opt/DeepSeek Harness/deepseek-harness" --expose-internals "/opt/DeepSeek Harness/resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js" plugin --profile desktop add "pkg.tgz"'
     )
+  })
+})
+
+describe('dsh-market npm package naming', () => {
+  it('maps a monorepo short name to its scoped npm package name', () => {
+    assert.equal(NPM_PLUGIN_SCOPE, '@weniatall')
+    assert.equal(npmNameOf('dsh-terminal'), '@weniatall/dsh-terminal')
+    assert.equal(npmNameOf('dsh-plugin-manager'), '@weniatall/dsh-plugin-manager')
+    // 已带 scope 的名称必须原样返回，保证迁移脚本可重复执行。
+    assert.equal(npmNameOf('@weniatall/dsh-jev'), '@weniatall/dsh-jev')
+    assert.equal(npmNameOf('@other/thing'), '@other/thing')
+    assert.equal(npmNameOf('  dsh-jev  '), '@weniatall/dsh-jev')
+    assert.equal(npmNameOf(''), '')
+    assert.equal(npmNameOf(null), '')
+  })
+
+  it('classifies every profile dependency form as the right install channel', () => {
+    // npm registry 语义化版本 —— 迁移后的目标形态
+    assert.equal(installChannelOf('^0.1.17'), 'npm')
+    assert.equal(installChannelOf('0.1.17'), 'npm')
+    assert.equal(installChannelOf('~1.2.3'), 'npm')
+
+    // 历史形态：插件管理器预下载的本地缓存
+    assert.equal(installChannelOf('file:/home/u/.dsh/profiles/web/.plugin-manager/downloads/dsh-x-0.1.0.tgz'), 'path')
+    assert.equal(installChannelOf('link:../local'), 'path')
+
+    // 历史形态：GitHub Release tarball
+    assert.equal(installChannelOf('https://github.com/o/r/releases/download/x@v1/x-1.tgz'), 'tarball')
+
+    // git 源
+    assert.equal(installChannelOf('github:owner/repo'), 'git')
+    assert.equal(installChannelOf('git+https://github.com/o/r.git'), 'git')
+
+    assert.equal(installChannelOf(''), 'unknown')
+    assert.equal(installChannelOf(null), 'unknown')
+  })
+
+  it('only treats semver ranges as npm registry specs', () => {
+    assert.equal(isNpmRegistrySpec('^0.1.17'), true)
+    assert.equal(isNpmRegistrySpec('1.2.3'), true)
+    assert.equal(isNpmRegistrySpec('file:/a.tgz'), false)
+    assert.equal(isNpmRegistrySpec('https://a/b.tgz'), false)
+    assert.equal(isNpmRegistrySpec('github:o/r'), false)
+    assert.equal(isNpmRegistrySpec('./local'), false)
+    assert.equal(isNpmRegistrySpec(''), false)
+  })
+
+  it('gives every monorepo plugin a distinct scoped npm name', () => {
+    const names = LOCAL_MONOREPO_PLUGINS.map((p) => npmNameOf(p.name))
+    assert.equal(names.length, LOCAL_MONOREPO_PLUGINS.length)
+    assert.equal(new Set(names).size, names.length, 'npm 包名必须互不重复')
+    for (const name of names) {
+      assert.match(name, /^@weniatall\/dsh-[a-z0-9-]+$/)
+    }
   })
 })
 
@@ -1175,7 +1233,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
     throw new Error('task did not finish in time')
   }
 
-  it('installs a repo plugin by spawning `dsh plugin add` with the allowlisted URL', async () => {
+  it('installs a repo plugin by spawning `dsh plugin add` with its npm package name', async () => {
     captured.calls.length = 0
     const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo' }, { spawnFn: fakeSpawn })
     assert.equal(res.ok, true)
@@ -1184,7 +1242,9 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.equal(task.profile, 'web')
     assert.equal(captured.calls.length, 1)
     assert.equal(captured.calls[0].cmd, 'dsh')
-    assert.deepEqual(captured.calls[0].args, ['plugin', '--profile', 'web', 'add', 'https://github.com/veildawn/dsh-plugins/releases/download/dsh-model-roles@v0.4.8/dsh-model-roles-0.4.8.tgz'])
+    // 仓库插件已发布到 npm，默认安装来源是 scoped 的 npm 包名，
+    // 而不是锁死版本的 GitHub Release tarball URL。
+    assert.deepEqual(captured.calls[0].args, ['plugin', '--profile', 'web', 'add', '@weniatall/dsh-model-roles'])
     assert.equal(task.log.some((l) => l.includes('plugin') && l.includes('add')), true)
     assert.equal(task.log.some((l) => l.includes('installing...')), true)
   })
@@ -1232,7 +1292,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
     assert.deepEqual(afterManifest.dsh.profile.bundles, ['dsh-base', 'dsh-status-rotator'])
   })
 
-  it('pre-downloads the repo tarball and installs from the persistent local cache', async () => {
+  it('falls back to the pre-downloaded tarball cache when allowTarball is on', async () => {
     captured.calls.length = 0
     // Serve real bytes for the release tarball so the pre-download path activates.
     _setHttpFetch(async (url) => {
@@ -1242,7 +1302,8 @@ describe('dsh-market install tasks (fake spawn)', () => {
       return { ok: false, status: 404, json: async () => ({}) }
     })
     try {
-      const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo' }, { spawnFn: fakeSpawn })
+      // allowTarball 是离线/内网镜像场景的显式回落开关；默认关闭时走 npm。
+      const res = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo', allowTarball: true }, { spawnFn: fakeSpawn })
       assert.equal(res.ok, true)
       const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
       assert.equal(task.status, 'success')
@@ -1260,7 +1321,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
 
       // A second install of the same version reuses the cached file verbatim.
       captured.calls.length = 0
-      const res2 = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo' }, { spawnFn: fakeSpawn })
+      const res2 = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo', allowTarball: true }, { spawnFn: fakeSpawn })
       assert.equal(res2.ok, true)
       await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res2.value.taskId)
       assert.equal(captured.calls[0].args[4], arg)

@@ -371,9 +371,35 @@ window.__ModuleLoader__.load({
       { id: "dsh-image-gen", name: "dsh-image-gen", title: "文生图与图像生成", description: "DSH 原生文生图插件，支持配置/下拉提供商与模型、尺寸与画质选择，内置 HTTP/HTTPS/SOCKS5 代理。", author: "veildawn", category: "ai", version: "0.1.0", latestVersion: "0.1.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-image-gen@v0.1.0/dsh-image-gen-0.1.0.tgz", isRepoPlugin: true },
     ];
 
+    /**
+     * 本仓库插件的 npm scope。与宿主侧 core.js 的 NPM_PLUGIN_SCOPE 保持一致：
+     * 无 scope 的包名（dsh-terminal 等 9 个）已被第三方占用，因此统一迁移。
+     */
+    const NPM_PLUGIN_SCOPE = "@weniatall";
+
+    /** 由插件短名推出 npm 包名；已是 scope 形态则原样返回。 */
+    function npmNameOf(name) {
+      if (typeof name !== "string") return "";
+      const trimmed = name.trim();
+      if (trimmed === "") return "";
+      if (trimmed.startsWith("@")) return trimmed;
+      return NPM_PLUGIN_SCOPE + "/" + trimmed;
+    }
+
+    /**
+     * 解析一条 `dsh plugin add` 的安装来源。
+     *
+     * 仓库插件已发布到 npm，默认用 scoped 包名安装：tarball URL 会把版本
+     * 锁死到某一版，且依赖 GitHub 可达性与资产命名一致。宿主侧
+     * resolveInstallSource 也按同样规则解析，两处必须保持一致，否则用户
+     * 复制出来的命令与实际安装走的是不同渠道。
+     */
     function installSourceOf(plugin, kind) {
       if (kind === "community") return plugin.npm || plugin.name;
-      return plugin.downloadUrl || "";
+      // 服务端 catalog 会带 installSource；兜底到由短名推出的 npm 包名。
+      if (plugin.installSource) return plugin.installSource;
+      if (plugin.npmName) return plugin.npmName;
+      return npmNameOf(plugin.name);
     }
 
     function apply(ctx) {
