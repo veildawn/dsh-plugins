@@ -13,8 +13,9 @@
  * Run: node test/provider.mjs
  */
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 let failures = 0;
 function check(label, condition, extra) {
@@ -379,14 +380,17 @@ check(
   provider.listProfiles(workDir).join(',') === 'web',
   provider.listProfiles(workDir).join(','),
 );
+// 用平台原生路径反推出的 URL 做输入：fileURLToPath 在 Windows 与 POSIX 上对
+// 'file:///C:/...' 的解释不同（前者 'C:\...'，后者 '/C:/...'），直接写死
+// Windows 风格的 file: URL 会让断言在 Linux CI 上必败。
+const installHome = join(homedir(), 'harness-home');
+const installModuleUrl = pathToFileURL(
+  join(installHome, 'profiles', 'desktop', 'node_modules', '@weniatall', 'dsh-jev', 'lib', 'provider.js'),
+).href;
 check(
   'the harness home can be inferred from the install path',
-  provider.homeFromModulePath(
-    'file:///C:/u/.dsh/profiles/desktop/node_modules/@weniatall/dsh-jev/lib/provider.js',
-  ) === join('C:', 'u', '.dsh'),
-  provider.homeFromModulePath(
-    'file:///C:/u/.dsh/profiles/desktop/node_modules/@weniatall/dsh-jev/lib/provider.js',
-  ),
+  provider.homeFromModulePath(installModuleUrl) === installHome,
+  provider.homeFromModulePath(installModuleUrl),
 );
 check(
   'the home-level cordis.patch.yml layer is part of the sources',
