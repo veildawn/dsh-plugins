@@ -164,6 +164,8 @@ export function isTriggerMenuOpen(root) {
 
 /**
  * True when `el` is (or is inside) the composer primary send control.
+ * Accepts busy-state labels (排队发送/插话发送, Queue/Steer message) and
+ * rejects the Stop control that replaces Send while an agent runs.
  * @param {Element | null | undefined} el
  * @returns {boolean}
  */
@@ -174,8 +176,40 @@ export function isSendButton(el) {
   const inComposer = btn.closest('[data-composer-card]') !== null
     || btn.closest('[data-composer-seat]') !== null;
   if (!inComposer) return false;
-  const label = btn.getAttribute?.('aria-label') || '';
-  return /发送消息|Send message/i.test(label);
+  return isSendControlLabel(btn.getAttribute?.('aria-label') || '');
+}
+
+/**
+ * Whether an aria-label names the composer primary send control.
+ * @param {string} label
+ * @returns {boolean}
+ */
+export function isSendControlLabel(label) {
+  if (typeof label !== 'string') return false;
+  const text = label.trim();
+  if (!text) return false;
+  if (/停止|stop/i.test(text)) return false;
+  return /发送|send|queue message|steer message/i.test(text);
+}
+
+/**
+ * Collapse whitespace so Lexical paragraph markup and plain text compare equal.
+ * @param {unknown} text
+ * @returns {string}
+ */
+export function normalizeDraftForCompare(text) {
+  if (typeof text !== 'string') return '';
+  return text.replace(/\u00a0/g, ' ').replace(/\r\n?/g, '\n').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Whether two drafts are the same text up to markup-only whitespace noise.
+ * @param {unknown} actual
+ * @param {unknown} expected
+ * @returns {boolean}
+ */
+export function draftMatchesText(actual, expected) {
+  return normalizeDraftForCompare(actual) === normalizeDraftForCompare(expected);
 }
 
 /**
@@ -439,13 +473,16 @@ export function extractUserBubbleText(el) {
     : null) || el;
   const clone = bubble.cloneNode(true);
   if (clone.querySelectorAll) {
-    const extraBlocks = clone.querySelectorAll('[class*="_referenceSummary"], [class*="_contextRow"], [role="status"]');
+    const extraBlocks = clone.querySelectorAll(
+      '[class*="_referenceSummary"], [class*="_contextRow"], [class*="_actions"], [class*="_timeStart"], [class*="_timeEnd"], [role="status"], [data-dsh-ph-action]',
+    );
     for (const node of extraBlocks) {
       node.remove();
     }
   }
-  const text = clone.innerText ?? clone.textContent ?? '';
-  return text.trim();
+  const text = (clone.innerText ?? clone.textContent ?? '').trim();
+  if (text) return text;
+  return ((el.innerText ?? el.textContent ?? '').trim());
 }
 
 /**

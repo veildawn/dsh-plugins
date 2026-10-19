@@ -60,6 +60,32 @@ window.__ModuleLoader__.load({
       );
     }
 
+    const SEND_LABEL_PATTERN = /发送|send|queue message|steer message/i;
+    const STOP_LABEL_PATTERN = /停止|stop/i;
+
+    /**
+     * Whether an aria-label names the composer primary send control.
+     * Newer hosts rename the button while the agent is busy (排队发送/插话发送),
+     * so matching the literal "发送消息" alone misses those states.
+     */
+    function isSendControlLabel(label) {
+      if (typeof label !== "string") return false;
+      const text = label.trim();
+      if (!text) return false;
+      if (STOP_LABEL_PATTERN.test(text)) return false;
+      return SEND_LABEL_PATTERN.test(text);
+    }
+
+    /** Collapse whitespace so Lexical paragraph markup and plain text compare equal. */
+    function normalizeDraftForCompare(text) {
+      if (typeof text !== "string") return "";
+      return text.replace(/\u00a0/g, " ").replace(/\r\n?/g, "\n").replace(/\s+/g, " ").trim();
+    }
+
+    function draftMatchesText(actual, expected) {
+      return normalizeDraftForCompare(actual) === normalizeDraftForCompare(expected);
+    }
+
     function isSendButton(el) {
       if (!el || typeof el.closest !== "function") return false;
       const btn = el.closest("button");
@@ -67,8 +93,7 @@ window.__ModuleLoader__.load({
       const inComposer = btn.closest("[data-composer-card]") !== null
         || btn.closest("[data-composer-seat]") !== null;
       if (!inComposer) return false;
-      const label = btn.getAttribute?.("aria-label") || "";
-      return /发送消息|Send message/i.test(label);
+      return isSendControlLabel(btn.getAttribute?.("aria-label") || "");
     }
 
     function isComposerSendKey(event) {
@@ -258,15 +283,122 @@ window.__ModuleLoader__.load({
       try { textarea.setSelectionRange(len, len); } catch {}
     }
 
-    function findLegacyTextarea() {
-      if (typeof document === "undefined") return null;
-      return document.querySelector("[data-composer-card] textarea, [data-composer-seat] textarea");
-    }
-
     function composerSurface(el) {
       if (!el || typeof el.closest !== "function") return null;
       return el.closest("[data-composer-input]")
         || (el.tagName === "TEXTAREA" ? el : el.closest("textarea"));
+    }
+
+    /**
+     * Locate the mounted composer input. Desktop and current web hosts render a
+     * Lexical contenteditable div (`data-composer-input`) instead of a textarea,
+     * so the textarea-only fallback used to miss every programmatic write.
+     */
+    function findComposerSurface() {
+      if (typeof document === "undefined") return null;
+      return document.querySelector("[data-composer-input]")
+        || document.querySelector("[data-composer-card] textarea, [data-composer-seat] textarea");
+    }
+
+    function readComposerText(el) {
+      if (!el) return "";
+      if (el.tagName === "TEXTAREA") return el.value || "";
+      return el.innerText ?? el.textContent ?? "";
+    }
+
+    function composerTextMatches(el, text) {
+      return draftMatchesText(readComposerText(el), text);
+    }
+
+    /**
+     * Write plain text into a contenteditable composer. execCommand triggers a
+     * native `beforeinput`, which is how Lexical accepts external insertions; a
+     * manual beforeinput dispatch is the fallback for browsers that reject the
+     * command.
+     */
+    function insertIntoContentEditable(el, text) {
+      if (!el || !el.isContentEditable) return false;
+      try { el.focus(); } catch {}
+      const selection = typeof window !== "undefined" ? window.getSelection?.() : null;
+      if (!selection) return false;
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } catch {
+        return false;
+      }
+      let inserted = false;
+      try {
+        inserted = document.execCommand("insertText", false, text);
+      } catch {
+        inserted = false;
+      }
+      if (!inserted || !composerTextMatches(el, text)) {
+        try {
+          el.dispatchEvent(new InputEvent("beforeinput", {
+            inputType: "insertText",
+            data: text,
+            bubbles: true,
+            cancelable: true,
+          }));
+        } catch {}
+      }
+      if (!composerTextMatches(el, text)) return false;
+      try {
+        const end = document.createRange();
+        end.selectNodeContents(el);
+        end.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(end);
+      } catch {}
+      return true;
+    }
+
+    /** Write the draft straight into the DOM when no host action is available. */
+    function applyDraftToDom(text) {
+      const el = findComposerSurface();
+      if (!el) return false;
+      if (el.tagName === "TEXTAREA") {
+        setTextareaValue(el, text);
+        return true;
+      }
+      return insertIntoContentEditable(el, text);
+    }
+
+    /** The composer's current primary send control, or null while it is Stop/disabled. */
+    function findComposerSendButton() {
+      if (typeof document === "undefined") return null;
+      const card = document.querySelector("[data-composer-card]")
+        || document.querySelector("[data-composer-seat]");
+      const root = card || document;
+      const buttons = root.querySelectorAll("button");
+      for (const btn of buttons) {
+        if (btn.disabled) continue;
+        if (!isSendControlLabel(btn.getAttribute("aria-label") || "")) continue;
+        return btn;
+      }
+      return null;
+    }
+
+    function submitComposerWithEnter() {
+      const el = findComposerSurface();
+      if (!el) return false;
+      try {
+        el.focus();
+        el.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true,
+        }));
+        return true;
+      } catch {
+        return false;
+      }
     }
 
     function getComposerCaret(el) {
@@ -327,10 +459,18 @@ window.__ModuleLoader__.load({
         : null) || el;
       const clone = bubble.cloneNode(true);
       if (clone.querySelectorAll) {
-        const extraBlocks = clone.querySelectorAll('[class*="_referenceSummary"], [class*="_contextRow"], [role="status"]');
+        // Drop chrome that is rendered inside the same row/bubble: reference
+        // summaries, context rows, status notices, hover actions and clocks.
+        const extraBlocks = clone.querySelectorAll(
+          '[class*="_referenceSummary"], [class*="_contextRow"], [class*="_actions"], [class*="_timeStart"], [class*="_timeEnd"], [role="status"], [data-dsh-ph-action]',
+        );
         for (const node of extraBlocks) node.remove();
       }
-      return (clone.innerText ?? clone.textContent ?? "").trim();
+      const text = (clone.innerText ?? clone.textContent ?? "").trim();
+      if (text) return text;
+      // A bubble that only carried attachments still lets resend/edit work with
+      // the row text when the inner bubble projected nothing.
+      return ((el.innerText ?? el.textContent ?? "").trim());
     }
 
     function findUserRow(el) {
@@ -652,29 +792,115 @@ window.__ModuleLoader__.load({
         pushHostRecord(id, prompt);
       }
 
+      // --- Live composer binding (independent of slot mounting) ---
+      //
+      // The host's `conversation.input.left` slot does not always forward
+      // `useInput`/`inputActions` props. The uiSession service exposes the same
+      // standard props for the current Session binding, so subscribe to it
+      // directly: bubble actions then keep working even when the toolbar entry
+      // never mounts (desktop shell, missing slot props, host upgrades).
+      let inputSource = null;
+      let disposeInputSource = null;
+      let boundSessionKey = null;
+
+      function applyInputSnapshot() {
+        if (!inputSource || typeof inputSource.getSnapshot !== "function") return;
+        const snapshot = inputSource.getSnapshot();
+        if (!snapshot) return;
+        if (typeof snapshot.draft === "string") access.draft = snapshot.draft;
+        if (typeof snapshot.phase === "string") access.phase = snapshot.phase;
+      }
+
+      function readBindingSnapshot(snapshot) {
+        if (!snapshot || typeof snapshot !== "object") return;
+        const props = snapshot.props || {};
+        const hooks = snapshot.hooks || {};
+        if (typeof snapshot.key === "string" && snapshot.key) {
+          activeSessionId = snapshot.key;
+          access.sessionId = snapshot.key;
+          getOrCreateSession(snapshot.key);
+          if (boundSessionKey !== snapshot.key) {
+            boundSessionKey = snapshot.key;
+            // Desktop slots may never mount, so hydrate this Session from the
+            // host as soon as the binding names it.
+            fetchHostHistory(snapshot.key);
+          }
+        }
+        if (props.inputActions) {
+          access.setDraft = typeof props.inputActions.setDraft === "function"
+            ? props.inputActions.setDraft
+            : access.setDraft;
+          access.submit = typeof props.inputActions.submit === "function"
+            ? props.inputActions.submit
+            : access.submit;
+        }
+        const source = hooks.input;
+        if (source && typeof source.getSnapshot === "function") {
+          if (inputSource !== source) {
+            if (typeof disposeInputSource === "function") disposeInputSource();
+            disposeInputSource = typeof source.subscribe === "function"
+              ? source.subscribe(applyInputSnapshot)
+              : null;
+            inputSource = source;
+          }
+          applyInputSnapshot();
+        }
+      }
+
+      if (ctx && typeof ctx.inject === "function") {
+        try {
+          ctx.inject(["uiSession"], (uiCtx) => {
+            const service = uiCtx?.uiSession;
+            const source = service?.adapter?.current;
+            if (!source || typeof source.getSnapshot !== "function") return;
+            const sync = () => {
+              try {
+                readBindingSnapshot(source.getSnapshot());
+              } catch {}
+            };
+            sync();
+            const off = typeof source.subscribe === "function" ? source.subscribe(sync) : null;
+            // ctx.inject starts a child plugin fiber, so cleanup must ride an
+            // effect on that fiber rather than the apply() return value.
+            if (typeof uiCtx.effect === "function") {
+              uiCtx.effect(() => () => {
+                if (typeof off === "function") off();
+              }, "prompt-history: uiSession current binding");
+            }
+          });
+        } catch {
+          // Older hosts may not expose uiSession; DOM fallbacks still apply.
+        }
+      }
+
       function currentDraft(fallback) {
-        if (typeof access.setDraft === "function") return access.draft || "";
-        if (typeof fallback === "string") return fallback;
-        return findLegacyTextarea()?.value ?? "";
+        if (typeof access.setDraft === "function" && access.draft) return access.draft;
+        if (typeof access.draft === "string" && access.draft) return access.draft;
+        if (typeof fallback === "string" && fallback) return fallback;
+        const el = findComposerSurface();
+        return el ? readComposerText(el) : "";
       }
 
       function canWrite() {
-        return typeof access.setDraft === "function" || !!findLegacyTextarea();
+        return typeof access.setDraft === "function" || !!findComposerSurface();
       }
 
       function applyDraft(text) {
         if (typeof access.setDraft === "function") {
-          access.draft = text;
-          access.setDraft(text);
-          return;
+          try {
+            access.setDraft(text);
+            return true;
+          } catch {
+            // Fall through to the DOM writer below.
+          }
         }
-        const ta = findLegacyTextarea();
-        if (ta) setTextareaValue(ta, text);
+        return applyDraftToDom(text);
       }
 
       function applyDraftAndFocus(text) {
         applyDraft(text);
-        const composer = document.querySelector("[data-composer-input], [data-composer-card] textarea");
+        const composer = findComposerSurface()
+          || document.querySelector("[data-composer-card] textarea");
         if (composer) {
           try {
             composer.focus();
@@ -683,16 +909,59 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function composerHasText(text) {
+        // The host input state is authoritative when the binding is available;
+        // DOM text alone must not green-light a submit that would replay the
+        // previous draft.
+        if (inputSource && typeof inputSource.getSnapshot === "function") {
+          const state = inputSource.getSnapshot();
+          if (state) return draftMatchesText(state.draft, text);
+        }
+        const el = findComposerSurface();
+        if (el) return composerTextMatches(el, text);
+        return typeof access.draft === "string" && access.draft !== "" && draftMatchesText(access.draft, text);
+      }
+
+      function waitForComposerText(text, timeoutMs) {
+        return new Promise((resolve) => {
+          const startedAt = Date.now();
+          const tick = () => {
+            if (composerHasText(text)) {
+              resolve(true);
+              return;
+            }
+            if (Date.now() - startedAt >= timeoutMs) {
+              resolve(false);
+              return;
+            }
+            setTimeout(tick, 25);
+          };
+          tick();
+        });
+      }
+
       function resendPrompt(text) {
         applyDraft(text);
-        if (typeof access.submit === "function") {
-          access.submit();
-          return;
-        }
-        const sendBtn = document.querySelector(
-          '[data-composer-card] button[aria-label="发送消息"], [data-composer-card] button[aria-label="Send message"], [data-composer-seat] button[aria-label="发送消息"], [data-composer-seat] button[aria-label="Send message"]',
-        );
-        if (sendBtn) sendBtn.click();
+        waitForComposerText(text, 700).then((settled) => {
+          if (!settled) {
+            // Submitting now would replay the previous draft (or nothing), so
+            // stop instead and leave a trace for diagnostics.
+            console.warn("[prompt-history] composer draft did not update; resend skipped");
+            return;
+          }
+          const sendBtn = findComposerSendButton();
+          if (sendBtn) {
+            sendBtn.click();
+            return;
+          }
+          if (typeof access.submit === "function") {
+            access.submit();
+            return;
+          }
+          submitComposerWithEnter();
+        }).catch((error) => {
+          console.warn("[prompt-history] resend failed", error);
+        });
       }
 
       function isWorkspaceTrigger(el) {
@@ -883,7 +1152,11 @@ window.__ModuleLoader__.load({
         const [history, setHistory] = react.useState([]);
         const containerRef = react.useRef(null);
 
-        const sid = normalizeSessionId(props?.sessionId);
+        const propSessionId = typeof props?.sessionId === "string" && props.sessionId.trim()
+          ? props.sessionId.trim()
+          : "";
+        // Fall back to the uiSession binding when the slot forwards no sessionId.
+        const sid = normalizeSessionId(propSessionId || activeSessionId);
         const useInput = props && typeof props.useInput === "function" ? props.useInput : null;
         const snapshot = useInput ? useInput((s) => s) : null;
         const draft = snapshot && typeof snapshot.draft === "string" ? snapshot.draft : "";
@@ -892,24 +1165,29 @@ window.__ModuleLoader__.load({
         const submit = props && props.inputActions ? props.inputActions.submit : null;
 
         react.useEffect(() => {
+          if (!propSessionId) return;
           activeSessionId = sid;
           access.sessionId = sid;
           getOrCreateSession(sid);
           fetchHostHistory(sid);
-        }, [sid]);
+        }, [sid, propSessionId]);
 
         react.useEffect(() => {
-          access.draft = draft;
-          access.setDraft = typeof setDraft === "function" ? setDraft : null;
-          access.submit = typeof submit === "function" ? submit : null;
-          access.phase = phase || "";
+          // The uiSession subscription is authoritative when the slot forwards no
+          // input props; never blank out what it already resolved.
+          if (snapshot) {
+            access.draft = draft;
+            access.phase = phase || "";
+          }
+          if (typeof setDraft === "function") access.setDraft = setDraft;
+          if (typeof submit === "function") access.submit = submit;
           access.sessionId = sid;
 
           const meta = metaFor(sid);
           if (draft.trim()) meta.lastNonEmptyDraft = draft;
 
           const session = getOrCreateSession(sid);
-          session.onExternalDraft(draft);
+          if (snapshot) session.onExternalDraft(draft);
 
           const busy = phase === "submitting" || phase === "adjudicating";
           if (busy && !meta.recordedForPhase) {
@@ -919,10 +1197,13 @@ window.__ModuleLoader__.load({
           } else if (!busy) {
             meta.recordedForPhase = false;
           }
-        }, [sid, draft, phase, setDraft, submit]);
+        }, [sid, draft, phase, setDraft, submit, snapshot]);
 
         const refreshHistory = () => {
-          const s = getOrCreateSession(sid);
+          // Resolve the Session at call time: desktop slots may not forward an id,
+          // so a render-time `sid` can be stale after a Session switch.
+          const id = normalizeSessionId(propSessionId || activeSessionId);
+          const s = getOrCreateSession(id);
           setHistory([...s.history].reverse());
         };
 
@@ -935,6 +1216,21 @@ window.__ModuleLoader__.load({
           if (!isOpen) return;
           refreshHistory();
         }, [isOpen, sid, draft]);
+
+        // Pull the host snapshot when the drawer opens: on desktop the slot may
+        // never forward a sessionId, so the mount-time fetch can miss the real
+        // Session and this is the authoritative refresh.
+        react.useEffect(() => {
+          if (!isOpen) return;
+          const id = normalizeSessionId(propSessionId || activeSessionId);
+          let cancelled = false;
+          fetchHostHistory(id).then(() => {
+            if (cancelled) return;
+            const s = getOrCreateSession(id);
+            setHistory([...s.history].reverse());
+          }).catch(() => {});
+          return () => { cancelled = true; };
+        }, [isOpen, sid]);
 
         react.useEffect(() => {
           const handleExternalOpen = () => {
@@ -1096,6 +1392,26 @@ window.__ModuleLoader__.load({
         observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
       }
 
+      // Console probe kept tiny and dependency-free: paste the call in DevTools
+      // to see whether the composer actions resolved on this host build.
+      function promptHistoryDiagnostics() {
+        const el = findComposerSurface();
+        return {
+          hasSetDraft: typeof access.setDraft === "function",
+          hasSubmit: typeof access.submit === "function",
+          phase: access.phase || "",
+          sessionId: activeSessionId,
+          draftLength: typeof access.draft === "string" ? access.draft.length : 0,
+          composerKind: el === null
+            ? "missing"
+            : el.tagName === "TEXTAREA"
+              ? "textarea"
+              : el.isContentEditable ? "contenteditable" : el.tagName.toLowerCase(),
+          decoratedRows: document.querySelectorAll("[data-dsh-ph-action]").length,
+        };
+      }
+      try { window.__dsh_prompt_history_diagnostics = promptHistoryDiagnostics; } catch {}
+
       ctx.on("dispose", () => {
         window.removeEventListener("keydown", handleKeyDown, true);
         window.removeEventListener("click", handleClick, true);
@@ -1105,8 +1421,16 @@ window.__ModuleLoader__.load({
         window.removeEventListener("scroll", handleScroll, scrollOpts);
         if (scrollTimer !== null) clearTimeout(scrollTimer);
         observer?.disconnect();
+        if (typeof disposeInputSource === "function") disposeInputSource();
+        disposeInputSource = null;
+        inputSource = null;
         access.setDraft = null;
         access.submit = null;
+        try {
+          if (window.__dsh_prompt_history_diagnostics === promptHistoryDiagnostics) {
+            window.__dsh_prompt_history_diagnostics = undefined;
+          }
+        } catch {}
       });
     }
 

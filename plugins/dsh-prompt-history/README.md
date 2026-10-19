@@ -14,7 +14,19 @@ DeepSeek Harness (DSH) 提示词历史导航与跨端同步插件（Shell-like P
 - 🔄 **已发提示词一键重发 (Resend)**：点击气泡上的「🔄 重新发送」图标，自动填入并直接触发重新提问。
 - 🕒 **提示词历史抽屉与工作区工具箱归入**：PC 桌面端在输入框左侧保留快捷历史图标；移动端（手机小屏）自动隐藏输入框内按钮，将「🕒 提示词历史」整合归入底部的**工作区工具箱**（与文件查看器、本地终端并列），点击呼出底部半屏抽屉 (Bottom Sheet)，彻底释放输入行屏幕空间。
 - 📱 **移动端全场景深度适配**：手机触屏下用户气泡上的修改/重发按钮自动放大至 32px 圆形、带防误触反馈；在屏幕滑动或滚动时自动补齐视野内气泡操作；输入框手势轻扫带触觉微震动。
-- 🔄 **原子去重与安全截断**：每条限长 8192 字符，单会话最多保留 200 条，原子级文件存储防止读写冲突。草稿读写走官方 `conversation.input.left` 的 `useInput` + `inputActions.setDraft`，完美支持 Lexical contenteditable composer。
+- 🔄 **原子去重与安全截断**：每条限长 8192 字符，单会话最多保留 200 条，原子级文件存储防止读写冲突。草稿读写优先走官方 `conversation.input.left` 的 `useInput` + `inputActions.setDraft`；桌面版宿主未透传这些 props 时，会改用 `ctx.uiSession` 的会话标准绑定读取同一组 `inputActions`，并以 Lexical `contenteditable` 的 `beforeinput`/`execCommand` 作为最终回落，保证「填回修改 / 重新发送」在桌面端同样可用。
+
+---
+
+## 🧭 桌面版排障
+
+气泡上的「填回修改 / 重新发送」按钮在桌面版失效时，可在开发者工具控制台执行：
+
+```js
+window.__dsh_prompt_history_diagnostics()
+```
+
+返回 `hasSetDraft`/`hasSubmit`（是否拿到官方输入操作）、`composerKind`（`contenteditable` 表示 Lexical、`textarea` 表示旧版输入框）与 `decoratedRows`（已注入按钮数量）。若 `hasSetDraft` 为 `false` 且 `composerKind` 为 `missing`，说明输入区尚未挂载，请先切换到正在编辑的会话。
 
 ---
 
@@ -25,7 +37,7 @@ DeepSeek Harness (DSH) 提示词历史导航与跨端同步插件（Shell-like P
 ```bash
 cd plugins/dsh-prompt-history
 npm pack
-dsh plugin --profile web add ./dsh-prompt-history-0.4.9.tgz
+dsh plugin --profile desktop add ./weniatall-dsh-prompt-history-0.4.12.tgz
 ```
 
 ### 2. 重启生效

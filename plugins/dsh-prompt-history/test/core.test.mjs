@@ -10,6 +10,9 @@ import {
   isComposerTarget,
   isTriggerMenuOpen,
   isSendButton,
+  isSendControlLabel,
+  normalizeDraftForCompare,
+  draftMatchesText,
   classifySwipe,
   shouldHandleHistoryGesture,
   isComposerSendKey,
@@ -380,31 +383,55 @@ test('isTriggerMenuOpen - composer menus only, not overlay slot children', () =>
 });
 
 test('isSendButton - composer primary send labels only', () => {
-  const send = {
+  const button = (label, inComposer = true) => ({
     closest: (sel) => {
       if (sel === 'button') {
         return {
-          closest: (inner) => (inner === '[data-composer-card]' ? {} : null),
-          getAttribute: () => '发送消息',
+          closest: (inner) => (inner === '[data-composer-card]' && inComposer ? {} : null),
+          getAttribute: () => label,
         };
       }
       return null;
     },
-  };
-  assert.equal(isSendButton(send), true);
+  });
+  assert.equal(isSendButton(button('发送消息')), true);
+  assert.equal(isSendButton(button('排队发送')), true);
+  assert.equal(isSendButton(button('插话发送')), true);
+  assert.equal(isSendButton(button('Send message')), true);
+  assert.equal(isSendButton(button('Queue message')), true);
+  assert.equal(isSendButton(button('Steer message')), true);
+  assert.equal(isSendButton(button('停止')), false);
+  assert.equal(isSendButton(button('停止生成')), false);
+  assert.equal(isSendButton(button('发送消息', false)), false);
+  assert.equal(isSendButton(null), false);
+});
 
-  const stop = {
-    closest: (sel) => {
-      if (sel === 'button') {
-        return {
-          closest: (inner) => (inner === '[data-composer-card]' ? {} : null),
-          getAttribute: () => '停止',
-        };
-      }
-      return null;
-    },
-  };
-  assert.equal(isSendButton(stop), false);
+test('isSendControlLabel - names send states, never stop states', () => {
+  assert.equal(isSendControlLabel('发送消息'), true);
+  assert.equal(isSendControlLabel('排队发送'), true);
+  assert.equal(isSendControlLabel('插话发送'), true);
+  assert.equal(isSendControlLabel('Send message'), true);
+  assert.equal(isSendControlLabel('Queue message'), true);
+  assert.equal(isSendControlLabel('Steer message'), true);
+  assert.equal(isSendControlLabel('停止'), false);
+  assert.equal(isSendControlLabel('Stop generating'), false);
+  assert.equal(isSendControlLabel(''), false);
+  assert.equal(isSendControlLabel(undefined), false);
+});
+
+test('normalizeDraftForCompare - collapses markup whitespace only', () => {
+  assert.equal(normalizeDraftForCompare('  hello\n\nworld  '), 'hello world');
+  assert.equal(normalizeDraftForCompare('a\u00a0b'), 'a b');
+  assert.equal(normalizeDraftForCompare('a\r\nb'), 'a b');
+  assert.equal(normalizeDraftForCompare(undefined), '');
+  assert.equal(normalizeDraftForCompare(null), '');
+});
+
+test('draftMatchesText - compares composer DOM text with the requested draft', () => {
+  assert.equal(draftMatchesText('第一行\n第二行\n', '第一行\n第二行'), true);
+  assert.equal(draftMatchesText('  多行\n文本 ', '多行 文本'), true);
+  assert.equal(draftMatchesText('第一行', '第二行'), false);
+  assert.equal(draftMatchesText('', '文本'), false);
 });
 
 test('classifySwipe - fast vertical flicks only', () => {
@@ -445,6 +472,42 @@ test('extractUserBubbleText - prefers inner bubble and trims text', () => {
   };
   assert.equal(extractUserBubbleText(row), 'Please help me write a function');
   assert.equal(extractUserBubbleText(null), '');
+});
+
+test('extractUserBubbleText - strips hover actions and clocks from the clone', () => {
+  const removed = [];
+  const node = (name) => ({ name, remove: () => removed.push(name) });
+  const bubble = {
+    cloneNode: () => ({
+      querySelectorAll: (selector) => {
+        assert.match(selector, /_actions/);
+        assert.match(selector, /_timeStart/);
+        assert.match(selector, /_timeEnd/);
+        return [node('actions'), node('timeStart'), node('timeEnd')];
+      },
+      innerText: '真正的提示词',
+    }),
+  };
+  const row = {
+    querySelector: (sel) => (sel.includes('_bubble') ? bubble : null),
+    innerText: '真 正 的提示词',
+  };
+  assert.equal(extractUserBubbleText(row), '真正的提示词');
+  assert.deepEqual(removed, ['actions', 'timeStart', 'timeEnd']);
+});
+
+test('extractUserBubbleText - falls back to the row text when the bubble is empty', () => {
+  const bubble = {
+    cloneNode: () => ({
+      querySelectorAll: () => [],
+      innerText: '   ',
+    }),
+  };
+  const row = {
+    querySelector: (sel) => (sel.includes('_bubble') ? bubble : null),
+    innerText: '  附件提示词  ',
+  };
+  assert.equal(extractUserBubbleText(row), '附件提示词');
 });
 
 test('findUserRow - prefers data-chat-flow-kind over hashed class', () => {
