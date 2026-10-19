@@ -9,6 +9,7 @@ import { tokensCss, zaiTokensCss } from './tokens.js'
 export const STYLE_FILES = [
   'reset.css',
   'surfaces.css',
+  'frame.css',
   'typography.css',
   'navigation.css',
   'sidebar.css',

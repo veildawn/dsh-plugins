@@ -141,8 +141,8 @@
   text-decoration-color: var(--color-foreground-subtle);
 }
 
-/* 兼容标记选择器（测试桩） */
-[data-dsh-theme="zcode"] .CY-8Ka_terminal {
+/* 兼容标记选择器：宿主工具卡终端体（ui-tool 的 pFy1Ka_terminalBody）。 */
+[data-dsh-theme="zcode"] .pFy1Ka_terminalBody {
   background: var(--color-background);
 }
 

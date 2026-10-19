@@ -1,18 +1,15 @@
 /* Surface 层级对齐官方 Zai 主题：
-   background(画布) → panel(层1/头部) → card(层2/浮层) → input(模块) → menu-hover(悬停)。 */
+   background-win-alt(窗口底) → background(内容卡) → panel(层1/头部)
+   → card(层2/浮层) → input(模块) → menu-hover(悬停)。
+   官方 DesktopWindowFrame 用 --color-background-win-alt 铺窗口，内容面板再抬成
+   --color-background 的圆角卡片（见 frame.css）。
+   注：宿主 [data-slot] 只用于插槽系统标识（DOM 上仅渲染 root 等少数值），
+   不能拿来当组件选择器；这里一律用 ui-* 插件的真实 CSS Module 类名。 */
 [data-dsh-theme="zcode"] body,
-[data-dsh-theme="zcode"] #root,
-[data-dsh-theme="zcode"] [data-slot="root"],
-[data-dsh-theme="zcode"] [data-slot="conversation"] {
-  background: var(--color-background);
+[data-dsh-theme="zcode"] #root {
+  background: var(--color-background-win-alt);
 }
 
-[data-dsh-theme="zcode"] [data-slot="sidebar"],
-[data-dsh-theme="zcode"] [data-slot="sidebar.settings"] {
-  background: var(--color-sidebar);
-}
-
-[data-dsh-theme="zcode"] [role="dialog"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
-[data-dsh-theme="zcode"] [data-slot="details"] {
+[data-dsh-theme="zcode"] [role="dialog"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]) {
   background: var(--color-card);
 }

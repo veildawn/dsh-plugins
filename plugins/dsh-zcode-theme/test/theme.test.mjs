@@ -132,21 +132,24 @@ test('Client mount 写入 Scope 并覆盖宿主 Token，卸载时还原', () => 
 test('CSS 覆盖规范列出的核心组件', () => {
   const css = loadThemeCss()
   const markers = [
-    ['Sidebar', '[data-slot="sidebar"]'],
-    ['New Session', '.hHd-Xa_newSession'],
-    ['Session', '.YDXeBa_sessionRow'],
-    ['Turn Status', '.EvIC1a_turnStatus'],
+    ['Sidebar', '.hIlkoa_sessionRow'],
+    ['Sidebar Shell', '._2H3hWW_root'],
+    ['New Session', '._2H3hWW_newSession'],
+    ['Session', '.hIlkoa_sessionRow'],
+    ['Workspace Row', '.hIlkoa_projectRow'],
+    ['Frame', '.BynINW_frame'],
+    ['Frame Center', '.BynINW_centerCol'],
     ['Turn Status (think)', '[data-variant="think"]'],
-    ['Navigation', '.wSkVaW_header'],
+    ['Navigation', '.Dc7zOa_header'],
     ['Button', 'button[data-variant="primary"]'],
     ['Button Class', 'button[class*="_primary_"]'],
     ['Input', '[data-composer-card]'],
-    ['Permission Trigger', '.iWlSmW_trigger'],
-    ['Composer', '.uV2eYG_primary'],
-    ['Chip', '.rS3zOq_chip'],
-    ['Chat Bubble', '.Sixlwa_bubble'],
+    ['Permission Trigger', '[class*="3HsggG_selector"]'],
+    ['Composer', '.RlGAzG_primary'],
+    ['Chip', '.rtYPxa_chip'],
+    ['Chat Bubble', '.cJsG2q_bubble'],
     ['Code Block', '.md-code-block'],
-    ['Terminal', '.CY-8Ka_terminal'],
+    ['Terminal', '.pFy1Ka_terminalBody'],
     ['Modal', '[role="dialog"]'],
     ['Modal Backdrop', '.dm-modal-scrim'],
     ['Modal Backdrop', '.dam-backdrop'],
@@ -211,14 +214,17 @@ test('规范目录结构齐全', async () => {
 
 test('主题关键选择器在宿主或社区插件语料中存活', async () => {
   const css = loadThemeCss()
-  // 必须确保关键钩子在真实运行时中存活
+  // 必须确保关键钩子在真实运行时中存活（宿主 0.2.1-rc.2 的真实类名）。
   const criticalSelectors = [
-    '.iWlSmW_trigger',
+    '[class*="3HsggG_selector"]',
     'button[class*="_primary_"]',
     '[data-chat-flow-kind="assistant-step"]',
     '[data-variant="think"]',
     'div[class*="_indicator_"]',
     '[class*="_mask_"]',
+    '.hIlkoa_sessionRow',
+    '.RlGAzG_card',
+    '.BynINW_centerCol',
   ]
   for (const sel of criticalSelectors) {
     assert.equal(css.includes(sel), true, `主题 CSS 必须包含修复后的活跃选择器: ${sel}`)

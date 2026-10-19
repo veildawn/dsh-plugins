@@ -1,14 +1,11 @@
-/* Top Bar / 会话头：对齐官方 --color-header + 发丝边框，并提供半透明 blur 变体。 */
-[data-dsh-theme="zcode"] [data-slot="conversation.session.header"] > header,
-[data-dsh-theme="zcode"] .wSkVaW_header {
+/* Top Bar / 会话头：宿主真实类名 Dc7zOa_header（ui-conversation/WorkspaceHeader）。
+   官方头部是 --color-header 底 + 发丝下边框，tab 选中态用前景色而非品牌蓝。 */
+[data-dsh-theme="zcode"] .Dc7zOa_header {
   background: var(--color-header);
   background: color-mix(in srgb, var(--color-header) 92%, transparent);
   border-bottom: 1px solid var(--color-border);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
-  position: relative;
-  z-index: 20;
-  overflow: visible;
 }
 
 /* 移动端顶栏：仅定制背景底色与发丝边框材质，绝不覆盖定位 (position: fixed) 与层级 (z-index: 900) */
@@ -20,31 +17,35 @@
   backdrop-filter: blur(18px);
 }
 
-[data-dsh-theme="zcode"] .wSkVaW_headerUtilities {
+/* 头部工具区与下拉菜单：确保浮层不被父级裁剪 */
+[data-dsh-theme="zcode"] .Dc7zOa_headerUtilities {
   position: relative;
   z-index: 25;
   overflow: visible;
 }
 
-/* 会话头部工具栏弹出的下拉菜单 (如 open-in-app 本地打开方式、session-log-export 下载日志菜单)：
-   必须确保 z-index 处于顶级，且边距与阴影不被裁剪遮挡 */
-[data-dsh-theme="zcode"] .wSkVaW_headerUtilities [role="menu"] {
+[data-dsh-theme="zcode"] .Dc7zOa_headerUtilities [role="menu"] {
   z-index: 1000;
   box-shadow: var(--dsw-elevation-prominent);
 }
 
 /* 官方 Tab 选中态：--color-tab-active 底 + 主文字色，不做彩色下划线。 */
-[data-dsh-theme="zcode"] .wSkVaW_tab[aria-selected="true"],
-[data-dsh-theme="zcode"] .wSkVaW_tab.wSkVaW_tabActive {
+[data-dsh-theme="zcode"] .Dc7zOa_tab[aria-selected="true"],
+[data-dsh-theme="zcode"] .Dc7zOa_tab.Dc7zOa_tabActive {
   background: var(--color-tab-active);
   color: var(--color-foreground);
 }
 
-[data-dsh-theme="zcode"] .wSkVaW_crumbCurrent {
+[data-dsh-theme="zcode"] .Dc7zOa_tab,
+[data-dsh-theme="zcode"] .Dc7zOa_crumb {
+  color: var(--color-foreground-subtle);
+}
+
+[data-dsh-theme="zcode"] .Dc7zOa_crumbCurrent {
   color: var(--color-foreground);
 }
 
-[data-dsh-theme="zcode"] .wSkVaW_tab[aria-selected="true"]:after,
-[data-dsh-theme="zcode"] .wSkVaW_tabActive:after {
+[data-dsh-theme="zcode"] .Dc7zOa_tab[aria-selected="true"]:after,
+[data-dsh-theme="zcode"] .Dc7zOa_tabActive:after {
   background: var(--color-foreground);
 }

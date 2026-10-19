@@ -1,24 +1,21 @@
-/* Primary / Secondary / Ghost 按钮：同时兼容历史属性选择器与宿主 CSS Modules 散列类名。
+/* Primary / Secondary / Ghost 按钮：同时兼容宿主属性选择器与 CSS Modules 散列类名。
    Zai 主题是单色体系：主按钮 = --color-primary（暗底白字 / 亮底黑字），
    文字色必须是 --color-primary-foreground，不能写死 #FFFFFF，否则浅色主题下白底白字。 */
 [data-dsh-theme="zcode"] button[data-variant="primary"],
-[data-dsh-theme="zcode"] button[class*="_primary_"],
-[data-dsh-theme="zcode"] button[class*="primary"] {
+[data-dsh-theme="zcode"] button[class*="_primary_"] {
   background: var(--color-primary);
   color: var(--color-primary-foreground);
   border-radius: 12px;
 }
 
 [data-dsh-theme="zcode"] button[data-variant="primary"]:hover,
-[data-dsh-theme="zcode"] button[class*="_primary_"]:hover,
-[data-dsh-theme="zcode"] button[class*="primary"]:hover {
+[data-dsh-theme="zcode"] button[class*="_primary_"]:hover {
   background: var(--color-primary);
   color: var(--color-primary-foreground);
 }
 
 [data-dsh-theme="zcode"] button[data-variant="primary"]:active,
-[data-dsh-theme="zcode"] button[class*="_primary_"]:active,
-[data-dsh-theme="zcode"] button[class*="primary"]:active {
+[data-dsh-theme="zcode"] button[class*="_primary_"]:active {
   background: var(--color-secondary);
   color: var(--color-foreground);
 }
@@ -33,16 +30,18 @@
 
 [data-dsh-theme="zcode"] button[data-variant="ghost"],
 [data-dsh-theme="zcode"] button[class*="_ghost_"],
-[data-dsh-theme="zcode"] .hHd-Xa_iconButton,
-[data-dsh-theme="zcode"] .YDXeBa_iconButton {
+[data-dsh-theme="zcode"] ._2H3hWW_iconButton,
+[data-dsh-theme="zcode"] ._9lTDKa_iconButton,
+[data-dsh-theme="zcode"] .hIlkoa_iconButton {
   background: transparent;
   border-radius: 8px;
 }
 
 [data-dsh-theme="zcode"] button[data-variant="ghost"]:hover,
 [data-dsh-theme="zcode"] button[class*="_ghost_"]:hover,
-[data-dsh-theme="zcode"] .hHd-Xa_iconButton:hover,
-[data-dsh-theme="zcode"] .YDXeBa_iconButton:hover {
+[data-dsh-theme="zcode"] ._2H3hWW_iconButton:hover,
+[data-dsh-theme="zcode"] ._9lTDKa_iconButton:hover,
+[data-dsh-theme="zcode"] .hIlkoa_iconButton:hover {
   background: var(--color-surface);
 }
 
@@ -54,4 +53,80 @@
 [data-dsh-theme="zcode"] button[class*="_done"],
 [data-dsh-theme="zcode"] button[style*="background: var(--color-foreground)"] {
   color: var(--color-input);
+}
+
+/* 社区插件自绘的主按钮（如 dsh-plugin-manager 的 `.dm-action-btn.primary`）：
+   它们把底色写成 `--dsw-alias-brand-primary`，文字却硬编码 #fff。Zai 主题在暗色下
+   把 brand-primary 映射成 #ffffff（官方单色体系），于是白底白字、按钮「消失」。
+   这里把「类名里含完整 primary 词元」的主按钮统一拉回官方单色配方：
+   底色 --color-primary、文字 --color-primary-foreground，明暗两侧都可读。
+   用 [class~="primary"] 而不是 [class*="primary"]，避免误伤 primaryButton 之类。 */
+[data-dsh-theme="zcode"] button[class~="primary"],
+[data-dsh-theme="zcode"] a[class~="primary"] {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+[data-dsh-theme="zcode"] button[class~="primary"]:hover,
+[data-dsh-theme="zcode"] a[class~="primary"]:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+/* 危险按钮（class="danger"）：底色保持透明，文字走官方 destructive。 */
+[data-dsh-theme="zcode"] button[class~="danger"] {
+  background: transparent;
+  color: var(--color-destructive);
+  border-color: color-mix(in srgb, var(--color-destructive) 45%, transparent);
+}
+
+[data-dsh-theme="zcode"] button[class~="danger"]:hover {
+  background: var(--color-destructive-surface);
+  color: var(--color-destructive-surface-foreground);
+}
+
+/* 成功态（复制完成等）：跟随官方 success。 */
+[data-dsh-theme="zcode"] button[class~="success"] {
+  background: var(--color-success);
+  border-color: transparent;
+  color: var(--color-success-foreground);
+}
+
+/* 社区插件把 --dsw-alias-bg-base 当作「普通按钮底色」，而 Zai 主题下它是画布黑
+   （暗色 #161616）。放在 --color-card（#2b2b2b）的卡片上，这些按钮会比卡片更暗，
+   看起来像一排空洞。这里把社区插件自绘的次级按钮抬到 input 层，与官方
+   「次级按钮 = 输入层底色」一致。
+   只作用于社区插件真实存在的类名，不影响宿主自身的按钮。 */
+[data-dsh-theme="zcode"] button.dm-action-btn:not([class~="primary"]):not([class~="success"]),
+[data-dsh-theme="zcode"] button.dm-chip,
+[data-dsh-theme="zcode"] button.dam-btn,
+[data-dsh-theme="zcode"] button.fv-button,
+[data-dsh-theme="zcode"] button.jev-btn,
+[data-dsh-theme="zcode"] button.mr-button,
+[data-dsh-theme="zcode"] button.tm-button,
+[data-dsh-theme="zcode"] button.term-btn {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+[data-dsh-theme="zcode"] button.dm-action-btn:not([class~="primary"]):not([class~="success"]):hover,
+[data-dsh-theme="zcode"] button.dm-chip:hover,
+[data-dsh-theme="zcode"] button.dam-btn:hover,
+[data-dsh-theme="zcode"] button.fv-button:hover,
+[data-dsh-theme="zcode"] button.jev-btn:hover,
+[data-dsh-theme="zcode"] button.mr-button:hover,
+[data-dsh-theme="zcode"] button.tm-button:hover,
+[data-dsh-theme="zcode"] button.term-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+}
+
+/* 选中态 chip（如插件管理器的分类筛选）：官方用主色实心 + 反色文字。 */
+[data-dsh-theme="zcode"] button.dm-chip.active {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
 }

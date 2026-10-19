@@ -12,6 +12,6 @@
 
 [data-dsh-theme="zcode"],
 [data-dsh-theme="zcode"] body {
-  background: var(--color-background);
+  background: var(--color-background-win-alt);
   color: var(--color-foreground);
 }

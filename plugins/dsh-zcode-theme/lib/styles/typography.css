@@ -27,10 +27,12 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 消息流与正文排版：重设宿主 markdown 简写字体，消除中英文字号/字形落差 */
-[data-dsh-theme="zcode"] [class*="_markdown_"],
-[data-dsh-theme="zcode"] [class*="_markdown_"] p,
-[data-dsh-theme="zcode"] [class*="_markdown_"] li,
+/* 消息流与正文排版：重设宿主 markdown 简写字体，消除中英文字号/字形落差。
+   宿主 markdown 容器是 haSm5q_markdownPreview / haSm5q_markdownPayload（ui-trajectory）。 */
+[data-dsh-theme="zcode"] .haSm5q_markdownPreview,
+[data-dsh-theme="zcode"] .haSm5q_markdownPayload,
+[data-dsh-theme="zcode"] .haSm5q_markdownPreview p,
+[data-dsh-theme="zcode"] .haSm5q_markdownPreview li,
 [data-dsh-theme="zcode"] [data-chat-flow] p,
 [data-dsh-theme="zcode"] [data-chat-flow] li {
   font-family: var(--dsw-font-family);
@@ -60,7 +62,7 @@
 
 /* 官方 word-break 策略：中文按短语换行，标点不被挤到下一行。 */
 [data-dsh-theme="zcode"] [data-chat-flow] p,
-[data-dsh-theme="zcode"] [class*="_markdown_"] p {
+[data-dsh-theme="zcode"] .haSm5q_markdownPreview p {
   overflow-wrap: break-word;
   word-break: normal;
   line-break: strict;
@@ -69,7 +71,7 @@
 
 @supports (word-break: auto-phrase) {
   [data-dsh-theme="zcode"] [data-chat-flow] p,
-  [data-dsh-theme="zcode"] [class*="_markdown_"] p {
+  [data-dsh-theme="zcode"] .haSm5q_markdownPreview p {
     word-break: auto-phrase;
   }
 }

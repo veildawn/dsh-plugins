@@ -1,12 +1,9 @@
-/* 大屏保持宿主原有内容宽度；整列同一画布色，避免两侧看成竖条。 */
-[data-dsh-theme="zcode"] .pI_x6G_centerCol,
-[data-dsh-theme="zcode"] .wSkVaW_root,
-[data-dsh-theme="zcode"] .wSkVaW_body,
-[data-dsh-theme="zcode"] .wSkVaW_scrollBody,
-[data-dsh-theme="zcode"] .wSkVaW_viewArea,
-[data-dsh-theme="zcode"] .EvIC1a_root,
-[data-dsh-theme="zcode"] .EvIC1a_scroll,
-[data-dsh-theme="zcode"] .EvIC1a_column,
+/* Chat：宿主真实类名 xz4KEq_*（ui-chat/ChatView）、cJsG2q_*（ui-chat 消息节点）。
+   官方把整列画布与消息体统一成 --color-background，不额外铺卡片底色。 */
+[data-dsh-theme="zcode"] .xz4KEq_root,
+[data-dsh-theme="zcode"] .xz4KEq_frame,
+[data-dsh-theme="zcode"] .xz4KEq_scroll,
+[data-dsh-theme="zcode"] .xz4KEq_column,
 [data-dsh-theme="zcode"] [data-chat-flow] {
   background: var(--color-background);
   border-radius: 0;
@@ -14,7 +11,7 @@
 }
 
 /* Chat：用户气泡为 Module Surface，AI 消息融入画布。 */
-[data-dsh-theme="zcode"] .Sixlwa_bubble {
+[data-dsh-theme="zcode"] .cJsG2q_bubble {
   background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: 16px;
@@ -25,58 +22,44 @@
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"],
 [data-dsh-theme="zcode"] [data-chat-flow-kind="turn-process"],
 [data-dsh-theme="zcode"] [data-chat-flow-kind="turn-tail"],
-[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"] .Sixlwa_bubble,
-[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] .Sixlwa_bubble {
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"] .cJsG2q_bubble,
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] .cJsG2q_bubble {
   background: transparent;
   border-color: transparent;
 }
 
-[data-dsh-theme="zcode"] [data-chat-flow] [class*="_timeStart"],
-[data-dsh-theme="zcode"] [data-chat-flow] [class*="_timeEnd"] {
-  color: var(--color-foreground-subtlest);
-}
-
-/* 思考 / 探索：官方 ReasoningTrigger 的标签是 foreground-subtlest，
-   无底、无背景框，运行态靠宿主的扫光装饰层表达，不额外染色。 */
-[data-dsh-theme="zcode"] .EvIC1a_turnStatus,
+/* 思考 / 探索折叠行（宿主 3GBCTG_* / WW4l1q_*）：官方 ReasoningRow 的标签是
+   foreground-subtlest，无底、无背景框，运行态靠宿主扫光装饰层表达。 */
+[data-dsh-theme="zcode"] .WW4l1q_root,
+[data-dsh-theme="zcode"] .WW4l1q_body,
 [data-dsh-theme="zcode"] [data-variant="think"],
-[data-dsh-theme="zcode"] [class*="_turnStatus"],
 [data-dsh-theme="zcode"] [data-step-process] {
   background: none;
   color: var(--color-foreground-subtlest);
   -webkit-text-fill-color: var(--color-foreground-subtlest);
-  animation: none;
 }
 
-[data-dsh-theme="zcode"] .EvIC1a_turnStatusClock,
-[data-dsh-theme="zcode"] [class*="_turnStatusClock"],
-[data-dsh-theme="zcode"] [data-step-process-icon] {
-  color: var(--color-foreground-subtlest);
-  -webkit-text-fill-color: var(--color-foreground-subtlest);
-}
-
-[data-dsh-theme="zcode"] .lcKema_root,
-[data-dsh-theme="zcode"] .lcKema_row,
-[data-dsh-theme="zcode"] .lcKema_thinkBody {
+[data-dsh-theme="zcode"] .3GBCTG_thinkBody,
+[data-dsh-theme="zcode"] .3GBCTG_row,
+[data-dsh-theme="zcode"] [data-step-process-body] {
   background: transparent;
 }
 
-/* 恢复会话区拖动手柄的透明底，绝不误填大灰条。 */
-[data-dsh-theme="zcode"] .wSkVaW_widthHandle {
+/* 恢复会话区滚动容器的透明底，绝不误填大灰条。 */
+[data-dsh-theme="zcode"] .xz4KEq_scroll {
   background: transparent;
 }
 
 /* 系统消息 / 工具调用中断与错误卡片：对齐 ZCode，文本使用柔和浅灰，绝不用红色，也不用亮蓝 */
 [data-dsh-theme="zcode"] [class*="_errorSummary"],
 [data-dsh-theme="zcode"] [class*="_turnError"],
-[data-dsh-theme="zcode"] [class*="_requestError"],
-[data-dsh-theme="zcode"] ._5OnbHa_summary[data-error],
-[data-dsh-theme="zcode"] ._5OnbHa_body[data-error] {
+[data-dsh-theme="zcode"] .cJsG2q_turnErrorMessage,
+[data-dsh-theme="zcode"] .cJsG2q_turnErrorTitle {
   color: var(--color-foreground-subtle);
 }
 
 [data-dsh-theme="zcode"] [data-tool] [class*="_title"],
-[data-dsh-theme="zcode"] ._5OnbHa_title {
+[data-dsh-theme="zcode"] .pFy1Ka_title {
   color: var(--color-foreground);
 }
 
@@ -97,7 +80,7 @@
    与官方的低侵入灰阶相悖，因此这里不做任何覆盖，图标继承宿主默认色。 */
 
 /* 对齐 ZCode 消息正文排版 (Markdown、列表、段落、表格) */
-[data-dsh-theme="zcode"] .Sixlwa_bubble,
+[data-dsh-theme="zcode"] .cJsG2q_bubble,
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"],
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] {
   font-size: var(--zai-text-ui-base);

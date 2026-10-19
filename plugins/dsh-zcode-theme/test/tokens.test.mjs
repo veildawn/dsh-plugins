@@ -182,8 +182,9 @@ test('上下文用量表接入官方色阶', async () => {
   const { loadThemeCss } = await import('../lib/css.js')
   const css = loadThemeCss()
   // 宿主 ContextMeter 用 --meter-tint 分三段着色，主题必须把它指向官方色阶。
-  for (const cls of ['JObwrW_colorSystem', 'JObwrW_colorTools', 'JObwrW_colorMessages']) {
-    assert.ok(css.includes(cls), `缺少上下文用量表着色：${cls}`)
+  // 宿主类名以数字开头，CSS 里只能写成属性子串选择器。
+  for (const cls of ['2WTFBq_colorSystem', '2WTFBq_colorTools', '2WTFBq_colorMessages']) {
+    assert.ok(css.includes(`[class*="${cls}"]`), `缺少上下文用量表着色：${cls}`)
   }
-  assert.match(css, /\.JObwrW_colorSystem\s*\{\s*--meter-tint:\s*var\(--color-context-breakdown-1\)/)
+  assert.match(css, /\[class\*="2WTFBq_colorSystem"\]\s*\{\s*--meter-tint:\s*var\(--color-context-breakdown-1\)/)
 })
