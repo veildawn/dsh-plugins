@@ -1127,27 +1127,35 @@ test('网关同时监听回环地址，且回环不进入 lanIps', async () => {
 })
 
 test('单个网卡监听失败不影响其它网卡，全部失败才抛错', async () => {
+  // 至少要两个地址才能表达「部分失败」。CI runner 往往只有一块网卡，
+  // 因此固定用「回环 + 一块局域网网卡」，而不是依赖网卡数量。
   const lanIps = internals.getLocalLanAddresses()
   if (lanIps.length === 0) return
   const upstream = createServer((req, res) => res.end('ok'))
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve))
   const targetPort = upstream.address().port
+  const blocked = lanIps[0]
+  const healthy = '127.0.0.1'
   // 先占住一个端口，让该地址的监听必然失败
   const blocker = createServer(() => {})
-  await new Promise((resolve) => blocker.listen(0, lanIps[0], resolve))
+  await new Promise((resolve) => blocker.listen(0, blocked, resolve))
   const takenPort = blocker.address().port
   try {
-    const bindHosts = lanIps.length > 1 ? [lanIps[0], lanIps[1]] : [lanIps[0]]
-    const gateway = await startLanGateways({ bindHosts, port: takenPort, targetPort })
+    const gateway = await startLanGateways({ bindHosts: [blocked, healthy], port: takenPort, targetPort })
     try {
-      assert.deepEqual(gateway.addresses, bindHosts.slice(1), '被占用的地址失败，其余地址照常监听')
+      assert.deepEqual(gateway.addresses, [healthy], '被占用的地址失败，其余地址照常监听')
       assert.equal(gateway.failures.length, 1)
-      assert.equal(gateway.failures[0].bindHost, lanIps[0])
+      assert.equal(gateway.failures[0].bindHost, blocked)
+      assert.equal(gateway.failures[0].portTaken, true)
+      assert.match(gateway.failures[0].message, new RegExp(`端口 ${takenPort}`))
     } finally {
       await gateway.close()
     }
-    // 全部失败时整体抛出
-    await assert.rejects(() => startLanGateways({ bindHosts: [lanIps[0]], port: takenPort, targetPort }))
+    // 全部失败时整体抛出，且错误里带上每个地址的原因
+    await assert.rejects(
+      () => startLanGateways({ bindHosts: [blocked], port: takenPort, targetPort }),
+      new RegExp(`端口 ${takenPort} 在 ${blocked.replace(/\./g, '\\.')} 上已被占用`),
+    )
   } finally {
     await new Promise((resolve) => blocker.close(resolve))
     await new Promise((resolve) => upstream.close(resolve))
