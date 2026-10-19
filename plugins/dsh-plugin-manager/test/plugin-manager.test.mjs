@@ -42,6 +42,8 @@ import {
   parseReleasesAtom,
   detectPluginConflict,
   cleanupPluginConflict,
+  syncProfileBundle,
+  migrateProfilePatch,
 } from '../lib/core.js'
 import {
   handleMarketRpc,
@@ -2432,6 +2434,90 @@ describe('dsh-market duplicate plugin conflict detection and cleanup', () => {
     const merged = mergeInstalledVersions(catalog, { home, profile: 'web' })
     assert.equal(merged.plugins[0].hasDuplicate, true)
     assert.equal(merged.plugins[0].duplicateConflict.hasConflict, true)
+  })
+
+  it('syncProfileBundle replaces bundle in-place to preserve load order', () => {
+    const manifest = {
+      dsh: {
+        profile: {
+          bundles: [
+            '@deepseek-ai/dsh-base',
+            'dsh-file-viewer',
+            '@deepseek-ai/dsh-web-app',
+            'dsh-file-viewer', // duplicate
+          ],
+        },
+      },
+    }
+
+    const res = syncProfileBundle(manifest, '@weniatall/dsh-file-viewer')
+    assert.equal(res.modified, true)
+    assert.equal(res.index, 1)
+    // dsh-file-viewer at index 1 is replaced in-place, and duplicate is stripped
+    assert.deepEqual(manifest.dsh.profile.bundles, [
+      '@deepseek-ai/dsh-base',
+      '@weniatall/dsh-file-viewer',
+      '@deepseek-ai/dsh-web-app',
+    ])
+  })
+
+  it('migrateProfilePatch strips legacy bare name from top-level patch to prevent name mismatch', () => {
+    const profileDir = join(home, 'profiles', 'web')
+    const patchPath = join(profileDir, 'cordis.patch.yml')
+    const initialPatch = `# Profile user patch layer
+- id: webserver
+  config:
+    port: 3080
+- id: file-viewer
+  name: dsh-file-viewer
+  config:
+    safePaths:
+      - path: /data
+- insert:
+    - id: custom-entry
+      name: dsh-file-viewer
+`
+    writeFileSync(patchPath, initialPatch, 'utf8')
+
+    const res = migrateProfilePatch('dsh-file-viewer', { home, profile: 'web' })
+    assert.equal(res.migrated, true)
+    assert.equal(res.logs.length, 1)
+
+    const updated = readFileSync(patchPath, 'utf8')
+    // Top-level name: dsh-file-viewer should be stripped
+    assert.equal(/^\s{2}name:\s*dsh-file-viewer$/m.test(updated), false)
+    // Config should be intact
+    assert.equal(updated.includes('- id: file-viewer'), true)
+    assert.equal(updated.includes('safePaths:'), true)
+    assert.equal(updated.includes('/data'), true)
+    // insert: block name should remain untouched
+    assert.equal(/^\s{6}name:\s*dsh-file-viewer$/m.test(updated), true)
+  })
+
+  it('cleanupPluginConflict migrates cordis.patch.yml alongside package.json', () => {
+    const profileDir = join(home, 'profiles', 'web')
+    const patchPath = join(profileDir, 'cordis.patch.yml')
+    writeFileSync(patchPath, `- id: model-roles\n  name: dsh-model-roles\n  config:\n    mode: auto\n`, 'utf8')
+
+    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
+      dependencies: {
+        'dsh-model-roles': '0.4.6',
+        '@weniatall/dsh-model-roles': '0.4.32',
+      },
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', 'dsh-model-roles'] } },
+    }))
+
+    const res = cleanupPluginConflict('dsh-model-roles', { home, profile: 'web', removeOrphanDir: false })
+    assert.equal(res.cleaned, true)
+
+    // Manifest bundles was updated in-place
+    const manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
+    assert.deepEqual(manifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base', '@weniatall/dsh-model-roles'])
+
+    // Patch file name was migrated
+    const patch = readFileSync(patchPath, 'utf8')
+    assert.equal(patch.includes('name: dsh-model-roles'), false)
+    assert.equal(patch.includes('mode: auto'), true)
   })
 })
 

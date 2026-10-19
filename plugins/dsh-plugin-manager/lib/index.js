@@ -68,6 +68,8 @@ import {
   detectPluginConflict,
   cleanupPluginConflict,
   profilePluginDir,
+  syncProfileBundle,
+  migrateProfilePatch,
 } from './core.js'
 
 export const name = 'plugin-manager'
@@ -1260,6 +1262,7 @@ export function handleInstallPlugin(options, payload, deps = {}) {
                 (b) => b.toLowerCase() !== bundleName.toLowerCase() && b.toLowerCase() !== bareName.toLowerCase()
               )
               manifest.dsh.profile.bundles.push(bundleName)
+
               /* 显式版本安装会把 dependencies 写成精确版 `0.1.39`，之后
                  `pnpm add <pkg>` 再也不会自动升级到新版本。装完立刻恢复成
                  `^<version>` 范围，保持「以后还能更新」的语义。 */
@@ -1273,6 +1276,16 @@ export function handleInstallPlugin(options, payload, deps = {}) {
               if (!hadExact || manifest.dsh.profile.bundles.length !== beforeLen) {
                 task.log.push(`✓ 已自动将 ${bundleName} 注册到 profile bundles`)
               }
+            }
+          }
+        } catch {}
+
+        // 自动平滑迁移 cordis.patch.yml 中的旧 name 字段，防止 name mismatch 导致配置被跳过丢失
+        try {
+          const patchMigration = migrateProfilePatch(pkgName || name, { home: findDshHome(), profile })
+          if (patchMigration.migrated && patchMigration.logs?.length > 0) {
+            for (const logLine of patchMigration.logs) {
+              task.log.push(`  ↻ ${logLine}`)
             }
           }
         } catch {}
@@ -1406,6 +1419,9 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
                 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
               }
             }
+          } catch {}
+          try {
+            migrateProfilePatch(targetPkg, { home: findDshHome(), profile })
           } catch {}
           /* 同样要核对实际版本：pnpm 可能判定 Already up to date 后原样退出。 */
           const actual = targetVersion

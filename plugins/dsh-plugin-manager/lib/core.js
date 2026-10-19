@@ -775,6 +775,9 @@ export function detectPluginConflict(pluginOrName, {
   if (!valid) return { hasConflict: false }
 
   const bareName = valid.startsWith('@') ? valid.slice(valid.indexOf('/') + 1) : valid
+  const isMonorepo = valid.startsWith(`${NPM_PLUGIN_SCOPE}/`) || LOCAL_MONOREPO_PLUGINS.some((p) => p.name.toLowerCase() === bareName.toLowerCase())
+  if (!isMonorepo) return { hasConflict: false }
+
   const scopedName = valid.startsWith('@') ? valid : npmNameOf(valid)
   if (bareName.toLowerCase() === scopedName.toLowerCase()) return { hasConflict: false }
 
@@ -834,6 +837,123 @@ export function detectPluginConflict(pluginOrName, {
 }
 
 /**
+ * Update a profile manifest's dsh.profile.bundles in place.
+ * Replaces the first matching variant (bareName or scopedName) at its original index,
+ * preserving bundle load order (and patch layering precedence), then strips any
+ * subsequent duplicate variants. If no variant was present, pushes to the end.
+ *
+ * @param {object} manifest - parsed package.json object
+ * @param {string} bundleName - modern target bundle name (e.g. "@weniatall/dsh-file-viewer")
+ * @returns {{ modified: boolean, index: number }}
+ */
+export function syncProfileBundle(manifest, bundleName) {
+  if (!manifest || typeof manifest !== 'object') return { modified: false, index: -1 }
+  manifest.dsh = manifest.dsh || {}
+  manifest.dsh.profile = manifest.dsh.profile || {}
+  const bundles = Array.isArray(manifest.dsh.profile.bundles) ? manifest.dsh.profile.bundles : []
+
+  const bareName = bundleName.startsWith('@') ? bundleName.slice(bundleName.indexOf('/') + 1) : bundleName
+  const scopedName = bundleName.startsWith('@') ? bundleName : npmNameOf(bundleName)
+  const isMatch = (b) => {
+    const lower = String(b).toLowerCase()
+    return lower === bundleName.toLowerCase() || lower === bareName.toLowerCase() || lower === scopedName.toLowerCase()
+  }
+
+  let firstIndex = -1
+  const filtered = []
+  for (let i = 0; i < bundles.length; i++) {
+    const item = bundles[i]
+    if (isMatch(item)) {
+      if (firstIndex === -1) {
+        firstIndex = filtered.length
+        filtered.push(bundleName)
+      }
+    } else {
+      filtered.push(item)
+    }
+  }
+
+  if (firstIndex === -1) {
+    firstIndex = filtered.length
+    filtered.push(bundleName)
+  }
+
+  const modified = JSON.stringify(bundles) !== JSON.stringify(filtered)
+  manifest.dsh.profile.bundles = filtered
+  return { modified, index: firstIndex }
+}
+
+/**
+ * Migrate or strip legacy bare names from cordis.patch.yml top-level patch rows.
+ *
+ * Why: In DSH (@deepseek-ai/dsh-app-boot applyEntryPatches), if a patch row declares
+ * `name: "dsh-file-viewer"` while the newly installed bundle's entry target is
+ * `"@weniatall/dsh-file-viewer"`, DSH triggers `name mismatch ..., skipping` and
+ * completely drops the user's config overrides!
+ * Removing the `name` field from the top-level patch row lets Cordis match purely on `id`,
+ * making the configuration resilient across package renames.
+ *
+ * @param {string|object} pluginOrName - plugin object or package name
+ * @returns {{ migrated: boolean, logs: string[], patchPath: string }}
+ */
+export function migrateProfilePatch(pluginOrName, { home = findDshHome(), profile = findProfileName() } = {}) {
+  const patchPath = join(home, 'profiles', profile, 'cordis.patch.yml')
+  if (!existsSync(patchPath)) return { migrated: false, logs: [], patchPath }
+
+  const name = typeof pluginOrName === 'string' ? pluginOrName : pluginOrName?.name
+  const valid = safePackageName(name)
+  if (!valid) return { migrated: false, logs: [], patchPath }
+
+  const bareName = valid.startsWith('@') ? valid.slice(valid.indexOf('/') + 1) : valid
+  const logs = []
+  let changed = false
+
+  try {
+    const content = readFileSync(patchPath, 'utf8')
+    const lines = content.split('\n')
+    const newLines = []
+    let insideInsert = false
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+
+      // Detect insert: block start vs top-level list items
+      if (/^-\s+insert:/.test(line)) {
+        insideInsert = true
+      } else if (/^-\s+id:\s*/.test(line)) {
+        insideInsert = false
+      } else if (/^-\s+/.test(line) && !line.startsWith('  ')) {
+        insideInsert = false
+      }
+
+      // Only strip legacy name from top-level override rows (not inside insert: blocks)
+      if (!insideInsert) {
+        const nameMatch = line.match(/^(\s*)name:\s*(['"]?)([^'"\n]+)\2\s*$/)
+        if (nameMatch) {
+          const val = nameMatch[3].trim()
+          if (val.toLowerCase() === bareName.toLowerCase()) {
+            changed = true
+            logs.push(`已从 cordis.patch.yml 移除 ${val} 的旧 name 字段（防止 name mismatch 导致配置被跳过）`)
+            continue
+          }
+        }
+      }
+
+      newLines.push(line)
+    }
+
+    if (changed) {
+      writeFileSync(patchPath, newLines.join('\n'), 'utf8')
+    }
+  } catch (err) {
+    logs.push(`迁移 cordis.patch.yml 异常: ${err.message}`)
+    return { migrated: false, logs, patchPath }
+  }
+
+  return { migrated: changed, logs, patchPath }
+}
+
+/**
  * Clean up duplicate/legacy conflict for a plugin in the profile.
  * Retains the scoped version (@weniatall/dsh-xxx) and purges the legacy
  * unscoped version (dsh-xxx) from dependencies, bundles, lockfile, and node_modules.
@@ -848,6 +968,9 @@ export function cleanupPluginConflict(pluginOrName, {
   if (!valid) return { cleaned: false, error: 'invalid plugin name' }
 
   const bareName = valid.startsWith('@') ? valid.slice(valid.indexOf('/') + 1) : valid
+  const isMonorepo = valid.startsWith(`${NPM_PLUGIN_SCOPE}/`) || LOCAL_MONOREPO_PLUGINS.some((p) => p.name.toLowerCase() === bareName.toLowerCase())
+  if (!isMonorepo) return { cleaned: false }
+
   const scopedName = valid.startsWith('@') ? valid : npmNameOf(valid)
   if (bareName.toLowerCase() === scopedName.toLowerCase()) return { cleaned: false }
 
@@ -870,23 +993,12 @@ export function cleanupPluginConflict(pluginOrName, {
             }
           }
         }
-        // 2. Clean bundles: remove bareName
+        // 2. In-place sync bundles: replace bareName with scopedName in original position
         if (manifest.dsh?.profile && Array.isArray(manifest.dsh.profile.bundles)) {
-          const beforeLen = manifest.dsh.profile.bundles.length
-          manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
-            (b) => b.toLowerCase() !== bareName.toLowerCase()
-          )
-          if (manifest.dsh.profile.bundles.length !== beforeLen) {
+          const syncRes = syncProfileBundle(manifest, scopedName)
+          if (syncRes.modified) {
             modifiedManifest = true
-            logs.push(`已从 bundles 移除旧条目 ${bareName}`)
-          }
-          // Ensure scopedName is registered in bundles if scoped dependency exists or was kept
-          if (manifest.dependencies && manifest.dependencies[scopedName]) {
-            if (!manifest.dsh.profile.bundles.some((b) => b.toLowerCase() === scopedName.toLowerCase())) {
-              manifest.dsh.profile.bundles.push(scopedName)
-              modifiedManifest = true
-              logs.push(`已在 bundles 确保注册 ${scopedName}`)
-            }
+            logs.push(`已在 bundles 原地同步 ${scopedName}（保持原有加载顺序）`)
           }
         }
         if (modifiedManifest) {
@@ -918,6 +1030,16 @@ export function cleanupPluginConflict(pluginOrName, {
     } catch (err) {
       logs.push(`清理目录 node_modules/${bareName} 异常: ${err.message}`)
     }
+  }
+
+  // 5. Migrate cordis.patch.yml to prevent name mismatch drops
+  try {
+    const patchRes = migrateProfilePatch(name, { home, profile })
+    if (patchRes.migrated && patchRes.logs?.length > 0) {
+      logs.push(...patchRes.logs)
+    }
+  } catch (err) {
+    logs.push(`迁移 cordis.patch.yml 异常: ${err.message}`)
   }
 
   return { cleaned: true, bareName, scopedName, logs }
