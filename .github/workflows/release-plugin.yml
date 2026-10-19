@@ -105,13 +105,13 @@ jobs:
           echo "plugin_dir=$PLUGIN_DIR" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      # There is no root package.json unless the repo adds one; when present,
-      # corepack reads `packageManager` from it. Pinning here keeps the version
-      # identical either way.
+      # 不在这里写 `version`：根 package.json 已经声明
+      # `packageManager: pnpm@11.22.0`，pnpm/action-setup 同时看到两处版本
+      # 会直接失败（"Multiple versions of pnpm specified"）。
+      # 省略后 action 会读取 package.json 的 packageManager 字段，
+      # 也让本地与 CI 使用完全相同的 pnpm 版本。
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       # Several plugins/*/node_modules entries are checked in as symlinks to
       # a maintainer's local dev profile (e.g. /Users/.../.dsh/profiles/node_modules),
