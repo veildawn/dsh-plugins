@@ -870,10 +870,27 @@ window.__ModuleLoader__.load({
     // Guard so a hot reload or re-apply never double-wraps shared open
     // handlers; older hosts used workspaces.openPath.
     const wiredOpenPath = typeof WeakSet !== "undefined" ? new WeakSet() : null;
+    // The wrappers below outlive a single apply. They were closing over the
+    // store of whichever apply installed them, so a second apply left the Host
+    // calling the previous store: the click was swallowed, the drawer never
+    // opened, and the file viewer looked like it had stopped listening. These
+    // pointers are refreshed on every apply so the wrappers always write the
+    // store the mounted overlay is actually subscribed to.
+    let liveOpenStore = null;
+    let liveSessionStore = null;
 
-    function openViewerForPath(openStore, sessionStore, path) {
-      const sid = sessionStore.get();
-      openStore.set({ filePath: path, sessionId: sid, _t: Date.now() });
+    /**
+     * Open the drawer on one path.
+     *
+     * `sessionId` is optional: a `dsh-resource://file/session/<id>/…` address
+     * names the session it belongs to, and honouring it keeps the drawer on that
+     * session's project instead of whatever session happens to be current.
+     */
+    function openViewerForPath(openStore, sessionStore, path, sessionId) {
+      const target = liveOpenStore || openStore;
+      const session = liveSessionStore || sessionStore;
+      const sid = sessionId !== undefined && sessionId !== "" ? sessionId : (session ? session.get() : undefined);
+      target.set({ filePath: path, sessionId: sid, _t: Date.now() });
     }
 
     function parseFileResource(address) {
@@ -918,8 +935,7 @@ window.__ModuleLoader__.load({
       sr.openResource = function(address, options) {
         const parsed = parseFileResource(address);
         if (parsed && parsed.path) {
-          const sid = parsed.sessionId || sessionStore.get();
-          openStore.set({ filePath: parsed.path, sessionId: sid, _t: Date.now() });
+          openViewerForPath(openStore, sessionStore, parsed.path, parsed.sessionId);
           return;
         }
         const review = parseChangesReviewResource(address);
@@ -933,7 +949,7 @@ window.__ModuleLoader__.load({
             .then((data) => {
               const file = data?.files?.[idx]?.path || data?.files?.[0]?.path;
               if (file) {
-                openStore.set({ filePath: file, sessionId: sid, _t: Date.now() });
+                openViewerForPath(openStore, sessionStore, file);
               }
             })
             .catch(() => {});
@@ -946,8 +962,7 @@ window.__ModuleLoader__.load({
         sr.openResourceIn = function(sessionId, address, options) {
           const parsed = parseFileResource(address);
           if (parsed && parsed.path) {
-            const sid = sessionId || parsed.sessionId || sessionStore.get();
-            openStore.set({ filePath: parsed.path, sessionId: sid, _t: Date.now() });
+            openViewerForPath(openStore, sessionStore, parsed.path, sessionId || parsed.sessionId);
             return;
           }
           const review = parseChangesReviewResource(address);
@@ -960,7 +975,7 @@ window.__ModuleLoader__.load({
               .then((data) => {
                 const file = data?.files?.[idx]?.path || data?.files?.[0]?.path;
                 if (file) {
-                  openStore.set({ filePath: file, sessionId: sid, _t: Date.now() });
+                  openViewerForPath(openStore, sessionStore, file, sid);
                 }
               })
               .catch(() => {});
@@ -997,6 +1012,63 @@ window.__ModuleLoader__.load({
           }
         }
         return originalCall(channel, endpoint, payload, signal);
+      };
+    }
+
+    /**
+     * Take over the Desktop Host's changed-file open route.
+     *
+     * The changes card's native open control does not go through the RPC
+     * carrier: it POSTs `/api/changes.open?sessionId=…&seq=…&index=…`, which
+     * hands the file to the operating system. Nothing in the RPC path can see
+     * that call, so on Desktop the changes card opened the system editor while
+     * the Web build (where the control is not mounted at all) opened the
+     * viewer. Resolving the same coordinates through the summary route gives the
+     * path, and a synthetic OK response keeps the Host's card state settled.
+     */
+    function wrapChangesOpenFetch(openStore, sessionStore) {
+      if (typeof window === "undefined" || typeof window.fetch !== "function") return;
+      const originalFetch = window.fetch;
+      if (wiredOpenPath === null || wiredOpenPath.has(originalFetch)) return;
+      wiredOpenPath.add(originalFetch);
+
+      const summaryPath = (sessionId, seq) =>
+        `/api/changes.summary?${new URLSearchParams({ sessionId, seq: String(seq) })}`;
+
+      window.fetch = function(input, init) {
+        const requestUrl = typeof input === "string" ? input : (input && typeof input.url === "string" ? input.url : "");
+        const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+        if (method !== "POST" || !/\/api\/changes\.open\b/.test(requestUrl)) {
+          return originalFetch.apply(this, arguments);
+        }
+        let coordinates;
+        try {
+          const query = new URLSearchParams(requestUrl.split("?")[1] || "");
+          coordinates = {
+            sessionId: query.get("sessionId") || "",
+            seq: Number(query.get("seq")),
+            index: Number(query.get("index") || 0),
+          };
+        } catch (_) {
+          coordinates = null;
+        }
+        if (!coordinates || !coordinates.sessionId || !Number.isFinite(coordinates.seq)) {
+          return originalFetch.apply(this, arguments);
+        }
+        const { sessionId, seq, index } = coordinates;
+        return originalFetch(summaryPath(sessionId, seq), { signal: init && init.signal })
+          .then((response) => (response && response.ok ? response.json() : null))
+          .then((data) => {
+            const files = Array.isArray(data && data.files) ? data.files : [];
+            const entry = files[Number.isFinite(index) ? index : 0] || files[0];
+            const file = entry && entry.path;
+            if (!file) return originalFetch.apply(this, arguments);
+            openViewerForPath(openStore, sessionStore, file, sessionId);
+            // The Host only reads `response.ok`; a bodiless 204 settles its card
+            // without claiming the OS actually opened anything.
+            return new Response(null, { status: 204 });
+          })
+          .catch(() => originalFetch.apply(this, arguments));
       };
     }
 
@@ -1113,6 +1185,25 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // 3. The Host's native open control carries no path of its own: its label
+      //    is the action ("Open", "Open in …"), never the file. The path is
+      //    published by the surrounding row in a hidden description span, so
+      //    walk up a few levels and take the first span that holds a path. The
+      //    walk is bounded and every candidate still has to pass the path
+      //    shape check, so a miss falls through to the Host rather than opening
+      //    the wrong file.
+      if (element.closest && element.closest("[data-open-path-open]")) {
+        let scope = element.parentElement;
+        for (let depth = 0; scope && depth < 4; depth += 1) {
+          const hiddenPath = scope.querySelector ? scope.querySelector("span[hidden]") : null;
+          if (hiddenPath && hiddenPath.textContent) {
+            const p = normalizeClickedPath(hiddenPath.textContent);
+            if (p) return p;
+          }
+          scope = scope.parentElement;
+        }
+      }
+
       const sources = [
         element.getAttribute("data-file-path"),
         element.getAttribute("data-path"),
@@ -1130,6 +1221,13 @@ window.__ModuleLoader__.load({
     function isFileOpenControl(element) {
       if (!element) return false;
       if (element.hasAttribute("data-file-path") || element.hasAttribute("data-path")) return true;
+      // The Desktop Host answers `canOpenWorkspacePath` with true, so the shell
+      // mounts its native "open in application" button beside every file path
+      // (the changes card included). That button sits above the path control and
+      // takes the click, so it has to count as a file control or the viewer
+      // never sees the gesture. The `-more` chevron is a menu of applications,
+      // not a plain open, so it is deliberately left to the Host.
+      if (element.closest("[data-open-path-open]")) return true;
       if (element.closest("[data-produced-files-row]")) return true;
       // Support deliverables: changed files card (ChangedFiles) and presented file cards (PresentedFileCard)
       if (element.closest("[data-changed-files], [data-presented-file], [data-presented-files-row]")) return true;
@@ -1493,6 +1591,11 @@ window.__ModuleLoader__.load({
       // Which session the conversation header currently belongs to. The phone
       // entry is drawn outside that header and cannot receive its props.
       const sessionStore = createStore(undefined);
+      // Publish this apply's stores to the Host wrappers. A re-apply installs new
+      // stores but the wrappers are already in place, so they must follow the
+      // ones the freshly mounted overlay subscribes to.
+      liveOpenStore = openStore;
+      liveSessionStore = sessionStore;
       // The composer's draft accessors, captured from the slot that receives
       // them. The drawer renders in a different subtree and cannot reach the
       // input state through props.
@@ -3394,6 +3497,9 @@ window.__ModuleLoader__.load({
       // Intercept any openWorkspacePath RPC calls (connection is declared in inject)
       wrapConnectionRpc(ctx, openStore, sessionStore);
 
+      // The changes card's native open route bypasses the RPC carrier entirely.
+      wrapChangesOpenFetch(openStore, sessionStore);
+
       // Wrap sidebarRight if already registered or whenever injected. Direct
       // property access is not safe here: sidebarRight is not part of this
       // plugin's inject, so cordis would reject the read outright.
@@ -3441,7 +3547,7 @@ window.__ModuleLoader__.load({
       LANG_OVERRIDES_KEY, LANG_OVERRIDES_MAX, readLangOverrides, writeLangOverrides, readLangOverride, writeLangOverride,
       langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
-      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
+      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
       triggerDownload, performDownload, SvgIconDownload,
     };
     return module.exports;

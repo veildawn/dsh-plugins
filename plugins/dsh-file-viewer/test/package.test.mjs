@@ -496,6 +496,57 @@ test('the drawer clears the Windows caption strip instead of sliding under it', 
   assert.doesNotMatch(source, /html\[data-windows-titlebar\][^{]*\.fv-modal-scrim\{[^}]*top:/)
 })
 
+test('the Host native open control is intercepted like any other file control', () => {
+  const source = read('lib/client.js')
+
+  // The Desktop Host answers canOpenWorkspacePath with true and mounts its own
+  // "open in application" button beside file paths and inside the changes card.
+  // That button takes the click, so without recognizing it the viewer never
+  // opens on Desktop while it works on the Web, where the button is absent.
+  assert.match(source, /element\.closest\("\[data-open-path-open\]"\)/)
+
+  // Its label is the action, never the path: the path comes from the hidden
+  // description span the surrounding row publishes.
+  assert.match(source, /element\.closest\("\[data-open-path-open\]"\)\) \{[\s\S]{0,400}?span\[hidden\]/)
+
+  // The application picker chevron is a menu, not a plain open, so it must stay
+  // with the Host.
+  assert.doesNotMatch(source, /isFileOpenControl[\s\S]{0,600}?data-open-path-more/)
+})
+
+test('the changes card native open route is taken over on Desktop', () => {
+  const source = read('lib/client.js')
+
+  // The changes card POSTs /api/changes.open?sessionId&seq&index, which hands the
+  // file to the OS. It never touches the RPC carrier, so wrapping rpc.call alone
+  // left Desktop opening the system editor while Web opened the viewer.
+  assert.match(source, /function wrapChangesOpenFetch\(/)
+  assert.match(source, /\\\/api\\\/changes\\\.open/)
+  assert.match(source, /\/api\/changes\.summary\?/)
+
+  // The synthetic response must satisfy the Host's success check, and the real
+  // request has to go through whenever the coordinates cannot be resolved.
+  assert.match(source, /new Response\(null, \{ status: 204 \}\)/)
+  assert.match(source, /return originalFetch\.apply\(this, arguments\)/)
+
+  // It is installed from apply, next to the other open-path wrappers.
+  assert.match(source, /wrapChangesOpenFetch\(openStore, sessionStore\)/)
+  assert.match(source, /wrapChangesOpenFetch,/)
+})
+
+test('an open request lands on the store the mounted overlay subscribes to', () => {
+  const source = read('lib/client.js')
+
+  // Regression: the Host wrappers closed over the store of whichever apply
+  // installed them. A re-apply left them writing the previous store, so clicks
+  // were swallowed and the viewer looked like it had stopped listening.
+  assert.match(source, /let liveOpenStore = null/)
+  assert.match(source, /let liveSessionStore = null/)
+  assert.match(source, /const target = liveOpenStore \|\| openStore/)
+  assert.match(source, /liveOpenStore = openStore/)
+  assert.match(source, /liveSessionStore = sessionStore/)
+})
+
 test('the selected file path is hidden in the mobile header', () => {
   const source = read('lib/client.js')
   // Desktop still shows the selected path in the header; phones do not have
