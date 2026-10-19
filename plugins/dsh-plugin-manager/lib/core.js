@@ -80,14 +80,20 @@ export function isUpgrade(currentVersion, targetVersion) {
 /**
  * Parse release tag to extract plugin name and version
  * Supports formats:
- * - "dsh-model-roles@v0.4.7" -> { name: "dsh-model-roles", version: "0.4.7" }
- * - "dsh-file-viewer@0.1.8"  -> { name: "dsh-file-viewer", version: "0.1.8" }
- * - "v1.0.0"                 -> { name: null, version: "1.0.0" }
+ * - "dsh-model-roles@v0.4.7"             -> { name: "dsh-model-roles", version: "0.4.7" }
+ * - "dsh-file-viewer@0.1.8"              -> { name: "dsh-file-viewer", version: "0.1.8" }
+ * - "@weniatall/dsh-terminal@v0.1.16"    -> { name: "@weniatall/dsh-terminal", version: "0.1.16" }
+ * - "v1.0.0"                             -> { name: null, version: "1.0.0" }
+ *
+ * The scoped form is why this scans from the right: `indexOf('@')` returns 0
+ * for "@scope/name@v1.2.3", which used to produce an empty name and made every
+ * release silently vanish from the catalog (formatMonorepoReleases drops
+ * nameless entries without warning).
  */
 export function parseReleaseTag(tag) {
   if (!tag || typeof tag !== 'string') return null
-  const atIdx = tag.indexOf('@')
-  if (atIdx !== -1) {
+  const atIdx = tag.lastIndexOf('@')
+  if (atIdx > 0) {
     const name = tag.slice(0, atIdx).trim()
     const verPart = tag.slice(atIdx + 1).trim()
     const version = verPart.replace(/^v/, '')
@@ -594,12 +600,42 @@ export function readInstalledVersion(pkgName, { home = findDshHome(), profile = 
 }
 
 /**
+ * Resolve the installed version for one catalog entry, tolerating the scope
+ * migration.
+ *
+ * The repo's plugins used to publish unscoped (`dsh-terminal`), then moved to
+ * `@weniatall/dsh-terminal`. A profile installed before the move still holds
+ * the unscoped key in node_modules while the catalog now reports the scoped
+ * name; without this fallback every such plugin reads as "not installed" and
+ * its update check silently disappears.
+ *
+ * @param installedMap - Map<packageName, version> from readAllInstalledPackages.
+ * @param entry - catalog entry carrying `name` and `id`.
+ * @returns the installed version string, or null.
+ */
+export function resolveInstalledVersion(installedMap, entry) {
+  const candidates = [entry?.name, entry?.id].filter((value) => typeof value === 'string' && value !== '')
+  for (const candidate of candidates) {
+    const direct = installedMap.get(candidate)
+    if (direct !== undefined) return direct
+    // Strip any scope: "@weniatall/dsh-terminal" -> "dsh-terminal".
+    const bare = candidate.startsWith('@') ? candidate.slice(candidate.indexOf('/') + 1) : candidate
+    const bareVersion = installedMap.get(bare)
+    if (bareVersion !== undefined) return bareVersion
+    // A bare catalog name may also be installed under our own scope.
+    const scopedVersion = installedMap.get(`@weniatall/${candidate}`)
+    if (scopedVersion !== undefined) return scopedVersion
+  }
+  return null
+}
+
+/**
  * Attach installed-version facts (installedVersion / hasUpdate) to a repo catalog.
  */
 export function mergeInstalledVersions(catalog, { home = findDshHome(), profile = findProfileName() } = {}) {
   const installedMap = readAllInstalledPackages({ home, profile })
   const plugins = catalog.map((p) => {
-    const installedVersion = installedMap.get(p.name) || installedMap.get(p.id) || null
+    const installedVersion = resolveInstalledVersion(installedMap, p)
     return {
       ...p,
       installedVersion,
