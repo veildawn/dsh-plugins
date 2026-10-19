@@ -157,6 +157,7 @@ export function startLanGateway({ bindHost, port, targetPort, mintCookie }) {
     server.once('error', onError)
     server.listen(port, bindHost, () => {
       server.off('error', onError)
+      server.unref()
       resolve({
         server,
         close: () => new Promise((done) => server.close(() => done())),
