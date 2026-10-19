@@ -179,7 +179,7 @@ test('主题 CSS 绝不覆盖移动端顶栏 .dsh-mobile-bar 的定位与层级'
 
 test('规范目录结构齐全', async () => {
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
-  assert.equal(manifest.name, 'dsh-zcode-theme')
+  assert.equal(manifest.name, '@weniatall/dsh-zcode-theme')
   assert.ok(manifest.files.includes('lib/styles'))
   assert.equal(STYLE_FILES.includes('tokens.css'), false)
   assert.ok(STYLE_FILES.includes('motion.css'))

@@ -1,5 +1,5 @@
 {
-  "name": "dsh-mobile-adapter",
+  "name": "@weniatall/dsh-mobile-adapter",
   "version": "0.1.45",
   "description": "Zero-intrusion mobile drawer and responsive layout adapter for DeepSeek Harness Web",
   "type": "module",
@@ -38,5 +38,21 @@
       ],
       "platform": "web"
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-mobile-adapter"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-mobile-adapter#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=20.3"
   }
 }

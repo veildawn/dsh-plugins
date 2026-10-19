@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-zcode-theme',
+  id: '@weniatall/dsh-zcode-theme',
   factory: () => {
     const module = { exports: {} }
     const exports = module.exports

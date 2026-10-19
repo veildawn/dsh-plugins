@@ -16,7 +16,7 @@
 })()
 
 window.__ModuleLoader__.load({
-  id: 'dsh-mobile-adapter',
+  id: '@weniatall/dsh-mobile-adapter',
   factory: () => {
     const module = { exports: {} }
     const exports = module.exports

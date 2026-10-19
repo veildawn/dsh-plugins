@@ -22,4 +22,4 @@
 # forever for a service nobody registered. This row owns its own id instead.
 - insert:
     - id: dsh-plugin-manager
-      name: dsh-plugin-manager
+      name: '@weniatall/dsh-plugin-manager'

@@ -16,7 +16,7 @@
 })();
 
 window.__ModuleLoader__.load({
-  id: "dsh-ai-proxy",
+  id: "@weniatall/dsh-ai-proxy",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

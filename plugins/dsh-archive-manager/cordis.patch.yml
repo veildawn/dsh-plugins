@@ -22,4 +22,4 @@
 # patches" and the plugin would never mount.
 - insert:
     - id: archive-manager
-      name: dsh-archive-manager
+      name: '@weniatall/dsh-archive-manager'

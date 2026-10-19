@@ -13,7 +13,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: "dsh-jev",
+  id: "@weniatall/dsh-jev",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

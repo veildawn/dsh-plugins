@@ -1,5 +1,5 @@
 {
-  "name": "dsh-zcode-theme",
+  "name": "@weniatall/dsh-zcode-theme",
   "version": "0.1.37",
   "description": "ZCode theme system for DeepSeek Harness: zero-flash dark canvas, token-driven palettes, and cohesive desktop/mobile visual polish",
   "type": "module",
@@ -47,5 +47,21 @@
       "inject": [],
       "platform": "web"
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-zcode-theme"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-zcode-theme#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=20.3"
   }
 }

@@ -79,7 +79,7 @@ const clientPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'lib', 'c
 // eslint-disable-next-line no-eval
 (0, eval)(readFileSync(clientPath, 'utf8'));
 
-check('client bundle registers itself with the module loader', registration !== null && registration.id === 'dsh-jev', String(registration && registration.id));
+check('client bundle registers itself with the module loader', registration !== null && registration.id === '@weniatall/dsh-jev', String(registration && registration.id));
 
 const mod = registration.factory((id) => {
   if (id === 'react') return react;

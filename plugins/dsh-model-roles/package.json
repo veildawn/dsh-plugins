@@ -1,5 +1,5 @@
 {
-  "name": "dsh-model-roles",
+  "name": "@weniatall/dsh-model-roles",
   "version": "0.4.31",
   "description": "Automatic OMP-style model-role routing deeply integrated with DeepSeek Harness tasks, vision, plan mode, subagents, background work, and advisor review",
   "type": "module",
@@ -64,5 +64,21 @@
       ],
       "platform": "web"
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-model-roles"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-model-roles#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=20.3"
   }
 }

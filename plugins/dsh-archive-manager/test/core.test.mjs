@@ -480,7 +480,7 @@ test('client: bundle loads through __ModuleLoader__ with the single-arg factory 
   globalThis.document = { getElementById: () => null, createElement: () => ({ appendChild: () => {} }), head: { appendChild: () => {} } };
   await import(`../lib/client.js?t=${Date.now()}`);
   const { entry } = captured;
-  assert.equal(entry.id, 'dsh-archive-manager');
+  assert.equal(entry.id, '@weniatall/dsh-archive-manager');
   assert.equal(typeof entry.factory, 'function');
   const module = { exports: {} };
   const exportsObj = entry.factory((name) => {

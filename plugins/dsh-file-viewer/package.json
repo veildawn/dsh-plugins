@@ -1,5 +1,5 @@
 {
-  "name": "dsh-file-viewer",
+  "name": "@weniatall/dsh-file-viewer",
   "version": "0.2.6",
   "description": "Workspace file viewer for DeepSeek Harness: file tree, syntax-highlighted code with language detection and manual override, images, PDF, Excel and Word",
   "type": "module",
@@ -56,5 +56,21 @@
       ],
       "platform": "web"
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-file-viewer"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-file-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=20.3"
   }
 }

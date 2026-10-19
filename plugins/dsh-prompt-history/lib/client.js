@@ -11,7 +11,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: "dsh-prompt-history",
+  id: "@weniatall/dsh-prompt-history",
   factory: (require) => {
     const module = { exports: {} };
     const exports = module.exports;

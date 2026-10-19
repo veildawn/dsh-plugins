@@ -16,7 +16,7 @@
 })();
 
 window.__ModuleLoader__.load({
-  id: "dsh-remote-control",
+  id: "@weniatall/dsh-remote-control",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

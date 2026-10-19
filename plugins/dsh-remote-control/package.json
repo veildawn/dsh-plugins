@@ -1,5 +1,5 @@
 {
-  "name": "dsh-remote-control",
+  "name": "@weniatall/dsh-remote-control",
   "version": "0.1.36",
   "description": "Token-authenticated remote access gate and privileged RPC bridge for DeepSeek Harness",
   "type": "module",
@@ -47,5 +47,21 @@
       ],
       "platform": "web"
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-remote-control"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-remote-control#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=20.3"
   }
 }

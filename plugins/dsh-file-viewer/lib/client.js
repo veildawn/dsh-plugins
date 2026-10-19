@@ -16,7 +16,7 @@
 })();
 
 window.__ModuleLoader__.load({
-  id: "dsh-file-viewer",
+  id: "@weniatall/dsh-file-viewer",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

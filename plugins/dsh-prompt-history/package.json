@@ -1,5 +1,5 @@
 {
-  "name": "dsh-prompt-history",
+  "name": "@weniatall/dsh-prompt-history",
   "version": "0.4.10",
   "description": "Per-session prompt history, message bubble edit & resend actions, and cross-browser synchronization for DeepSeek Harness",
   "type": "module",
@@ -52,5 +52,21 @@
       ],
       "platform": "web"
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-prompt-history"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-prompt-history#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=20.3"
   }
 }

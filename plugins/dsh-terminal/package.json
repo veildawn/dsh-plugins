@@ -1,5 +1,5 @@
 {
-  "name": "dsh-terminal",
+  "name": "@weniatall/dsh-terminal",
   "version": "0.1.16",
   "description": "Cross-platform local terminal plugin for DeepSeek Harness (Windows, Linux, macOS) with mobile adaptation",
   "type": "module",
@@ -62,5 +62,21 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-terminal"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-terminal#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=20.3"
   }
 }

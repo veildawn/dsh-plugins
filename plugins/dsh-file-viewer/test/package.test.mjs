@@ -31,7 +31,7 @@ const loadClient = () => {
 }
 
 test('the manifest is a loadable DSH plugin', () => {
-  assert.equal(manifest.name, 'dsh-file-viewer')
+  assert.equal(manifest.name, '@weniatall/dsh-file-viewer')
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/)
   assert.equal(manifest.type, 'module')
   assert.equal(manifest.main, 'lib/index.js')
@@ -61,7 +61,7 @@ test('the manifest is a loadable DSH plugin', () => {
 test('the cordis patch mounts the host half under a stable id', () => {
   const patch = read('cordis.patch.yml')
   assert.match(patch, /id: file-viewer/)
-  assert.match(patch, /name: dsh-file-viewer/)
+  assert.match(patch, /name: '@weniatall\/dsh-file-viewer'/)
 })
 
 test('host parsing dependencies are pinned, not floating', () => {

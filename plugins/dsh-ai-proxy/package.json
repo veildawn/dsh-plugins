@@ -1,5 +1,5 @@
 {
-  "name": "dsh-ai-proxy",
+  "name": "@weniatall/dsh-ai-proxy",
   "version": "0.3.17",
   "description": "DeepSeek Harness provider for the AI Proxy Service gateway: OAuth 2.0 (authorization code + PKCE) login, per-plan model discovery with reasoning effort ladders and gateway modality (text/image/decision), materialized as an official llm-pi-ai route (wire protocols owned by the host adapter)",
   "type": "module",
@@ -31,7 +31,8 @@
     "url": "https://github.com/veildawn/dsh-plugins/issues"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "keywords": [
     "deepseek-harness",
@@ -68,5 +69,8 @@
       ],
       "platform": "web"
     }
+  },
+  "engines": {
+    "node": ">=20.3"
   }
 }

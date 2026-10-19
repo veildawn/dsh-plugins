@@ -522,7 +522,7 @@ globalThis.document = {
   // eslint-disable-next-line no-eval
   (0, eval)(readFileSync(clientPath, 'utf8'));
 }
-check('the client bundle registers itself', registration !== null && registration.id === 'dsh-image-gen', String(registration && registration.id));
+check('the client bundle registers itself', registration !== null && registration.id === '@weniatall/dsh-image-gen', String(registration && registration.id));
 
 // 用一个最小 React 存根驱动 factory，验证它注册到 settings.section
 const hookState = [];

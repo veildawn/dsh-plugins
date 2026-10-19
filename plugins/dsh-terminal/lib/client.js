@@ -16,7 +16,7 @@
 })();
 
 window.__ModuleLoader__.load({
-  id: "dsh-terminal",
+  id: "@weniatall/dsh-terminal",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

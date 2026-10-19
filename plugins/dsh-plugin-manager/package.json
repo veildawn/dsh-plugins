@@ -1,5 +1,5 @@
 {
-  "name": "dsh-plugin-manager",
+  "name": "@weniatall/dsh-plugin-manager",
   "version": "0.3.45",
   "description": "Visual plugin manager for DeepSeek Harness — manage repository updates, browse 2200+ community plugins by category, one-click batch update, removal, GitHub Token support to increase API rate limits, and smooth async daemon restart",
   "type": "module",
@@ -57,5 +57,21 @@
   },
   "dependencies": {
     "undici": "^8.10.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-plugin-manager"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-plugin-manager#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=20.3"
   }
 }

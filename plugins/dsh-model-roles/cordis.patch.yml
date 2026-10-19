@@ -16,7 +16,7 @@
 # Settings -> 模型角色; an empty table preserves native DSH behavior.
 - insert:
     - id: model-roles
-      name: dsh-model-roles
+      name: '@weniatall/dsh-model-roles'
       config:
         roles: []
         advisor:

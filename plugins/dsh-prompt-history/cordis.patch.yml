@@ -14,4 +14,4 @@
 
 - insert:
     - id: prompt-history
-      name: dsh-prompt-history
+      name: '@weniatall/dsh-prompt-history'
