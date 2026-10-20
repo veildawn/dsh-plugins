@@ -10,7 +10,7 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 - 📷 **移动端原生文件与图片上传**：输入框支持一键调用手机原生相册与文件选择器，自动注入为多模态图片附件。
 - 🧰 **工作区工具箱 (Mobile Toolbox)**：移动端在输入框右侧或底部集成统一折叠工具箱，无缝集合文件查看器、本地终端、提示词历史等插件入口。
 - 🔘 **全操作按钮规范化与去冗余**：对话框底部全操作按钮圆形统一设计，触控点击更舒适，防误触。权限模式选择器在移动端收成 32px 圆钮（隐藏文字与下拉箭头），选择器哈希同时覆盖 `dsh 0.1.x` 的 `Sh0Q9G_*` 与 `0.2.1-rc.2` 的 `iWlSmW_*`；移动端隐藏原生冗余的「+」快捷指令按钮（移动端直接键入 `/` 即可触发指令，省出单行空间避免挤压换行，多层覆盖 `.uV2eYG_add`、`.ccegLa_add` 与 `[class*="_add"]`、`button[aria-haspopup="listbox"]` 语义选择器）。
-- 🧭 **输入框下方的内容不再掉出卡片**：宿主把「N 轮 M 步 · tokens/s」「用量 · 缓存命中」统计行和上下文用量圆环一起渲染在输入卡片下方的 dock 里。移动端按 dock 的**实测高度**动态配平（卡片补同样的底部内边距 + dock 等量负边距），统计行折行、宿主换代改变圆环尺寸时都能自动对齐，整块内容稳定收在卡片圆角内。旧实现用 `:has(+dock …)` 加固定 40px/-38px 魔法数，在 Safari < 15.4、Chrome < 105 等不支持 `:has()` 的内核上会整条静默失效，表现就是「输入框下方的内容缺失」——现在不再依赖 `:has()`。统计行不再整行隐藏，窄屏改用紧凑字号折行显示，内容保持完整。
+- 🧭 **输入框下方的统计行始终单行、且不掉出卡片**：宿主把「N 轮 M 步 · tok/s」「用量 · 缓存命中」统计行和上下文用量圆环一起渲染在输入卡片下方的 dock 里。移动端固定 `nowrap` 单行排布 + 10.5px 紧凑字号，宽度不够时整行横向滚动（滚动条隐藏）而不是折成三行；末尾的用量圆环用 `sticky` 钉在右端，横滑时也始终可见。整块内容由脚本按**实测 dock 高度**动态配平（卡片补同样的底部内边距 + dock 等量负边距）收进卡片圆角内。旧实现用 `:has(+dock …)` 加固定 40px/-38px 魔法数，在 Safari < 15.4、Chrome < 105 等不支持 `:has()` 的内核上会整条静默失效，表现就是「输入框下方的内容缺失」——现在不再依赖 `:has()`。
 - 📑 **抽屉与弹窗防溢出**：对侧边栏会话抽屉、历史记录抽屉等全部进行移动端全屏/半屏底部抽屉（Bottom Sheet）自适应改造。
 - ↩️ **右侧栏（文件/终端）避让与一键返回**：右侧栏在移动端展开时自动避开顶部导航栏并放大 tab 与收起按钮触控区，顶栏右上角变为「← 对话」一键收起面板回到会话；冷启动恢复页面时若右侧栏曾处于展开态，自动收起，不再出现刷新或重开网页后被锁在文件栏、回不到对话的问题。
 - 🔍 **聚焦输入不再整页放大**：iOS Safari 会对计算字号小于 16px 的可编辑元素（输入框已是 contenteditable）聚焦时强制放大整个视口，顶栏按钮随之被挤出屏幕。输入区字号现统一抬到 16px 下限（用户在设置里选定的更大字号照常生效），聚焦时页面保持原有缩放，按钮不再消失。
@@ -19,10 +19,10 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 
 ```bash
 # 1. 使用 GitHub Release 在线安装
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.50/dsh-mobile-adapter-0.1.50.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.51/dsh-mobile-adapter-0.1.51.tgz
 
 # 2. 或在本地打包安装
-dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.50.tgz
+dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.51.tgz
 ```
 
 ## 选择器契约

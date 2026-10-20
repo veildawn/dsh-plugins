@@ -357,10 +357,14 @@ test('Conversation mobile CSS keeps a bounded scrollport and compact composer st
   // 现在改为保留内容 + 紧凑字号，由 balanceComposerDock() 动态配平高度。
   assert.doesNotMatch(css, /\[data-composer-stat\]\{display:none/,
     '统计药丸不允许再被整行隐藏，否则输入框下方会凭空空出一块')
-  assert.match(css, /\[data-composer-dock\] \[data-composer-stat\][^{]*\{[^}]*font-size:11px!important/,
-    '统计药丸在移动端改用紧凑字号，折行时不撑高输入卡片')
-  assert.match(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*flex-wrap:wrap!important;[^}]*justify-content:center!important/,
-    'dock 必须允许折行并居中，统计行与圆环才能完整显示')
+  assert.match(css, /\[data-composer-dock\] \[data-composer-stat\][^{]*\{[^}]*font-size:10\.5px!important/,
+    '统计药丸在移动端改用紧凑字号，单行里塞得下更多内容')
+  assert.match(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*flex-wrap:nowrap!important;[^}]*overflow-x:auto!important/,
+    'dock 必须固定单行并允许横向滚动，否则窄屏会被拆成多行')
+  assert.doesNotMatch(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*flex-wrap:wrap!important/,
+    'dock 不允许再折行：折行会把统计行拆成三行并撑高输入卡片')
+  assert.match(css, /\[data-composer-dock\]>:last-child,\[data-dsh-dock\]>:last-child\{[^}]*position:sticky!important;right:0!important/,
+    '末尾的上下文用量圆环要钉在右端，横向滚动时不被裁掉')
   assert.doesNotMatch(css, /\.FJxK0a_root\{display:none/, '失效的旧哈希类名规则必须移除')
   assert.doesNotMatch(css, /stats-expanded/)
   // 只断言当前宿主真实存在的前缀：p-xYUq / osXY9a 在 Web 版与桌面版都已不存在，
