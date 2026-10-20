@@ -7,8 +7,25 @@
  * @module dsh-file-viewer/core
  */
 
-/** Largest binary payload the RPC channel will base64-encode for the browser. */
+/**
+ * Largest binary payload the RPC viewer channel will base64-encode (20 MB).
+ *
+ * This budget belongs to the in-page preview path, which ships bytes as a
+ * base64 string inside a JSON envelope: a 20 MB file already costs ~27 MB of
+ * wire text plus an `atob` decode on the main thread. Raising it would make
+ * every preview of a large PDF or image block the browser, so downloads —
+ * which have their own streaming path — deliberately do not share it.
+ */
 export const MAX_BYTES = 20 * 1024 * 1024
+
+/**
+ * Largest file the download endpoint will stream (100 MB).
+ *
+ * Kept separate from {@link MAX_BYTES} on purpose: a download is consumed by
+ * the save flow rather than decoded into the page, so it can afford a budget
+ * the in-page preview path could never justify.
+ */
+export const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 
 /** Largest text file the viewer reads as text at all. */
 export const MAX_TEXT_BYTES = 8 * 1024 * 1024
@@ -543,6 +560,38 @@ export function resolveLanguage({ override, path, sample } = {}) {
 export function mediaTypeOf(path) {
   const ext = extensionOf(path)
   return Object.hasOwn(MEDIA_TYPE_BY_EXTENSION, ext) ? MEDIA_TYPE_BY_EXTENSION[ext] : undefined
+}
+
+/**
+ * Build a `Content-Disposition` value that survives non-ASCII file names.
+ *
+ * HTTP header values are ByteStrings: every code unit must be ≤ 0xFF, so a raw
+ * Chinese or emoji name makes `Response` reject the whole header (and the
+ * download fails with a 500). RFC 6266/5987 solves this with two parameters:
+ * a plain `filename=` fallback restricted to ASCII, and `filename*=` carrying
+ * the real name as percent-encoded UTF-8. Browsers prefer `filename*` when it
+ * is present, so the fallback only has to stay legal, not pretty.
+ *
+ * The fallback drops anything outside printable ASCII, then collapses the
+ * result so a name made entirely of non-ASCII characters still yields a usable
+ * value instead of an empty one.
+ * @param {string} name - the file name to advertise.
+ * @returns {string} a header value safe for any byte-string header carrier.
+ */
+export function contentDispositionFor(name) {
+  const raw = typeof name === 'string' ? name : ''
+  // Strip CR/LF first: those would end the header rather than appear in it.
+  const withoutBreaks = raw.replace(/[\r\n]+/g, ' ')
+  // Printable ASCII minus the quote and backslash that would break the quoting.
+  const ascii = withoutBreaks.replace(/[^\x20-\x7E]/g, '').replace(/["\\]/g, '')
+  const trimmed = ascii.trim()
+  const fallback = trimmed === '' || trimmed === '.' || trimmed === '..' ? 'download' : trimmed
+  const encoded = encodeURIComponent(withoutBreaks)
+  // encodeURIComponent leaves ' ( ) * ! unescaped; RFC 5987 forbids none of
+  // them but a stray ' would be read as the charset/language separator, so it
+  // is escaped explicitly.
+  const extValue = encoded.replace(/'/g, '%27')
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${extValue}`
 }
 
 /**

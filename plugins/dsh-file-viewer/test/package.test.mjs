@@ -1722,7 +1722,256 @@ test('triggerDownload and performDownload handle client-side file downloads with
       failToasts.push(msg)
     })
     assert.equal(failOk, false)
-    assert.ok(failToasts.some((t) => t.includes('文件超过下载限制（上限 20MB）')))
+    assert.ok(failToasts.some((t) => t.includes('文件超过下载限制（上限 100MB）')))
+  } finally {
+    globalThis.window = prevWindow
+    globalThis.document = prevDocument
+  }
+})
+
+test('performDownload falls back to a direct link when the page has no fetch', async () => {
+  const { internals } = loadClient()
+
+  const prevWindow = globalThis.window
+  const prevDocument = globalThis.document
+  const clickedAnchors = []
+
+  // No `fetch`: the only channel left is handing the URL to the shell.
+  globalThis.window = {
+    location: { origin: 'http://127.0.0.1:3080' },
+  }
+
+  globalThis.document = {
+    createElement(tag) {
+      return {
+        tagName: tag.toUpperCase(),
+        style: {},
+        click() {
+          clickedAnchors.push({ href: this.href, download: this.download })
+        },
+      }
+    },
+    body: {
+      appendChild() {},
+      removeChild() {},
+    },
+  }
+
+  try {
+    const toasts = []
+    const neverCalledRequest = async () => {
+      throw new Error('should not call RPC when a direct link is available')
+    }
+
+    const ok = await internals.performDownload(neverCalledRequest, 'root-1', 'big-file.zip', 'big-file.zip', (msg) => {
+      toasts.push(msg)
+    })
+
+    assert.equal(ok, true)
+    assert.equal(clickedAnchors.length, 1)
+    assert.equal(clickedAnchors[0].download, 'big-file.zip')
+    assert.equal(
+      clickedAnchors[0].href,
+      '/api/file-viewer/download?root=root-1&path=big-file.zip&filename=big-file.zip',
+    )
+    assert.ok(toasts.some((t) => t.includes('已交由浏览器下载 big-file.zip')))
+  } finally {
+    globalThis.window = prevWindow
+    globalThis.document = prevDocument
+  }
+})
+
+test('performDownload hands a browser its own download manager after a size probe', async () => {
+  const { internals } = loadClient()
+
+  const prevWindow = globalThis.window
+  const prevDocument = globalThis.document
+  const clickedAnchors = []
+  const calls = []
+
+  // A browser: fetch exists, the UA is not Electron. The download manager owns
+  // progress, pause and the save location, so the URL must go straight to it
+  // rather than streaming bytes into the page.
+  globalThis.window = {
+    location: { origin: 'http://127.0.0.1:3080' },
+    navigator: { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0 Safari/537.36' },
+    fetch: async (url, init) => {
+      calls.push({ url, method: init?.method })
+      return { ok: true, status: 200, headers: { get: () => null } }
+    },
+  }
+
+  globalThis.document = {
+    createElement(tag) {
+      return {
+        tagName: tag.toUpperCase(),
+        style: {},
+        click() {
+          clickedAnchors.push({ href: this.href, download: this.download })
+        },
+      }
+    },
+    body: { appendChild() {}, removeChild() {} },
+  }
+
+  try {
+    const toasts = []
+    const ok = await internals.performDownload(
+      async () => { throw new Error('the RPC byte channel must stay unused') },
+      'root-1',
+      'archive.zip',
+      'archive.zip',
+      (msg) => toasts.push(msg),
+    )
+
+    assert.equal(ok, true)
+    // Only the HEAD probe runs; the body is never read into the page.
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].method, 'HEAD')
+    assert.equal(clickedAnchors.length, 1)
+    assert.equal(clickedAnchors[0].download, 'archive.zip')
+    assert.match(clickedAnchors[0].href, /\/api\/file-viewer\/download\?/)
+    assert.ok(toasts.some((t) => t.includes('已交由浏览器下载 archive.zip')))
+  } finally {
+    globalThis.window = prevWindow
+    globalThis.document = prevDocument
+  }
+})
+
+test('performDownload reports the 100 MB limit from the probe instead of starting a download', async () => {
+  const { internals } = loadClient()
+
+  const prevWindow = globalThis.window
+  const prevDocument = globalThis.document
+  const clickedAnchors = []
+
+  globalThis.window = {
+    location: { origin: 'http://127.0.0.1:3080' },
+    navigator: { userAgent: 'Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36' },
+    fetch: async () => ({ ok: false, status: 413, headers: { get: () => null } }),
+  }
+
+  globalThis.document = {
+    createElement(tag) {
+      return { tagName: tag.toUpperCase(), style: {}, click() { clickedAnchors.push(this.href) } }
+    },
+    body: { appendChild() {}, removeChild() {} },
+  }
+
+  try {
+    const toasts = []
+    const ok = await internals.performDownload(
+      async () => { throw new Error('unused') },
+      'root-1',
+      'huge.bin',
+      'huge.bin',
+      (msg) => toasts.push(msg),
+    )
+
+    assert.equal(ok, false)
+    assert.equal(clickedAnchors.length, 0, 'an oversize file must not start a download')
+    assert.ok(toasts.some((t) => t.includes('文件超过下载限制（上限 100MB）')))
+  } finally {
+    globalThis.window = prevWindow
+    globalThis.document = prevDocument
+  }
+})
+
+test('isDesktopShell recognises the Electron UA and process marker', () => {
+  const { internals } = loadClient()
+
+  assert.equal(internals.isDesktopShell({ navigator: { userAgent: 'Mozilla/5.0 Chrome/120 Electron/28.0.0' } }), true)
+  assert.equal(internals.isDesktopShell({ navigator: { userAgent: 'Mozilla/5.0 (Windows NT 10.0) Chrome/120' } }), false)
+  assert.equal(internals.isDesktopShell({ process: { versions: { electron: '28.0.0' } } }), true)
+  // A shell that hides both signals must not throw.
+  assert.equal(internals.isDesktopShell({}), false)
+  assert.equal(internals.isDesktopShell(null), false)
+  assert.equal(internals.isDesktopShell({ get navigator() { throw new Error('blocked') } }), false)
+})
+
+test('performDownload handles streaming download with real-time progress for Desktop and Web', async () => {
+  const { internals } = loadClient()
+
+  const prevWindow = globalThis.window
+  const prevDocument = globalThis.document
+  const clickedAnchors = []
+
+  const chunk1 = Buffer.from('hello-')
+  const chunk2 = Buffer.from('stream-download')
+  const totalLength = chunk1.length + chunk2.length
+
+  let readCount = 0
+  const fakeReader = {
+    async read() {
+      if (readCount === 0) {
+        readCount++
+        return { done: false, value: new Uint8Array(chunk1) }
+      }
+      if (readCount === 1) {
+        readCount++
+        return { done: false, value: new Uint8Array(chunk2) }
+      }
+      return { done: true, value: undefined }
+    },
+  }
+
+  globalThis.window = {
+    location: { origin: 'http://127.0.0.1:3080' },
+    // The Desktop shell is the host without a download panel, so it is the one
+    // that streams bytes and draws its own progress.
+    navigator: { userAgent: 'Mozilla/5.0 Chrome/120.0 Safari/537.36 Electron/28.0.0' },
+    URL: {
+      createObjectURL(blob) {
+        return 'blob:http://127.0.0.1:3080/' + Math.random().toString(36).slice(2)
+      },
+      revokeObjectURL() {},
+    },
+    fetch: async (url) => {
+      assert.ok(url.includes('/api/file-viewer/download'))
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get(h) {
+            if (h.toLowerCase() === 'content-length') return String(totalLength)
+            if (h.toLowerCase() === 'content-type') return 'application/octet-stream'
+            return null
+          },
+        },
+        body: { getReader: () => fakeReader },
+      }
+    },
+  }
+
+  globalThis.document = {
+    createElement(tag) {
+      return {
+        tagName: tag.toUpperCase(),
+        style: {},
+        click() {
+          clickedAnchors.push({ href: this.href, download: this.download })
+        },
+      }
+    },
+    body: {
+      appendChild() {},
+      removeChild() {},
+    },
+  }
+
+  try {
+    const toasts = []
+    const ok = await internals.performDownload(null, 'root-1', 'stream.bin', 'stream.bin', (msg) => {
+      toasts.push(msg)
+    })
+
+    assert.equal(ok, true)
+    assert.equal(clickedAnchors.length, 1)
+    assert.equal(clickedAnchors[0].download, 'stream.bin')
+    assert.match(clickedAnchors[0].href, /^blob:/)
+    assert.ok(toasts.some((t) => t.includes('正在准备下载')))
+    assert.ok(toasts.some((t) => t.includes('正在下载 stream.bin')))
+    assert.ok(toasts.some((t) => t.includes('✓ 下载完成 stream.bin')))
   } finally {
     globalThis.window = prevWindow
     globalThis.document = prevDocument

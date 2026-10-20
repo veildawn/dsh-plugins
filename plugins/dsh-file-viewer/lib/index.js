@@ -23,11 +23,13 @@ import z from '@deepseek-ai/schemastery'
 import {
   LANGUAGE_CATALOG,
   MAX_BYTES,
+  MAX_DOWNLOAD_BYTES,
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   TEXT_PROBE_BYTES,
   appendMention,
   baseNameOf,
+  contentDispositionFor,
   detectLanguageFromText,
   extensionOf,
   formatDocTextToMarkdown,
@@ -42,6 +44,7 @@ import {
   joinPath,
   kindOf,
   langOf,
+  mediaTypeOf,
   normalizeSafePaths,
   parseGitStatus,
   parsePatchToDiffs,
@@ -59,11 +62,13 @@ import {
 export {
   LANGUAGE_CATALOG,
   MAX_BYTES,
+  MAX_DOWNLOAD_BYTES,
   MAX_PREVIEW_BYTES,
   MAX_TEXT_BYTES,
   TEXT_PROBE_BYTES,
   appendMention,
   baseNameOf,
+  contentDispositionFor,
   detectLanguageFromText,
   extensionOf,
   formatDocTextToMarkdown,
@@ -79,6 +84,7 @@ export {
   joinPath,
   kindOf,
   langOf,
+  mediaTypeOf,
   normalizeSafePaths,
   parseGitStatus,
   parsePatchToDiffs,
@@ -100,6 +106,15 @@ export const name = 'file-viewer'
 export const inject = ['fs', 'connection', 'settings', 'workspaceRegistry', 'sessions', 'webServer']
 export const NS = 'file-viewer'
 export const RPC_CHANNEL = '/dsh-file-viewer'
+
+/**
+ * Exact Fetch route that streams one file to the browser's save flow.
+ *
+ * Lives below `/api` so the Connection carrier applies its Host/Origin fence
+ * and browser-cookie admission before this handler ever runs; only an owner
+ * Peer (the same principal the RPC channel serves) reaches it.
+ */
+export const DOWNLOAD_ROUTE = '/api/file-viewer/download'
 
 const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
 
@@ -222,7 +237,8 @@ export const Config = z.object({
   safePaths: liveField(z.union([z.array(PathEntry), z.string()]).default([])).description('安全访问路径（除工作区外的可访问路径列表）'),
   safeAccessPaths: liveField(z.union([z.array(PathEntry), z.string()]).default([])).description('安全访问路径（safePaths 别名）'),
   extraRoots: liveField(z.union([z.array(PathEntry), z.string()]).default([])).description('额外根目录（向后兼容 safePaths）'),
-  maxBytes: z.natural().default(MAX_BYTES),
+  maxBytes: z.natural().default(MAX_BYTES).description('在线预览（图片/PDF/表格等）单文件上限，默认 20 MB'),
+  maxDownloadBytes: z.natural().default(MAX_DOWNLOAD_BYTES).description('下载到本地单文件上限，默认 100 MB'),
   settingsFile: z.string().default('').description('安全访问路径本地持久化配置文件路径（留空则默认保存在 ~/.dsh/file-viewer/settings.json）'),
 })
 
@@ -1179,6 +1195,105 @@ export async function handleRpc(ctx, options, method, payload, signal) {
 }
 
 /**
+ * Map one thrown value onto a status plus a body that is safe to echo.
+ *
+ * Two rules matter here and both are enforced by the existing RPC channel
+ * (`handleRpc`), so the streaming route must not be a weaker door:
+ *   - backend fs failures carry host codes (`FS_TOO_LARGE`, `FS_NOT_FOUND`,
+ *     …) and must land on the status the client already switches on, or the
+ *     "exceeds 100 MB" notice never fires;
+ *   - the body is an opaque reason, never `error.message`, because fs errors
+ *     embed absolute host paths (`EACCES: … 'D:/repo/secret/.env'`).
+ * @param {unknown} error - the thrown value.
+ * @returns {{status: number, reason: string}} status and a path-free reason.
+ */
+export function downloadFailure(error) {
+  if (error instanceof ViewerError) {
+    const viewerStatus = {
+      'not-found': 404,
+      'not-a-directory': 403,
+      'is-a-directory': 403,
+      'unknown-root': 404,
+      'no-roots': 404,
+      'outside-root': 403,
+      'access-denied': 403,
+      'too-large': 413,
+      unsupported: 415,
+    }
+    return { status: viewerStatus[error.code] ?? 400, reason: error.code }
+  }
+  const code = typeof error?.code === 'string' ? error.code : ''
+  const fsStatus = {
+    FS_NOT_FOUND: 404,
+    FS_NOT_DIRECTORY: 403,
+    FS_NOT_REGULAR_FILE: 403,
+    FS_PERMISSION_DENIED: 403,
+    FS_SANDBOX_DENIED: 403,
+    FS_TOO_LARGE: 413,
+    FS_ABORTED: 499,
+    FS_IO_ERROR: 500,
+  }
+  if (Object.hasOwn(fsStatus, code)) return { status: fsStatus[code], reason: code }
+  return { status: 500, reason: 'download-failed' }
+}
+
+/**
+ * Stream one file to the browser's save flow under the authenticated API fence.
+ *
+ * Files are read through `ctx.fs` with the caller's signal so a cancelled
+ * download stops the host read, and the byte budget comes from
+ * `maxDownloadBytes` rather than the much smaller in-page preview budget.
+ */
+export async function handleDownloadRequest(ctx, options, request) {
+  try {
+    const url = new URL(request.url, 'http://dsh.local')
+    const root = url.searchParams.get('root') || undefined
+    const path = url.searchParams.get('path') || ''
+    const customFilename = url.searchParams.get('filename') || ''
+
+    const { target, relative } = await resolveInRoot(ctx, options, { root, path }, request.signal)
+    const info = await ctx.fs.stat(target, request.signal)
+    if (info === undefined) {
+      return new Response('not-found', { status: 404 })
+    }
+    if (info.type === 'directory') {
+      return new Response('is-a-directory', { status: 403 })
+    }
+
+    const maxBytes = options().maxDownloadBytes ?? MAX_DOWNLOAD_BYTES
+    if (typeof info.size === 'number' && info.size > maxBytes) {
+      return new Response('too-large', { status: 413 })
+    }
+
+    const naming = relative === '' ? target.displayPath : relative
+    const filename = customFilename || baseNameOf(naming)
+    const mime = mediaTypeOf(naming) || 'application/octet-stream'
+
+    const headers = {
+      'Content-Type': mime,
+      'Content-Disposition': contentDispositionFor(filename),
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    }
+
+    if (request.method === 'HEAD') {
+      if (info.size !== undefined) headers['Content-Length'] = String(info.size)
+      return new Response(null, { headers })
+    }
+
+    // `readBytes` enforces the same budget, so a backend that reports no size
+    // still cannot hand back more than the download limit.
+    const bytes = await ctx.fs.readBytes(target, request.signal, maxBytes)
+    headers['Content-Length'] = String(bytes.byteLength)
+    return new Response(bytes, { headers })
+  } catch (error) {
+    const { status, reason } = downloadFailure(error)
+    ctx.logger?.warn?.(`file-viewer: download failed with ${reason}`)
+    return new Response(reason, { status })
+  }
+}
+
+/**
  * Register the browser-facing channel.
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
  * @param {object} [config] - plugin config.
@@ -1227,6 +1342,7 @@ export function apply(ctx, config = {}) {
       safeAccessPaths: settings?.safeAccessPaths ?? [],
       extraRoots: settings?.extraRoots ?? [],
       maxBytes: settings?.maxBytes ?? MAX_BYTES,
+      maxDownloadBytes: settings?.maxDownloadBytes ?? MAX_DOWNLOAD_BYTES,
       _updateSafePaths: updateSafePaths,
       _settingsFile: settingsFile,
     }
@@ -1238,5 +1354,24 @@ export function apply(ctx, config = {}) {
       (method, payload, signal) => handleRpc(ctx, options, method, payload, signal),
       { authority: 'trusted-host' },
     )
+    /*
+     * The download route is an optimization, not a requirement: the RPC
+     * `bytes` method still downloads anything the streaming path cannot
+     * reach. Registering a duplicate path throws inside `connection.fetch`
+     * (its exact-route table rejects collisions), so a failure here must
+     * degrade to the RPC path instead of aborting the whole plugin apply.
+     */
+    try {
+      if (typeof connectionCtx.connection?.fetch?.register === 'function') {
+        connectionCtx.connection.fetch.register({
+          path: DOWNLOAD_ROUTE,
+          methods: ['GET', 'HEAD'],
+          requestBody: 'buffered',
+          fetch: (request) => handleDownloadRequest(ctx, options, request),
+        })
+      }
+    } catch (error) {
+      ctx.logger?.warn?.(`file-viewer: download route unavailable, falling back to RPC (${error?.message || error})`)
+    }
   })
 }

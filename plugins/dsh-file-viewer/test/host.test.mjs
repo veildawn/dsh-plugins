@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { RPC_CHANNEL, ViewerError, collectRoots, handleRpc } from '../lib/index.js'
+import { MAX_BYTES, MAX_DOWNLOAD_BYTES, RPC_CHANNEL, ViewerError, collectRoots, handleRpc, handleDownloadRequest } from '../lib/index.js'
 
 const ROOT = 'D:/repo'
 const OTHER_ROOT = 'D:/other'
@@ -85,7 +85,7 @@ function createCtx(fs, { workspaces = [ROOT], sessions = [] } = {}) {
   }
 }
 
-const options = (overrides = {}) => () => ({ extraRoots: [], maxBytes: 20 * 1024 * 1024, ...overrides })
+const options = (overrides = {}) => () => ({ extraRoots: [], maxBytes: MAX_BYTES, ...overrides })
 
 test('roots merge workspaces, session cwds and configured extras without duplicates', () => {
   const ctx = createCtx(createFs({}), { workspaces: [ROOT, ROOT + '/'], sessions: [OTHER_ROOT, ROOT] })
@@ -241,7 +241,7 @@ test('binary reads are base64 encoded and bounded by the configured limit', asyn
   assert.equal(image.ok, true)
   assert.equal(image.value.kind, 'image')
   assert.equal(image.value.base64, Buffer.from(bytes).toString('base64'))
-  assert.deepEqual(fs.calls.at(-1), ['readBytes', `${ROOT}/shot.png`, 20 * 1024 * 1024])
+  assert.deepEqual(fs.calls.at(-1), ['readBytes', `${ROOT}/shot.png`, MAX_BYTES])
 
   const huge = await handleRpc(ctx, options(), 'bytes', { path: 'movie.mp4' })
   assert.equal(huge.ok, false)
@@ -256,7 +256,7 @@ test('metadata picks the viewer and flags oversize before any content is fetched
   const fs = createFs({
     [ROOT]: { type: 'directory', entries: [] },
     [`${ROOT}/report.xlsx`]: { type: 'file', size: 4096 },
-    [`${ROOT}/huge.pdf`]: { type: 'file', size: 40 * 1024 * 1024 },
+    [`${ROOT}/huge.pdf`]: { type: 'file', size: 120 * 1024 * 1024 },
     [`${ROOT}/lib`]: { type: 'directory', entries: [] },
   })
   const ctx = createCtx(fs)
@@ -1156,6 +1156,164 @@ test('safe paths are persisted to disk settings file and survive reload / restar
   } finally {
     try { fsSync.unlinkSync(testSettingsFile) } catch (_) {}
   }
+})
+
+test('handleDownloadRequest serves direct HTTP downloads up to 100MB for browser handoff', async () => {
+  const fileBytes = Buffer.from('hello-world-direct-download')
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/hello.txt`]: { type: 'file', size: fileBytes.length, bytes: fileBytes },
+    [`${ROOT}/huge.bin`]: { type: 'file', size: 120 * 1024 * 1024 },
+  })
+  const ctx = createCtx(fs)
+
+  // 1. Successful GET download
+  const req = new Request(`http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=hello.txt&filename=my-hello.txt`, {
+    method: 'GET',
+  })
+  const res = await handleDownloadRequest(ctx, options(), req)
+  assert.equal(res.status, 200)
+  assert.equal(res.headers.get('Content-Length'), String(fileBytes.length))
+  assert.match(res.headers.get('Content-Disposition'), /attachment; filename="my-hello\.txt"/)
+  const downloadedBytes = Buffer.from(await res.arrayBuffer())
+  assert.deepEqual(downloadedBytes, fileBytes)
+
+  // 2. HEAD request metadata only
+  const headReq = new Request(`http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=hello.txt`, {
+    method: 'HEAD',
+  })
+  const headRes = await handleDownloadRequest(ctx, options(), headReq)
+  assert.equal(headRes.status, 200)
+  assert.equal(headRes.headers.get('Content-Length'), String(fileBytes.length))
+  assert.equal(await headRes.text(), '')
+
+  // 3. File exceeding 100MB limit returns 413
+  const hugeReq = new Request(`http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=huge.bin`, {
+    method: 'GET',
+  })
+  const hugeRes = await handleDownloadRequest(ctx, options(), hugeReq)
+  assert.equal(hugeRes.status, 413)
+
+  // 4. Missing file returns 404
+  const missingReq = new Request(`http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=notfound.txt`, {
+    method: 'GET',
+  })
+  const missingRes = await handleDownloadRequest(ctx, options(), missingReq)
+  assert.equal(missingRes.status, 404)
+
+  // 5. Escaping path returns 403
+  const escapeReq = new Request(`http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=../secret.txt`, {
+    method: 'GET',
+  })
+  const escapeRes = await handleDownloadRequest(ctx, options(), escapeReq)
+  assert.equal(escapeRes.status, 403)
+})
+
+test('handleDownloadRequest survives non-ASCII names and hides host paths', async () => {
+  const bytes = Buffer.from('pdf-bytes')
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/报告.pdf`]: { type: 'file', size: bytes.length, bytes },
+    [`${ROOT}/shot-😀.png`]: { type: 'file', size: bytes.length, bytes },
+  })
+  const ctx = createCtx(fs)
+
+  // A Chinese name must download, not fail the header construction with a 500.
+  const chineseReq = new Request(
+    `http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=${encodeURIComponent('报告.pdf')}`,
+    { method: 'GET' },
+  )
+  const chineseRes = await handleDownloadRequest(ctx, options(), chineseReq)
+  assert.equal(chineseRes.status, 200)
+  assert.deepEqual(Buffer.from(await chineseRes.arrayBuffer()), bytes)
+  const disposition = chineseRes.headers.get('Content-Disposition')
+  assert.match(disposition, /filename\*=UTF-8''%E6%8A%A5%E5%91%8A\.pdf/)
+  // The plain fallback must not carry the raw CJK characters.
+  assert.equal(disposition.includes('报告'), false)
+
+  // An emoji name takes the same path.
+  const emojiRes = await handleDownloadRequest(
+    ctx,
+    options(),
+    new Request(
+      `http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=${encodeURIComponent('shot-😀.png')}`,
+      { method: 'GET' },
+    ),
+  )
+  assert.equal(emojiRes.status, 200)
+
+  // A backend failure must not echo an absolute host path to the browser.
+  const leakyFs = createFs({ [ROOT]: { type: 'directory', entries: [] } })
+  leakyFs.resolve = () => {
+    throw Object.assign(new Error("EACCES: permission denied, open 'D:/repo/secret/.env'"), { code: 'EACCES' })
+  }
+  const leakyCtx = createCtx(leakyFs)
+  const leakyRes = await handleDownloadRequest(
+    leakyCtx,
+    options(),
+    new Request(`http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=x`, { method: 'GET' }),
+  )
+  const leakyBody = await leakyRes.text()
+  assert.equal(leakyRes.status, 500)
+  assert.equal(leakyBody.includes('D:/repo'), false, 'host paths must never reach the browser')
+  assert.equal(leakyBody, 'download-failed')
+})
+
+test('handleDownloadRequest maps host fs codes onto the statuses the client switches on', async () => {
+  const ROOT_ENTRY = { [ROOT]: { type: 'directory', entries: [] } }
+
+  // A backend that reports no size can only fail at read time; the client needs
+  // 413 to show the "exceeds 100 MB" notice instead of a generic failure.
+  const sizeUnknown = createFs(ROOT_ENTRY)
+  sizeUnknown.resolve = () => Promise.resolve({ targetKey: 'f', displayPath: `${ROOT}/huge.bin`, kind: 'file' })
+  sizeUnknown.stat = () => Promise.resolve({ type: 'file' })
+  sizeUnknown.readBytes = () => {
+    throw Object.assign(new Error('too large'), { code: 'FS_TOO_LARGE' })
+  }
+  const tooLargeRes = await handleDownloadRequest(
+    createCtx(sizeUnknown),
+    options(),
+    new Request(`http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=huge.bin`, { method: 'GET' }),
+  )
+  assert.equal(tooLargeRes.status, 413)
+  assert.equal(await tooLargeRes.text(), 'FS_TOO_LARGE')
+
+  // Sandbox denials are permissions failures, not server errors.
+  const denied = createFs(ROOT_ENTRY)
+  denied.resolve = () => Promise.resolve({ targetKey: 'f', displayPath: `${ROOT}/secret.txt`, kind: 'file' })
+  denied.stat = () => Promise.resolve({ type: 'file', size: 4 })
+  denied.readBytes = () => {
+    throw Object.assign(new Error('denied'), { code: 'FS_SANDBOX_DENIED' })
+  }
+  const deniedRes = await handleDownloadRequest(
+    createCtx(denied),
+    options(),
+    new Request(`http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=secret.txt`, { method: 'GET' }),
+  )
+  assert.equal(deniedRes.status, 403)
+})
+
+test('the download budget is separate from the in-page preview budget', async () => {
+  // A 50 MB file is too big to preview but must still download.
+  const size = 50 * 1024 * 1024
+  const bytes = new Uint8Array(size)
+  const fs = createFs({
+    [ROOT]: { type: 'directory', entries: [] },
+    [`${ROOT}/big.bin`]: { type: 'file', size, bytes },
+  })
+  const ctx = createCtx(fs)
+  const downloadOptions = () => ({ extraRoots: [], maxBytes: MAX_BYTES, maxDownloadBytes: MAX_DOWNLOAD_BYTES })
+
+  const meta = await handleRpc(ctx, downloadOptions, 'meta', { path: 'big.bin' })
+  assert.equal(meta.value.tooLarge, true, 'preview budget still refuses it')
+
+  const res = await handleDownloadRequest(
+    ctx,
+    downloadOptions,
+    new Request(`http://127.0.0.1:3080/api/file-viewer/download?root=${encodeURIComponent(ROOT)}&path=big.bin`, { method: 'GET' }),
+  )
+  assert.equal(res.status, 200)
+  assert.equal(res.headers.get('Content-Length'), String(size))
 })
 
 

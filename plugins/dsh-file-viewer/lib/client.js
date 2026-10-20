@@ -1458,22 +1458,28 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Trigger browser file download from a Blob using an ephemeral anchor tag.
+     * Trigger browser file download from a Blob or URL using an ephemeral anchor tag.
      */
-    function triggerDownload(blob, filename) {
-      if (typeof window === "undefined" || typeof document === "undefined") return false;
+    function triggerDownload(target, filename) {
+      const currentWin = typeof globalThis !== "undefined" && globalThis.window ? globalThis.window : (typeof window !== "undefined" ? window : null);
+      const currentDoc = typeof globalThis !== "undefined" && globalThis.document ? globalThis.document : (typeof document !== "undefined" ? document : null);
+      if (!currentWin || !currentDoc) return false;
       try {
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
+        const isBlob = typeof Blob !== "undefined" && target instanceof Blob;
+        const url = isBlob ? (currentWin.URL?.createObjectURL?.(target) || URL.createObjectURL(target)) : String(target);
+        const anchor = currentDoc.createElement("a");
         anchor.href = url;
         anchor.download = filename || "download";
         anchor.style.display = "none";
-        document.body.appendChild(anchor);
+        currentDoc.body.appendChild(anchor);
         anchor.click();
-        document.body.removeChild(anchor);
-        setTimeout(() => {
-          try { URL.revokeObjectURL(url); } catch (_) {}
-        }, 1500);
+        currentDoc.body.removeChild(anchor);
+        if (isBlob) {
+          const timer = setTimeout(() => {
+            try { (currentWin.URL?.revokeObjectURL || URL.revokeObjectURL)(url); } catch (_) {}
+          }, 60000);
+          if (typeof timer?.unref === "function") timer.unref();
+        }
         return true;
       } catch (_) {
         return false;
@@ -1481,14 +1487,160 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Request raw bytes from host via RPC and trigger browser download.
+     * Whether this page runs inside the Desktop (Electron) shell.
+     *
+     * The Desktop host ships this same UI inside Electron, where `<a download>`
+     * has no download panel to report progress in: the shell saves to a default
+     * folder or opens its own dialog, and a 100 MB transfer gives the user no
+     * feedback while it runs. A real browser owns progress, pause, resume and
+     * the save location, so handing it the URL is strictly better there than
+     * buffering the bytes in the page.
+     *
+     * Electron identifies itself in the UA (and in `process.versions`). A wrong
+     * answer only changes which transfer strategy runs, never which files may
+     * be read, so the probe stays cheap and silent.
+     * @param {any} win - the window to inspect.
+     * @returns {boolean} true when the page is the Desktop shell.
      */
-    function performDownload(requestFn, root, path, name, onToast) {
-      if (!root || !path || typeof requestFn !== "function") {
+    function isDesktopShell(win) {
+      try {
+        if (/Electron\//i.test(String(win?.navigator?.userAgent ?? ""))) return true;
+        const versions = win?.process?.versions;
+        return typeof versions?.electron === "string";
+      } catch (_) {
+        return false;
+      }
+    }
+
+    /**
+     * Download one file, choosing the transfer that fits the host shell.
+     *
+     * Two strategies, because the two shells have opposite needs:
+     *   - a browser has a download manager that owns progress, pause, resume
+     *     and the save location, so the authenticated URL is handed straight
+     *     to it — a HEAD probe first turns "413" and "404" into an immediate
+     *     notice instead of a failed download entry;
+     *   - the Desktop shell has no such panel, so the bytes stream through
+     *     `fetch` with a real-time percentage, then reach the save flow as a
+     *     blob. That path keeps the page responsive and is the only one that
+     *     can show progress inside the drawer.
+     * Both fall back to the RPC `bytes` method when the streaming route is
+     * unavailable, so an older host or a blocked route still downloads.
+     * @param {(method: string, payload: object) => Promise<any>} requestFn - RPC caller.
+     * @param {string} root - root id the file belongs to.
+     * @param {string} path - path relative to that root.
+     * @param {string} [name] - display name to save under.
+     * @param {(message: string) => void} [onToast] - progress and result sink.
+     * @returns {Promise<boolean>} whether a download was started.
+     */
+    async function performDownload(requestFn, root, path, name, onToast) {
+      if (!root || !path) {
         if (onToast) onToast("未指定下载文件路径");
-        return Promise.resolve(false);
+        return false;
       }
       const filename = name || baseNameOf(path);
+      const currentWin = typeof globalThis !== "undefined" && globalThis.window ? globalThis.window : (typeof window !== "undefined" ? window : null);
+      const currentDoc = typeof globalThis !== "undefined" && globalThis.document ? globalThis.document : (typeof document !== "undefined" ? document : null);
+
+      if (currentWin && currentDoc && currentWin.location && currentWin.location.origin) {
+        const downloadUrl = `/api/file-viewer/download?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}&filename=${encodeURIComponent(filename)}`;
+        const canFetch = typeof currentWin.fetch === "function";
+
+        // 浏览器：把鉴权后的 URL 直接交给原生下载管理器（进度、暂停、续传、保存位置都由它负责）
+        if (canFetch && !isDesktopShell(currentWin)) {
+          try {
+            const head = await currentWin.fetch(downloadUrl, { method: "HEAD", credentials: "same-origin" });
+            if (head.status === 413) {
+              if (onToast) onToast("文件超过下载限制（上限 100MB）");
+              return false;
+            }
+            if (!head.ok) throw new Error(`HTTP ${head.status}`);
+          } catch (_) {
+            // A failed probe is not a failed download: the browser still owns
+            // the request and reports its own outcome.
+          }
+          const handed = triggerDownload(downloadUrl, filename);
+          if (handed) {
+            if (onToast) onToast(`已交由浏览器下载 ${filename}`);
+            return true;
+          }
+        }
+
+        // 桌面端（或直链不可用）：流式读取并实时显示百分比进度
+        if (canFetch) {
+          try {
+            if (onToast) onToast(`正在准备下载 ${filename}...`);
+            const resp = await currentWin.fetch(downloadUrl, { method: "GET", credentials: "same-origin" });
+            if (!resp.ok) {
+              if (resp.status === 413) {
+                if (onToast) onToast("文件超过下载限制（上限 100MB）");
+                return false;
+              }
+              throw new Error(`HTTP ${resp.status}`);
+            }
+
+            const contentLength = Number(resp.headers?.get?.("content-length")) || 0;
+            const total = Number.isFinite(contentLength) && contentLength > 0 ? contentLength : 0;
+
+            let blob;
+            if (resp.body && typeof resp.body.getReader === "function") {
+              const reader = resp.body.getReader();
+              const chunks = [];
+              let loaded = 0;
+              let lastUpdate = 0;
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (value) {
+                  chunks.push(value);
+                  loaded += value.byteLength;
+                  const now = Date.now();
+                  if (now - lastUpdate > 100 || (total > 0 && loaded >= total)) {
+                    lastUpdate = now;
+                    const percent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+                    const progressText = total > 0
+                      ? `正在下载 ${filename} (${percent}% - ${formatBytes(loaded)} / ${formatBytes(total)})...`
+                      : `正在下载 ${filename} (${formatBytes(loaded)})...`;
+                    if (onToast) onToast(progressText);
+                  }
+                }
+              }
+              const mime = resp.headers?.get?.("content-type") || "application/octet-stream";
+              blob = new Blob(chunks, { type: mime });
+            } else if (typeof resp.blob === "function") {
+              blob = await resp.blob();
+            } else {
+              blob = new Blob([await resp.arrayBuffer()]);
+            }
+
+            const ok = triggerDownload(blob, filename);
+            if (onToast) {
+              onToast(ok ? `✓ 下载完成 ${filename} (${formatBytes(blob.size)})` : "下载触发失败，请重试");
+            }
+            return ok;
+          } catch (err) {
+            if (err?.message?.includes("413") || err?.code === "too-large") {
+              if (onToast) onToast("文件超过下载限制（上限 100MB）");
+              return false;
+            }
+            // 流式通道异常时继续尝试直链与 RPC
+          }
+        }
+
+        // 无 fetch 环境：只能把 URL 交给宿主处理
+        const direct = triggerDownload(downloadUrl, filename);
+        if (direct) {
+          if (onToast) onToast(`已交由浏览器下载 ${filename}`);
+          return true;
+        }
+      }
+
+      if (typeof requestFn !== "function") {
+        if (onToast) onToast("未配置有效的下载通道");
+        return false;
+      }
+
       if (onToast) onToast(`正在准备下载 ${filename}...`);
       return requestFn("bytes", { root, path })
         .then((res) => {
@@ -1503,7 +1655,7 @@ window.__ModuleLoader__.load({
         })
         .catch((err) => {
           const msg = err?.code === "too-large"
-            ? "文件超过下载限制（上限 20MB）"
+            ? "文件超过下载限制（上限 100MB）"
             : `下载失败: ${err?.message || "网络异常"}`;
           if (onToast) onToast(msg);
           return false;
@@ -3548,7 +3700,7 @@ window.__ModuleLoader__.load({
       langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
-      triggerDownload, performDownload, SvgIconDownload,
+      triggerDownload, performDownload, isDesktopShell, SvgIconDownload,
     };
     return module.exports;
   }

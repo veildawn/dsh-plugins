@@ -5,10 +5,12 @@ import {
   appendMention,
   insertMentionAtCaret,
   MAX_BYTES,
+  MAX_DOWNLOAD_BYTES,
   WINDOW_LINES,
   LANGUAGE_CATALOG,
   ancestorsOf,
   baseNameOf,
+  contentDispositionFor,
   detectLanguageFromText,
   flattenTree,
   extensionOf,
@@ -231,6 +233,39 @@ test('media types are stamped only for formats the browser renders natively', ()
   assert.equal(mediaTypeOf('lib/core.js'), undefined)
 })
 
+test('content disposition keeps non-ASCII names legal for a byte-string header', () => {
+  // A raw Chinese name would make the header construction throw, failing every
+  // download of `报告.pdf` with a 500.
+  const chinese = contentDispositionFor('报告.pdf')
+  assert.doesNotThrow(() => new Response(null, { headers: { 'Content-Disposition': chinese } }))
+  assert.equal(chinese.includes('报告'), false, 'the plain filename= fallback must stay ASCII')
+  assert.match(chinese, /filename\*=UTF-8''%E6%8A%A5%E5%91%8A\.pdf/)
+
+  // The fallback must still name the file when every character is non-ASCII.
+  assert.match(contentDispositionFor('报告.pdf'), /filename="[^"]*"/)
+  assert.equal(contentDispositionFor('报告.pdf').includes('filename=""'), false)
+
+  // Emoji (astral plane) must not reach the header raw either.
+  const emoji = contentDispositionFor('shot-😀.png')
+  assert.doesNotThrow(() => new Response(null, { headers: { 'Content-Disposition': emoji } }))
+
+  // A single quote would otherwise be read as the charset/language separator
+  // inside `filename*`; the quoted `filename=` fallback may keep it.
+  const apostrophe = contentDispositionFor("it's.txt")
+  const extPart = apostrophe.slice(apostrophe.indexOf("filename*="))
+  assert.equal(extPart.includes("it's"), false)
+  assert.match(extPart, /it%27s\.txt/)
+  assert.match(apostrophe, /filename="it's\.txt"/)
+
+  // CR/LF would end the header instead of appearing in it.
+  const injected = contentDispositionFor('evil\r\nX-Injected: 1.txt')
+  assert.doesNotThrow(() => new Response(null, { headers: { 'Content-Disposition': injected } }))
+  assert.equal(/[\r\n]/.test(injected), false)
+
+  // Ordinary ASCII names stay readable in the fallback.
+  assert.match(contentDispositionFor('report.pdf'), /filename="report\.pdf"/)
+})
+
 test('default hiding collapses dotfiles and heavy directories', () => {
   assert.equal(isHiddenEntry('.git'), true)
   assert.equal(isHiddenEntry('node_modules'), true)
@@ -338,6 +373,7 @@ test('byte sizes stay short enough for a listing column', () => {
   assert.equal(formatBytes(1536), '1.5 KB')
   assert.equal(formatBytes(20 * 1024 * 1024), '20 MB')
   assert.equal(formatBytes(MAX_BYTES), '20 MB')
+  assert.equal(formatBytes(MAX_DOWNLOAD_BYTES), '100 MB')
   assert.equal(formatBytes(-1), '')
   assert.equal(formatBytes(Number.NaN), '')
 })
