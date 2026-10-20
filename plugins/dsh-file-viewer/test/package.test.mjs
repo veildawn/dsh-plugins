@@ -3025,3 +3025,137 @@ test('the drawer renders a leading-edge handle and applies the dragged width', (
   assert.match(source, /const onEdgeDoubleClick = \(\) => \{/)
   assert.match(source, /writeShellWidth\(0\)/)
 })
+
+/* -------------------------------------------------------------------------- *
+ * The back control in the main pane
+ *
+ * It used to call `setPane("tree")` unconditionally, which on desktop did
+ * nothing at all: the sidebar and the preview sit side by side, and only the
+ * narrow-screen rules hide one pane based on `data-pane`. From a commit's
+ * changed-file list the reader also expects to return to that list, not to the
+ * file tree. Both are pinned here.
+ * -------------------------------------------------------------------------- */
+
+test('the back control records where a file preview came from', () => {
+  const source = read('lib/client.js')
+
+  // The origin is recorded when a commit's file row is opened...
+  assert.match(source, /setPreviewOrigin\("commit"\)/)
+  // ...and the button names the step it will undo.
+  assert.match(source, /const backTarget = previewOrigin === "commit"/)
+  assert.match(source, /返回变更文件列表/)
+  assert.match(source, /返回工作区改动列表/)
+  // A button that silently does nothing reads as broken, so it is disabled
+  // when there is nowhere to go.
+  assert.match(source, /disabled: !canGoBack/)
+  // And it no longer jumps straight to the tree.
+  assert.match(source, /const goBack = \(\) => \{/)
+  assert.match(source, /if \(previewOrigin === "commit"\) \{/)
+  assert.match(source, /if \(previewOrigin === "changes"\) \{/)
+})
+
+test('a disabled control is visibly unavailable', () => {
+  const source = read('lib/client.js')
+  // A disabled back button that still looks clickable reads as broken, which
+  // is the very thing the disabled state exists to avoid.
+  assert.match(source, /\.fv-icon-button:disabled\{opacity:\.35;cursor:default\}/)
+  assert.match(source, /\.fv-icon-button:disabled:hover\{background:none;color:var\(--dsw-alias-label-secondary\)\}/)
+})
+
+test('returning from a commit file restores the changed-file list', () => {
+  const source = read('lib/client.js')
+  // The commit branch re-opens the commit in its files view instead of leaving
+  // the pane; the hash is already loaded, so nothing is re-fetched.
+  const commitBranch = /if \(previewOrigin === "commit"\) \{([\s\S]*?)\n\s*return;/.exec(source)
+  assert(commitBranch, 'the commit branch must exist')
+  const body = commitBranch[1]
+  assert.match(body, /setShowCommit\(true\)/)
+  assert.match(body, /setCommitView\("files"\)/)
+  assert.match(body, /setPane\("content"\)/)
+  // The stale blob path is cleared so the next preview cannot inherit it.
+  assert.match(body, /setPreviewCommit\(""\)/)
+})
+
+test('leaving the preview entirely clears the selection', () => {
+  const source = read('lib/client.js')
+  // The final fallback must not merely switch panes: on desktop that had no
+  // visible effect, which is exactly the reported bug.
+  const tail = source.slice(source.indexOf('const goBack = () => {'))
+  const fallback = tail.slice(0, tail.indexOf('\n        };'))
+  assert.match(fallback, /setMeta\(null\)/)
+  assert.match(fallback, /setError\(null\)/)
+  assert.match(fallback, /setPane\("tree"\)/)
+})
+
+test('a working-tree change is diffed for the row that was clicked', () => {
+  const source = read('lib/client.js')
+  // The row used to be discarded (`void row`), so the pane diffed whichever
+  // file had been selected before.
+  assert.doesNotMatch(source, /void row;/)
+  assert.match(source, /setPreviewChangePath\(row\.path\)/)
+  // The pane receives that path, not `meta.path` from an unrelated selection.
+  assert.match(source, /path: previewChangePath/)
+})
+
+test('a renamed file is read from its old path but highlighted as clicked', () => {
+  const source = read('lib/client.js')
+  // Reading the new path would 404 in the parent commit; highlighting the old
+  // path would leave the clicked row unselected.
+  assert.match(source, /rowPath: file\.path/)
+  assert.match(source, /selectedPath: meta === null \? "" : \(meta\.rowPath \|\| meta\.path\)/)
+})
+
+/* -------------------------------------------------------------------------- *
+ * The drawer is reused between visits
+ *
+ * `open` only gates rendering — the overlay component itself stays mounted — so
+ * every view state survives from one visit to the next. Browsing Git and then
+ * opening a file from a conversation link used to inherit the old commit hash
+ * and the Git sidebar, and the file rendered as a "history preview" instead of
+ * its content. Opening is a fresh session and must clear all of it.
+ * -------------------------------------------------------------------------- */
+
+test('opening the drawer resets every view state left by the previous visit', () => {
+  const source = read('lib/client.js')
+
+  // The reset lives in the roots effect, which runs on every open.
+  const start = source.indexOf('if (request_ === null) return undefined;')
+  assert(start > 0, 'the roots effect must exist')
+  const body = source.slice(start, start + 2000)
+
+  for (const reset of [
+    'setSide("files")',
+    'setShowCommit(false)',
+    'setCommitView("files")',
+    'setPreviewCommit("")',
+    'setPreviewOrigin(null)',
+    'setPreviewChangePath("")',
+    'setMeta(null)',
+    'setError(null)',
+  ]) {
+    assert(body.includes(reset), `opening must reset ${reset}`)
+  }
+
+  // The reset is synchronous, before the request that resolves the root: a
+  // stale preview must not paint while the new one loads.
+  assert(
+    body.indexOf('setPreviewCommit("")') < body.indexOf('request("roots"'),
+    'the reset must happen before the roots request',
+  )
+})
+
+test('a plain file is never read as a history blob', () => {
+  const source = read('lib/client.js')
+
+  // A preview only becomes a blob lookup when an actual commit hash is carried.
+  assert.match(source, /const fromCommit = typeof commit === "string" && commit !== ""/)
+  // And that hash only comes from opening a row inside a commit's file list.
+  const openers = source.match(/setPreviewCommit\([^)]*\)/g) || []
+  for (const opener of openers) {
+    // Every assignment is either the commit hash just resolved, or a clear.
+    assert(
+      /setPreviewCommit\((readSha|"")\)/.test(opener),
+      `unexpected preview commit source: ${opener}`,
+    )
+  }
+})

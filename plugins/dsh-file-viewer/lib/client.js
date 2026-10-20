@@ -378,6 +378,10 @@ window.__ModuleLoader__.load({
       .fv-crumb:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-crumb-sep{flex:none;opacity:.5}
       .fv-icon-button{display:inline-grid;flex:none;place-items:center;width:30px;height:30px;padding:0;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .12s,background .12s;line-height:1}
+      /* A control with nowhere to go must look unavailable, not merely behave
+         that way — otherwise a disabled back button reads as broken. */
+      .fv-icon-button:disabled{opacity:.35;cursor:default}
+      .fv-icon-button:disabled:hover{background:none;color:var(--dsw-alias-label-secondary)}
       .fv-icon-button svg{display:block;flex:none}
       .fv-icon-button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-icon-button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
@@ -4032,6 +4036,22 @@ window.__ModuleLoader__.load({
         const [previewCommit, setPreviewCommit] = react.useState("");
         // Which half of the commit pane is showing: the file list or the patch.
         const [commitView, setCommitView] = react.useState("files");
+        /**
+         * What the main pane was showing before the current file preview.
+         *
+         * The back control has to undo exactly one step. Opening a file from a
+         * commit's changed-file list must return to that list — not to the file
+         * tree, which is a different place entirely — so the origin is recorded
+         * when the file is opened rather than guessed when back is pressed.
+         *
+         * `null` means there is nowhere to go back to.
+         * @type {"commit" | "changes" | null}
+         */
+        const [previewOrigin, setPreviewOrigin] = react.useState(null);
+        // The working-tree change shown in the main pane. It cannot ride on the
+        // commit detail, which is keyed by hash, and `meta` belongs to the file
+        // preview — so the row the reader clicked is kept here.
+        const [previewChangePath, setPreviewChangePath] = react.useState("");
         const gitState = useStore(git.store);
 
         react.useEffect(() => {
@@ -4189,6 +4209,19 @@ window.__ModuleLoader__.load({
         react.useEffect(() => {
           if (request_ === null) return undefined;
           let live = true;
+          // The drawer stays mounted while closed (`open` only gates rendering),
+          // so every view state survives from the previous visit. Opening a
+          // plain file after browsing Git used to inherit the old commit hash
+          // and the Git sidebar, and the file rendered as "history preview"
+          // instead of its content. A new open is a new session: clear it all.
+          setSide("files");
+          setShowCommit(false);
+          setCommitView("files");
+          setPreviewCommit("");
+          setPreviewOrigin(null);
+          setPreviewChangePath("");
+          setMeta(null);
+          setError(null);
           const payload = {
             ...(request_.sessionId !== undefined ? { sessionId: request_.sessionId } : {}),
             ...(request_.filePath !== undefined ? { filePath: request_.filePath } : {}),
@@ -4402,6 +4435,9 @@ window.__ModuleLoader__.load({
             setShowCommit(false);
             setPane("content");
             setPreviewCommit(readSha);
+            // Back must return to the changed-file list this row came from,
+            // not to the file tree, which is somewhere else entirely.
+            setPreviewOrigin("commit");
             setLangChoice("auto");
             const ticket = metaTicket.current + 1;
             metaTicket.current = ticket;
@@ -4413,6 +4449,9 @@ window.__ModuleLoader__.load({
               // The blob path is what the host reads; the display path keeps the
               // row the reader clicked.
               path: blobPath,
+              // A rename is read from its old path but highlighted as the row
+              // the reader actually clicked.
+              rowPath: file.path,
               name: baseNameOf(blobPath),
               displayPath: baseNameOf(blobPath) + " @ " + readSha.slice(0, 7),
               kind: component,
@@ -4432,6 +4471,44 @@ window.__ModuleLoader__.load({
         };
 
         /**
+         * Step back one place from the main pane.
+         *
+         * Three destinations, in the order the reader arrived from: a commit's
+         * changed-file list, the working-tree change list, or the file tree.
+         * Each step clears the state that belonged to the place being left, so
+         * a stale hash or blob path cannot leak into the next preview.
+         */
+        const goBack = () => {
+          if (previewOrigin === "commit") {
+            // Re-open the changed-file view of the commit still in `detail`;
+            // its hash is what the sidebar is highlighting.
+            setShowCommit(true);
+            setCommitView("files");
+            setPreviewCommit("");
+            setPreviewOrigin(null);
+            setPane("content");
+            return;
+          }
+          if (previewOrigin === "changes") {
+            setShowCommit(true);
+            setCommitView("changes");
+            setPreviewCommit("");
+            setPreviewOrigin(null);
+            setPane("content");
+            return;
+          }
+          // Nothing to undo inside the pane: hand control back to the sidebar.
+          // On a phone that actually swaps panes; on desktop the tree is
+          // already alongside, so the selection is cleared instead of the
+          // button doing nothing at all.
+          setPreviewCommit("");
+          setPreviewOrigin(null);
+          setMeta(null);
+          setError(null);
+          setPane("tree");
+        };
+
+        /**
          * Open one working-tree change as a diff.
          *
          * The main pane shows the patch rather than the file: a deletion has no
@@ -4443,7 +4520,10 @@ window.__ModuleLoader__.load({
           setPane("content");
           setCommitView("changes");
           setPreviewCommit("");
-          void row;
+          setPreviewOrigin(null);
+          // The pane diffs exactly this path; ignoring the row left it reading
+          // whatever file happened to be selected before.
+          setPreviewChangePath(row.path);
         };
 
         // Clicking two files quickly must not let the slower answer win: only
@@ -4451,8 +4531,11 @@ window.__ModuleLoader__.load({
         const selectFile = (entry) => {
           setPane("content");
           // Selecting from the file tree is always the working tree, so any
-          // commit a preview was read from is dropped here.
+          // commit a preview was read from is dropped here — and there is no
+          // intermediate pane to return to.
           setPreviewCommit("");
+          setPreviewOrigin(null);
+          setPreviewChangePath("");
           // The remembered choice for this file takes effect immediately, so
           // the read that follows is already resolved with it.
           setLangChoice(readLangOverride(root, entry.path));
@@ -4712,9 +4795,28 @@ window.__ModuleLoader__.load({
               }),
               react.createElement("div", { className: "fv-main" },
                 react.createElement("div", { className: "fv-main-head" },
-                  react.createElement("button", {
-                    type: "button", className: "fv-icon-button", "aria-label": "返回文件列表", onClick: () => setPane("tree"),
-                  }, react.createElement("span", { "aria-hidden": "true" }, "‹")),
+                  (() => {
+                    // The control returns one step, so it names that step and
+                    // is disabled when there is nowhere to go — a button that
+                    // silently does nothing reads as broken.
+                    const backTarget = previewOrigin === "commit"
+                      ? "返回变更文件列表"
+                      : (previewOrigin === "changes" ? "返回工作区改动列表" : "返回文件列表");
+                    // On a phone the panes are exclusive, so leaving the content
+                    // pane is always meaningful; on desktop the sidebar is
+                    // already visible and only an origin is worth returning to.
+                    const canGoBack = isMobile || pane === "content"
+                      ? (previewOrigin !== null || meta !== null || showCommit)
+                      : false;
+                    return react.createElement("button", {
+                      type: "button",
+                      className: "fv-icon-button fv-btn-back",
+                      "aria-label": backTarget,
+                      title: backTarget,
+                      disabled: !canGoBack,
+                      onClick: goBack,
+                    }, react.createElement("span", { "aria-hidden": "true" }, "‹"));
+                  })(),
                   react.createElement("span", { className: "fv-main-name" },
                     commitHeadline !== ""
                       ? commitHeadline
@@ -4755,13 +4857,15 @@ window.__ModuleLoader__.load({
                     }, commitView === "changes"
                       ? react.createElement(WorkspaceChangeDetail, {
                         state: gitState,
-                        path: meta === null ? "" : meta.path,
+                        path: previewChangePath,
                         request,
                         repo: gitState.repoId,
                       })
                       : react.createElement(CommitDetail, {
                         state: gitState,
-                        selectedPath: meta === null ? "" : meta.path,
+                        // A rename is read from its old path but highlighted as
+                        // the row that was clicked, so the two stay in step.
+                        selectedPath: meta === null ? "" : (meta.rowPath || meta.path),
                         onSelectFile: openCommitFile,
                         view: commitView,
                         onSwitchView: setCommitView,
