@@ -17,10 +17,16 @@
   backdrop-filter: blur(18px);
 }
 
-/* 头部工具区与下拉菜单：确保浮层不被父级裁剪 */
+/* 头部工具区与下拉菜单：确保浮层不被父级裁剪。
+   z-index 必须低于宿主应用级浮层 `[data-shell-overlay]` 的 20 —— 文件查看器抽屉、
+   命令面板、设置面板都挂在那层，整层内容被 z-index:20 锁死。这里若写 25，抽屉打开
+   后工具区（「在应用中打开」的 split 按钮、文件查看器按钮）仍画在抽屉之上，和抽屉
+   自己的工具栏图标叠成一团（2026-10 用户截图报障）。
+   保留 position/overflow：下拉菜单要能溢出头部，它作为本层的子元素依旧浮在头部其它
+   内容之上，只是整体让位于应用级浮层。 */
 [data-dsh-theme="zcode"] .wSkVaW_headerUtilities {
   position: relative;
-  z-index: 25;
+  z-index: 19;
   overflow: visible;
 }
 

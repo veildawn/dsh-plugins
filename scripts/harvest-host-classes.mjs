@@ -1,4 +1,5 @@
-// 从 DSH 前端抽取全部 dsh-client-ui-* 的 CSS Module 类名，生成主题防腐测试的 fixture。
+// 从 DSH 前端抽取全部 dsh-client-ui-* 的 CSS Module 类名，生成仓库共享的 fixture。
+// 使用者：dsh-zcode-theme 的类名存活测试、dsh-mobile-adapter 的语义化改造与存活测试。
 // 只在宿主升级后手动执行。
 //
 // 用法：
@@ -16,7 +17,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const outFile = resolve(here, '../plugins/dsh-zcode-theme/test/fixtures/host-classes.json')
+const outFile = resolve(here, '../test/fixtures/host-classes.json')
 
 /**
  * CSS Module 类名提取。

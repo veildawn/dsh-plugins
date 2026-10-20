@@ -7,8 +7,8 @@ import { STYLE_FILES } from '../lib/css.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-// fixture 由 scripts/harvest-host-classes.mjs 从宿主 app.asar 抽取。
-const fixture = JSON.parse(await readFile(join(root, 'test/fixtures/host-classes.json'), 'utf8'))
+// fixture 由 scripts/harvest-host-classes.mjs 从宿主抽取，仓库级共享（移动端适配测试也用）。
+const fixture = JSON.parse(await readFile(join(root, '../../test/fixtures/host-classes.json'), 'utf8'))
 const hostClasses = new Set(Object.values(fixture.bundles).flat())
 
 async function themeCssSources() {
@@ -187,4 +187,28 @@ test('次级按钮兜底规则排除各插件的主按钮', async () => {
     const pattern = new RegExp(`button\\.${base}:not\\(\\[class~="${primary}"\\]\\)`)
     assert.match(css, pattern, `button.${base} 的兜底规则必须排除 .${primary}`)
   }
+})
+
+/**
+ * 宿主的应用级浮层（文件查看器抽屉、命令面板、设置面板）都挂在
+ * `[data-shell-overlay]` 里，整层被 `z-index: 20` 锁死——插件内部写多大的 z-index
+ * 都出不了这一层。
+ *
+ * 主题曾为了让头部工具区的下拉菜单浮起来，把 `.headerUtilities` 抬到 25。结果是
+ * 抽屉打开后，工具区（「在应用中打开」的 split 按钮 + 文件查看器入口）仍画在抽屉
+ * 之上，和抽屉自己的刷新 / 安全路径 / 全屏 / 关闭图标叠成一团（2026-10 用户截图
+ * 报障）。chrome 不得压过应用级浮层。
+ */
+test('头部工具区不得压过宿主应用级浮层', async () => {
+  const css = await readFile(join(root, 'lib/styles/navigation.css'), 'utf8')
+  const rule = css.match(/\.([A-Za-z0-9_-]+_headerUtilities)[^{]*\{([^}]*)\}/)
+  assert.ok(rule, '缺少 headerUtilities 规则')
+  const utilitiesZ = Number(/z-index:\s*(-?\d+)/.exec(rule[2])?.[1] ?? 0)
+  // 宿主 overlay 层的层级；它不是主题的控制对象，只能让路。
+  const HOST_OVERLAY_Z = 20
+  assert.ok(
+    utilitiesZ < HOST_OVERLAY_Z,
+    `headerUtilities 的 z-index(${utilitiesZ}) 必须低于宿主 overlay 层(${HOST_OVERLAY_Z})，否则抽屉盖不住头部按钮`,
+  )
+  assert.match(rule[2], /overflow:\s*visible/, '仍需 overflow:visible，否则工具栏下拉菜单会被父级裁剪')
 })

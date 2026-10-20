@@ -32,8 +32,9 @@ DeepSeek Harness (DSH) Web 的 **ZCode 官方 Zai 主题**。色值全部取自
 （形如 `hHd-Xa_root`、`Hqq-bq_previewBadge`）。主题只能依附这些**运行时真实存在**
 的类名，否则选择器永远不命中——颜色再准，版式仍是宿主默认。
 
-`test/fixtures/host-classes.json` 是宿主类名快照，`test/host-selectors.test.mjs`
-逐条核对主题里出现的每个 CSS Module 类名。宿主升级后重新采集：
+`test/fixtures/host-classes.json`（仓库根，与 `dsh-mobile-adapter` 共用）是宿主类名
+快照，`test/host-selectors.test.mjs` 逐条核对主题里出现的每个 CSS Module 类名。
+宿主升级后重新采集：
 
 ```bash
 node scripts/harvest-host-classes.mjs --all   # 桌面版 + Web 版一起采，推荐
@@ -72,6 +73,22 @@ node scripts/harvest-host-classes.mjs --web   # 只采 `dsh web` 的前端
 系统是亮色时，面板内的 `light-dark()` 全部解析到亮色侧（2026-10 的输入框暗底黑字
 就是这样来的）。继承宿主写在 `html` 上的值即可。
 
+## Z 轴契约
+
+宿主的应用级浮层（文件查看器抽屉、命令面板、设置面板、终端）全部挂在
+`[data-shell-overlay]`（`.pI_x6G_overlayLayer`）里，整层被 `z-index: 20` 锁死：
+**插件内部写多大的 z-index 都出不了 20**。
+
+所以主题给页面 chrome（头部、侧栏、工具栏）设置的 `z-index` 必须低于 20，否则会
+出现「抽屉打开了，头部按钮还浮在抽屉上面」。2026-10 用户截图报障的正是这一条：
+`.wSkVaW_headerUtilities` 被抬到 `z-index: 25`，文件查看器抽屉本身没问题，是主题
+把工具区（「在应用中打开」的 split 按钮 + 文件查看器入口）留在了上面，和抽屉自己的
+刷新 / 安全路径 / 全屏 / 关闭图标叠成一团。
+
+`test/host-selectors.test.mjs` 的「头部工具区不得压过宿主应用级浮层」锁定这条约束。
+要让头部下拉菜单溢出，用 `position: relative` + `overflow: visible` 就够；菜单是本层
+的子元素，`z-index: 19` 已经能盖过头部其它内容，不需要压过应用级浮层。
+
 
 ## 与官方的关系
 
@@ -87,13 +104,13 @@ node scripts/harvest-host-classes.mjs --web   # 只采 `dsh web` 的前端
 ## 安装
 
 ```bash
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.2.3/dsh-zcode-theme-0.2.3.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.2.4/dsh-zcode-theme-0.2.4.tgz
 ```
 
 或本地打包：
 
 ```bash
-dsh plugin --profile web add ./plugins/dsh-zcode-theme/dsh-zcode-theme-0.2.3.tgz
+dsh plugin --profile web add ./plugins/dsh-zcode-theme/dsh-zcode-theme-0.2.4.tgz
 ```
 
 ## 重启生效
