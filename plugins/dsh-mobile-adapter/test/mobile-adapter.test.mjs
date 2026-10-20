@@ -329,6 +329,21 @@ test('Mobile sidebar keeps one symmetric 12px content inset', () => {
   assert.match(css, /\.YDXeBa_sessionRow \.YDXeBa_time\{display:none!important\}/)
 })
 
+test('CSS template literal is never terminated early by a stray backtick', async () => {
+  // 注释里写一个反引号（例如把宿主类名包成 `code`）就会提前闭合 css 模板字符串：
+  // 语法仍然合法，但后半段样式全部变成字符串字面量的一部分——表现为「改了半天没生效」。
+  // 这次就是这么踩的，必须由测试兜住。
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const start = source.indexOf('const css = `')
+  assert.notEqual(start, -1, '未找到 css 模板字符串')
+  const end = source.indexOf('\n    `', start)
+  assert.notEqual(end, -1, '未找到 css 模板字符串结尾')
+  const body = source.slice(start + 'const css = `'.length, end)
+  assert.equal(body.includes('`'), false, 'CSS 模板内不得出现反引号，否则模板会提前闭合')
+  // 内容完整性抽查：结尾的 keyframes 必须在模板内，而不是被甩到字符串外。
+  assert.equal(body.includes('@keyframes dsh-mobile-pulse'), true)
+})
+
 test('Conversation mobile CSS keeps a bounded scrollport and compact composer stats', () => {
   const css = cssForAssertions
   assert.match(css, /max-width:768px/)
@@ -367,12 +382,22 @@ test('Conversation mobile CSS keeps a bounded scrollport and compact composer st
     'dock 不允许横向滚动')
   assert.doesNotMatch(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*flex-wrap:wrap!important/,
     'dock 不允许折行：折行会把统计行拆成多行并撑高输入卡片')
-  assert.match(css, /\[data-composer-dock\]>\*,\[data-dsh-dock\]>\*\{[^}]*flex:1 1 0!important;[^}]*min-width:0!important;[^}]*overflow:hidden!important/,
-    '统计列必须可收缩，才能让省略号生效')
+  // 宿主把两个药丸装在 conversation.composer.dock 槽位里；该槽位一旦是 column，
+  // 药丸就会上下堆叠——这正是「统计行没排成一行」的直接成因。
+  assert.match(css, /\[data-slot="conversation\.composer\.dock"\]\{[^}]*flex-direction:row!important;[^}]*flex-wrap:nowrap!important/,
+    'composer.dock 槽位必须是横向单行，不能是 column')
+  assert.match(css, /\[data-plan-review-key\],\[data-plan-review-scroll\]\{[^}]*flex-direction:column!important/,
+    '计划复核面板仍保持纵向布局')
+  assert.doesNotMatch(css, /\[data-slot="conversation\.composer\.dock"\]\{[^}]*flex-direction:column/,
+    'composer.dock 槽位不能是 column，否则统计药丸会上下堆叠')
   assert.match(css, /\[data-composer-dock\]>:last-child,\[data-dsh-dock\]>:last-child\{[^}]*flex:0 0 auto!important/,
     '上下文用量圆环列保持内容宽度，不被省略号截断')
-  assert.match(css, /\[data-composer-dock\] \[data-composer-stat\] span,\[data-dsh-dock\] \[data-composer-stat\] span\{[^}]*text-overflow:ellipsis!important;[^}]*white-space:nowrap!important/,
+  assert.match(css, /\[data-composer-dock\] \[data-composer-stat\] :is\(button,span\):last-child,[^{]*\{[^}]*text-overflow:ellipsis!important/,
     '统计文字超宽时必须走省略号，而不是换行或溢出')
+  assert.match(css, /\[data-slot="conversation\.composer\.dock"\] \[data-composer-stat\]\{[^}]*flex:1 1 0!important/,
+    '槽位内两个药丸必须等分宽度，否则会不均等截断')
+  assert.match(css, /@media \(max-width:360px\)\{[\s\S]*?\[data-composer-dock\] \[data-composer-stat\] :is\(\[class\*="_sep"\]/,
+    '超窄屏必须有降级：隐藏末位文字与分隔符，避免每段都被压成单字')
   assert.doesNotMatch(css, /\.FJxK0a_root\{display:none/, '失效的旧哈希类名规则必须移除')
   assert.doesNotMatch(css, /stats-expanded/)
   // 只断言当前宿主真实存在的前缀：p-xYUq / osXY9a 在 Web 版与桌面版都已不存在，
@@ -438,7 +463,7 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.doesNotMatch(css, /:has\(\+[^)]*_dock/,
     '不允许再用 :has(+dock …) 做收卡：不支持 :has() 的内核上会整条失效')
   // 计划复核/待办面板在场时不收纳（JS 侧判断，见 balanceComposerDock 用例）。
-  assert.match(css, /\[data-plan-review-key\],\[data-slot="conversation\.composer\.dock"\],\[data-plan-review-scroll\]\{[^}]*width:100%!important/,
+  assert.match(css, /\[data-plan-review-key\],\[data-plan-review-scroll\]\{[^}]*width:100%!important/,
     '计划复核面板需要完整的纵向空间，不能被负边距叠到输入区上')
   // 宿主 0.2.0-rc.2 起输入区是 contenteditable（[data-composer-input]），不再是
   // [data-composer-card] textarea；防 iOS 聚焦自动放大的字号下限必须落在真实元素上。
@@ -470,7 +495,10 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
 
 test('Plan mode chip and review takeover remain fully visible on small screens', () => {
   const css = cssForAssertions
-  assert.match(css, /\[data-plan-review-key\],\[data-slot="conversation\.composer\.dock"\],\[data-plan-review-scroll\]\{[^}]*width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important\}/)
+  assert.match(css, /\[data-plan-review-key\],\[data-plan-review-scroll\]\{[^}]*width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important\}/,
+    '计划复核面板保持纵向全宽布局')
+  // composer.dock 槽位已改为横向单行（它装的是两个统计药丸，column 会让统计行堆叠）
+  assert.match(css, /\[data-slot="conversation\.composer\.dock"\]\{[^}]*flex-direction:row!important/)
   assert.match(css, /\[data-plan-review-scroll\]\{max-height:min\(45dvh,360px\)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important\}/)
   assert.doesNotMatch(css, /\[data-plan-review-(?:key|scroll)[^}]*display:none!important/)
 })

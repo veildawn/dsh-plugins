@@ -114,20 +114,54 @@ window.__ModuleLoader__.load({
         /* 输入框下方的 dock（「N 轮 M 步 · tok/s」「用量 · 缓存命中」统计行与
            上下文用量圆环）在移动端固定为**单行三列**：
              [轮次/速度] [用量/缓存] [上下文圆环]
-           不折行、不横向滚动（横滑在手机上很难被发现，还会把圆环推出视野）；
-           宽度不够时三列各自收缩、文字用省略号截断，圆环保持完整。
+           实现上只约束三个「容器」层级，绝不改写宿主药丸的内部布局：
+           宿主的 .pill 本身是 inline-flex（图标 + 文字 + 分隔符 + 文字同一行），
+           一旦被套上 display:block 或列宽，就会变成「图标一行、文字一行」。
+           宽度不够时统计列收缩、文字走省略号，圆环列保持完整。
            选择器只认宿主写死的 data-composer-dock，或脚本在移动端打上的
            data-dsh-dock（旧宿主只有哈希类名，由 balanceComposerDock() 识别后标记）。
            不写具体哈希类名：附件队列 _7yHdaG_dock 也以 _dock 结尾，误伤它会把
            附件面板的排版一起改掉。 */
-        [data-composer-dock],[data-dsh-dock]{box-sizing:border-box;width:auto;max-width:100%;min-width:0;flex-wrap:nowrap!important;justify-content:space-between!important;align-items:center!important;column-gap:8px!important;row-gap:0!important;padding:2px 10px 0!important;overflow:hidden!important;overscroll-behavior-x:contain!important}
-        /* 前两列等分剩余宽度并允许收缩（收缩后走省略号）；圆环列保持内容宽度。 */
-        [data-composer-dock]>*,[data-dsh-dock]>*{flex:1 1 0!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;display:flex!important;align-items:center!important;justify-content:flex-start!important}
-        [data-composer-dock]>:last-child,[data-dsh-dock]>:last-child{flex:0 0 auto!important;min-width:max-content!important;justify-content:flex-end!important;position:static!important;background:none!important;padding-left:0!important}
-        [data-composer-dock] [data-composer-stat],[data-dsh-dock] [data-composer-stat]{font-size:10.5px!important;line-height:14px!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}
-        [data-composer-dock] [data-composer-stat]>*,[data-dsh-dock] [data-composer-stat]>*{box-sizing:border-box!important;display:flex!important;align-items:center!important;gap:3px!important;padding:0!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;font-size:10.5px!important;line-height:14px!important}
-        [data-composer-dock] [data-composer-stat] span,[data-dsh-dock] [data-composer-stat] span{display:block!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+        [data-composer-dock],[data-dsh-dock]{box-sizing:border-box;width:auto;max-width:100%;min-width:0;flex-wrap:nowrap!important;justify-content:space-between!important;align-items:center!important;column-gap:4px!important;row-gap:0!important;padding:2px 8px 0!important;overflow:hidden!important;overscroll-behavior-x:contain!important}
+        /* 统计槽位（宿主把两个药丸装在 conversation.composer.dock 里）：横向单行。 */
+        [data-slot="conversation.composer.dock"]{box-sizing:border-box!important;display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:6px!important;width:auto!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}
+        /* 参与分列的只有槽位与圆环；圆环不收缩，统计槽位吃掉剩余宽度。 */
+        [data-composer-dock]>*,[data-dsh-dock]>*{min-width:0!important;overflow:hidden!important}
+        /* 统计槽位吃掉剩余宽度，圆环保持内容宽度。 */
+        [data-composer-dock]>:not(:last-child),[data-dsh-dock]>:not(:last-child){flex:1 1 auto!important}
+        [data-composer-dock]>:last-child,[data-dsh-dock]>:last-child{flex:0 0 auto!important}
+        /* 药丸整体可收缩，但绝不换行、不改宿主的 inline-flex 内部布局。
+           宿主药丸自带 padding:1px 8px、圆环自带 padding:1px 8px + gap:6px，
+           在 360px 级别的可用宽度里这 40px 固定开销正好挤掉半段文字，全部收掉。 */
+        [data-composer-dock] [data-composer-stat],[data-dsh-dock] [data-composer-stat]{flex:0 1 auto!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;font-size:10.5px!important;line-height:14px!important}
+        /* 槽位内两个药丸等分宽度：flex:0 1 auto 会让后一个吃掉前一个的收缩空间，
+           出现「240 tok/s」被压成「24」而另一段几乎不缩的不均等截断。 */
+        [data-slot="conversation.composer.dock"] [data-composer-stat]{flex:1 1 0!important;min-width:0!important;max-width:50%!important}
+        [data-composer-dock] [data-composer-stat] :is(button,span),[data-dsh-dock] [data-composer-stat] :is(button,span){font-size:10.5px!important;line-height:14px!important;white-space:nowrap!important;padding:0!important;gap:3px!important}
+        /* 上下文圆环同样收掉内边距：它是状态标签，不需要按钮级的呼吸区。 */
+        [data-composer-dock] [class*="JObwrW_trigger"],[data-dsh-dock] [class*="JObwrW_trigger"],
+        /* 收缩压力只落在每段的**末位文字**上（如「缓存命中 99.8%」），前面的
+           数值/轮次与分隔符「·」保持完整——否则各段被平均压缩，会变成
+           「3 轮…」「24…」这种每段都碎掉的形态，分隔符还会被挤成孤零零一个点。
+           宿主结构：pill > [svg, label, sep(·), label]。 */
+        [data-composer-dock] [data-composer-stat] :is(button,span),[data-dsh-dock] [data-composer-stat] :is(button,span){flex:0 0 auto!important;min-width:0!important}
+        /* 末位文字保留最小宽度：flex 压缩到 0 宽时 text-overflow 不产生省略号，
+           整段会直接「消失」（实测速度那格变成空白）。留 3em 保证至少看到「…」。 */
+        /* 末位文字的下限放宽到 4.5em：3em 在 320px 屏上只够显示「2」，看不清是什么。 */
+        [data-composer-dock] [data-composer-stat] :is(button,span):last-child,[data-dsh-dock] [data-composer-stat] :is(button,span):last-child{flex:0 1 auto!important;min-width:4.5em!important;overflow:hidden!important;text-overflow:ellipsis!important}
+        /* 每段的前置数值（轮次/步数、总量）保底 3em，窄屏也不至于被压没。 */
+        [data-composer-dock] [data-composer-stat] :is(button,span):not(:last-child):not([class*="_sep"]),[data-dsh-dock] [data-composer-stat] :is(button,span):not(:last-child):not([class*="_sep"]){min-width:3em!important}
+        [data-composer-dock] [data-composer-stat] :is(button,span):not(:last-child),[data-dsh-dock] [data-composer-stat] :is(button,span):not(:last-child){overflow:visible!important;max-width:none!important;flex:0 0 auto!important}
+        /* 分隔符与图标一样是固定宽度，不参与收缩。 */
+        [data-composer-dock] [data-composer-stat] [class*="_sep"],[data-dsh-dock] [data-composer-stat] [class*="_sep"]{flex:0 0 auto!important;overflow:visible!important}
         [data-composer-dock] [data-composer-stat] svg,[data-dsh-dock] [data-composer-stat] svg{width:11px!important;height:11px!important;flex:none!important}
+        /* 超窄屏（<=360px）下实在塞不进四段：隐藏每段的末位文字（速度、缓存命中率）
+           与分隔符，只留「N 轮 M 步」和总量。这比把每段都压成「2」「缓」可读得多，
+           完整数值仍可从宿主药丸的点击面板里看到。 */
+        @media (max-width:360px){
+          [data-composer-dock] [data-composer-stat] :is([class*="_sep"],button>span:last-child:not([class*="_sep"])),
+          [data-dsh-dock] [data-composer-stat] :is([class*="_sep"],button>span:last-child:not([class*="_sep"])){display:none!important}
+        }
         /* 由脚本配平的收纳态：卡片预留出 dock 的高度，dock 用等量负边距回到
            卡片内部。高度取自真实测量值（--dsh-dock-reserve），所以统计行折行、
            meter 高度随宿主换代变化时都不会再出现「圆环浮在输入框外」或
@@ -191,7 +225,12 @@ window.__ModuleLoader__.load({
         .rS3zOq_chip{box-sizing:border-box!important;width:max-content!important;height:32px!important;min-width:max-content!important;min-height:32px!important;padding:0 10px!important;border-radius:999px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:4px!important;white-space:nowrap!important;overflow:visible!important;flex:none!important;line-height:1!important}
         /* 计划复核/待办面板出现时不收纳 dock：面板需要完整的纵向空间，负边距会
            把它和输入区叠在一起。具体的高度配平由 balanceComposerDock() 负责。 */
-        [data-plan-review-key],[data-slot="conversation.composer.dock"],[data-plan-review-scroll]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important}
+        /* 计划复核/待办面板保留纵向布局。注意不能把 composer.dock 槽位也写成
+           column：那是 dock 里装两个统计药丸的容器，纵向布局会把「N 轮 M 步」
+           与「用量 · 缓存命中」上下堆成多行——正是「统计行没排成一行」的成因。 */
+        [data-plan-review-key],[data-plan-review-scroll]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important}
+        [data-slot="conversation.composer.dock"]{box-sizing:border-box!important;display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px!important;width:auto!important;max-width:100%!important;min-width:0!important;overflow:hidden!important}
+        [data-slot="conversation.composer.dock"]>*{flex:1 1 0!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}
         [data-plan-review-scroll]{max-height:min(45dvh,360px)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important}
         .Sh0Q9G_trigger,.iWlSmW_trigger,.ccegLa_select{max-width:32px!important;min-width:32px!important}
         .Sh0Q9G_triggerIcon,.iWlSmW_triggerIcon{display:inline-grid!important;place-items:center!important;flex:none;margin:0!important}
