@@ -1,7 +1,7 @@
 /* Chip：默认胶囊灰底，选中才抬升，不用大面积品牌色。
-   宿主真实类名：rtYPxa_*（ui-conversation/ReferenceChip）、XZcbxG_selector（ui-chat）。 */
-[data-dsh-theme="zcode"] .rtYPxa_chip,
-[data-dsh-theme="zcode"] .XZcbxG_selector,
+   宿主真实类名：rtYPxa_*（ui-conversation/ReferenceChip）、2XZxNq_selector（ui-chat）。 */
+[data-dsh-theme="zcode"] .yAWgPa_chip,
+[data-dsh-theme="zcode"] ._2XZxNq_selector,
 [data-dsh-theme="zcode"] [class*="_chip"] {
   background: var(--color-input);
   border: 1px solid var(--color-border);
@@ -9,8 +9,8 @@
   border-radius: 999px;
 }
 
-[data-dsh-theme="zcode"] .rtYPxa_chip[data-selected],
-[data-dsh-theme="zcode"] .rtYPxa_chip[aria-pressed="true"],
+[data-dsh-theme="zcode"] .yAWgPa_chip[data-selected],
+[data-dsh-theme="zcode"] .yAWgPa_chip[aria-pressed="true"],
 [data-dsh-theme="zcode"] [class*="_chip"][data-selected],
 [data-dsh-theme="zcode"] [class*="_chip"][aria-selected="true"] {
   background: var(--color-surface-hover);

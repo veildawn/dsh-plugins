@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-file-viewer",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Workspace file viewer for DeepSeek Harness: file tree, syntax-highlighted code with language detection and manual override, images, PDF, Excel and Word",
   "type": "module",
   "main": "lib/index.js",

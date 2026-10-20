@@ -65,15 +65,20 @@ const hostVersion = existsSync(join(hostRoot, 'package.json'))
 /**
  * Whether `candidate` looks like a CSS Modules hash prefix.
  *
- * Real prefixes are 5-8 alphanumerics that mix case or digits (`iWlSmW`,
- * `Sh0Q9G`, `hHd-Xa` uses a hyphen and is handled separately). A plain
- * lowercase word like `body` or `line` is an author-written class, so ruling on
- * it here would report every `.body_foo` rule as dead.
+ * CSS Modules 生成的哈希前缀一定**同时含小写字母**和（大写或数字或连字符）——
+ * `iWlSmW`、`Sh0Q9G`、`pI_x6G`、`hHd-Xa` 都是这种混排。
+ * 反例：全小写的作者类名（`body`、`line`）、全大写的常量（`API`、`TASK`、
+ * `MOUSE`，出现在 CSS 注释和 xterm 主题名里）。这两类都不是哈希。
  * @param candidate - the part before the first underscore.
  * @returns true for hash-like prefixes.
  */
 function isHashPrefix(candidate) {
-  return /^[A-Za-z0-9]{5,8}$/.test(candidate) && /[A-Z0-9]/.test(candidate);
+  // 前缀可以是 1~8 字符：Web 版 layout 是 `pI_x6G_*`，首段只有 2 个字符。
+  // 旧写法要求 5~8 字符，会把这类规则直接漏过——主题因此长期被门禁判成
+  // 「0 个 hash 前缀、全部通过」，实际上一个都没检查。
+  if (!/^[A-Za-z0-9-]{1,8}$/.test(candidate)) return false;
+  if (!/[a-z]/.test(candidate)) return false; // 纯大写是常量，不是哈希
+  return /[A-Z0-9-]/.test(candidate) || candidate.length >= 5;
 }
 
 /** Collect every hash prefix the host's own bundles mention, plus known cross-build/desktop hashes. */
@@ -84,10 +89,8 @@ for (const name of readdirSync(hostScope)) {
     const path = join(hostScope, name, file);
     if (!existsSync(path)) continue;
     const source = readFileSync(path, 'utf8');
-    for (const match of source.matchAll(/\.([A-Za-z0-9]{5,8})_[a-zA-Z]+\{/g)) {
-      if (isHashPrefix(match[1])) hostHashes.add(match[1]);
-    }
-    for (const match of source.matchAll(/"[a-z][a-zA-Z]*":\s*"([A-Za-z0-9]{5,8})_[a-zA-Z]+"/g)) {
+    // 前缀可能是 1~8 字符且可带连字符（`pI_x6G`、`hHd-Xa`）。
+    for (const match of source.matchAll(/\.([A-Za-z0-9-]{1,8})_[A-Za-z][a-zA-Z0-9]*/g)) {
       if (isHashPrefix(match[1])) hostHashes.add(match[1]);
     }
   }
@@ -119,10 +122,20 @@ for (const pluginDir of pluginDirs) {
     console.log('PASS ' + label + ' (no client half)');
     continue;
   }
-  const source = readFileSync(clientPath, 'utf8');
+  // 除 lib/client.js 外还要扫 lib/styles/*.css：主题这类插件的类名全在 CSS 里，
+  // 只扫 client.js 会把它们判成 0 个前缀、永远 PASS。
+  const styleDir = join(pluginDir, 'lib', 'styles');
+  const sources = [readFileSync(clientPath, 'utf8')];
+  if (existsSync(styleDir)) {
+    for (const name of readdirSync(styleDir)) {
+      if (name.endsWith('.css')) sources.push(readFileSync(join(styleDir, name), 'utf8'));
+    }
+  }
   const used = new Set();
-  for (const match of source.matchAll(/\.([A-Za-z0-9]{5,8})_[a-zA-Z]+\{/g)) {
-    if (isHashPrefix(match[1])) used.add(match[1]);
+  for (const source of sources) {
+    for (const match of source.matchAll(/\.([A-Za-z0-9-]{1,8})_[A-Za-z][a-zA-Z0-9]*/g)) {
+      if (isHashPrefix(match[1])) used.add(match[1]);
+    }
   }
   const dead = [...used].filter((hash) => !hostHashes.has(hash)).sort();
   if (dead.length === 0) {

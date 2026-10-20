@@ -94,7 +94,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-field{display:flex;flex-direction:column;gap:8px}.dsh-remote-gate-field{margin-bottom:12px}.dsh-remote-label{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14);font-weight:500}
       .dsh-remote-input{box-sizing:border-box;width:100%;height:38px;padding:0 12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);transition:border-color .15s ease, box-shadow .15s ease}.dsh-remote-input:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}.dsh-remote-input:disabled{opacity:.8;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-module-platform,var(--dsw-alias-bg-layer-1));cursor:not-allowed}
       .dsh-remote-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:4px}
-      .dsh-remote-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:34px;padding:0 16px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);font-weight:500;cursor:pointer;transition:all .15s ease}.dsh-remote-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.08));border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-default))}.dsh-remote-button:disabled{cursor:not-allowed;opacity:.75;color:var(--dsw-alias-label-secondary);border-color:var(--dsw-alias-border-l1)}
+      .dsh-remote-button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:34px;padding:0 16px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);font-weight:500;cursor:pointer;transition:all .15s ease}.dsh-remote-button:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.08));border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-l2))}.dsh-remote-button:disabled{cursor:not-allowed;opacity:.75;border-color:var(--dsw-alias-border-l1)}.dsh-remote-button-primary:disabled{color:var(--dsw-alias-label-primary-foreground,#fff)}
       .dsh-remote-button-primary{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}.dsh-remote-button-primary:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 88%,#000);border-color:transparent}.dsh-remote-gate-button{width:100%}
       .dsh-remote-error{min-height:18px;margin:8px 0 0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}.dsh-remote-meta,.dsh-remote-details{color:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-caption));font-size:12px;line-height:18px}.dsh-remote-meta{margin:20px 0 0;text-align:center}.dsh-remote-details{margin:0}
 
@@ -114,15 +114,19 @@ window.__ModuleLoader__.load({
       .dsh-remote-toggle-title{font-size:14px;font-weight:500;color:var(--dsw-alias-label-primary)}
       .dsh-remote-toggle-sub{font-size:12px;color:var(--dsw-alias-label-tertiary)}
 
-      /* iOS 风格 Switch 开关 */
+      /* Switch 开关：配色与交互对齐宿主官方 switch（ui-primitives）。
+         关键点：开启态的轨道是 --dsw-alias-brand-primary，Zai 主题下暗色是白色；
+         圆点必须取反色的 --dsw-alias-label-primary-foreground（暗色=黑），
+         绝不能硬编码 #ffffff——白圆点压在白轨道上会整个消失，开关看起来只有
+         一块白色胶囊，分不清开还是关。关闭态圆点用 --dsw-alias-switch-thumb。 */
       .dsh-remote-switch{position:relative;display:inline-block;width:38px;height:22px;flex:none;cursor:pointer;overflow:hidden}
       /* 移动端适配会按 [role="switch"] 给 44px 触摸目标，会把透明 checkbox 撑成方块盖住滑块，
          这里显式压回 0 并 !important，保证开关始终是 38×22。 */
       .dsh-remote-switch input{opacity:0;width:0!important;height:0!important;min-width:0!important;min-height:0!important;margin:0;padding:0;border:0;appearance:none}
-      .dsh-remote-slider{position:absolute;cursor:pointer;inset:0;background-color:var(--dsw-alias-border-default,rgba(125,125,125,0.25));border-radius:22px;transition:.2s cubic-bezier(0.4, 0, 0.2, 1)}
-      .dsh-remote-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:#ffffff;border-radius:50%;transition:.2s cubic-bezier(0.4, 0, 0.2, 1);box-shadow:0 1px 3px rgba(0,0,0,0.2)}
+      .dsh-remote-slider{position:absolute;cursor:pointer;inset:0;background-color:var(--dsw-alias-border-l3,rgba(125,125,125,0.25));border-radius:22px;transition:.2s cubic-bezier(0.4, 0, 0.2, 1)}
+      .dsh-remote-slider:before{position:absolute;content:"";height:16px;width:16px;left:3px;bottom:3px;background-color:var(--dsw-alias-switch-thumb,#ffffff);border-radius:50%;transition:transform .2s cubic-bezier(0.4, 0, 0.2, 1),background-color .2s cubic-bezier(0.4, 0, 0.2, 1);box-shadow:0 1px 3px rgba(0,0,0,0.2)}
       .dsh-remote-switch input:checked + .dsh-remote-slider{background-color:var(--dsw-alias-brand-primary,#4d6bfe)}
-      .dsh-remote-switch input:checked + .dsh-remote-slider:before{transform:translateX(16px)}
+      .dsh-remote-switch input:checked + .dsh-remote-slider:before{transform:translateX(16px);background-color:var(--dsw-alias-label-primary-foreground,#ffffff)}
       .dsh-remote-switch input:disabled + .dsh-remote-slider{opacity:.4;cursor:default}
 
       /* 状态与诊断徽标条 */
@@ -149,7 +153,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-port-hint{flex:1 0 100%;white-space:normal;line-height:18px}
       .dsh-remote-host-btn{display:inline-flex;align-items:center;justify-content:center;flex:none;white-space:nowrap;line-height:20px;padding:4px 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease}
       .dsh-remote-host-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.08));border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
-      .dsh-remote-host-btn:disabled{opacity:.75;color:var(--dsw-alias-label-secondary);border-color:var(--dsw-alias-border-l1);cursor:not-allowed}
+      .dsh-remote-host-btn:disabled{opacity:.75;border-color:var(--dsw-alias-border-l1);cursor:not-allowed}
       button:has([data-settings-nav-label="remote-control"]) > svg:first-child{display:none}
       .dsh-remote-nav-label{display:inline-flex;align-items:center;gap:8px}
       @keyframes dsh-remote-gate-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.dsh-remote-gate-card{animation:none}}@media(max-width:520px){.dsh-remote-gate{padding:16px}.dsh-remote-gate-card{padding:20px;border-radius:var(--dsw-radius-l,12px)}}

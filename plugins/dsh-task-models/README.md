@@ -34,7 +34,7 @@ dsh plugin --profile web add @weniatall/dsh-task-models
 或锁定版本，从 GitHub Release 安装 tarball：
 
 ```bash
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.3.0/dsh-task-models-0.3.0.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.3.1/dsh-task-models-0.3.1.tgz
 ```
 
 > 本包已发布到 npm scope `@weniatall/dsh-task-models`，后续版本由 CI 通过 Trusted
@@ -47,7 +47,7 @@ dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/do
 cd plugins/dsh-task-models
 npm test
 npm pack
-dsh plugin --profile web add ./weniatall-dsh-task-models-0.3.0.tgz
+dsh plugin --profile web add ./weniatall-dsh-task-models-0.3.1.tgz
 ```
 
 > 本仓库的 `AGENTS.md` 规定：除非用户明确要求，不在本机部署插件或重启服务。开发验证请只运行

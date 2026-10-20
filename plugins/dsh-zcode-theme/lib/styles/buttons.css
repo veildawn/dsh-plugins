@@ -30,18 +30,18 @@
 
 [data-dsh-theme="zcode"] button[data-variant="ghost"],
 [data-dsh-theme="zcode"] button[class*="_ghost_"],
-[data-dsh-theme="zcode"] ._2H3hWW_iconButton,
-[data-dsh-theme="zcode"] ._9lTDKa_iconButton,
-[data-dsh-theme="zcode"] .hIlkoa_iconButton {
+[data-dsh-theme="zcode"] .IW6AQa_iconButton,
+[data-dsh-theme="zcode"] .YDXeBa_iconButton,
+[data-dsh-theme="zcode"] .YDXeBa_iconButton {
   background: transparent;
   border-radius: 8px;
 }
 
 [data-dsh-theme="zcode"] button[data-variant="ghost"]:hover,
 [data-dsh-theme="zcode"] button[class*="_ghost_"]:hover,
-[data-dsh-theme="zcode"] ._2H3hWW_iconButton:hover,
-[data-dsh-theme="zcode"] ._9lTDKa_iconButton:hover,
-[data-dsh-theme="zcode"] .hIlkoa_iconButton:hover {
+[data-dsh-theme="zcode"] .IW6AQa_iconButton:hover,
+[data-dsh-theme="zcode"] .YDXeBa_iconButton:hover,
+[data-dsh-theme="zcode"] .YDXeBa_iconButton:hover {
   background: var(--color-surface);
 }
 
@@ -98,14 +98,19 @@
    （暗色 #161616）。放在 --color-card（#2b2b2b）的卡片上，这些按钮会比卡片更暗，
    看起来像一排空洞。这里把社区插件自绘的次级按钮抬到 input 层，与官方
    「次级按钮 = 输入层底色」一致。
-   只作用于社区插件真实存在的类名，不影响宿主自身的按钮。 */
+   只作用于社区插件真实存在的类名，不影响宿主自身的按钮。
+
+   必须排除实心主按钮（primary/success/danger）：`button.tm-button` 的特异性是
+   0,1,1，而插件自己的 `.tm-primary` 只有 0,1,0。不排除的话，主题会把主按钮的
+   品牌底色和反色文字一起压成次级按钮的配色——按钮没消失，但「主操作」的视觉
+   强调没了，暗色下还会变成暗底暗字。 */
 [data-dsh-theme="zcode"] button.dm-action-btn:not([class~="primary"]):not([class~="success"]),
-[data-dsh-theme="zcode"] button.dm-chip,
-[data-dsh-theme="zcode"] button.dam-btn,
-[data-dsh-theme="zcode"] button.fv-button,
-[data-dsh-theme="zcode"] button.jev-btn,
-[data-dsh-theme="zcode"] button.mr-button,
-[data-dsh-theme="zcode"] button.tm-button,
+[data-dsh-theme="zcode"] button.dm-chip:not([class~="active"]),
+[data-dsh-theme="zcode"] button.dam-btn:not([class~="dam-action-primary"]):not([class~="dam-action-danger"]),
+[data-dsh-theme="zcode"] button.fv-button:not([class~="fv-btn-primary"]),
+[data-dsh-theme="zcode"] button.jev-btn:not([class~="jev-btn-primary"]),
+[data-dsh-theme="zcode"] button.mr-button:not([class~="mr-primary"]),
+[data-dsh-theme="zcode"] button.tm-button:not([class~="tm-primary"]),
 [data-dsh-theme="zcode"] button.term-btn {
   background: var(--color-input);
   border-color: var(--color-border);
@@ -113,12 +118,12 @@
 }
 
 [data-dsh-theme="zcode"] button.dm-action-btn:not([class~="primary"]):not([class~="success"]):hover,
-[data-dsh-theme="zcode"] button.dm-chip:hover,
-[data-dsh-theme="zcode"] button.dam-btn:hover,
-[data-dsh-theme="zcode"] button.fv-button:hover,
-[data-dsh-theme="zcode"] button.jev-btn:hover,
-[data-dsh-theme="zcode"] button.mr-button:hover,
-[data-dsh-theme="zcode"] button.tm-button:hover,
+[data-dsh-theme="zcode"] button.dm-chip:not([class~="active"]):hover,
+[data-dsh-theme="zcode"] button.dam-btn:not([class~="dam-action-primary"]):not([class~="dam-action-danger"]):hover,
+[data-dsh-theme="zcode"] button.fv-button:not([class~="fv-btn-primary"]):hover,
+[data-dsh-theme="zcode"] button.jev-btn:not([class~="jev-btn-primary"]):hover,
+[data-dsh-theme="zcode"] button.mr-button:not([class~="mr-primary"]):hover,
+[data-dsh-theme="zcode"] button.tm-button:not([class~="tm-primary"]):hover,
 [data-dsh-theme="zcode"] button.term-btn:hover {
   background: var(--color-surface-hover);
   color: var(--color-foreground);

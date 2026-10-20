@@ -1609,3 +1609,25 @@ test('Config: every field this section owns is live, and unwraps to plain data',
   for (const key of keys) assert.equal(plugin.isVolatileRef(plain[key]), false, key + ' unwraps to plain data')
   assert.deepEqual(Object.keys(plain).sort(), [...keys].sort(), 'unwrapping keeps every declared field')
 })
+
+test('开关圆点在开启态必须取反色 Token，不能硬编码白色', () => {
+  // Zai 主题下开启态轨道是 --dsw-alias-brand-primary，暗色为 #ffffff；
+  // 圆点若硬编码 #ffffff 就是白圆点压白轨道，整个消失（2026-10 实测）。
+  // 必须与宿主官方 switch 一致：开启态圆点用 label-primary-foreground（暗色=黑）。
+  const clientSource = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+
+  const slider = clientSource.match(/\.dsh-remote-slider:before\{[^}]*\}/)
+  assert(slider, '缺少 .dsh-remote-slider:before 规则')
+  assert.match(slider[0], /background-color:var\(--dsw-alias-switch-thumb/, '关闭态圆点应取 switch-thumb Token')
+  assert.doesNotMatch(slider[0], /background-color:#fff/i, '圆点不得硬编码白色')
+
+  const checked = clientSource.match(/input:checked \+ \.dsh-remote-slider:before\{[^}]*\}/)
+  assert(checked, '缺少开启态圆点规则')
+  assert.match(checked[0], /background-color:var\(--dsw-alias-label-primary-foreground/, '开启态圆点必须取反色 Token')
+  assert.doesNotMatch(checked[0], /background-color:#fff/i, '开启态圆点不得硬编码白色')
+
+  // 关闭态轨道同样要走 Token，避免与 --dsw-alias-border-default 这类不存在的 Token 混用
+  const track = clientSource.match(/\.dsh-remote-slider\{[^}]*\}/)
+  assert(track, '缺少 .dsh-remote-slider 规则')
+  assert.match(track[0], /background-color:var\(--dsw-alias-border-l3/, '轨道应取宿主真实存在的 border-l3')
+})

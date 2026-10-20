@@ -24,16 +24,21 @@ async function themeCssSources() {
  * 宿主真实存在的类名。宿主升级换了 hash 时，这条测试会先失败，而不是等到用户看见
  * 「主题没生效」才发现。
  *
- * 注意：fixture 记录的是不带前导下划线的类名（`2H3hWW_root`），而 CSS 里合法写法是
- * `._2H3hWW_root`——前导下划线只是为了避开 CSS 的「数字开头必须转义」限制。
+ * 前导下划线是真实类名的一部分：CSS Modules 给数字开头的类名生成 `._7yHdaG_header`，
+ * DOM 上的 className 也是 `_7yHdaG_header`（见 bundle 里的
+ * `{ "header": "_7yHdaG_header" }` 映射表）。fixture 两种写法都收，这里原样比对。
  */
 test('主题里的 CSS Module 类名全部存在于宿主', async () => {
   const sources = await themeCssSources()
   const missing = []
+  // 正则必须与 scripts/harvest-host-classes.mjs 的 CLASS_RE 一致。
+  // 前缀可以极短：layout 是 `pI_x6G_*`（两段分别 2/3 字符），旧写法
+  // `[A-Za-z0-9-]{3,10}` 要求首段至少 4 字符，会把整个 layout bundle 漏掉——
+  // fixture 里该 bundle 是空数组，测试于是「通过」，而 6 条框架规则全部失效。
   for (const text of sources) {
-    for (const match of text.matchAll(/\.(_?[A-Za-z0-9][A-Za-z0-9-]{3,10}_[A-Za-z][A-Za-z0-9]*)/g)) {
-      const cls = match[1].replace(/^_/, '')
-      if (!hostClasses.has(cls)) missing.push(match[1])
+    for (const match of text.matchAll(/\.(_?[A-Za-z0-9][A-Za-z0-9_-]*_[A-Za-z][A-Za-z0-9]*)/g)) {
+      const cls = match[1]
+      if (!hostClasses.has(cls) && !hostClasses.has(cls.replace(/^_/, ''))) missing.push(cls)
     }
   }
   assert.deepEqual([...new Set(missing)], [], `以下类名在宿主不存在，选择器永远不命中：${[...new Set(missing)].join(', ')}`)
@@ -92,25 +97,94 @@ test('不把 data-slot 当组件选择器', async () => {
 /**
  * 框架层的两层底色是「左右两边像不像官方」的关键：窗口用 background-win-alt，
  * 内容卡用 background 并带圆角与描边。少任何一条都会退回单色平板。
+ *
+ * 选择器里的哈希前缀不写死：宿主每次构建都会换（桌面版 `BynINW_*` → 现在
+ * `pI_x6G_*`，Web 版又是另一套）。这里按「部件名」匹配，前缀交给上面的
+ * 「类名全部存在于宿主」测试守护。
  */
 test('三栏框架使用官方两层底色与圆角内容卡', async () => {
   const frame = await readFile(join(root, 'lib/styles/frame.css'), 'utf8')
-  assert.match(frame, /\.BynINW_frame\s*\{[^}]*background:\s*var\(--color-background-win-alt\)/)
-  assert.match(frame, /\.BynINW_centerCol\s*\{[^}]*background:\s*var\(--color-background\)/)
-  assert.match(frame, /\.BynINW_centerCol\s*\{[^}]*border-radius:\s*6px/)
-  assert.match(frame, /\.BynINW_sidebarCol\s*\{[^}]*border-right:\s*none/)
+  assert.match(frame, /\.[A-Za-z0-9_-]+_frame\s*\{[^}]*background:\s*var\(--color-background-win-alt\)/)
+  assert.match(frame, /\.[A-Za-z0-9_-]+_centerCol\s*\{[^}]*background:\s*var\(--color-background\)/)
+  assert.match(frame, /\.[A-Za-z0-9_-]+_centerCol\s*\{[^}]*border-radius:\s*6px/)
+  assert.match(frame, /\.[A-Za-z0-9_-]+_sidebarCol\s*\{[^}]*border-right:\s*none/)
   assert.equal(STYLE_FILES.includes('frame.css'), true, 'frame.css 必须进入 STYLE_FILES')
 })
 
 /**
- * 主题不得再引用「按模块名猜」的历史选择器。这批类名在宿主 0.2.1-rc.2 已经全部不存在。
+ * 主题不得再引用「按模块名猜」的历史选择器。
+ *
+ * 这批前缀在宿主 0.2.1-rc.2 已经全部不存在，且不在 fixture 里。清单必须写
+ * **已废弃**的前缀，不能把当前正在用的写进来——2026-10 曾误把 `pI_x6G_`
+ * 等在用前缀列进这里，导致测试永远失败。
  */
 test('不再引用已失效的历史类名', async () => {
   const sources = await themeCssSources()
   const retired = ['hHd-Xa_', 'YDXeBa_', 'uV2eYG_', 'iWlSmW_', 'wSkVaW_', 'JObwrW_', 'EvIC1a_', 'Sixlwa_', 'lcKema_', 'pI_x6G_', 'ZuhsRW_', 'VOzbGW_', 'BInVoG_', 'rS3zOq_', 'CY-8Ka_', '_7KE1Ra_', '_5OnbHa_']
+  // 只保留「确实不在当前 fixture 里」的前缀；在用的一律剔除，避免误伤。
+  const live = retired.filter((prefix) => ![...hostClasses].some((cls) => cls.startsWith(prefix.replace(/^_/, ''))))
   for (const text of sources) {
-    for (const name of retired) {
+    for (const name of live) {
       assert.equal(text.includes(name), false, `仍引用已失效的历史类名 ${name}`)
     }
+  }
+})
+
+/**
+ * 特异性护栏：主题是全局样式，通用元素规则必须低于社区插件自写的单类规则。
+ *
+ * 事故现场（2026-10）：主题写 `[data-dsh-theme="zcode"] input { color: ... }`
+ * 特异性 0,1,1，压过 dsh-task-models 的 `.tm-input { color: ... }`（0,1,0）。
+ * 插件配色再对也不生效，暗色下输入框成了「暗底深灰字」，对比度 1.08:1。
+ * 修法是把通用元素选择器一律包进 :where()，降到 0,1,0 让插件赢。
+ */
+test('通用元素规则的 specificity 不高于插件单类规则', async () => {
+  const sources = await themeCssSources()
+  // 只盯表单控件与链接：body/html 是根作用域，不参与「压过插件」的竞争。
+  // 允许的形态：[data-dsh-theme="zcode"] :where(button, input, ...)
+  // 以及带属性/伪类限定的组件级选择器（button[data-variant="primary"] 之类）。
+  const control = /\[data-dsh-theme="zcode"\]\s+(button|input|textarea|select|a)(\s*[,{])/g
+  for (const text of sources) {
+    for (const match of text.matchAll(control)) {
+      assert.fail(`裸元素选择器会压过插件样式，请包 :where()：${match[0].trim()}`)
+    }
+  }
+})
+
+/**
+ * 禁用态只表达不可交互，不得改写文字颜色。
+ *
+ * 事故现场（2026-10）：主题的 `:disabled { color: foreground-subtle }` 把
+ * dsh-remote-control 的实心主按钮「验证密钥」压成深底深灰字，对比度 1.53:1。
+ */
+test('禁用态不改写文字颜色', async () => {
+  const states = await readFile(join(root, 'lib/styles/states.css'), 'utf8')
+  const rule = states.match(/:where\(:disabled[^{]*\{([^}]*)\}/)
+  assert.ok(rule, '缺少禁用态规则')
+  assert.equal(/(^|;)\s*color\s*:/.test(rule[1]), false, '禁用态不得覆盖 color')
+  assert.match(rule[1], /opacity\s*:/)
+  assert.match(rule[1], /pointer-events\s*:\s*none/)
+})
+
+/**
+ * 主题的「次级按钮抬到 input 层」兜底规则不得吃掉插件的实心主按钮。
+ *
+ * 事故现场（2026-10）：`button.tm-button`（0,1,1）压过插件的 `.tm-primary`（0,1,0），
+ * 主按钮的品牌底色与反色文字一起被换成次级按钮配色，暗色下成了暗底暗字。
+ * 兜底规则必须用 :not([class~="..."]) 把各插件的主按钮排除掉。
+ */
+test('次级按钮兜底规则排除各插件的主按钮', async () => {
+  const css = await readFile(join(root, 'lib/styles/buttons.css'), 'utf8')
+  const pairs = [
+    ['dm-action-btn', 'primary'],
+    ['dam-btn', 'dam-action-primary'],
+    ['fv-button', 'fv-btn-primary'],
+    ['jev-btn', 'jev-btn-primary'],
+    ['mr-button', 'mr-primary'],
+    ['tm-button', 'tm-primary'],
+  ]
+  for (const [base, primary] of pairs) {
+    const pattern = new RegExp(`button\\.${base}:not\\(\\[class~="${primary}"\\]\\)`)
+    assert.match(css, pattern, `button.${base} 的兜底规则必须排除 .${primary}`)
   }
 })

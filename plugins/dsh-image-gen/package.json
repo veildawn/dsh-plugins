@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-image-gen",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "DSH 原生生图插件：把文生图作为原生工具暴露，支持手动配置 baseUrl/key/模型，也可直接下拉选择 dsh 已配置的提供商与模型，并支持尺寸与画质下拉选择。",
   "type": "module",
   "main": "lib/index.js",

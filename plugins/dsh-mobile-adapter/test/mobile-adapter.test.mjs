@@ -339,7 +339,9 @@ test('Conversation mobile CSS keeps a bounded scrollport and permanently hides m
     '统计药丸必须按 data-composer-stat 隐藏，不能再依赖会随宿主构建变化的哈希类名')
   assert.doesNotMatch(css, /\.FJxK0a_root\{display:none/, '失效的旧哈希类名规则必须移除')
   assert.doesNotMatch(css, /stats-expanded/)
-  assert.match(css, /\.p-xYUq_actions,\._8_XoUG_action,\.osXY9a_actions,\.TS9iAW_actions\{flex-wrap:wrap!important\}/)
+  // 只断言当前宿主真实存在的前缀：p-xYUq / osXY9a 在 Web 版与桌面版都已不存在，
+  // 留着它们只会让 check-host-hashes 报死前缀，规则本身也匹配不到任何元素。
+  assert.match(css, /\._8_XoUG_action,\.TS9iAW_actions\{flex-wrap:wrap!important\}/)
   assert.doesNotMatch(css, /\[data-chat-flow\] button\{min-width:44px/)
   assert.match(css, /\.md-code-block pre/)
   assert.match(css, /scroll-behavior:smooth/)

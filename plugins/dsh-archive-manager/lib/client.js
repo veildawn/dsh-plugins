@@ -195,7 +195,7 @@ window.__ModuleLoader__.load({
       .dam-modal-btn{height:34px;padding:0 14px;font-size:13px;font-weight:500;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
       .dam-modal-btn.cancel{border:1px solid var(--dsw-alias-border-l2,#d1d5db);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#374151)}
       .dam-modal-btn.cancel:hover{background:var(--dsw-alias-interactive-bg-hover,#f3f4f6)}
-      .dam-modal-btn.danger{border:none;background:var(--dsw-alias-state-error-primary,#dc2626);color:#fff}
+      .dam-modal-btn.danger{border:none;background:var(--dsw-alias-state-error-primary,#dc2626);color:var(--dsw-alias-label-primary-foreground,#fff)}
       .dam-modal-btn.danger:hover{background:#b91c1c}
 
       @keyframes dam-fade{from{opacity:0}to{opacity:1}}

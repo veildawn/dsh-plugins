@@ -107,8 +107,8 @@ window.__ModuleLoader__.load({
         [data-chat-flow] [class*="_gallery"],[data-chat-flow] [class*="_frame"]{max-width:100%!important}
         [data-chat-flow] :where(img,video,canvas,svg){max-width:100%;height:auto}
         [data-chat-flow] [class*="_actions"]{box-sizing:border-box;display:flex;flex-wrap:wrap!important;width:100%!important;max-width:100%!important;min-width:0!important;height:auto!important;min-height:32px;align-items:center;gap:6px!important;padding-right:max(4px,var(--dsh-sar));overflow:visible!important}
-        .p-xYUq_actions,._8_XoUG_action,.osXY9a_actions,.TS9iAW_actions{flex-wrap:wrap!important}
-        .p-xYUq_actions,.osXY9a_actions,.TS9iAW_actions{height:auto!important;max-width:100%;min-width:0;overflow:visible!important}
+        ._8_XoUG_action,.TS9iAW_actions{flex-wrap:wrap!important}
+        .TS9iAW_actions{height:auto!important;max-width:100%;min-width:0;overflow:visible!important}
         [data-chat-flow] [class*="_actions"] button{box-sizing:border-box;flex:0 0 32px;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;border-radius:50%!important;padding:5px}
         [data-chat-flow] [class*="_actions"] :where([class*="_timeStart"],[class*="_timeEnd"]){display:none!important}
         /* 移动端不显示「N 轮 M 步 · tokens/s」「用量 · 缓存命中」这组统计药丸：
@@ -167,7 +167,7 @@ window.__ModuleLoader__.load({
           transform:scale(.96)!important;
         }
         .dsh-mobile-upload-btn svg{width:16px;height:16px;flex:none;display:block}
-        .ccegLa_primary{box-sizing:border-box;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none;border-radius:50%!important;display:grid;place-items:center;background:var(--dsw-alias-brand-primary,#4d6bfe)!important;color:#fff!important;border:none!important}
+        .ccegLa_primary{box-sizing:border-box;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;flex:none;border-radius:50%!important;display:grid;place-items:center;background:var(--dsw-alias-brand-primary,#4d6bfe)!important;color:var(--dsw-alias-label-primary-foreground,#fff)!important;border:none!important}
         .ccegLa_primary{transform:none!important}
         .ccegLa_primary:active{transform:scale(.96)!important}
         .Sh0Q9G_trigger,.iWlSmW_trigger,.ccegLa_select,.rS3zOq_chip,._7KE1Ra_trigger{box-sizing:border-box;height:32px!important;min-height:32px!important;font-size:12px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}

@@ -17,9 +17,11 @@
   box-shadow: none;
 }
 
-[data-dsh-theme="zcode"] :disabled,
-[data-dsh-theme="zcode"] [aria-disabled="true"] {
+/* 禁用态只表达「不可交互」：降透明度 + 关掉指针事件。
+   这里刻意不再写 color：实心主按钮（brand-primary 底 + primary-foreground 字）
+   一旦被改成 foreground-subtle，就成了深底深字、几乎不可读（remote-control 的
+   「验证密钥」按钮即此）。配色由各控件自己的规则决定。 */
+[data-dsh-theme="zcode"] :where(:disabled, [aria-disabled="true"]) {
   opacity: 0.65;
-  color: var(--color-foreground-subtle);
   pointer-events: none;
 }

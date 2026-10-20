@@ -1304,3 +1304,29 @@ test('WorkflowRunPanel polling has inFlight guard preventing overlapping request
     globalThis.clearInterval = savedClearInterval
   }
 })
+
+/**
+ * 面板不得重新声明 color-scheme。
+ *
+ * light-dark() 只认最近的 color-scheme 祖先：面板一旦写 `color-scheme: light dark`，
+ * 里面的 light-dark() 会退回跟随操作系统偏好。应用是暗色、系统是亮色时，输入框文字
+ * 会被解析成亮色侧（#262626）压在暗底上，对比度 1.08:1，肉眼几乎不可见。
+ * 主题与宿主的 color-scheme 写在 html 上，面板保持继承即可。
+ */
+test('面板不重置 color-scheme', async () => {
+  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.equal(/color-scheme\s*:/u.test(client), false, '面板不得声明 color-scheme，交给宿主 html 继承')
+})
+
+/**
+ * 实心主按钮的前景色必须走 Token，不能硬编码 #fff。
+ * 暗色主题下 --dsw-alias-brand-primary 是白色，硬编码 #fff 就是白底白字。
+ */
+test('实心主按钮用 primary-foreground Token 而非硬编码白色', async () => {
+  const client = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const rule = client.match(/\.tm-primary\{([^}]*)\}/u)
+  assert.ok(rule, '缺少 .tm-primary 规则')
+  assert.match(rule[1], /background:\s*var\(--dsw-alias-brand-primary/u)
+  assert.match(rule[1], /color:\s*var\(--dsw-alias-label-primary-foreground/u)
+  assert.equal(/color\s*:\s*(#fff\b|#ffffff\b|white\b)/iu.test(rule[1]), false, '不得硬编码白色前景')
+})
