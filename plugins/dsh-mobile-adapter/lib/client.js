@@ -47,8 +47,8 @@ window.__ModuleLoader__.load({
         [data-slot="sidebar"]{--dsh-sidebar-inline-padding:12px!important;box-sizing:border-box;width:100%!important;max-width:100%!important;height:100%}
         [data-slot="sidebar"]>*{height:100%}
         .hHd-Xa_root{--dsh-sidebar-inline-padding:12px!important;box-sizing:border-box;width:100%!important;max-width:100%!important;padding-left:12px!important;padding-right:12px!important}
-        [data-slot="sidebar"] :where(.hHd-Xa_newSession,.hHd-Xa_navList,.hHd-Xa_regionArea,.hHd-Xa_footerActions,.hHd-Xa_settingsArea,[role="tree"],[role="treeitem"],[data-slot="sidebar.settings"],[class*="_triggerRow"],[class*="_trigger"],.VOzbGW_trigger){box-sizing:border-box;width:100%!important;max-width:100%!important;margin:0!important}
-        [data-slot="sidebar"] :where(.hHd-Xa_regionArea){padding-left:0!important;padding-right:0!important}
+        [data-slot="sidebar"] :where(:is(.hHd-Xa_newSession,[class$="_newSession"]),:is(.hHd-Xa_navList,[class$="_navList"]),:is(.hHd-Xa_regionArea,[class$="_regionArea"]),:is(.hHd-Xa_footerActions,[class$="_footerActions"]),:is(.hHd-Xa_settingsArea,[class$="_settingsArea"]),[role="tree"],[role="treeitem"],[data-slot="sidebar.settings"],[class*="_triggerRow"],[class*="_trigger"],:is(.VOzbGW_trigger,[class$="_trigger"])){box-sizing:border-box;width:100%!important;max-width:100%!important;margin:0!important}
+        [data-slot="sidebar"] :where(:is(.hHd-Xa_regionArea,[class$="_regionArea"])){padding-left:0!important;padding-right:0!important}
         /* 移动端没有 hover：核心把工作区行右侧按钮（⋯ 工作区菜单、＋ 新建会话）
            藏在 .YDXeBa_rowActions 里仅 hover/menuOpen 显示，触屏永远点不到。
            这里显式常显，并放大触控区（行高 34px 内容区留给按钮 28px）。 */
@@ -98,7 +98,7 @@ window.__ModuleLoader__.load({
         .gehEqa_heroWorkspaceRow{box-sizing:border-box;width:100%;padding:0 20px!important;gap:4px!important;flex-wrap:wrap}
         .f0iH8G_workspace{box-sizing:border-box;min-width:0!important;max-width:100%!important;min-height:36px!important;flex:1 1 140px}
         [data-slot="conversation.hero.agentPreset"]>span{min-width:0;max-width:min(50%,240px);flex:0 1 auto}
-        [data-slot="conversation.hero.agentPreset"] .cubgiG_seat{box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:36px;min-height:36px;padding:0 10px;border-radius:999px}
+        [data-slot="conversation.hero.agentPreset"] :is(.cubgiG_seat,[class$="_seat"]){box-sizing:border-box;width:100%;min-width:0;max-width:100%;height:36px;min-height:36px;padding:0 10px;border-radius:999px}
         [data-conversation-scroll]{flex:1 1 0;min-width:0;min-height:0;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
         [data-conversation-scroll] :has(>[data-chat-flow]){padding-right:12px!important;padding-left:12px!important}
         [data-chat-flow]{width:100%;max-width:100%;gap:12px!important}
@@ -177,8 +177,8 @@ window.__ModuleLoader__.load({
            meter、且 dock 没有计划复核/待办面板时，把 dock 收回卡片内部（卡片补足底部
            内边距，dock 负边距上移），按钮与统计行都落在输入框的圆角内。卡片是
            position:relative，dock 必须同样定位并抬高层级，否则会被卡片背景盖住。 */
-        [data-composer-card]:has(+.ccegLa_dock .NXnJXa_root):not(:has(+.ccegLa_dock [data-plan-review-scroll])):not(:has(+.ccegLa_dock [data-plan-review-key])){padding-bottom:40px!important}
-        [data-composer-card]:has(+.ccegLa_dock .NXnJXa_root)+.ccegLa_dock:not(:has([data-plan-review-scroll])):not(:has([data-plan-review-key])){width:auto!important;max-width:100%!important;margin-top:-38px!important;padding:0 12px 6px!important;position:relative!important;z-index:1!important}
+        [data-composer-card]:has(+:is(.ccegLa_dock,[class$="_dock"]) :is(.NXnJXa_root,[class$="_root"])):not(:has(+:is(.ccegLa_dock,[class$="_dock"]) [data-plan-review-scroll])):not(:has(+:is(.ccegLa_dock,[class$="_dock"]) [data-plan-review-key])){padding-bottom:40px!important}
+        [data-composer-card]:has(+:is(.ccegLa_dock,[class$="_dock"]) :is(.NXnJXa_root,[class$="_root"]))+:is(.ccegLa_dock,[class$="_dock"]):not(:has([data-plan-review-scroll])):not(:has([data-plan-review-key])){width:auto!important;max-width:100%!important;margin-top:-38px!important;padding:0 12px 6px!important;position:relative!important;z-index:1!important}
         [data-plan-review-key],[data-slot="conversation.composer.dock"],[data-plan-review-scroll]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important}
         [data-plan-review-scroll]{max-height:min(45dvh,360px)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important}
         .Sh0Q9G_trigger,.iWlSmW_trigger,.ccegLa_select{max-width:32px!important;min-width:32px!important}
@@ -229,7 +229,7 @@ window.__ModuleLoader__.load({
         .Y0dWHa_table{width:100%;min-width:0;table-layout:fixed}
         .Y0dWHa_eventColumn{width:58px!important}
         .Y0dWHa_table th,.Y0dWHa_table td{height:36px!important}
-        .Y0dWHa_details{box-sizing:border-box;position:fixed!important;z-index:950!important;inset:calc(52px + var(--dsh-sat)) 0 var(--dsh-keyboard-inset,0px)!important;width:100vw!important;max-width:none!important;min-width:0!important;border-left:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-layer-1);animation:dsh-mobile-detail-in .24s var(--ds-ease-in-out)}
+        :is(.Y0dWHa_details,aside[class$="_details"]){box-sizing:border-box;position:fixed!important;z-index:950!important;inset:calc(52px + var(--dsh-sat)) 0 var(--dsh-keyboard-inset,0px)!important;width:100vw!important;max-width:none!important;min-width:0!important;border-left:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-layer-1);animation:dsh-mobile-detail-in .24s var(--ds-ease-in-out)}
         .Y0dWHa_detailsResizeHandle{display:none!important}
         .Y0dWHa_detailsHeader{height:52px!important;padding:0 max(8px,var(--dsh-sar)) 0 max(12px,var(--dsh-sal))!important}
         .Y0dWHa_detailsTitle{min-width:0;overflow:hidden}
@@ -259,13 +259,13 @@ window.__ModuleLoader__.load({
         .ZuhsRW_content,.ZuhsRW_millerRow{flex:1 1 0!important}
         .ZuhsRW_millerRow{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important}
         [role="dialog"][aria-modal="true"] label:has(input[type="checkbox"]){min-height:44px}
-        [role="menu"],._7KE1Ra_menu,._3e4SsG_menu{box-sizing:border-box!important;z-index:1300!important;max-width:calc(100vw - 24px)!important;max-height:min(360px,calc(var(--dsh-vvh,100dvh) - 120px))!important;border-radius:14px!important;box-shadow:var(--dsw-shadow-lv3)!important;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-3))!important;border:1px solid var(--dsw-alias-border-l2)!important;overflow-y:auto!important;overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important}
+        [role="menu"],:is(._7KE1Ra_menu,[class$="_menu"]),:is(._3e4SsG_menu,[class$="_menu"]){box-sizing:border-box!important;z-index:1300!important;max-width:calc(100vw - 24px)!important;max-height:min(360px,calc(var(--dsh-vvh,100dvh) - 120px))!important;border-radius:14px!important;box-shadow:var(--dsw-shadow-lv3)!important;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-3))!important;border:1px solid var(--dsw-alias-border-l2)!important;overflow-y:auto!important;overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important}
         span>[role="menu"]{position:absolute!important;bottom:calc(100% + 4px)!important;left:0!important;min-width:140px!important}
         body>[role="menu"]{min-width:180px!important}
-        body>[role="menu"]:has(.cubgiG_item){width:min(300px,calc(100vw - 24px))!important}
-        body>[role="menu"]:has(.cubgiG_item) [role="menuitem"]{box-sizing:border-box;min-height:56px;padding:8px 12px}
-        body>[role="menu"] .cubgiG_item{max-width:none;min-width:0}
-        body>[role="menu"] .cubgiG_itemDesc{overflow-wrap:anywhere}
+        body>[role="menu"]:has(:is(.cubgiG_item,[class$="_item"])){width:min(300px,calc(100vw - 24px))!important}
+        body>[role="menu"]:has(:is(.cubgiG_item,[class$="_item"])) [role="menuitem"]{box-sizing:border-box;min-height:56px;padding:8px 12px}
+        body>[role="menu"] :is(.cubgiG_item,[class$="_item"]){max-width:none;min-width:0}
+        body>[role="menu"] :is(.cubgiG_itemDesc,[class$="_itemDesc"]){overflow-wrap:anywhere}
         ._3e4SsG_menu{position:absolute!important;bottom:calc(100% + 4px)!important;left:0!important;right:auto!important;width:min(320px,calc(100vw - 24px))!important}
         ._3e4SsG_item{box-sizing:border-box;min-height:44px!important;padding:8px 12px!important}
         ._3e4SsG_itemName{max-width:50%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
@@ -277,20 +277,27 @@ window.__ModuleLoader__.load({
         ._7KE1Ra_cellValue{flex:1 1 auto!important;min-width:0!important;text-align:right!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
         ._7KE1Ra_cellChevron{flex:none!important}
         .VOzbGW_overlay{box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw;height:var(--dsh-vvh,100dvh)!important;background:var(--dsw-alias-bg-base);display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}
-        body>div[role="presentation"]:has(>.VOzbGW_panel){box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw!important;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important}
-        .VOzbGW_overlay,body>div[role="presentation"]:has(>[data-shortcut-modal="settings"]),body>div[role="presentation"]:has(>.VOzbGW_panel){box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important}
+        body>div[role="presentation"]:has(>:is(.VOzbGW_panel,[class$="_panel"])){box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw!important;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important}
+        .VOzbGW_overlay,body>div[role="presentation"]:has(>[data-shortcut-modal="settings"]),body>div[role="presentation"]:has(>:is(.VOzbGW_panel,[class$="_panel"])){box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important}
         .VOzbGW_mask{display:none!important}
         .VOzbGW_mask,[data-shortcut-modal="settings"]~[class*="_mask"]{display:none!important}
         .VOzbGW_panel{box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex;flex-direction:column;overflow:hidden}
-        .VOzbGW_panel,[data-shortcut-modal="settings"],body>div[role="presentation"]>[data-shortcut-modal="settings"],body>div[role="presentation"]>.VOzbGW_panel,body>div[role="presentation"]>.VOzbGW_panel{box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex;flex-direction:column;overflow:hidden}
-        body>div[role="presentation"]>[role="dialog"][aria-modal="true"].VOzbGW_panel{box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
-        body>div[role="presentation"]>[role="dialog"][aria-modal="true"].VOzbGW_panel,body>div[role="presentation"]>[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]{box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
-        body>div[role="presentation"]>[role="dialog"][aria-modal="true"].VOzbGW_panel>*,body>div[role="presentation"]>[role="dialog"][aria-modal="true"].VOzbGW_panel>*,body>div[role="presentation"]>[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]>*{max-width:none!important}
-        /* The shell's overlay layer is its own stacking context at z-index 20,
-           which traps anything inside it below .dsh-mobile-bar (z-index 900) —
-           the bar covered the drawer's header and swallowed its close button.
-           Raise the layer itself; the scrim's own z-index cannot escape it. */
-        [data-slot="root"] .pI_x6G_overlayLayer:has(.fv-scrim){z-index:1100!important}
+        .VOzbGW_panel,[data-shortcut-modal="settings"],body>div[role="presentation"]>[data-shortcut-modal="settings"],body>div[role="presentation"]>:is(.VOzbGW_panel,[class$="_panel"]),body>div[role="presentation"]>:is(.VOzbGW_panel,[class$="_panel"]){box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex;flex-direction:column;overflow:hidden}
+        body>div[role="presentation"]>[role="dialog"][aria-modal="true"]:is(.VOzbGW_panel,[class$="_panel"]){box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+        body>div[role="presentation"]>[role="dialog"][aria-modal="true"]:is(.VOzbGW_panel,[class$="_panel"]),body>div[role="presentation"]>[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]{box-sizing:border-box;position:relative!important;inset:auto!important;width:100vw!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+        body>div[role="presentation"]>[role="dialog"][aria-modal="true"]:is(.VOzbGW_panel,[class$="_panel"])>*,body>div[role="presentation"]>[role="dialog"][aria-modal="true"]:is(.VOzbGW_panel,[class$="_panel"])>*,body>div[role="presentation"]>[role="dialog"][aria-modal="true"][data-shortcut-modal="settings"]>*{max-width:none!important}
+        /* 应用级浮层必须压过移动端顶栏。
+           宿主的 [data-shell-overlay]（layout/AppFrame 的 overlayLayer）本身就是
+           z-index:20 的 stacking context，里面写多大的 z-index 都出不来，于是
+           .dsh-mobile-bar（900）会整条盖住抽屉头部、连关闭按钮都点不到。
+           只能抬整层。
+           选择器必须挂在语义属性上：CSS Module 类名随宿主构建变
+           （pI_x6G_/BynINW_/…），旧写法 .pI_x6G_overlayLayer:has(.fv-scrim)
+           在宿主升级换 hash 后整条失效，抽屉又被顶栏压住（2026-10 实测）。
+           同时覆盖所有遮罩型浮层，而不是只认文件查看器：:has() 里匹配
+           scrim/backdrop 任一类名，其它插件的全屏面板同样受益。
+           注意：本段位于模板字符串内，注释里不能出现反引号。 */
+        [data-slot="root"] :is([data-shell-overlay],[class$="_overlayLayer"]):has([class*="scrim"],[class*="backdrop"]){z-index:1100!important}
         /* dsh-file-viewer drawer. A 64vw panel is unusable on a phone, so it
            takes the whole screen. Height tracks the visual viewport instead of
            100dvh, which some mobile browsers report before the address bar

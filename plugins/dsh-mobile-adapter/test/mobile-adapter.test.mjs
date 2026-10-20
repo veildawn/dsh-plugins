@@ -1,7 +1,16 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { apply as applyHost, patchIndex, VIEWPORT_CONTENT } from '../lib/index.js'
+
+const pluginRoot = fileURLToPath(new URL('..', import.meta.url))
+/** 宿主类名快照，与 dsh-zcode-theme 共用仓库级 fixture（桌面版 + Web 版合并）。 */
+const hostFixture = JSON.parse(
+  await readFile(join(pluginRoot, '../../test/fixtures/host-classes.json'), 'utf8'),
+)
+const hostClasses = new Set(Object.values(hostFixture.bundles).flat())
 
 let definition
 const previousWindow = globalThis.window
@@ -18,6 +27,17 @@ const polyfilledUUID = globalThis.crypto.randomUUID()
 if (previousCrypto) Object.defineProperty(globalThis, 'crypto', previousCrypto)
 else delete globalThis.crypto
 const client = definition.factory()
+
+/**
+ * 断言视图：移动端样式给宿主类名加了"去哈希兜底"，形如
+ * `:is(.H0stHa_details,[class$="_details"])`。这里把它展开回 `.H0stHa_details`，
+ * 既有断言仍然只针对哈希选择器本身；需要检查兜底是否存在的用例读 rawCss。
+ */
+const rawCss = client.internals.css
+const cssForAssertions = rawCss.replace(
+  /:is\((\.[A-Za-z0-9_-]+),(?:[a-z]+\[class\$="[^"]+"\]|\[class\$="[^"]+"\])\)/g,
+  '$1',
+)
 
 test('Client polyfills crypto.randomUUID in insecure contexts', () => {
   assert.match(polyfilledUUID, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
@@ -294,7 +314,7 @@ test('Client manifest loads after every adapted surface without dependencies', a
 })
 
 test('Mobile sidebar keeps one symmetric 12px content inset', () => {
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.match(css, /\[data-slot="root"\]>div>div:has\(>\[data-slot="sidebar"\]\)\{[^}]*box-sizing:border-box;[^}]*padding-left:var\(--dsh-sal\);padding-right:0/)
   assert.match(css, /\[data-slot="sidebar"\]\{--dsh-sidebar-inline-padding:12px!important;[^}]*width:100%!important;max-width:100%!important;[^}]*height:100%\}/)
   assert.match(css, /\.hHd-Xa_root\{--dsh-sidebar-inline-padding:12px!important;[^}]*width:100%!important;max-width:100%!important;[^}]*padding-left:12px!important;padding-right:12px!important\}/)
@@ -310,7 +330,7 @@ test('Mobile sidebar keeps one symmetric 12px content inset', () => {
 })
 
 test('Conversation mobile CSS keeps a bounded scrollport and permanently hides message and composer stats', () => {
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.match(css, /max-width:768px/)
   assert.match(css, /\.dsh-mobile-bar\{[^}]*display:flex/)
   assert.match(css, /\.dsh-mobile-status\{[^}]*font-size:11px;[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/)
@@ -349,7 +369,7 @@ test('Conversation mobile CSS keeps a bounded scrollport and permanently hides m
 })
 
 test('Composer keeps complete mode labels together and wraps the trailing controls when needed', () => {
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.match(css, /\[data-composer-seat\]\{[^}]*padding-bottom:max\(8px,var\(--dsh-sab\)\)/)
   assert.match(css, /\[data-composer-card\]\{[^}]*padding:8px 10px 6px!important/)
   assert.match(css, /\[data-composer-card\]>:last-child\{[^}]*display:flex;[^}]*min-height:44px;[^}]*flex-direction:row!important;flex-wrap:wrap!important;[^}]*align-items:center!important;[^}]*justify-content:space-between;[^}]*gap:4px!important;[^}]*padding:4px 8px 8px!important/)
@@ -423,14 +443,14 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
 })
 
 test('Plan mode chip and review takeover remain fully visible on small screens', () => {
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.match(css, /\[data-plan-review-key\],\[data-slot="conversation\.composer\.dock"\],\[data-plan-review-scroll\]\{[^}]*width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important\}/)
   assert.match(css, /\[data-plan-review-scroll\]\{max-height:min\(45dvh,360px\)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important\}/)
   assert.doesNotMatch(css, /\[data-plan-review-(?:key|scroll)[^}]*display:none!important/)
 })
 
 test('Trajectory becomes a compact table with a full-size, closable mobile sheet', () => {
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.match(css, /\.Y0dWHa_split\{[^}]*flex-direction:column/)
   assert.match(css, /\.Y0dWHa_tablePane\{[^}]*overflow-y:auto/)
   assert.match(css, /\.Y0dWHa_eventColumn\{width:58px!important/)
@@ -447,7 +467,7 @@ test('Trajectory becomes a compact table with a full-size, closable mobile sheet
 })
 
 test('Mobile dialogs and in-place menus stay usable without overwriting portal coordinates', () => {
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.match(css, /body>div\[role="presentation"\]:has\(>\[role="dialog"\]\[aria-modal="true"\]\)\{[^}]*position:fixed!important;[^}]*z-index:1200!important;[^}]*inset:0!important;[^}]*display:flex!important;[^}]*align-items:center!important;[^}]*justify-content:center!important;[^}]*background:rgba\(0,0,0,\.5\)!important;[^}]*overflow:visible!important/)
   assert.match(css, /body>div\[role="presentation"\]:has\(>\[role="dialog"\]\[aria-modal="true"\]\)>\[aria-hidden="true"\]\{position:absolute!important;inset:0!important;background:transparent!important/)
   assert.match(css, /body>div\[role="presentation"\]>\[role="dialog"\]\[aria-modal="true"\]\{[^}]*position:relative!important;[^}]*inset:auto!important;[^}]*width:min\(92vw,420px\)!important;[^}]*max-height:min\(85dvh,560px\)!important;[^}]*margin:auto!important;[^}]*border-radius:20px!important;[^}]*display:flex!important;flex-direction:column!important;[^}]*overflow-y:auto!important/)
@@ -493,7 +513,7 @@ test('Mobile dialogs and in-place menus stay usable without overwriting portal c
 })
 
 test('Settings becomes a native full-screen mobile page with pill tabs and card controls', () => {
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.match(css, /\.VOzbGW_overlay\{[^}]*z-index:1100!important;[^}]*position:fixed!important;[^}]*width:100vw;[^}]*height:var\(--dsh-vvh,100dvh\)!important/)
   assert.match(css, /\.VOzbGW_mask\{display:none!important\}/)
   assert.match(css, /\.VOzbGW_panel\{[^}]*width:100vw!important;[^}]*height:100%!important;[^}]*max-width:none!important;[^}]*border-radius:0!important;[^}]*box-shadow:none!important;[^}]*flex-direction:column/)
@@ -733,7 +753,7 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
 })
 
 test('the file viewer drawer is adapted for phones', () => {
-  const css = client.internals.css
+  const css = cssForAssertions
 
   // A 64vw drawer is unusable on a phone: it takes the whole screen instead.
   assert.match(css, /\.fv-scrim\{[^}]*width:100vw!important/)
@@ -760,18 +780,29 @@ test('the file viewer drawer is adapted for phones', () => {
 })
 
 test('the file viewer drawer clears the mobile bar', async () => {
-  const css = client.internals.css
+  const css = cssForAssertions
 
   // The shell's overlay layer is its own stacking context at z-index 20, so a
   // z-index on the scrim cannot lift it past .dsh-mobile-bar at 900. The bar
   // covered the drawer's header and swallowed every control in it, including
-  // close — the only way out on a phone. The layer itself has to be raised.
-  assert.match(css, /\.pI_x6G_overlayLayer:has\(\.fv-scrim\)\{z-index:1100!important\}/)
+  // close — the only way out on a phone. The layer itself has to be raised,
+  // and the selector must key off the semantic attribute: the old
+  // `.pI_x6G_overlayLayer:has(.fv-scrim)` spelling pinned a build hash and
+  // stopped matching once the host renamed its CSS modules.
+  assert.match(
+    css,
+    /:is\(\[data-shell-overlay\],\[class\$="_overlayLayer"\]\):has\(\[class\*="scrim"\],\[class\*="backdrop"\]\)\{z-index:1100!important\}/,
+  )
   assert.match(css, /\.dsh-mobile-bar\{[^}]*z-index:900/)
+  assert.doesNotMatch(
+    css,
+    /\.pI_x6G_overlayLayer:has\([^)]*\)\{/,
+    '提层规则不得再绑定宿主哈希类名（注释里可以引用旧写法，但不能真的作为选择器）',
+  )
 })
 
 test('the tools menu outranks its own backdrop despite the role="menu" rule', () => {
-  const css = client.internals.css
+  const css = cssForAssertions
 
   // 回归：本菜单带 role="menu"，会被 [role="menu"]{z-index:1300!important} 命中，
   // 被压到 1300 后低于自己的遮罩(1340)，遮罩便盖在菜单之上。透明遮罩看不见，
@@ -804,7 +835,7 @@ test('the tools button sits after the shield at the same level as upload', async
   assert.match(source, /toolsBtn\.parentElement !== toolsEl/)
   assert.match(source, /toolsBtn\.previousElementSibling !== anchor/)
 
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.doesNotMatch(css, /\.dsh-mobile-tools-btn\{[^}]*margin/)
   assert.match(css, /\.ccegLa_tools\{[^}]*gap:4px!important/)
 })
@@ -827,7 +858,7 @@ test('the tools menu integrates prompt history when available', async () => {
 })
 
 test('mobile right sidebar is adapted with top offset and back-to-conversation button', async () => {
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.match(css, /\[data-sidebar-right-session\]\s*\[class\*="P3OORG_panel"\]/)
   assert.match(css, /\[data-sidebar-right-session\]\s*\[data-sidebar-right-panel\]/)
   assert.match(css, /top:calc\(52px \+ var\(--dsh-sat\)\)!important/)
@@ -920,7 +951,7 @@ test('tools button mounts reliably with new and old host tools container class n
 })
 
 test('mobile view permanently hides the add button via CSS and JS fallback', async () => {
-  const css = client.internals.css
+  const css = cssForAssertions
   assert.match(css, /\.ccegLa_add\{display:none!important\}/)
   assert.match(css, /\.uV2eYG_add,[^}]*\{display:none!important\}/)
   assert.match(css, /\[data-composer-card\]\s*\[class\*="_add"\]/)
@@ -960,5 +991,79 @@ test('mobile view permanently hides the add button via CSS and JS fallback', asy
   }
 })
 
+/**
+ * 移动端样式里的宿主类名必须"要么当前宿主真的存在，要么是明确登记的历史版本兼容"。
+ * 不存在的类名 = 死规则，静默失效：手机上的适配凭空消失，没有报错、没有日志。
+ *
+ * 登记项一旦重新出现在宿主里，说明多版本兼容已经没必要，应当删掉——2026-10 的
+ * `p-xYUq_actions` / `osXY9a_actions` 就是这样被清掉的。
+ */
+test('宿主类名要么当前存在，要么是登记在案的历史版本兼容', () => {
+  // 宿主 0.1.x / 0.2.0 时代的旧哈希：当前版本的同一组件另有语义选择器或
+  // [class$=…] 兜底，保留原类名只是为了在旧宿主上仍然生效。
+  const historical = new Set([
+    '7KE1Ra_description',
+    'NXnJXa_root',
+    'NXnJXa_trigger',
+    'Sh0Q9G_chevron',
+    'Sh0Q9G_trigger',
+    'Sh0Q9G_triggerIcon',
+    'Sh0Q9G_triggerLabel',
+    'ccegLa_add',
+    'ccegLa_dock',
+    'ccegLa_modes',
+    'ccegLa_primary',
+    'ccegLa_select',
+    'ccegLa_tools',
+    'ccegLa_trailing',
+    'f0iH8G_workspace',
+    'gehEqa_heroWorkspaceRow',
+    'gehEqa_root',
+    'gehEqa_widthHandle',
+    'hHd-Xa_navList',
+  ])
 
+  const used = new Set()
+  for (const match of rawCss.matchAll(/\._?([A-Za-z0-9][A-Za-z0-9_-]*_[A-Za-z][A-Za-z0-9]*)/g)) {
+    used.add(match[1].replace(/^_/, ''))
+  }
 
+  const unknown = [...used].filter((cls) => !hostClasses.has(cls) && !historical.has(cls)).sort()
+  assert.deepEqual(unknown, [], `以下类名当前宿主不存在，也不是登记的历史兼容：${unknown.join(', ')}`)
+
+  const revived = [...historical].filter((cls) => hostClasses.has(cls)).sort()
+  assert.deepEqual(revived, [], `以下类名已重新出现在宿主中，请从历史兼容名单移除：${revived.join(', ')}`)
+})
+
+/**
+ * 去哈希兜底（`:is(.H0stHa_details,[class$="_details"])`）只允许出现在语义作用域内，
+ * 或者用元素类型收窄（`aside[class$="_details"]`）。
+ *
+ * 原因：局部名在宿主里大量重名（`_root` 被 37 个组件共用、`_chevron` 20 个、`_row` 29 个），
+ * 裸写 `[class$="_root"]` 会把侧栏内边距糊到整个应用上。desktop 与 Web 是两次独立构建，
+ * 同一组件有两个哈希，所以"哈希数量 == 1"这种判据在合并 fixture 下也不成立。
+ */
+test('去哈希兜底只出现在语义作用域内或带元素限定', () => {
+  const violations = []
+  for (const match of rawCss.matchAll(/([a-z]*)\[class\$="_([A-Za-z][A-Za-z0-9]*)"\]/g)) {
+    const tag = match[1]
+    const local = match[2]
+    if (tag !== '') continue
+    const offset = match.index
+    const boundary = Math.max(rawCss.lastIndexOf('}', offset), rawCss.lastIndexOf('{', offset))
+    const head = rawCss.slice(boundary + 1, offset)
+    if (/\[(?:data-|role=|aria-)/.test(head)) continue
+    violations.push(local)
+  }
+  assert.deepEqual([...new Set(violations)], [], `以下兜底选择器没有语义作用域收窄，会误伤其它组件：${[...new Set(violations)].join(', ')}`)
+})
+
+/**
+ * 关键组件的兜底必须在场：宿主换 hash 时，这些规则是移动端布局的骨架
+ * （顶栏留白、侧栏内边距、抽屉全屏、详情面板全屏）。
+ */
+test('关键宿主组件保留去哈希兜底', () => {
+  for (const local of ['newSession', 'regionArea', 'settingsArea', 'footerActions', 'overlayLayer', 'details', 'seat']) {
+    assert.match(rawCss, new RegExp(`\\[class\\$="_${local}"\\]`), `缺少 ${local} 的去哈希兜底`)
+  }
+})

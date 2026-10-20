@@ -19,10 +19,35 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 
 ```bash
 # 1. 使用 GitHub Release 在线安装
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.45/dsh-mobile-adapter-0.1.45.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.49/dsh-mobile-adapter-0.1.49.tgz
 
 # 2. 或在本地打包安装
-dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.45.tgz
+dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.49.tgz
+```
+
+## 选择器契约
+
+移动端样式同样只能依附宿主运行时真实存在的 CSS Modules 类名。宿主每次构建都会换
+哈希（`ccegLa_*` → `uV2eYG_*`），所以这里的规则分三层，越靠后越稳：
+
+1. **语义钩子优先**：`[data-slot=…]`、`[data-composer-card]`、`[data-conversation-scroll]`、
+   `[role="dialog"]`、`[data-shell-overlay]`——宿主渲染时写死的属性，不随构建变化。
+2. **去哈希兜底**：`:is(.H0stHa_details,[class$="_details"])`，在保留当前哈希的同时
+   按局部名后缀匹配，宿主换 hash 后仍然命中。用 `node scripts/add-host-local-fallbacks.mjs`
+   生成；它**只在规则已带语义作用域时**加兜底——`_root` 在宿主里有 37 个组件共用、
+   `_row` 29 个，裸写 `[class$="_root"]` 会把侧栏内边距糊到整个应用上。个别关键面板
+   改用元素类型收窄（轨迹详情面板是 `aside[class$="_details"]`）。
+3. **历史版本兼容**：`Sh0Q9G_*`、`ccegLa_*` 等旧宿主哈希保留，并登记在
+   `test/mobile-adapter.test.mjs`；一旦某个类名重新出现在宿主中，测试会要求把它删掉。
+
+仓库根 `test/fixtures/host-classes.json` 是宿主类名快照（桌面版 + Web 版，与
+`dsh-zcode-theme` 共用），宿主升级后重新采集：
+
+```bash
+node scripts/harvest-host-classes.mjs --all          # 桌面版 + Web 版一起采，推荐
+node scripts/harvest-host-classes.mjs --web          # 只采 `dsh web` 的前端
+node scripts/add-host-local-fallbacks.mjs            # 给新出现的类名补去哈希兜底
+node scripts/add-host-local-fallbacks.mjs --check    # 只检查，有未兜底项则以非零退出
 ```
 
 ## 重启生效
