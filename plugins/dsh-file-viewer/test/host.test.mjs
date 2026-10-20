@@ -2267,3 +2267,96 @@ test('a commit diff narrowed to one path only reads that file', async () => {
   const diffCall = git.calls.find((call) => call[1] === 'diff')
   assert.deepEqual(diffCall.slice(-2), ['--', 'src/app.ts'])
 })
+
+test('a commit diff filtered to one file keeps rename detection', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const parent = 'b2c3d4e5f6a7'
+  const diffCalls = []
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('main\n')
+    if (args[0] === 'rev-list') return ok(`${sha} ${parent}\n`)
+    if (args[0] === 'diff') {
+      diffCalls.push(args)
+      // With both paths git can pair the rename; this is the output it would
+      // print, and the point is that the caller asked for both.
+      return ok([
+        'diff --git a/old.ts b/renamed.ts',
+        'similarity index 94%',
+        'rename from old.ts',
+        'rename to renamed.ts',
+        '@@ -1 +1 @@',
+        '-a',
+        '+b',
+      ].join('\n'))
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitDiff', {
+    root: ROOT, sha, path: 'renamed.ts', oldPath: 'old.ts',
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.value.files[0].status, 'R')
+  assert.equal(result.value.files[0].oldPath, 'old.ts')
+  // Both sides are handed to git: filtering by one alone makes `-M` report an
+  // unrelated add plus delete instead of the rename.
+  const paths = diffCalls[0].slice(diffCalls[0].indexOf('--') + 1)
+  assert.deepEqual(paths.sort(), ['old.ts', 'renamed.ts'])
+})
+
+test('a commit diff without a rename passes only the one path', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const parent = 'b2c3d4e5f6a7'
+  const diffCalls = []
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('main\n')
+    if (args[0] === 'rev-list') return ok(`${sha} ${parent}\n`)
+    if (args[0] === 'diff') {
+      diffCalls.push(args)
+      return ok(['diff --git a/a.ts b/a.ts', '--- a/a.ts', '+++ b/a.ts', '@@ -1 +1 @@', '-x', '+y'].join('\n'))
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitDiff', {
+    root: ROOT, sha, path: 'a.ts',
+  })
+  assert.equal(result.ok, true)
+  const paths = diffCalls[0].slice(diffCalls[0].indexOf('--') + 1)
+  assert.deepEqual(paths, ['a.ts'])
+})
+
+test('an old path outside the repository is refused like the new one', async () => {
+  // The checkout is a subdirectory of the root, so a root-relative path has to
+  // start with that subdirectory. A path that does not is not part of this
+  // repository and has no git form.
+  const tree = {
+    'D:/work': { type: 'directory', entries: [{ name: 'app', type: 'directory' }, { name: 'other', type: 'directory' }] },
+    'D:/work/app/.git': { type: 'directory' },
+  }
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+      return cwd === 'D:/work/app'
+        ? ok('D:/work/app\n')
+        : { ok: false, stdout: '', stderr: 'fatal: not a git repository' }
+    }
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('refs/heads/main\n')
+    return undefined
+  })
+  const ctx = createCtx(createFs(tree), { workspaces: ['D:/work'] })
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitDiff', {
+    root: 'D:/work', repo: 'app', sha: 'a1b2c3d4e5f6',
+    path: 'app/renamed.ts', oldPath: 'other/stray.ts',
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'outside-root')
+})

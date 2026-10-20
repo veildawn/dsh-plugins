@@ -1931,11 +1931,24 @@ export async function readGitCommitDiff(ctx, options, payload, signal) {
   if (wanted === null && typeof payload?.path === 'string' && payload.path !== '') {
     throw new ViewerError('outside-root', '该文件不在当前根目录内')
   }
+  // A rename has two paths, and filtering by only one of them defeats rename
+  // detection: git then reports the pair as an unrelated delete plus an add
+  // (measured — `-- new-name` prints "new file mode", `-- old-name` prints
+  // "deleted file mode"). Passing both keeps `-M` able to pair them.
+  const wantedOld = typeof payload?.oldPath === 'string' && payload.oldPath !== ''
+    ? repoRelativeFromRoot(placement, payload.oldPath)
+    : null
+  if (wantedOld === null && typeof payload?.oldPath === 'string' && payload.oldPath !== '') {
+    throw new ViewerError('outside-root', '该文件不在当前根目录内')
+  }
 
   const base = hasParent
     ? ['diff', '--no-color', '-M', parentSha, sha]
     : ['show', '--no-color', '--format=', '--first-parent', sha]
-  const args = wanted === null ? base : [...base, '--', wanted]
+  const paths = wanted === null
+    ? []
+    : [...new Set([wanted, ...(wantedOld === null ? [] : [wantedOld])])]
+  const args = paths.length === 0 ? base : [...base, '--', ...paths]
   const result = await run(repo.toplevel, args, signal)
   if (result?.ok !== true) throw new ViewerError('git-failed', '无法读取该提交的改动内容')
 

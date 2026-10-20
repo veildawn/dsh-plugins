@@ -2606,8 +2606,11 @@ test('a commit preview reads the commit blob and says so', () => {
   // The read is routed by whether a commit is being previewed.
   assert.match(source, /const fromCommit = typeof commit === "string" && commit !== ""/)
   assert.match(source, /const readMethod = fromCommit \? "gitCommitFile" : "read"/)
-  // A historical blob has no working-tree diff to show.
-  assert.match(source, /if \(fromCommit\) \{\s*\n\s*setDiffData\(null\)/)
+  // A historical file is diffed against its own commit, not the index — the
+  // working-tree comparison would answer a different question. When the commit
+  // is unknown there is nothing to diff against at all.
+  assert.match(source, /request\("gitCommitDiff", \{/)
+  assert.match(source, /if \(fromCommit\) \{\s*\n\s*if \(diffSha === ""\) \{\s*\n\s*setDiffData\(null\)/)
   // The pane states its provenance rather than looking like the current file.
   assert.match(source, /className: "fv-history-banner"/)
   assert.match(source, /这是历史版本，不是工作区当前内容/)
@@ -3158,4 +3161,60 @@ test('a plain file is never read as a history blob', () => {
       `unexpected preview commit source: ${opener}`,
     )
   }
+})
+
+/* -------------------------------------------------------------------------- *
+ * A file opened from a commit offers both its diff and its contents
+ *
+ * Clicking a row in a commit's changed-file list means "show me what changed
+ * here". The pane therefore lands on the diff and keeps the full text one press
+ * away — and for a rename the patch must stay a rename rather than degrading
+ * into an unrelated delete plus add.
+ * -------------------------------------------------------------------------- */
+
+test('a commit file records the commit to diff against and its old path', () => {
+  const source = read('lib/client.js')
+  // The blob may come from the parent (a deletion), so the commit being viewed
+  // is recorded separately from the commit being read.
+  assert.match(source, /diffSha: sha,/)
+  // A rename's old path is handed to the host so `-M` can still pair the two.
+  assert.match(source, /oldPath: typeof file\.oldPath === "string" && file\.oldPath !== "" \? file\.oldPath : null,/)
+})
+
+test('a historical file is diffed against its own commit', () => {
+  const source = read('lib/client.js')
+  assert.match(source, /request\("gitCommitDiff", \{\s*\n\s*root,\s*\n\s*repo,\s*\n\s*sha: diffSha,/)
+  // The clicked row addresses the path, so a rename's old path is not used here.
+  assert.match(source, /path: meta\.rowPath \|\| meta\.path,/)
+  // The per-file section is what this pane shows.
+  assert.match(source, /const first = val !== null && Array\.isArray\(val\.files\) \? val\.files\[0\] : null;/)
+})
+
+test('the diff tab appears for a file loaded as rows', () => {
+  const source = read('lib/client.js')
+  // A commit's per-file section arrives pre-parsed as rows, not as hunks; a
+  // check that only looked at `diffs` would hide the tab entirely.
+  assert.match(source, /\(Array\.isArray\(diffData\.rows\) && diffData\.rows\.length > 0\)/)
+  assert.match(source, /\(Array\.isArray\(diffData\.diffs\) && diffData\.diffs\.length > 0\)/)
+})
+
+test('opening from a commit lands on the diff, and the choice then sticks', () => {
+  const source = read('lib/client.js')
+  // A ref records that the reader chose a view, so the automatic landing does
+  // not fight them afterwards.
+  assert.match(source, /const viewChosen = react\.useRef\(false\);/)
+  assert.match(source, /if \(!viewChosen\.current && loaded !== null && loaded\.hasDiff\) \{/)
+  assert.match(source, /viewChosen\.current = true;\s*\n\s*setDiffMode\(true\);/)
+  // Every tab press counts as a choice.
+  const presses = source.match(/onClick: \(\) => \{ viewChosen\.current = true;/g) || []
+  assert(presses.length >= 3, 'each tab press must record the choice')
+})
+
+test('the diff leads only for a file opened from a commit', () => {
+  const source = read('lib/client.js')
+  // A working-tree file keeps the content tab first: there the reader opened
+  // the file itself, not a change to it.
+  assert.match(source, /\.\.\.\(fromCommit && diffTab !== null\s*\n\s*\? \[diffTab, contentTab, sourceTab\]\s*\n\s*: \[contentTab, sourceTab, diffTab\]\)/)
+  // The label is explicit when the two views are siblings.
+  assert.match(source, /fromCommit \? "完整内容" : "内容"/)
 })

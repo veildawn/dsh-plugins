@@ -3347,6 +3347,9 @@ window.__ModuleLoader__.load({
         // from the working tree: the two differ exactly when the history is
         // interesting, and a deleted file has no working-tree copy at all.
         const fromCommit = typeof commit === "string" && commit !== "";
+        // Whether the reader has picked a view themselves. The automatic landing
+        // on the diff happens once per mount and then stays out of the way.
+        const viewChosen = react.useRef(false);
 
         react.useEffect(() => {
           let live = true;
@@ -3366,10 +3369,40 @@ window.__ModuleLoader__.load({
           }).catch((error) => {
             if (live) setState({ status: "error", data: null, error });
           });
-          // The working-tree diff is meaningless for a historical blob: it
-          // compares the file with the index, not with the parent commit.
+          // A historical file is diffed against its own commit, not against the
+          // index: the working-tree comparison would answer a different
+          // question and show changes made after this commit.
+          const diffSha = typeof meta.diffSha === "string" && meta.diffSha !== "" ? meta.diffSha : "";
           if (fromCommit) {
-            setDiffData(null);
+            if (diffSha === "") {
+              setDiffData(null);
+              return () => { live = false; };
+            }
+            request("gitCommitDiff", {
+              root,
+              repo,
+              sha: diffSha,
+              path: meta.rowPath || meta.path,
+              ...(meta.oldPath ? { oldPath: meta.oldPath } : {}),
+            }).then((val) => {
+              if (!live) return;
+              // `gitCommitDiff` returns per-file sections; this view shows the
+              // one file it asked for.
+              const first = val !== null && Array.isArray(val.files) ? val.files[0] : null;
+              const loaded = first === null || first === undefined
+                ? null
+                : { hasDiff: first.rows.length > 0, rows: first.rows, diffs: [], summary: { added: first.added, removed: first.removed } };
+              setDiffData(loaded);
+              // The reader opened this file *from* the change list, so the
+              // change is what they came to see; the full text is one press
+              // away and their own choice wins from then on.
+              if (!viewChosen.current && loaded !== null && loaded.hasDiff) {
+                viewChosen.current = true;
+                setDiffMode(true);
+              }
+            }).catch(() => {
+              if (live) setDiffData(null);
+            });
             return () => { live = false; };
           }
           request("diff", { root, path: meta.path }).then((val) => {
@@ -3378,7 +3411,7 @@ window.__ModuleLoader__.load({
             if (live) setDiffData(null);
           });
           return () => { live = false; };
-        }, [root, meta.path, offset, lang, fromCommit, commit, repo]);
+        }, [root, meta.path, offset, lang, fromCommit, commit, repo, meta.diffSha, meta.rowPath, meta.oldPath]);
 
         if (state.status === "error") {
           return react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error));
@@ -3389,7 +3422,10 @@ window.__ModuleLoader__.load({
         // A rendered preview needs the whole document. Past the host's preview
         // budget only windowed lines arrive, so the source view is all there is.
         const canPreview = (data.kind === "markdown" || data.kind === "json") && typeof data.text === "string";
-        const hasDiff = Boolean(diffData && diffData.hasDiff && diffData.diffs && diffData.diffs.length > 0);
+        const hasDiff = Boolean(diffData && diffData.hasDiff && (
+          (Array.isArray(diffData.rows) && diffData.rows.length > 0)
+          || (Array.isArray(diffData.diffs) && diffData.diffs.length > 0)
+        ));
         const diffSummary = diffData && diffData.summary;
         const showTabs = canPreview || hasDiff;
 
@@ -3465,36 +3501,42 @@ window.__ModuleLoader__.load({
         // Only the source view scrolls sideways; a rendered preview already
         // reflows, so the attribute is pointless there and would just confuse.
         const wrapping = wrap && (!canPreview || raw);
+        // Both answers belong to the same question when a file is opened from a
+        // commit: "what changed here" and "what does it contain". The diff leads
+        // in that case, because it is what the reader came for; opening the
+        // working-tree copy keeps the content tab first.
+        const diffTab = hasDiff
+          ? react.createElement("button", {
+            key: "diff",
+            type: "button", className: "fv-tab fv-tab-diff", "aria-selected": diffMode ? "true" : "false",
+            onClick: () => { viewChosen.current = true; setDiffMode(true); },
+          },
+            "改动",
+            diffSummary && (diffSummary.added > 0 || diffSummary.removed > 0)
+              ? react.createElement("span", { className: "fv-diff-stat" },
+                  diffSummary.added > 0 ? react.createElement("span", { className: "fv-diff-add" }, `+${diffSummary.added}`) : null,
+                  (diffSummary.added > 0 && diffSummary.removed > 0) ? " " : "",
+                  diffSummary.removed > 0 ? react.createElement("span", { className: "fv-diff-del" }, `-${diffSummary.removed}`) : null)
+              : null)
+          : null;
+        const contentTab = react.createElement("button", {
+          key: "content",
+          type: "button", className: "fv-tab", "aria-selected": (!raw && !diffMode) ? "true" : "false",
+          onClick: () => { viewChosen.current = true; setRaw(false); setDiffMode(false); },
+        }, canPreview ? (data.kind === "markdown" ? "预览" : "结构") : (fromCommit ? "完整内容" : "内容"));
+        const sourceTab = canPreview
+          ? react.createElement("button", {
+            key: "source",
+            type: "button", className: "fv-tab", "aria-selected": (raw && !diffMode) ? "true" : "false",
+            onClick: () => { viewChosen.current = true; setRaw(true); setDiffMode(false); },
+          }, "源码")
+          : null;
+
         const tabs = showTabs
           ? react.createElement("div", { className: "fv-sheet-tabs", role: "tablist" },
-            canPreview
-              ? react.createElement("button", {
-                type: "button", className: "fv-tab", "aria-selected": (!raw && !diffMode) ? "true" : "false",
-                onClick: () => { setRaw(false); setDiffMode(false); },
-              }, data.kind === "markdown" ? "预览" : "结构")
-              : react.createElement("button", {
-                type: "button", className: "fv-tab", "aria-selected": (!raw && !diffMode) ? "true" : "false",
-                onClick: () => { setRaw(false); setDiffMode(false); },
-              }, "内容"),
-            canPreview
-              ? react.createElement("button", {
-                type: "button", className: "fv-tab", "aria-selected": (raw && !diffMode) ? "true" : "false",
-                onClick: () => { setRaw(true); setDiffMode(false); },
-              }, "源码")
-              : null,
-            hasDiff
-              ? react.createElement("button", {
-                type: "button", className: "fv-tab fv-tab-diff", "aria-selected": diffMode ? "true" : "false",
-                onClick: () => setDiffMode(true),
-              },
-                "改动",
-                diffSummary && (diffSummary.added > 0 || diffSummary.removed > 0)
-                  ? react.createElement("span", { className: "fv-diff-stat" },
-                      diffSummary.added > 0 ? react.createElement("span", { className: "fv-diff-add" }, `+${diffSummary.added}`) : null,
-                      (diffSummary.added > 0 && diffSummary.removed > 0) ? " " : "",
-                      diffSummary.removed > 0 ? react.createElement("span", { className: "fv-diff-del" }, `-${diffSummary.removed}`) : null)
-                  : null)
-              : null)
+            ...(fromCommit && diffTab !== null
+              ? [diffTab, contentTab, sourceTab]
+              : [contentTab, sourceTab, diffTab]).filter((tab) => tab !== null))
           : null;
         return react.createElement(react.Fragment, null,
           tabs,
@@ -4456,6 +4498,13 @@ window.__ModuleLoader__.load({
               displayPath: baseNameOf(blobPath) + " @ " + readSha.slice(0, 7),
               kind: component,
               commit: readSha,
+              // Opening a changed file must offer both halves of the question:
+              // what this commit changed in it, and what the file looks like.
+              // `diffSha` is the commit being viewed (the blob may come from
+              // its parent for a deletion), and `oldPath` is what lets the host
+              // keep rename detection intact when filtering the patch.
+              diffSha: sha,
+              oldPath: typeof file.oldPath === "string" && file.oldPath !== "" ? file.oldPath : null,
               // The commit records whether the file was added, modified or
               // deleted; the preview says so instead of looking like a normal
               // working-tree file.
