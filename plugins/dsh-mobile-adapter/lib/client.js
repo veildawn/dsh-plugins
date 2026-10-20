@@ -111,13 +111,26 @@ window.__ModuleLoader__.load({
         .TS9iAW_actions{height:auto!important;max-width:100%;min-width:0;overflow:visible!important}
         [data-chat-flow] [class*="_actions"] button{box-sizing:border-box;flex:0 0 32px;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;border-radius:50%!important;padding:5px}
         [data-chat-flow] [class*="_actions"] :where([class*="_timeStart"],[class*="_timeEnd"]){display:none!important}
-        /* 移动端不显示「N 轮 M 步 · tokens/s」「用量 · 缓存命中」这组统计药丸：
-           窄屏上它必然折行，把 32px 的上下文 meter 挤出卡片圆角。
-           宿主 0.2.1-rc.2 把该组件从 dsh-client-ui-conversation 迁到
-           dsh-client-ui-chat，哈希类名由 FJxK0a_root 变为 bOPqQW_*，旧的
-           单类名规则已不再命中（统计行因此重新冒出并错位）。这里改用宿主渲染时
-           写死的稳定属性 data-composer-stat，不再依赖会随构建变化的哈希类名。 */
-        [data-composer-stat]{display:none!important}
+        /* 输入框下方的 dock（「N 轮 M 步 · tokens/s」「用量 · 缓存命中」统计行
+           与上下文用量圆环）在移动端保持内容完整，不再整行 display:none：
+           隐藏统计行虽然能避开折行，却会让卡片底部凭空多出一块空白，看起来
+           「输入框下方的内容缺失」。这里改为紧凑字号 + 允许折行，再由
+           balanceComposerDock() 动态测量 dock 高度，把整块收回输入卡片内部。
+           选择器只认宿主写死的 data-composer-dock，或脚本在移动端打上的
+           data-dsh-dock（旧宿主只有哈希类名，由 balanceComposerDock() 识别后标记）。
+           不写具体哈希类名：附件队列 _7yHdaG_dock 也以 _dock 结尾，误伤它会把
+           附件面板的排版一起改掉。 */
+        [data-composer-dock],[data-dsh-dock]{box-sizing:border-box;width:auto;max-width:100%;min-width:0;flex-wrap:wrap!important;justify-content:center!important;align-items:center!important;row-gap:2px!important;column-gap:8px!important;padding:2px 10px 0!important}
+        [data-composer-dock] [data-composer-stat],[data-dsh-dock] [data-composer-stat]{min-width:0;max-width:100%;font-size:11px!important;line-height:15px!important}
+        [data-composer-dock] [data-composer-stat] :is(button,span),[data-dsh-dock] [data-composer-stat] :is(button,span){box-sizing:border-box;font-size:11px!important;line-height:15px!important;padding:0 2px!important;gap:3px!important}
+        [data-composer-dock] [data-composer-stat] svg,[data-dsh-dock] [data-composer-stat] svg{width:12px!important;height:12px!important;flex:none}
+        /* 由脚本配平的收纳态：卡片预留出 dock 的高度，dock 用等量负边距回到
+           卡片内部。高度取自真实测量值（--dsh-dock-reserve），所以统计行折行、
+           meter 高度随宿主换代变化时都不会再出现「圆环浮在输入框外」或
+           「卡片底部留一大块空白」。旧实现依赖 :has(+dock :is(...))，在
+           不支持 :has() 的移动端内核上整条失效，正是圆环掉出卡片的原因。 */
+        [data-composer-card][data-dsh-dock-reserve]{padding-bottom:calc(var(--dsh-dock-reserve,0px) + 2px)!important}
+        [data-dsh-dock-balanced]{box-sizing:border-box!important;width:auto!important;max-width:100%!important;margin-top:calc(0px - var(--dsh-dock-reserve,0px))!important;padding:0 12px 6px!important;position:relative!important;z-index:1!important}
         [data-composer-seat]{flex:none;bottom:0;padding-bottom:max(8px,var(--dsh-sab))}
         [data-composer-card]{box-sizing:border-box;max-width:none!important;border-radius:18px!important;padding:8px 10px 6px!important}
         [data-composer-card]>:last-child{box-sizing:border-box;display:flex;width:100%;min-height:44px;flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:space-between;gap:4px!important;padding:4px 8px 8px!important;overflow:visible!important}
@@ -172,13 +185,8 @@ window.__ModuleLoader__.load({
         .ccegLa_primary:active{transform:scale(.96)!important}
         .Sh0Q9G_trigger,.iWlSmW_trigger,.ccegLa_select,.rS3zOq_chip,._7KE1Ra_trigger{box-sizing:border-box;height:32px!important;min-height:32px!important;font-size:12px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
         .rS3zOq_chip{box-sizing:border-box!important;width:max-content!important;height:32px!important;min-width:max-content!important;min-height:32px!important;padding:0 10px!important;border-radius:999px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;gap:4px!important;white-space:nowrap!important;overflow:visible!important;flex:none!important;line-height:1!important}
-        /* 上下文用量按钮属于输入区：宿主把 dock（统计行 + 上下文 meter）放在卡片下方，
-           而上面的 32x32 统一按钮样式会让 meter 看起来"浮"在输入框外面。这里在渲染了
-           meter、且 dock 没有计划复核/待办面板时，把 dock 收回卡片内部（卡片补足底部
-           内边距，dock 负边距上移），按钮与统计行都落在输入框的圆角内。卡片是
-           position:relative，dock 必须同样定位并抬高层级，否则会被卡片背景盖住。 */
-        [data-composer-card]:has(+:is(.ccegLa_dock,[class$="_dock"]) :is(.NXnJXa_root,[class$="_root"])):not(:has(+:is(.ccegLa_dock,[class$="_dock"]) [data-plan-review-scroll])):not(:has(+:is(.ccegLa_dock,[class$="_dock"]) [data-plan-review-key])){padding-bottom:40px!important}
-        [data-composer-card]:has(+:is(.ccegLa_dock,[class$="_dock"]) :is(.NXnJXa_root,[class$="_root"]))+:is(.ccegLa_dock,[class$="_dock"]):not(:has([data-plan-review-scroll])):not(:has([data-plan-review-key])){width:auto!important;max-width:100%!important;margin-top:-38px!important;padding:0 12px 6px!important;position:relative!important;z-index:1!important}
+        /* 计划复核/待办面板出现时不收纳 dock：面板需要完整的纵向空间，负边距会
+           把它和输入区叠在一起。具体的高度配平由 balanceComposerDock() 负责。 */
         [data-plan-review-key],[data-slot="conversation.composer.dock"],[data-plan-review-scroll]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;display:flex!important;flex-direction:column!important;overflow:visible!important}
         [data-plan-review-scroll]{max-height:min(45dvh,360px)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important}
         .Sh0Q9G_trigger,.iWlSmW_trigger,.ccegLa_select{max-width:32px!important;min-width:32px!important}
@@ -448,6 +456,69 @@ window.__ModuleLoader__.load({
         plan,
         preset,
       }
+    }
+
+    /**
+     * 把输入框下方的 dock（「N 轮 M 步 · tokens/s」「用量 · 缓存命中」统计行 +
+     * 上下文用量圆环）收回输入卡片内部。
+     *
+     * 宿主把 dock 渲染成卡片的下一个兄弟节点，视觉上落在卡片外下方；移动端要让它
+     * 出现在卡片圆角内，只能靠「卡片补底部内边距 + dock 负边距上移」这一对配平。
+     * 旧实现用 `:has(+dock :is(...))` 选择器 + 固定 40px / -38px 魔法数，有两个
+     * 静默失效的场景：
+     *   1. 浏览器不支持 :has()（Safari < 15.4、Chrome < 105、部分移动端内核），
+     *      整条规则不生效，圆环掉回卡片外——用户看到的就是「输入框下方的内容缺失」；
+     *   2. 宿主换代后 meter 尺寸变化或统计行折行，固定的魔法数不再配平。
+     * 这里改为测量 dock 的真实高度写进 --dsh-dock-reserve，卡片底部内边距与 dock
+     * 负边距同时引用它，任何折行/尺寸变化都能自动对齐。
+     *
+     * @param {Document} doc - 宿主文档。
+     * @param {boolean} mobile - 当前是否移动端视口。
+     */
+    function balanceComposerDock(doc, mobile) {
+      const card = typeof doc?.querySelector === 'function' ? doc.querySelector('[data-composer-card]') : null
+      const dock = card?.nextElementSibling ?? null
+      const classes = typeof dock?.className === 'string' ? dock.className : ''
+      const isDock = dock != null
+        && (dock.hasAttribute?.('data-composer-dock') === true || /(?:^|\s)\S*_dock(?:\s|$)/.test(classes))
+      // 计划复核/待办面板需要完整纵向空间，负边距会把它和输入区叠在一起。
+      const planOpen = isDock && typeof dock.querySelector === 'function'
+        ? dock.querySelector('[data-plan-review-scroll],[data-plan-review-key]') != null
+        : false
+      const reset = () => {
+        if (card != null) {
+          card.removeAttribute?.('data-dsh-dock-reserve')
+          card.style?.removeProperty?.('--dsh-dock-reserve')
+        }
+        if (dock != null) {
+          dock.removeAttribute?.('data-dsh-dock')
+          dock.removeAttribute?.('data-dsh-dock-balanced')
+          dock.style?.removeProperty?.('--dsh-dock-reserve')
+        }
+      }
+      if (!mobile || card == null || !isDock || planOpen) {
+        reset()
+        return
+      }
+      // 先进入配平态再量高度：配平态把 dock 的内边距从 2px/0 换成 0/6px，
+      // 先量未配平态会少算 4px，dock 底部就会从卡片边缘探出去。加属性与写变量
+      // 在同一个同步任务里完成，浏览器不会绘制中间帧。
+      // 脚本识别出的 dock 只用自己的 data 标记驱动样式：宿主的类名/属性各版本不同，
+      // 旧宿主（例如桌面版的 Qt4Hga_dock）既没有 data-composer-dock，也不叫 ccegLa_dock，
+      // 只按类名写 CSS 会让「JS 认得出的 dock」拿不到配平样式。
+      if (dock.hasAttribute?.('data-dsh-dock') !== true) dock.setAttribute?.('data-dsh-dock', '')
+      if (card.hasAttribute?.('data-dsh-dock-reserve') !== true) card.setAttribute?.('data-dsh-dock-reserve', '')
+      if (dock.hasAttribute?.('data-dsh-dock-balanced') !== true) dock.setAttribute?.('data-dsh-dock-balanced', '')
+      // dock 的高度不受自身 margin 影响，直接量即可（border-box，含 padding）。
+      const rect = typeof dock.getBoundingClientRect === 'function' ? dock.getBoundingClientRect() : null
+      const height = Math.round(rect?.height ?? 0)
+      if (!(height > 0)) {
+        reset()
+        return
+      }
+      const reserve = `${height}px`
+      if (card.style?.getPropertyValue?.('--dsh-dock-reserve') !== reserve) card.style?.setProperty?.('--dsh-dock-reserve', reserve)
+      if (dock.style?.getPropertyValue?.('--dsh-dock-reserve') !== reserve) dock.style?.setProperty?.('--dsh-dock-reserve', reserve)
     }
 
     function mount(ctx, doc = document, win = window) {
@@ -785,6 +856,7 @@ window.__ModuleLoader__.load({
             addBtn.style.removeProperty('display')
           }
         }
+        balanceComposerDock(doc, mobile)
       }
 
       const isRightbarOpen = () => {
@@ -1001,6 +1073,8 @@ window.__ModuleLoader__.load({
         if (addBtn && typeof addBtn.style?.removeProperty === 'function') {
           addBtn.style.removeProperty('display')
         }
+        // 卸载时撤掉 dock 配平，避免把卡片内边距/负边距留在宿主页面上
+        balanceComposerDock(doc, false)
       }
     }
 
@@ -1010,7 +1084,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply
     exports.inject = inject
-    exports.internals = { MOBILE_QUERY, css, mount, statusOf, titleOf }
+    exports.internals = { MOBILE_QUERY, css, mount, statusOf, titleOf, balanceComposerDock }
     return module.exports
   },
 })

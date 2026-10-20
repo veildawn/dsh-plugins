@@ -329,7 +329,7 @@ test('Mobile sidebar keeps one symmetric 12px content inset', () => {
   assert.match(css, /\.YDXeBa_sessionRow \.YDXeBa_time\{display:none!important\}/)
 })
 
-test('Conversation mobile CSS keeps a bounded scrollport and permanently hides message and composer stats', () => {
+test('Conversation mobile CSS keeps a bounded scrollport and compact composer stats', () => {
   const css = cssForAssertions
   assert.match(css, /max-width:768px/)
   assert.match(css, /\.dsh-mobile-bar\{[^}]*display:flex/)
@@ -352,11 +352,15 @@ test('Conversation mobile CSS keeps a bounded scrollport and permanently hides m
   assert.match(css, /\[data-chat-flow\] \[class\*="_actions"\]\{[^}]*flex-wrap:wrap!important;[^}]*width:100%!important;[^}]*height:auto!important;[^}]*overflow:visible!important/)
   assert.match(css, /\[data-chat-flow\] \[class\*="_actions"\] button\{[^}]*flex:0 0 32px;[^}]*width:32px!important;[^}]*height:32px!important;[^}]*min-width:32px!important;[^}]*min-height:32px!important;[^}]*border-radius:50%!important/)
   assert.match(css, /\[class\*="_timeStart"\],\[class\*="_timeEnd"\][^}]*display:none!important/)
-  // 统计药丸必须用宿主渲染时写死的稳定属性隐藏：宿主 0.2.1-rc.2 把该组件从
-  // dsh-client-ui-conversation 迁到 dsh-client-ui-chat，哈希类名由 FJxK0a_root
-  // 变成 bOPqQW_*，只认旧类名的规则会静默失效，统计行重新冒出并挤掉 meter。
-  assert.match(css, /\[data-composer-stat\]\{display:none!important\}/,
-    '统计药丸必须按 data-composer-stat 隐藏，不能再依赖会随宿主构建变化的哈希类名')
+  // 统计药丸不能再整行隐藏：宿主把「N 轮 M 步 · tokens/s」「用量 · 缓存命中」
+  // 渲染在输入卡片下方的 dock 里，用户反馈隐藏后「输入框下方的内容缺失」。
+  // 现在改为保留内容 + 紧凑字号，由 balanceComposerDock() 动态配平高度。
+  assert.doesNotMatch(css, /\[data-composer-stat\]\{display:none/,
+    '统计药丸不允许再被整行隐藏，否则输入框下方会凭空空出一块')
+  assert.match(css, /\[data-composer-dock\] \[data-composer-stat\][^{]*\{[^}]*font-size:11px!important/,
+    '统计药丸在移动端改用紧凑字号，折行时不撑高输入卡片')
+  assert.match(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*flex-wrap:wrap!important;[^}]*justify-content:center!important/,
+    'dock 必须允许折行并居中，统计行与圆环才能完整显示')
   assert.doesNotMatch(css, /\.FJxK0a_root\{display:none/, '失效的旧哈希类名规则必须移除')
   assert.doesNotMatch(css, /stats-expanded/)
   // 只断言当前宿主真实存在的前缀：p-xYUq / osXY9a 在 Web 版与桌面版都已不存在，
@@ -403,17 +407,27 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /\.ccegLa_dock>\[data-slot="conversation\.composer\.dock"\]\{flex:1 1 auto!important;width:auto!important;min-width:0!important/)
   assert.match(css, /\.dsh-mobile-upload-btn,\s*\.dsh-mobile-tools-btn,\s*\.Sh0Q9G_trigger,\s*\.iWlSmW_trigger,\s*\.term-composer-btn,\s*\._7KE1Ra_trigger\s*\{/,
     '统一圆钮规范的选择器列表不再包含 meter，且同时覆盖新旧权限选择器哈希')
-  // 上下文 meter 必须留在输入框内：卡片补足底部内边距，dock 以负边距收回卡内。
-  // 统计药丸已隐藏，dock 里只剩 32px 的 meter 药丸 + 6px 下内边距 = 38px，
-  // 所以卡片留 40px、dock 上移 38px；两者必须配平，否则 meter 会被圆角裁掉或浮空。
-  assert.match(css, /\[data-composer-card\]:has\(\+\.ccegLa_dock \.NXnJXa_root\)[^{]*\{[^}]*padding-bottom:40px!important\}/,
-    '卡片底部必须为收起后的单行 meter 预留高度')
-  assert.match(css, /\[data-composer-card\]:has\(\+\.ccegLa_dock \.NXnJXa_root\)\+\.ccegLa_dock[^{]*\{[^}]*margin-top:-38px!important/,
-    'dock 负边距必须与卡片预留高度配平（40 - 2 = 38）')
-  assert.match(css, /\[data-composer-card\]:has\(\+\.ccegLa_dock \.NXnJXa_root\)\+\.ccegLa_dock[^{]*\{[^}]*position:relative!important;z-index:1!important/,
+  // 上下文 meter 必须留在输入框内：卡片按 dock 的真实高度补底部内边距，dock 用
+  // 同样的负边距收回卡内。旧实现用 :has(+dock …) + 固定 40px/-38px：浏览器不支持
+  // :has()（Safari < 15.4 / Chrome < 105 / 部分移动端内核）时整条静默失效，圆环
+  // 掉回卡片外，看起来就是「输入框下方的内容缺失」。现在由 balanceComposerDock()
+  // 写入 --dsh-dock-reserve，CSS 只消费这个变量。
+  assert.match(css, /\[data-composer-card\]\[data-dsh-dock-reserve\]\{padding-bottom:calc\(var\(--dsh-dock-reserve,0px\) \+ 2px\)!important\}/,
+    '卡片底部必须按实测 dock 高度预留，不能再写死 40px')
+  assert.match(css, /\[data-dsh-dock-balanced\]\{[^}]*margin-top:calc\(0px - var\(--dsh-dock-reserve,0px\)\)!important/,
+    'dock 负边距必须与卡片预留高度用同一个变量配平')
+  assert.match(css, /\[data-dsh-dock-balanced\]\{[^}]*position:relative!important;z-index:1!important/,
     'dock 抬高层级，否则会被 position:relative 的卡片背景盖住')
-  assert.match(css, /\[data-composer-card\]:has\(\+\.ccegLa_dock \.NXnJXa_root\)\+\.ccegLa_dock:not\(:has\(\[data-plan-review-scroll\]\)\):not\(:has\(\[data-plan-review-key\]\)\)/,
-    '面板在场时保持原布局，避免与输入区重叠')
+  // 配平样式只能由脚本标记驱动：宿主的 dock 类名/属性各版本不同（Qt4Hga_dock、
+  // ccegLa_dock、uV2eYG_dock、data-composer-dock），CSS 认类名就会出现
+  // 「JS 认得出、CSS 不认」的错配，圆环再次掉出卡片。
+  assert.doesNotMatch(css, /\[data-dsh-dock-balanced\][^{]*\.ccegLa_dock/,
+    '配平样式不得再与宿主类名绑定')
+  assert.doesNotMatch(css, /:has\(\+[^)]*_dock/,
+    '不允许再用 :has(+dock …) 做收卡：不支持 :has() 的内核上会整条失效')
+  // 计划复核/待办面板在场时不收纳（JS 侧判断，见 balanceComposerDock 用例）。
+  assert.match(css, /\[data-plan-review-key\],\[data-slot="conversation\.composer\.dock"\],\[data-plan-review-scroll\]\{[^}]*width:100%!important/,
+    '计划复核面板需要完整的纵向空间，不能被负边距叠到输入区上')
   // 宿主 0.2.0-rc.2 起输入区是 contenteditable（[data-composer-input]），不再是
   // [data-composer-card] textarea；防 iOS 聚焦自动放大的字号下限必须落在真实元素上。
   assert.match(css, /\[data-composer-input\],\[data-composer-placeholder\]\{font-size:max\(16px,var\(--dsh-content-font-size,14px\)\)!important\}/)
@@ -584,6 +598,74 @@ test('Agent preset is extracted from active headers and new-session hero seats',
   assert.equal(client.internals.statusOf(fresh).text, '新会话 · PTC 模式')
   fresh.heroPreset = '创造模式'
   assert.equal(client.internals.statusOf(fresh).text, '新会话 · 创造模式')
+})
+
+/** 构造一个最小的卡片 + dock 兄弟节点，用来验证收卡配平逻辑。 */
+function dockFixture({ height = 28, plan = false, dataDock = true, dockClass = 'uV2eYG_dock' } = {}) {
+  const makeElement = () => ({
+    attributes: new Set(),
+    setAttribute(name) { this.attributes.add(name) },
+    hasAttribute(name) { return this.attributes.has(name) },
+    removeAttribute(name) { this.attributes.delete(name) },
+  })
+  const card = { ...makeElement(), style: new Style() }
+  const dock = {
+    ...makeElement(),
+    className: dockClass,
+    style: new Style(),
+    getBoundingClientRect: () => ({ height }),
+    querySelector: () => (plan ? { tagName: 'DIV' } : null),
+  }
+  dock.hasAttribute = (name) => (name === 'data-composer-dock' ? dataDock : dock.attributes.has(name))
+  card.nextElementSibling = dock
+  const doc = { querySelector: (selector) => (selector === '[data-composer-card]' ? card : null) }
+  return { doc, card, dock }
+}
+
+test('balanceComposerDock reserves the measured dock height and releases it on desktop', () => {
+  const { doc, card, dock } = dockFixture({ height: 28 })
+  client.internals.balanceComposerDock(doc, true)
+  assert.equal(card.hasAttribute('data-dsh-dock-reserve'), true, '卡片必须进入配平态')
+  assert.equal(dock.hasAttribute('data-dsh-dock-balanced'), true, 'dock 必须进入收纳态')
+  assert.equal(dock.hasAttribute('data-dsh-dock'), true, 'dock 必须被打上脚本标记，配平样式只认这个标记')
+  assert.equal(card.style.getPropertyValue('--dsh-dock-reserve'), '28px')
+  assert.equal(dock.style.getPropertyValue('--dsh-dock-reserve'), '28px')
+
+  // 统计行折行 / 宿主换代改变 meter 高度后，下一次 sync 必须按新高度重新配平
+  dock.getBoundingClientRect = () => ({ height: 46 })
+  client.internals.balanceComposerDock(doc, true)
+  assert.equal(card.style.getPropertyValue('--dsh-dock-reserve'), '46px')
+  assert.equal(dock.style.getPropertyValue('--dsh-dock-reserve'), '46px')
+
+  client.internals.balanceComposerDock(doc, false)
+  assert.equal(card.hasAttribute('data-dsh-dock-reserve'), false, '桌面端必须撤销卡片预留')
+  assert.equal(dock.hasAttribute('data-dsh-dock-balanced'), false, '桌面端必须撤销 dock 收纳')
+  assert.equal(dock.hasAttribute('data-dsh-dock'), false, '桌面端必须撤销 dock 标记')
+  assert.equal(card.style.getPropertyValue('--dsh-dock-reserve'), '')
+  assert.equal(dock.style.getPropertyValue('--dsh-dock-reserve'), '')
+})
+
+test('balanceComposerDock skips plan panels, non-dock siblings and unmeasured docks', () => {
+  // 计划复核面板需要完整纵向空间，不能被负边距叠到输入区上
+  const plan = dockFixture({ plan: true })
+  client.internals.balanceComposerDock(plan.doc, true)
+  assert.equal(plan.card.hasAttribute('data-dsh-dock-reserve'), false)
+  assert.equal(plan.dock.hasAttribute('data-dsh-dock-balanced'), false)
+
+  // 卡片后面跟的不是 composer dock（例如别的面板）时不处理
+  const other = dockFixture({ dataDock: false, dockClass: 'Y0dWHa_panel' })
+  client.internals.balanceComposerDock(other.doc, true)
+  assert.equal(other.card.hasAttribute('data-dsh-dock-reserve'), false)
+
+  // 旧宿主仍有 ccegLa_dock 类名，必须继续识别
+  const legacy = dockFixture({ dataDock: false, dockClass: 'ccegLa_dock' })
+  client.internals.balanceComposerDock(legacy.doc, true)
+  assert.equal(legacy.card.hasAttribute('data-dsh-dock-reserve'), true)
+
+  // dock 还没渲染出高度（例如 meter 尚未出现）时保持原样
+  const empty = dockFixture({ height: 0 })
+  client.internals.balanceComposerDock(empty.doc, true)
+  assert.equal(empty.card.hasAttribute('data-dsh-dock-reserve'), false)
 })
 
 test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work together', (t) => {
