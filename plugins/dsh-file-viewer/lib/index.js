@@ -21,6 +21,9 @@ import path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 
 import {
+  GIT_COMMIT_PAGE_MAX,
+  GIT_COMMIT_PAGE_SIZE,
+  GIT_REPO_SCAN_LIMIT,
   LANGUAGE_CATALOG,
   MAX_BYTES,
   MAX_DOWNLOAD_BYTES,
@@ -29,13 +32,20 @@ import {
   TEXT_PROBE_BYTES,
   appendMention,
   baseNameOf,
+  commitPathWithinRoot,
   contentDispositionFor,
   detectLanguageFromText,
   extensionOf,
   formatDocTextToMarkdown,
+  gitChangeOf,
+  gitStatusBadge,
+  groupGitChanges,
   insertMentionAtCaret,
-  parentOf,
+  isCheckoutableBranch,
+  isCandidateRepoDirectory,
   isHiddenEntry,
+  isSafeBranchName,
+  isSafeCommitSha,
   isSafeRelativePath,
   isTextContent,
   isUtf8TextContent,
@@ -45,11 +55,24 @@ import {
   kindOf,
   langOf,
   mediaTypeOf,
+  normalizeCommitPage,
+  normalizeGitPath,
   normalizeSafePaths,
+  parentOf,
+  parseGitBranchList,
+  parseGitBranches,
+  parseGitCommitDetail,
+  parseGitLog,
+  parseGitNameStatus,
   parseGitStatus,
+  parseGitStatusEntries,
   parsePatchToDiffs,
   parsePatchToRows,
+  parseUnifiedDiffFiles,
   rebaseGitPaths,
+  relativePathWithin,
+  repoRelativeFromRoot,
+  revisionOfBranch,
   resolveLanguage,
   resolveWindow,
   sanitizeDocHtml,
@@ -60,6 +83,9 @@ import {
 } from './core.js'
 
 export {
+  GIT_COMMIT_PAGE_MAX,
+  GIT_COMMIT_PAGE_SIZE,
+  GIT_REPO_SCAN_LIMIT,
   LANGUAGE_CATALOG,
   MAX_BYTES,
   MAX_DOWNLOAD_BYTES,
@@ -68,14 +94,19 @@ export {
   TEXT_PROBE_BYTES,
   appendMention,
   baseNameOf,
+  commitPathWithinRoot,
   contentDispositionFor,
   detectLanguageFromText,
   extensionOf,
   formatDocTextToMarkdown,
+  gitChangeOf,
   insertMentionAtCaret,
+  isCandidateRepoDirectory,
   parentOf,
   sanitizeDocHtml,
   isHiddenEntry,
+  isSafeBranchName,
+  isSafeCommitSha,
   isSafeRelativePath,
   isTextContent,
   isUtf8TextContent,
@@ -85,13 +116,28 @@ export {
   kindOf,
   langOf,
   mediaTypeOf,
+  normalizeCommitPage,
+  normalizeGitPath,
   normalizeSafePaths,
+  parseGitBranchList,
+  parseGitBranches,
+  parseGitCommitDetail,
+  parseGitLog,
+  parseGitNameStatus,
   parseGitStatus,
+  parseGitStatusEntries,
   parsePatchToDiffs,
   parsePatchToRows,
+  parseUnifiedDiffFiles,
   rebaseGitPaths,
+  relativePathWithin,
+  repoRelativeFromRoot,
   resolveLanguage,
   resolveWindow,
+  revisionOfBranch,
+  gitStatusBadge,
+  groupGitChanges,
+  isCheckoutableBranch,
   sortEntries,
   splitLines,
   summarizeDiffs,
@@ -1101,6 +1147,902 @@ export async function getWorkspaceGitStatus(ctx, options, payload, signal) {
   }
 }
 
+/* -------------------------------------------------------------------------- *
+ * Git panel
+ *
+ * The panel has to work for two shapes of workspace, and they are not the same
+ * problem: a root that *is* a checkout (or lives inside one), and a root that
+ * merely *holds* checkouts. Both are resolved here, and the client never sends
+ * a filesystem path back: it sends a repository id from the discovery result,
+ * so `git` can only ever be run in a directory this host enumerated under a
+ * vetted root.
+ *
+ * Every ref and revision that travels as argv is validated first. `execFile`
+ * does not involve a shell, but git still parses a leading dash as an option,
+ * which is why {@link isSafeBranchName} rejects it outright.
+ * -------------------------------------------------------------------------- */
+
+/** Field/record separators git is asked for: neither may appear in a ref. */
+const GIT_FIELD = '%x1f'
+const GIT_RECORD = '%x1e'
+
+/** One commit per record, with the fields the panel actually renders. */
+const GIT_LOG_FORMAT = `%H${GIT_FIELD}%h${GIT_FIELD}%an${GIT_FIELD}%ae${GIT_FIELD}%aI${GIT_FIELD}%cI${GIT_FIELD}%s${GIT_RECORD}`
+
+/** The same fields plus the full message body, for one commit's detail. */
+const GIT_COMMIT_FORMAT = `%H${GIT_FIELD}%h${GIT_FIELD}%an${GIT_FIELD}%ae${GIT_FIELD}%aI${GIT_FIELD}%cI${GIT_FIELD}%s${GIT_FIELD}%B${GIT_RECORD}`
+
+/**
+ * Branch listing, tab separated: `*` marker, full ref, short name, tip, date,
+ * upstream.
+ *
+ * The full ref is requested as well as the short name because a remote branch
+ * and a local branch can share a short name (`origin/main` as a local branch is
+ * legal), and only the full ref distinguishes what may be checked out.
+ */
+const GIT_BRANCH_FORMAT = '%(HEAD)%09%(refname)%09%(refname:short)%09%(objectname:short)%09%(committerdate:iso-strict)%09%(upstream:short)'
+
+/**
+ * Environment for every git call.
+ *
+ * A viewer must never block on a credential prompt or open a pager, and the
+ * optional-locks switch keeps a read-only listing from refreshing the index of
+ * a repository the user is working in.
+ *
+ * `GIT_DIR`, `GIT_WORK_TREE` and friends are removed rather than overridden:
+ * they are inherited from whatever launched DSH, and any one of them redirects
+ * git at a repository outside the root this plugin vetted. `cwd` alone must
+ * decide which repository a call touches.
+ */
+const GIT_ENV = Object.freeze({
+  GIT_OPTIONAL_LOCKS: '0',
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_PAGER: 'cat',
+  LC_ALL: 'C',
+})
+
+/**
+ * Environment variables that bind a git call to a repository or an index.
+ *
+ * Inheriting one of these silently relocates every command, including
+ * `git checkout`, which is the one call in this plugin that writes. They are
+ * deleted from the child environment so the `cwd` passed by the caller is the
+ * only thing that selects a repository.
+ */
+const GIT_REPOSITORY_ENV = Object.freeze([
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_NAMESPACE',
+  'GIT_PREFIX',
+])
+
+/**
+ * Build the child environment for one git call.
+ *
+ * Exported because the removal of the repository-binding variables is the
+ * security-relevant half of confinement and is worth asserting directly.
+ * @param {NodeJS.ProcessEnv} [base] - the ambient environment.
+ * @returns {NodeJS.ProcessEnv} the environment a git child may see.
+ */
+export function gitChildEnv(base = process.env) {
+  const env = { ...base, ...GIT_ENV }
+  for (const key of GIT_REPOSITORY_ENV) delete env[key]
+  return env
+}
+
+/**
+ * Run one git command and report failure as data rather than an exception.
+ *
+ * A missing binary, a directory that is not a checkout and a repository with
+ * no commits are all ordinary states the panel renders, so the caller decides
+ * what each means instead of unwinding through an error path.
+ * @param {string} cwd - absolute directory to run in.
+ * @param {string[]} args - argv, never a shell string.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{ok: boolean, stdout: string, stderr: string}>} the result.
+ */
+async function runGitCommand(cwd, args, signal) {
+  try {
+    const { stdout } = await execFileAsync('git', ['--no-pager', ...args], {
+      cwd,
+      encoding: 'utf8',
+      maxBuffer: 8 * 1024 * 1024,
+      windowsHide: true,
+      signal,
+      // Confinement, not convenience: an inherited GIT_DIR would point git at
+      // a repository outside the root the caller was allowed to read.
+      env: gitChildEnv(),
+    })
+    return { ok: true, stdout: stdout ?? '', stderr: '' }
+  } catch (error) {
+    // Cancellation is the caller's own signal, not a git failure.
+    if (signal?.aborted) throw error
+    // `ENOENT` means the binary is missing, which is a deployment problem and
+    // must not be reported as "this directory is not a repository".
+    if (error?.code === 'ENOENT') return { ok: false, stdout: '', stderr: '', missing: true }
+    return { ok: false, stdout: '', stderr: String(error?.stderr ?? error?.message ?? '') }
+  }
+}
+
+/**
+ * The git runner for this deployment.
+ *
+ * Reads an injectable runner from the resolved config so the host tests can
+ * exercise discovery and paging without a real repository; production never
+ * sets it and gets the subprocess runner above.
+ * @param {(() => object) | object} options - resolved config reader.
+ * @returns {(cwd: string, args: string[], signal?: AbortSignal) => Promise<object>} the runner.
+ */
+function gitRunnerFrom(options) {
+  const opts = typeof options === 'function' ? (options() ?? {}) : (options ?? {})
+  return typeof opts?._runGit === 'function' ? opts._runGit : runGitCommand
+}
+
+/**
+ * Read one line of `git rev-parse` output, or '' when git refused.
+ * @param {Function} run - the git runner.
+ * @param {string} cwd - directory to run in.
+ * @param {string[]} args - arguments after `rev-parse`.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<string>} the first output line.
+ */
+async function gitRevisionOf(run, cwd, args, signal) {
+  const result = await run(cwd, ['rev-parse', ...args], signal)
+  if (result?.ok !== true) return ''
+  return String(result.stdout ?? '').split('\n')[0].trim()
+}
+
+/**
+ * Whether a failed git call means the binary is absent rather than the
+ * directory being something other than a checkout.
+ *
+ * The two used to collapse into "no repository here", which turns a broken
+ * deployment into a confident, wrong answer. Only a spawn failure sets
+ * `missing`; git's own "not a git repository" is an ordinary negative answer.
+ * @param {object} result - one runner result.
+ * @returns {boolean} true when git itself could not be started.
+ */
+function gitUnavailable(result) {
+  return result?.missing === true
+}
+
+/**
+ * Enumerate the checkouts visible from one root.
+ *
+ * The root's own checkout wins when the root sits inside one (a workspace that
+ * is a subdirectory of a repository still reads that repository's history).
+ * Direct subdirectories are probed next, one bounded level deep: only a
+ * directory carrying its own `.git` marker can start a new checkout, so a
+ * single stat rules out every ordinary directory before a git process is
+ * spawned — which matters because this runs each time the panel opens.
+ *
+ * Two things are reported instead of hidden:
+ *   - `truncated`, when the probe budget ran out before every candidate was
+ *     examined, so the client can say the list is incomplete;
+ *   - `scope`, when the root is a subdirectory of the checkout rather than the
+ *     checkout itself, because a checkout there writes outside the root.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{root: object, rootPath: string, repositories: object[], truncated: boolean}>} the placements.
+ */
+async function discoverRepositories(ctx, options, payload, signal) {
+  const { root, target, absolute } = await resolveInRoot(ctx, options, { root: payload?.root, path: '' }, signal)
+  const rootPath = absolute
+  const run = gitRunnerFrom(options)
+  const repositories = []
+  const seen = new Set()
+  let missing = false
+
+  const add = (id, name, toplevel, prefix, rootRelative) => {
+    if (toplevel === '') return
+    const key = process.platform === 'win32' ? toplevel.toLowerCase() : toplevel
+    if (seen.has(key)) return
+    seen.add(key)
+    const normalizedTop = normalizeGitPath(toplevel)
+    const normalizedRoot = normalizeGitPath(rootPath)
+    repositories.push({
+      id,
+      name,
+      path: prefix,
+      toplevel,
+      rootRelative,
+      // `root` means checking a branch out here rewrites exactly the directory
+      // the reader is browsing; `parent` means the checkout lives above it and
+      // a checkout would touch files this root was never allowed to change.
+      scope: normalizedTop === normalizedRoot ? 'root' : 'parent',
+    })
+  }
+
+  const probe = async (cwd, args) => {
+    const result = await run(cwd, ['rev-parse', ...args], signal)
+    if (gitUnavailable(result)) missing = true
+    if (result?.ok !== true) return ''
+    return String(result.stdout ?? '').split('\n')[0].trim()
+  }
+
+  const toplevel = await probe(rootPath, ['--show-toplevel'])
+  if (toplevel !== '') {
+    // `--show-prefix` is git's own answer for "where is this directory inside
+    // the checkout", which avoids comparing paths across symlinked temp dirs.
+    const inside = await probe(rootPath, ['--show-prefix'])
+    add('.', baseNameOf(toplevel) || toplevel, toplevel, '', inside)
+  }
+
+  if (missing) throw new ViewerError('git-unavailable', 'this host cannot run git')
+
+  let entries = []
+  try {
+    entries = await ctx.fs.listDir(target, signal)
+  } catch {
+    entries = []
+  }
+  // Directory listings arrive in filesystem order, which is not stable. Sorting
+  // makes the truncated case reproducible instead of "whichever 32 came first".
+  const candidates = entries
+    .filter((entry) => entry?.type === 'directory' && isCandidateRepoDirectory(entry.name))
+    .sort((left, right) => String(left.name).localeCompare(String(right.name)))
+
+  let scanned = 0
+  let truncated = false
+  for (const entry of candidates) {
+    if (scanned >= GIT_REPO_SCAN_LIMIT) {
+      // The budget bounds *probes*, not discoveries; running out means there
+      // may be more checkouts, which the client has to be able to say.
+      truncated = true
+      break
+    }
+    scanned += 1
+    try {
+      const childPath = joinPath(rootPath, entry.name)
+      const childTarget = await ctx.fs.resolve(childPath, { signal })
+      // A symlinked directory can point outside the root, and running git
+      // there would step over the containment fence this plugin is built on.
+      if (childTarget.targetKey === target.targetKey || !ctx.fs.contains(target, childTarget)) continue
+      const marker = await ctx.fs.stat(await ctx.fs.resolve(joinPath(childPath, '.git'), { signal }), signal)
+      if (marker === undefined) continue
+      const childPhysical = ctx.fs.processPath?.(childTarget) ?? childTarget.targetKey
+      const childTop = await probe(childPhysical, ['--show-toplevel'])
+      if (childTop === '') continue
+      // A nested directory of the parent checkout reports the parent's
+      // toplevel too; it only owns a checkout when git agrees it is the root.
+      const childInside = await probe(childPhysical, ['--show-prefix'])
+      if (childInside !== '') continue
+      const placement = relativePathWithin(rootPath, childTop)
+      if (placement !== null && placement !== entry.name) continue
+      add(entry.name, entry.name, childTop, entry.name, '')
+    } catch {
+      // One unreadable child must not hide the others.
+    }
+  }
+
+  if (missing) throw new ViewerError('git-unavailable', 'this host cannot run git')
+
+  return { root, rootPath, repositories, truncated }
+}
+
+/**
+ * Read a checkout's branches and checked-out state.
+ * @param {Function} run - the git runner.
+ * @param {object} repo - a repository from discovery.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{branches: object[], current: string, detached: boolean, empty: boolean}>} the state.
+ */
+async function readRepositoryState(run, repo, signal) {
+  const listing = await run(repo.toplevel, ['branch', '--all', '--no-color', `--format=${GIT_BRANCH_FORMAT}`], signal)
+  const branches = listing?.ok === true ? parseGitBranchList(listing.stdout) : []
+  const head = await gitRevisionOf(run, repo.toplevel, ['--abbrev-ref', 'HEAD'], signal)
+  const detached = head === 'HEAD'
+  return {
+    branches,
+    current: detached || head === '' ? '' : head,
+    detached,
+    // No HEAD commit yet: a freshly initialized repository has no history.
+    empty: branches.filter((branch) => branch.kind === 'local').length === 0 && head === '',
+  }
+}
+
+/**
+ * Read a checkout's remotes so the panel can say where a branch came from and
+ * whether it is behind.
+ * @param {Function} run - the git runner.
+ * @param {string} toplevel - the checkout root.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{name: string, url: string}[]>} configured remotes.
+ */
+async function readRemotes(run, toplevel, signal) {
+  const result = await run(toplevel, ['remote', '-v'], signal)
+  if (result?.ok !== true) return []
+  const seen = new Map()
+  for (const line of String(result.stdout ?? '').split('\n')) {
+    // `<name>\t<url> (fetch|push)`
+    const match = /^(\S+)\t(\S+)\s+\((fetch|push)\)$/.exec(line.trim())
+    if (match === null) continue
+    const [, name, url, kind] = match
+    if (kind !== 'fetch' || seen.has(name)) continue
+    seen.set(name, { name, url })
+  }
+  return [...seen.values()]
+}
+
+/**
+ * List every branch name in a checkout, used as the allow-list for a checkout
+ * request so an arbitrary revision expression can never be selected.
+ * @param {Function} run - the git runner.
+ * @param {string} toplevel - the checkout root.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<string[]>} branch names.
+ */
+async function readBranchNames(run, toplevel, signal) {
+  const result = await run(toplevel, ['branch', '--all', '--no-color', '--format=%(refname)'], signal)
+  if (result?.ok !== true) return []
+  return String(result.stdout ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+}
+
+/**
+ * Resolve the branch a request names into the revision git should read.
+ *
+ * The client sends the full ref it was given (`refs/heads/main`,
+ * `refs/remotes/origin/main`), never a bare name, so a local branch and a
+ * remote-tracking branch with the same short name stay distinguishable and a
+ * forged name cannot reach a different ref than the one listed.
+ *
+ * @param {Function} run - the git runner.
+ * @param {string} toplevel - the checkout root.
+ * @param {unknown} requested - the client's branch reference.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{ref: string, kind: string, shortName: string}>} the resolved branch.
+ */
+async function resolveBranchRef(run, toplevel, requested, signal) {
+  const wanted = typeof requested === 'string' ? requested : ''
+  if (wanted === '') return { ref: 'HEAD', kind: 'head', shortName: 'HEAD' }
+  if (!isSafeBranchName(wanted) || wanted.startsWith('refs/tags/')) {
+    throw new ViewerError('invalid-branch', '分支名不合法')
+  }
+  const known = await readBranchNames(run, toplevel, signal)
+  if (!known.includes(wanted)) throw new ViewerError('unknown-branch', '该分支不存在')
+  const kind = wanted.startsWith('refs/remotes/') ? 'remote' : 'local'
+  // `%(refname:short)` strips exactly the namespace prefix git itself uses.
+  const shortName = wanted.replace(/^refs\/heads\//, '').replace(/^refs\/remotes\//, '')
+  return { ref: wanted, kind, shortName }
+}
+
+/**
+ * Resolve the repository a request names, re-discovering it from the root.
+ *
+ * The client sends an id it was given, never a path, so a forged request cannot
+ * aim git at a directory outside the vetted root.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, repo?: string}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{root: object, repo: object, run: Function}>} the located repository.
+ */
+async function locateRepository(ctx, options, payload, signal) {
+  const { root, repositories } = await discoverRepositories(ctx, options, payload, signal)
+  if (repositories.length === 0) {
+    throw new ViewerError('not-a-git-repo', '该目录及其子目录都不是 Git 仓库')
+  }
+  const requested = typeof payload?.repo === 'string' && payload.repo !== '' ? payload.repo : repositories[0].id
+  const repo = repositories.find((candidate) => candidate.id === requested)
+  if (repo === undefined) throw new ViewerError('unknown-repository', '请求的仓库不在当前根目录内')
+  return { root, repo, run: gitRunnerFrom(options) }
+}
+
+/**
+ * List the repositories under one root, each with its branches.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{repos: object[], truncated: boolean}>} the repositories.
+ */
+export async function listGitRepositories(ctx, options, payload, signal) {
+  const { repositories, truncated } = await discoverRepositories(ctx, options, payload, signal)
+  const run = gitRunnerFrom(options)
+  const repos = []
+  for (const repo of repositories) {
+    const state = await readRepositoryState(run, repo, signal)
+    const remotes = await readRemotes(run, repo.toplevel, signal)
+    repos.push({
+      id: repo.id,
+      name: repo.name,
+      path: repo.path,
+      // `root` vs `parent` decides whether a checkout stays inside the
+      // directory the reader is browsing, so the client can warn before it.
+      scope: repo.scope,
+      current: state.current,
+      detached: state.detached,
+      empty: state.empty,
+      remotes,
+      branches: state.branches.map((branch) => ({
+        // `refname` is the stable identifier: a local branch may share its
+        // short name with a remote-tracking branch, and only the full ref
+        // says which one a checkout or a history read refers to.
+        name: branch.name,
+        shortName: branch.shortName,
+        kind: branch.kind,
+        remote: branch.remote,
+        current: branch.current,
+        sha: branch.sha,
+        date: branch.date,
+        upstream: branch.upstream,
+        // Browsing a remote branch is read-only; checking it out silently
+        // creates a detached HEAD or a new local branch.
+        checkoutable: branch.kind !== 'remote',
+      })),
+    })
+  }
+  return { repos, truncated }
+}
+
+/**
+ * Page one branch's commit history.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, repo?: string, branch?: string, offset?: number, limit?: number}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<object>} the page plus the totals the pager needs.
+ */
+export async function listGitCommits(ctx, options, payload, signal) {
+  const { repo, run } = await locateRepository(ctx, options, payload, signal)
+  const page = normalizeCommitPage(payload)
+
+  // No branch named: follow whatever is checked out. A remote-tracking branch
+  // is a legitimate choice here, which is why the resolution is shared with
+  // checkout instead of reading a bare `abbrev-ref`.
+  const resolved = await resolveBranchRef(run, repo.toplevel, payload?.branch, signal)
+  const branch = resolved.ref === 'HEAD' ? '' : resolved.ref
+  const rev = resolved.ref
+
+  const count = await run(repo.toplevel, ['rev-list', '--count', rev, '--'], signal)
+  if (count?.ok !== true) {
+    // An empty checkout has no history to page; that is a state, not a fault.
+    return {
+      repository: repo.id, branch, branchKind: resolved.kind, shortName: resolved.shortName,
+      total: 0, offset: 0, limit: page.limit, commits: [], hasMore: false,
+    }
+  }
+  const parsedTotal = Number.parseInt(String(count.stdout ?? '').trim(), 10)
+
+  const log = await run(repo.toplevel, [
+    'log', rev,
+    `--max-count=${page.limit}`,
+    `--skip=${page.offset}`,
+    '--no-color',
+    '--no-decorate',
+    `--format=${GIT_LOG_FORMAT}`,
+    '--',
+  ], signal)
+  if (log?.ok !== true) throw new ViewerError('git-failed', '无法读取提交记录')
+
+  const commits = parseGitLog(log.stdout)
+  const safeTotal = Number.isSafeInteger(parsedTotal) && parsedTotal >= 0 ? parsedTotal : page.offset + commits.length
+  return {
+    repository: repo.id,
+    // The full ref, so the client can keep selecting the same branch; plus what
+    // kind it is, because a remote branch is browse-only.
+    branch,
+    branchKind: resolved.kind,
+    shortName: resolved.shortName,
+    total: safeTotal,
+    offset: page.offset,
+    limit: page.limit,
+    commits,
+    hasMore: page.offset + commits.length < safeTotal,
+  }
+}
+
+/**
+ * Read one commit's metadata and the files it changed.
+ *
+ * The diff is taken against the first parent, which is what "the changes in
+ * this commit" means for a merge as well; a root commit is compared against the
+ * empty tree instead.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, repo?: string, sha?: string}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{repository: string, commit: object, files: object[]}>} the detail.
+ */
+export async function readGitCommitFiles(ctx, options, payload, signal) {
+  const sha = String(payload?.sha ?? '').toLowerCase()
+  if (!isSafeCommitSha(sha)) throw new ViewerError('invalid-commit', '提交标识不合法')
+  const { repo, run } = await locateRepository(ctx, options, payload, signal)
+
+  const header = await run(repo.toplevel, [
+    'log', '-1', '--no-color', `--format=${GIT_COMMIT_FORMAT}`, sha, '--',
+  ], signal)
+  const parsed = header?.ok === true ? parseGitCommitDetail(header.stdout) : null
+  if (parsed === null) throw new ViewerError('unknown-commit', '找不到该提交')
+
+  const parents = await run(repo.toplevel, ['rev-list', '--parents', '--max-count=1', sha, '--'], signal)
+  const parentSha = parents?.ok === true ? String(parents.stdout ?? '').trim().split(/\s+/)[1] ?? '' : ''
+  const diffArgs = parentSha === '' || !isSafeCommitSha(parentSha)
+    ? ['diff-tree', '--root', '--no-commit-id', '-r', '-z', '--name-status', sha]
+    : ['diff-tree', '--no-commit-id', '-r', '-z', '--name-status', '-M', parentSha, sha]
+  const diff = await run(repo.toplevel, diffArgs, signal)
+  // A failed diff is not an empty commit. Reporting zero files here would tell
+  // the reader the commit changed nothing, which is a different claim entirely.
+  if (diff?.ok !== true) throw new ViewerError('git-failed', '无法读取该提交的改动文件')
+  const changes = parseGitNameStatus(diff.stdout)
+
+  const placement = { prefix: repo.path, rootRelative: repo.rootRelative }
+  const files = changes.map((change) => {
+    const current = commitPathWithinRoot(placement, change.path)
+    const previous = change.oldPath === null ? null : commitPathWithinRoot(placement, change.oldPath)
+    const view = gitChangeOf(change.status)
+    return {
+      // Root-relative, so clicking the row can open it in the same preview
+      // pane the file tree uses; `repoPath` keeps git's own wording.
+      path: current.path,
+      repoPath: change.path,
+      oldPath: previous === null ? null : previous.path,
+      status: change.status,
+      letter: view.letter,
+      change: view.label,
+      tone: view.tone,
+      outsideRoot: current.outsideRoot,
+    }
+  })
+
+  return {
+    repository: repo.id,
+    commit: { ...parsed.commit, body: parsed.body },
+    // The first parent, when there is one. A deletion's contents live here, so
+    // the client needs the hash to open "what the file was before this commit"
+    // instead of asking for a path the commit no longer contains.
+    parentSha: parentSha !== '' && isSafeCommitSha(parentSha) ? parentSha : '',
+    files,
+  }
+}
+
+/**
+ * Read one file as it existed in a commit.
+ *
+ * This is what makes "click a changed file" honest: the preview shows the bytes
+ * of that commit, not whatever the working tree happens to contain now. A file
+ * deleted by the commit, or a path that has since moved, still renders, and a
+ * commit on another branch no longer previews the wrong content.
+ *
+ * `rev` is the commit's own blob path, so the request is bounded to a commit
+ * that `readGitCommitFiles` already listed under this repository — the client
+ * cannot ask for an arbitrary revision, only a concrete hash.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, repo?: string, sha?: string, path?: string, offset?: number, limit?: number}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<object>} the same shape `read` returns, so the preview reuses it.
+ */
+export async function readGitCommitFile(ctx, options, payload, signal) {
+  const sha = String(payload?.sha ?? '').toLowerCase()
+  if (!isSafeCommitSha(sha)) throw new ViewerError('invalid-commit', '提交标识不合法')
+  const filePath = typeof payload?.path === 'string' ? payload.path : ''
+  if (filePath === '') throw new ViewerError('not-found', '缺少文件路径')
+  // A deletion removed the path from this commit; its contents are still in the
+  // parent. The caller may name that parent explicitly, and it is verified to be
+  // a commit of this repository before it is used.
+  const requestedFrom = payload?.from === undefined ? '' : String(payload.from).toLowerCase()
+  if (requestedFrom !== '' && !isSafeCommitSha(requestedFrom)) {
+    throw new ViewerError('invalid-commit', '提交标识不合法')
+  }
+
+  const { repo, run } = await locateRepository(ctx, options, payload, signal)
+  const from = requestedFrom === '' ? sha : requestedFrom
+  if (from !== sha) {
+    // Only a commit that actually exists here may be read: the hash came from
+    // the client, and a random object name must not become a read primitive.
+    const verify = await run(repo.toplevel, ['cat-file', '-e', `${from}^{commit}`], signal)
+    if (verify?.ok !== true) throw new ViewerError('unknown-commit', '找不到该提交')
+  }
+
+  // The requested path is root-relative; git wants it repository-relative, and
+  // the placement says which way to translate. A path that does not resolve
+  // back inside the root is refused rather than guessed at.
+  const placement = { prefix: repo.path, rootRelative: repo.rootRelative }
+  const repoPath = repoRelativeFromRoot(placement, filePath)
+  if (repoPath === null) throw new ViewerError('outside-root', '该文件不在当前根目录内')
+
+  // `--` separates the revision from the path, so a path that looks like a
+  // revision expression cannot be reinterpreted as one.
+  const result = await run(repo.toplevel, ['show', `${from}:${repoPath}`], signal)
+  if (result?.ok !== true) {
+    const stderr = String(result?.stderr ?? '')
+    // A path absent from that commit is the ordinary "this file did not exist
+    // yet / was already deleted" case, distinct from a broken repository.
+    if (/does not exist|exists on disk, but not in|invalid object name|Path .* does not exist/i.test(stderr)) {
+      throw new ViewerError('not-found', '该提交中不存在这个文件')
+    }
+    throw new ViewerError('git-failed', '无法读取该提交中的文件')
+  }
+
+  const text = String(result.stdout ?? '')
+  if (Buffer.byteLength(text, 'utf8') > MAX_TEXT_BYTES) {
+    throw new ViewerError('too-large', 'the file in this commit is too large to read as text')
+  }
+
+  const name = baseNameOf(filePath)
+  const { lines, eol } = splitLines(text)
+  const window = resolveWindow(lines.length, payload?.offset, payload?.limit)
+  const fileKind = kindOf(filePath)
+  // A blob from history has no file on disk to probe, so the name decides the
+  // kind and the content decides the language.
+  const detected = resolveLanguage({ override: payload?.lang, path: filePath, sample: text })
+  const lang = detected.lang
+  return {
+    root: repo.id,
+    path: filePath,
+    name,
+    // Kept so the header can show where the bytes came from; the client labels
+    // the pane as history rather than the working tree.
+    commit: from,
+    displayPath: `${name} @ ${from.slice(0, 7)}`,
+    kind: fileKind,
+    ...(lang === undefined ? {} : { lang }),
+    langSource: detected.source,
+    langChoice: isKnownLanguage(payload?.lang) ? payload.lang : 'auto',
+    eol,
+    totalLines: lines.length,
+    offset: window.offset,
+    end: window.end,
+    hasBefore: window.hasBefore,
+    hasAfter: window.hasAfter,
+    lines: windowRows(lines, window),
+    ...(isWholeDocumentKind(fileKind) && text.length <= MAX_PREVIEW_BYTES ? { text } : {}),
+  }
+}
+
+/**
+ * Read the working tree's pending changes, grouped for a source-control view.
+ *
+ * Staged and unstaged entries are kept apart because they answer different
+ * questions, and untracked files are their own group because they are not part
+ * of any commit yet. Paths are rebased onto the selected root, and the number
+ * that fell outside it is reported rather than silently dropped.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, repo?: string}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<object>} the grouped changes.
+ */
+export async function listGitWorkspaceChanges(ctx, options, payload, signal) {
+  const { repo, run } = await locateRepository(ctx, options, payload, signal)
+  // `-z` keeps non-ASCII paths and renames unambiguous; `--untracked-files=all`
+  // lists files inside a new directory instead of just the directory.
+  const result = await run(repo.toplevel, [
+    // `-z` keeps non-ASCII paths and renames unambiguous; listing every
+    // untracked file (rather than its directory) is what makes them openable.
+    'status', '--porcelain=v1', '-z', '--untracked-files=all',
+  ], signal)
+  if (result?.ok !== true) throw new ViewerError('git-failed', '无法读取工作区状态')
+
+  const entries = parseGitStatusEntries(result.stdout)
+  const placement = { prefix: repo.path, rootRelative: repo.rootRelative }
+  const groups = groupGitChanges(entries, (repoPath) => commitPathWithinRoot(placement, repoPath))
+
+  // The current branch is part of the answer: "changes on main" is not the same
+  // fact as "changes on dev", and the panel shows both together.
+  const head = await gitRevisionOf(run, repo.toplevel, ['--abbrev-ref', 'HEAD'], signal)
+  return {
+    repository: repo.id,
+    current: head === 'HEAD' ? '' : head,
+    detached: head === 'HEAD',
+    staged: groups.staged,
+    unstaged: groups.unstaged,
+    untracked: groups.untracked,
+    conflicted: groups.conflicted,
+    outside: groups.outside,
+    total: groups.staged.length + groups.unstaged.length + groups.untracked.length + groups.conflicted.length,
+  }
+}
+
+/**
+ * Read one file's working-tree diff, staged or unstaged.
+ *
+ * `git diff` with no revision shows the unstaged side; `--cached` shows what a
+ * commit would capture. Both are offered because a file can appear in each.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, repo?: string, path?: string, staged?: boolean}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<object>} the patch plus parsed rows.
+ */
+export async function readGitWorkspaceDiff(ctx, options, payload, signal) {
+  const filePath = typeof payload?.path === 'string' ? payload.path : ''
+  if (filePath === '') throw new ViewerError('not-found', '缺少文件路径')
+  const { repo, run } = await locateRepository(ctx, options, payload, signal)
+
+  const placement = { prefix: repo.path, rootRelative: repo.rootRelative }
+  const repoPath = repoRelativeFromRoot(placement, filePath)
+  if (repoPath === null) throw new ViewerError('outside-root', '该文件不在当前根目录内')
+
+  const staged = payload?.staged === true
+  const args = staged
+    ? ['diff', '--cached', '--no-color', '--', repoPath]
+    : ['diff', '--no-color', '--', repoPath]
+  const result = await run(repo.toplevel, args, signal)
+
+  if (result?.ok === true && String(result.stdout ?? '').trim() !== '') {
+    const patch = String(result.stdout)
+    const files = parseUnifiedDiffFiles(patch)
+    const rows = files.length > 0 ? files[0].rows : parsePatchToRows(patch)
+    const diffs = parsePatchToDiffs(patch, filePath)
+    return { hasDiff: true, staged, path: filePath, patch, rows, diffs, summary: summarizeDiffs(diffs) }
+  }
+
+  // An untracked file has no diff at all: every line is an addition. Rendering
+  // it as one keeps an untracked row useful instead of opening an empty pane.
+  const tracked = await run(repo.toplevel, ['ls-files', '--error-unmatch', '--', repoPath], signal)
+  if (tracked?.ok !== true && staged === false) {
+    const file = await run(repo.toplevel, ['show', `:0:${repoPath}`], signal)
+    void file
+    const read = await ctx.fs.readText(
+      await ctx.fs.resolve(joinPath(repo.toplevel, repoPath), { signal }),
+      signal,
+    ).catch(() => '')
+    if (typeof read === 'string' && read !== '') {
+      const rows = parsePatchToRows('', read)
+      return { hasDiff: true, staged: false, untracked: true, path: filePath, rows, patch: '', diffs: [] }
+    }
+  }
+
+  return { hasDiff: false, staged, path: filePath, rows: [], diffs: [] }
+}
+
+/**
+ * Read one commit's complete patch, every file in one view.
+ *
+ * The changed-file list answers "what did this commit touch"; the diff answers
+ * "what exactly changed inside it". Both come from the same revision pair as
+ * the list, so the two views cannot disagree about which parent is the baseline.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, repo?: string, sha?: string, path?: string}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<object>} per-file patches.
+ */
+export async function readGitCommitDiff(ctx, options, payload, signal) {
+  const sha = String(payload?.sha ?? '').toLowerCase()
+  if (!isSafeCommitSha(sha)) throw new ViewerError('invalid-commit', '提交标识不合法')
+  const { repo, run } = await locateRepository(ctx, options, payload, signal)
+
+  const parents = await run(repo.toplevel, ['rev-list', '--parents', '--max-count=1', sha, '--'], signal)
+  const parentSha = parents?.ok === true ? String(parents.stdout ?? '').trim().split(/\s+/)[1] ?? '' : ''
+  const hasParent = parentSha !== '' && isSafeCommitSha(parentSha)
+
+  // One path narrows the patch to that file; no path returns the whole commit.
+  const placement = { prefix: repo.path, rootRelative: repo.rootRelative }
+  const wanted = typeof payload?.path === 'string' && payload.path !== ''
+    ? repoRelativeFromRoot(placement, payload.path)
+    : null
+  if (wanted === null && typeof payload?.path === 'string' && payload.path !== '') {
+    throw new ViewerError('outside-root', '该文件不在当前根目录内')
+  }
+
+  const base = hasParent
+    ? ['diff', '--no-color', '-M', parentSha, sha]
+    : ['show', '--no-color', '--format=', '--first-parent', sha]
+  const args = wanted === null ? base : [...base, '--', wanted]
+  const result = await run(repo.toplevel, args, signal)
+  if (result?.ok !== true) throw new ViewerError('git-failed', '无法读取该提交的改动内容')
+
+  const patch = String(result.stdout ?? '')
+  const files = parseUnifiedDiffFiles(patch).map((file) => {
+    // The patch's own paths are repository-relative; the client addresses
+    // files by root-relative path.
+    const current = commitPathWithinRoot(placement, file.path)
+    const previous = file.oldPath === '' ? null : commitPathWithinRoot(placement, file.oldPath)
+    const badge = gitChangeOf(file.status)
+    return {
+      path: current.path,
+      repoPath: file.path,
+      oldPath: previous === null ? null : previous.path,
+      status: file.status,
+      letter: badge.letter,
+      change: badge.label,
+      tone: badge.tone,
+      outsideRoot: current.outsideRoot,
+      added: file.added,
+      removed: file.removed,
+      rows: file.rows,
+    }
+  })
+
+  const added = files.reduce((sum, file) => sum + file.added, 0)
+  const removed = files.reduce((sum, file) => sum + file.removed, 0)
+  return {
+    repository: repo.id,
+    sha,
+    parentSha: hasParent ? parentSha : '',
+    patch,
+    files,
+    // Counted here so the header can show `+N −M` without re-walking rows.
+    summary: { added, removed },
+    outside: files.filter((file) => file.outsideRoot).length,
+  }
+}
+
+/**
+ * Check out one branch in a repository.
+ *
+ * This is the only writing operation the panel performs, and it refuses
+ * anything that is not an existing branch of the located checkout: the branch
+ * name is validated as a ref, then compared against git's own branch list, so
+ * a detached checkout cannot be created by accident.
+ *
+ * When the root is a *subdirectory* of the checkout, the branch lives above the
+ * directory the reader is browsing and checking it out rewrites files this
+ * plugin was never allowed to read, let alone change. That case is refused
+ * unless the caller explicitly passes `allowOutsideRoot`, which the UI only
+ * sends after showing the reader what the operation actually covers.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, repo?: string, branch?: string, allowOutsideRoot?: boolean}} payload - client request.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{ok: true, branch: string, previous: string, changed: boolean, scope: string}>} the new state.
+ */
+export async function checkoutGitBranch(ctx, options, payload, signal) {
+  const branch = payload?.branch
+  if (!isSafeBranchName(branch)) throw new ViewerError('invalid-branch', '分支名不合法')
+  // A remote-tracking branch is not a local branch: `git checkout origin/main`
+  // produces a detached HEAD (or a new local branch, depending on config)
+  // rather than switching to something the panel could then show as current.
+  if (String(branch).startsWith('refs/remotes/')) {
+    throw new ViewerError('remote-branch-readonly', '远程分支只能查看，不能直接检出')
+  }
+  const { repo, run } = await locateRepository(ctx, options, payload, signal)
+
+  // A checkout above the root would touch files outside it; that needs an
+  // explicit, informed consent from the caller, not a default.
+  if (repo.scope === 'parent' && payload?.allowOutsideRoot !== true) {
+    throw new ViewerError('checkout-outside-root', '该分支所在的仓库位于当前根目录的上级，检出会影响根目录以外的文件', {
+      scope: repo.scope,
+    })
+  }
+
+  const known = await readBranchNames(run, repo.toplevel, signal)
+  if (!known.includes(branch)) throw new ViewerError('unknown-branch', '该分支不存在')
+
+  const head = await gitRevisionOf(run, repo.toplevel, ['--abbrev-ref', 'HEAD'], signal)
+  const previous = head === 'HEAD' ? '' : head
+  // `previous` is a short name while `branch` is a full ref; compare like with
+  // like or a checkout of the current branch would look like a change.
+  const branchShort = String(branch).replace(/^refs\/heads\//, '')
+  if (previous === branchShort) {
+    return { ok: true, branch, previous, changed: false, scope: repo.scope }
+  }
+
+  // Hooks and aliases are user code this plugin was never granted the right to
+  // run: a viewer that silently executes a repository's `post-checkout` turns
+  // a read-only panel into an arbitrary-execution surface. An empty
+  // `core.hooksPath` disables hooks for this one invocation only.
+  const result = await run(repo.toplevel, ['-c', 'core.hooksPath=', 'checkout', branchShort], signal)
+  if (result?.ok !== true) {
+    const stderr = String(result?.stderr ?? '')
+    // git refuses a checkout that would overwrite local edits. That is the
+    // common, explainable outcome, so it gets its own code and message.
+    if (/would be overwritten|local changes|Please commit your changes|Please stash/i.test(stderr)) {
+      throw new ViewerError('git-dirty', '工作区有未提交的改动，无法切换分支')
+    }
+    throw new ViewerError('git-failed', '切换分支失败')
+  }
+  return { ok: true, branch, previous, changed: true, scope: repo.scope }
+}
+
 /**
  * Retrieve current safe access paths configuration along with built-in workspaces.
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
@@ -1150,6 +2092,16 @@ const METHODS = Object.freeze({
   read: readText,
   diff: getFileDiff,
   status: getWorkspaceGitStatus,
+  // The Git panel: discovery, paged history, one commit's files, checkout.
+  gitRepos: listGitRepositories,
+  gitCommits: listGitCommits,
+  gitCommitFiles: readGitCommitFiles,
+  gitCommitFile: readGitCommitFile,
+  // One commit's complete patch, and the working tree's pending changes.
+  gitCommitDiff: readGitCommitDiff,
+  gitStatusChanges: listGitWorkspaceChanges,
+  gitWorkspaceDiff: readGitWorkspaceDiff,
+  gitCheckout: checkoutGitBranch,
   getSafePaths: getSafePathsConfig,
   updateSafePaths: updateSafePathsConfig,
   bytes: readBytes,

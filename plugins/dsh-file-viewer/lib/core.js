@@ -1295,4 +1295,617 @@ export function sanitizeDocHtml(html) {
     .trim()
 }
 
+/* -------------------------------------------------------------------------- *
+ * Git panel
+ *
+ * Everything the panel shows is derived from `git` output, which is only a
+ * stable machine-readable format when it is asked for explicitly: the defaults
+ * are colourised, paged, localized, and quote-escaped. The helpers below parse
+ * the unambiguous shapes the host requests — `--format` with unit/record
+ * separators, and `-z` name-status — and never try to re-parse human-facing
+ * text. Keeping them here means the whole panel decision surface is testable
+ * without spawning a process or owning a repository.
+ * -------------------------------------------------------------------------- */
 
+/** Commits requested per page, the size the panel opens with. */
+export const GIT_COMMIT_PAGE_SIZE = 30
+
+/** Hard ceiling for one page, so a forged request cannot pull all of history. */
+export const GIT_COMMIT_PAGE_MAX = 100
+
+/**
+ * Subdirectories probed for nested repositories.
+ *
+ * A directory that holds many checkouts (a workspace of projects) has to be
+ * scanned one level deep, but the scan costs one `git` process per candidate,
+ * so it is bounded and the obvious dependency directories are skipped.
+ */
+export const GIT_REPO_SCAN_LIMIT = 32
+
+/** Directories that never hold a checkout worth listing. */
+const REPO_SCAN_SKIP = Object.freeze(['node_modules', 'bower_components', '__pycache__'])
+
+/**
+ * Normalize a path for comparison: forward slashes, no trailing separator.
+ *
+ * `git` prints POSIX separators on every platform, while a host root may
+ * arrive with backslashes, so anything compared against git output goes
+ * through here first.
+ * @param {unknown} value - a path fragment.
+ * @returns {string} the normalized path, or '' when nothing remains.
+ */
+export function normalizeGitPath(value) {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.replace(/\\/g, '/').replace(/\/+$/, '')
+  return trimmed === '.' ? '' : trimmed
+}
+
+/**
+ * Whether `child` sits at or below `parent`, as a relative path.
+ *
+ * Windows resolves the same directory under either case, so the comparison
+ * folds case there and stays exact everywhere else.
+ * @param {string} parent - absolute directory path.
+ * @param {string} child - absolute path to test.
+ * @returns {string | null} '' when equal, the relative path when nested, null otherwise.
+ */
+export function relativePathWithin(parent, child) {
+  const base = normalizeGitPath(parent)
+  const target = normalizeGitPath(child)
+  if (base === '' || target === '') return null
+  const fold = (value) => (process.platform === 'win32' ? value.toLowerCase() : value)
+  if (fold(base) === fold(target)) return ''
+  if (!fold(target).startsWith(fold(base) + '/')) return null
+  return target.slice(base.length + 1)
+}
+
+/**
+ * Whether a name is a legitimate branch (or revision) name.
+ *
+ * This is `git check-ref-format`'s rule set, restated so the host can refuse a
+ * bad name before it reaches git. The leading-dash rule matters most: the host
+ * passes refs as argv entries, so `-D` or `--exec=…` would otherwise be parsed
+ * as an option rather than a branch.
+ * @param {unknown} name - a candidate branch name.
+ * @returns {boolean} true when the name is safe to pass to git as a ref.
+ */
+export function isSafeBranchName(name) {
+  if (typeof name !== 'string') return false
+  if (name.length === 0 || name.length > 255) return false
+  if (name.startsWith('-')) return false
+  // Control characters, spaces and the glob/revision metacharacters git forbids.
+  if (/[\x00-\x20\x7f~^:?*[\\]/.test(name)) return false
+  if (name.includes('..') || name.includes('@{') || name.includes('//')) return false
+  if (name.endsWith('/') || name.endsWith('.')) return false
+  for (const part of name.split('/')) {
+    if (part === '' || part.startsWith('.') || part.endsWith('.lock')) return false
+  }
+  return true
+}
+
+/**
+ * Whether a value is a concrete commit hash rather than a revision expression.
+ * @param {unknown} value - a candidate hash.
+ * @returns {boolean} true for 7–40 lowercase hex characters.
+ */
+export function isSafeCommitSha(value) {
+  return typeof value === 'string' && /^[0-9a-f]{7,40}$/.test(value)
+}
+
+/**
+ * Clamp a requested commit page onto the supported window.
+ * @param {{offset?: unknown, limit?: unknown}} [payload] - the client request.
+ * @returns {{offset: number, limit: number}} the resolved page.
+ */
+export function normalizeCommitPage(payload) {
+  const rawLimit = Number(payload?.limit)
+  const rawOffset = Number(payload?.offset)
+  const limit = Number.isSafeInteger(rawLimit) && rawLimit > 0
+    ? Math.min(rawLimit, GIT_COMMIT_PAGE_MAX)
+    : GIT_COMMIT_PAGE_SIZE
+  const offset = Number.isSafeInteger(rawOffset) && rawOffset > 0 ? Math.min(rawOffset, 1_000_000) : 0
+  return { offset, limit }
+}
+
+/**
+ * Whether a subdirectory is worth probing for its own checkout.
+ * @param {unknown} name - a directory entry name.
+ * @returns {boolean} true when the scan should try it.
+ */
+export function isCandidateRepoDirectory(name) {
+  if (typeof name !== 'string' || name === '') return false
+  if (name.startsWith('.') || name.startsWith('$')) return false
+  return !REPO_SCAN_SKIP.includes(name)
+}
+
+/**
+ * Parse `git branch --format=%(HEAD)%09%(refname:short)…` output.
+ *
+ * The host asks for tab-separated fields precisely so a branch name (which git
+ * forbids from containing whitespace) cannot be confused with the `*` marker.
+ * @param {string} stdout - the format output.
+ * @returns {{name: string, current: boolean, sha: string, date: string, upstream: string}[]} branches.
+ */
+export function parseGitBranches(stdout) {
+  if (typeof stdout !== 'string' || stdout.trim() === '') return []
+  const rows = []
+  for (const rawLine of stdout.split('\n')) {
+    if (rawLine.trim() === '') continue
+    const fields = rawLine.split('\t')
+    if (fields.length < 2) continue
+    const name = fields[1].trim()
+    if (name === '') continue
+    rows.push({
+      name,
+      current: fields[0].trim() === '*',
+      sha: (fields[2] || '').trim(),
+      date: (fields[3] || '').trim(),
+      upstream: (fields[4] || '').trim(),
+    })
+  }
+  return rows
+}
+
+/**
+ * Parse one `%x1f`-separated commit record into its fields.
+ *
+ * The two formats the host asks for differ by exactly one trailing field — the
+ * list format ends at the subject, the detail format appends the raw message —
+ * so the shape is a parameter rather than a guess. Guessing from the field
+ * count would misread a subject that happens to contain the separator.
+ *
+ * @param {string} record - one record, already split on `%x1e`.
+ * @param {boolean} withBody - whether a `%B` field follows the subject.
+ * @returns {{commit: object, body: string} | null} the parsed commit.
+ */
+function parseCommitRecord(record, withBody) {
+  const text = record.replace(/^\r?\n+/, '').replace(/\s+$/, '')
+  if (text === '') return null
+  const fields = text.split('\x1f')
+  const sha = (fields[0] || '').trim()
+  if (!isSafeCommitSha(sha)) return null
+  // List format: everything after the fixed fields is the (single-line)
+  // subject, separators included. Detail format: field 6 is the subject and
+  // field 7 onward is the raw message, whose newlines are content.
+  const subject = withBody ? (fields[6] || '').trim() : fields.slice(6).join('\x1f').trim()
+  return {
+    commit: {
+      sha,
+      shortSha: (fields[1] || '').trim() || sha.slice(0, 7),
+      author: fields[2] || '',
+      authorEmail: fields[3] || '',
+      authoredAt: (fields[4] || '').trim(),
+      committedAt: (fields[5] || '').trim(),
+      subject,
+    },
+    body: withBody ? fields.slice(7).join('\x1f').trim() : '',
+  }
+}
+
+/**
+ * Parse `git log --format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%cI%x1f%s%x1e`.
+ *
+ * `%x1e` terminates each record and git appends a newline after it, so each
+ * chunk is trimmed before the fields are read.
+ * @param {string} stdout - the log output.
+ * @returns {object[]} commits in the order git printed them.
+ */
+export function parseGitLog(stdout) {
+  if (typeof stdout !== 'string' || stdout.trim() === '') return []
+  const commits = []
+  for (const record of stdout.split('\x1e')) {
+    const parsed = parseCommitRecord(record, false)
+    if (parsed !== null) commits.push(parsed.commit)
+  }
+  return commits
+}
+
+/**
+ * Parse one commit header plus its message body.
+ * @param {string} stdout - `git log -1 --format=…%x1f%B` output.
+ * @returns {{commit: object, body: string} | null} the commit, or null when unparsable.
+ */
+export function parseGitCommitDetail(stdout) {
+  if (typeof stdout !== 'string') return null
+  for (const record of stdout.split('\x1e')) {
+    const parsed = parseCommitRecord(record, true)
+    if (parsed !== null) return parsed
+  }
+  return null
+}
+
+/**
+ * Parse `git diff-tree -r -z --name-status` output.
+ *
+ * With `-z` every field is NUL-terminated and nothing is quoted, so a renamed
+ * or non-ASCII path survives intact. A rename/copy status is followed by two
+ * paths; every other status by one.
+ * @param {string} stdout - the NUL-separated output.
+ * @returns {{status: string, oldPath: string | null, path: string}[]} the changes.
+ */
+export function parseGitNameStatus(stdout) {
+  if (typeof stdout !== 'string' || stdout === '') return []
+  const tokens = stdout.split('\0')
+  const changes = []
+  let index = 0
+  while (index < tokens.length) {
+    const status = (tokens[index] || '').trim()
+    index += 1
+    if (!/^[A-Z]\d*$/.test(status)) continue
+    const first = tokens[index] ?? ''
+    index += 1
+    const letter = status.charAt(0)
+    if (letter === 'R' || letter === 'C') {
+      const to = tokens[index] ?? ''
+      index += 1
+      changes.push({ status, oldPath: trimGitPath(first), path: trimGitPath(to) })
+    } else {
+      changes.push({ status, oldPath: null, path: trimGitPath(first) })
+    }
+  }
+  return changes
+}
+
+/**
+ * Strip git's record newline from a path field.
+ *
+ * Not a general trim: a path may legitimately end in a space, and only the
+ * separator git itself adds should be removed.
+ * @param {string} value - a raw `-z` field.
+ * @returns {string} the path.
+ */
+function trimGitPath(value) {
+  return String(value ?? '').replace(/[\r\n]+$/, '')
+}
+
+/**
+ * The display form of one name-status code.
+ * @param {unknown} status - e.g. `A`, `M`, `R100`.
+ * @returns {{letter: string, label: string, tone: 'add'|'mod'|'del'}} the badge.
+ */
+export function gitChangeOf(status) {
+  const letter = String(status ?? '').charAt(0).toUpperCase()
+  switch (letter) {
+    case 'A': return { letter: 'A', label: '新增', tone: 'add' }
+    case 'D': return { letter: 'D', label: '删除', tone: 'del' }
+    case 'R': return { letter: 'R', label: '重命名', tone: 'mod' }
+    case 'C': return { letter: 'C', label: '复制', tone: 'mod' }
+    case 'T': return { letter: 'T', label: '类型变更', tone: 'mod' }
+    case 'U': return { letter: 'U', label: '冲突', tone: 'del' }
+    case 'M': return { letter: 'M', label: '修改', tone: 'mod' }
+    default: return { letter: letter === '' ? '?' : letter, label: '变更', tone: 'mod' }
+  }
+}
+
+/**
+ * Rebase a repository-relative change path onto the selected root.
+ *
+ * Two placements are possible and both have to be handled, because a root is
+ * either inside a checkout (`rootRelative` names its position in the repo) or
+ * above one or more checkouts (`prefix` names the checkout's position in the
+ * root). Changes that fall outside the root are reported as such rather than
+ * silently dropped: the panel can show them, it just cannot open them.
+ * @param {{prefix?: string, rootRelative?: string}} placement - the root/repository relationship.
+ * @param {string} filePath - repository-relative path from git.
+ * @returns {{path: string, outsideRoot: boolean}} the root-relative path.
+ */
+export function commitPathWithinRoot(placement, filePath) {
+  const prefix = normalizeGitPath(placement?.prefix)
+  const rootRelative = normalizeGitPath(placement?.rootRelative)
+  const relative = normalizeGitPath(filePath).replace(/^\/+/, '')
+  if (relative === '') return { path: '', outsideRoot: false }
+  if (prefix !== '') return { path: `${prefix}/${relative}`, outsideRoot: false }
+  if (rootRelative === '') return { path: relative, outsideRoot: false }
+  if (relative === rootRelative) return { path: '', outsideRoot: false }
+  if (relative.startsWith(rootRelative + '/')) {
+    return { path: relative.slice(rootRelative.length + 1), outsideRoot: false }
+  }
+  return { path: relative, outsideRoot: true }
+}
+
+/**
+ * Translate a root-relative path back to the repository-relative path git wants.
+ *
+ * The inverse of {@link commitPathWithinRoot}, and the guard that keeps a
+ * history read inside the root: a path that does not actually sit under the
+ * chosen repository has no repository-relative form and is reported as `null`
+ * rather than guessed at.
+ *
+ * @param {{prefix?: string, rootRelative?: string}} placement - the root/repository relationship.
+ * @param {string} filePath - root-relative path from the client.
+ * @returns {string | null} the repository-relative path, or null when it falls outside.
+ */
+export function repoRelativeFromRoot(placement, filePath) {
+  const prefix = normalizeGitPath(placement?.prefix)
+  const rootRelative = normalizeGitPath(placement?.rootRelative)
+  const relative = normalizeGitPath(filePath).replace(/^\/+/, '')
+  if (relative === '') return null
+  // A repository below the root: the root path must start with the
+  // repository's own place inside it, and the remainder is the git path.
+  if (prefix !== '') {
+    if (relative === prefix) return null
+    if (!relative.startsWith(prefix + '/')) return null
+    const rest = relative.slice(prefix.length + 1)
+    return rest === '' ? null : rest
+  }
+  // The root sits inside the repository: everything the client names is
+  // already relative to the root, so the root's own position is re-prepended.
+  if (rootRelative === '') return relative
+  return `${rootRelative}/${relative}`
+}
+
+
+
+/* -------------------------------------------------------------------------- *
+ * Remote branches, working-tree changes and commit diffs
+ *
+ * The panel started with local branches and one commit's changed-file list.
+ * The three pieces below extend it: remotes are a separate ref namespace that
+ * must not be offered as something to check out; a working-tree change list has
+ * to keep staged and unstaged state apart because they mean different things;
+ * and a commit diff is one patch covering every file, which needs its own
+ * parser rather than the single-file one.
+ * -------------------------------------------------------------------------- */
+
+/** How a branch reference relates to the local checkout. */
+export const BRANCH_KINDS = Object.freeze(['local', 'remote'])
+
+/**
+ * Parse `git branch -a --format=%(HEAD)%09%(refname)%09%(refname:short)…`.
+ *
+ * Remote refs are reported with their full name so `origin/main` and a local
+ * `origin/main` cannot collide, and the `refs/remotes/…/HEAD` symbolic entry is
+ * dropped: it points at another remote branch and is not something a reader can
+ * browse on its own.
+ *
+ * @param {string} stdout - the format output.
+ * @param {string} [headPrefix] - ref prefix marking a remote-tracking ref.
+ * @returns {{name: string, shortName: string, kind: 'local'|'remote', remote: string, current: boolean, sha: string, date: string, upstream: string}[]} branches.
+ */
+export function parseGitBranchList(stdout, headPrefix = 'refs/remotes/') {
+  if (typeof stdout !== 'string' || stdout.trim() === '') return []
+  const rows = []
+  for (const rawLine of stdout.split('\n')) {
+    if (rawLine.trim() === '') continue
+    const fields = rawLine.split('\t')
+    if (fields.length < 3) continue
+    const full = fields[1].trim()
+    const shortName = fields[2].trim()
+    if (full === '' || shortName === '') continue
+    const isRemote = full.startsWith(headPrefix)
+    if (isRemote) {
+      // `origin/HEAD` is a pointer to another branch, not a branch of its own.
+      const tail = full.slice(headPrefix.length)
+      if (tail.endsWith('/HEAD')) continue
+    }
+    // The remote's own name is the first path segment of a remote ref; a local
+    // branch may legitimately contain a slash, so this only applies remotely.
+    const remote = isRemote ? full.slice(headPrefix.length).split('/')[0] : ''
+    rows.push({
+      name: full,
+      shortName,
+      kind: isRemote ? 'remote' : 'local',
+      remote,
+      current: fields[0].trim() === '*',
+      sha: (fields[3] || '').trim(),
+      date: (fields[4] || '').trim(),
+      upstream: (fields[5] || '').trim(),
+    })
+  }
+  return rows
+}
+
+/**
+ * The revision to hand git for a branch the panel selected.
+ *
+ * Remote refs are stored under `refs/remotes/…` and are not on the branch
+ * namespace, so `git log origin/main` and `git log refs/remotes/origin/main`
+ * are not interchangeable: only the fully qualified form is unambiguous when a
+ * local branch shares the short name.
+ * @param {{name?: string, kind?: string}} branch - one entry from discovery.
+ * @returns {string} the revision to read.
+ */
+export function revisionOfBranch(branch) {
+  const name = typeof branch?.name === 'string' ? branch.name : ''
+  if (name === '') return ''
+  return branch?.kind === 'remote' ? `refs/remotes/${name.replace(/^refs\/remotes\//, '')}` : name
+}
+
+/**
+ * Whether a branch is something `git checkout` can switch to.
+ *
+ * A remote-tracking branch is read-only from the reader's point of view:
+ * checking it out silently creates a detached HEAD or a new local branch,
+ * depending on git's configuration. The panel therefore offers it for browsing
+ * only, which is a decision that belongs here rather than in the UI.
+ * @param {{kind?: string}} branch - one entry from discovery.
+ * @returns {boolean} true when a checkout is meaningful.
+ */
+export function isCheckoutableBranch(branch) {
+  return branch?.kind !== 'remote'
+}
+
+/**
+ * Parse `git status --porcelain=v1 -z` into structured changes.
+ *
+ * `-z` is not cosmetic: without it git quotes non-ASCII paths and uses `->` to
+ * separate a rename, which is ambiguous when a filename contains either. With
+ * `-z` each record is NUL-terminated and a rename carries two NUL-separated
+ * paths.
+ *
+ * Staged and unstaged state are kept apart because they answer different
+ * questions ("what would be committed" vs "what is not staged"), and the panel
+ * shows them as two groups the way a source-control view does.
+ *
+ * @param {string} stdout - the NUL-separated porcelain output.
+ * @returns {{path: string, repoPath: string, index: string, worktree: string, staged: boolean, untracked: boolean, ignored: boolean, conflicted: boolean, oldPath: string | null}[]} changes.
+ */
+export function parseGitStatusEntries(stdout) {
+  if (typeof stdout !== 'string' || stdout === '') return []
+  const tokens = stdout.split('\0')
+  const rows = []
+  let index = 0
+  while (index < tokens.length) {
+    const record = tokens[index]
+    index += 1
+    if (typeof record !== 'string' || record.length < 4) continue
+    const indexCode = record.charAt(0)
+    const worktreeCode = record.charAt(1)
+    const repoPath = record.slice(3)
+    // A rename/copy record carries the original path as the next token.
+    let oldPath = null
+    if (indexCode === 'R' || indexCode === 'C') {
+      const previous = tokens[index] ?? ''
+      index += 1
+      oldPath = previous === '' ? null : previous
+    }
+    if (repoPath === '') continue
+    rows.push({
+      path: repoPath,
+      repoPath,
+      index: indexCode,
+      worktree: worktreeCode,
+      // `X` is the index side, `Y` the working tree. `??` is untracked and `!!`
+      // ignored; neither has a meaningful index state.
+      staged: indexCode !== ' ' && indexCode !== '?' && indexCode !== '!',
+      untracked: indexCode === '?',
+      ignored: indexCode === '!',
+      conflicted: indexCode === 'U' || worktreeCode === 'U'
+        || (indexCode === 'A' && worktreeCode === 'A')
+        || (indexCode === 'D' && worktreeCode === 'D'),
+      oldPath,
+    })
+  }
+  return rows
+}
+
+/**
+ * The single-letter badge for one status record.
+ *
+ * A file can be staged and then edited again, which is two facts. The index
+ * side wins because that is what a commit would capture, and the working-tree
+ * side is reported separately so the row can show "staged, then modified".
+ * @param {{index?: string, worktree?: string, untracked?: boolean, conflicted?: boolean}} change - one record.
+ * @returns {{letter: string, label: string, tone: 'add'|'mod'|'del'}} the badge.
+ */
+export function gitStatusBadge(change) {
+  if (change?.conflicted === true) return { letter: 'U', label: '冲突', tone: 'del' }
+  if (change?.untracked === true) return { letter: '?', label: '未跟踪', tone: 'add' }
+  const code = String(change?.index ?? ' ')
+  const worktree = String(change?.worktree ?? ' ')
+  const pick = code !== ' ' && code !== '?' ? code : worktree
+  switch (pick) {
+    case 'A': return { letter: 'A', label: '新增', tone: 'add' }
+    case 'D': return { letter: 'D', label: '删除', tone: 'del' }
+    case 'R': return { letter: 'R', label: '重命名', tone: 'mod' }
+    case 'C': return { letter: 'C', label: '复制', tone: 'mod' }
+    case 'M': return { letter: 'M', label: '修改', tone: 'mod' }
+    default: return { letter: pick === ' ' ? 'M' : pick, label: '变更', tone: 'mod' }
+  }
+}
+
+/**
+ * Parse a multi-file unified diff into per-file sections.
+ *
+ * `git show`/`git diff` emit `diff --git a/x b/y` headers followed by one or
+ * more `@@` hunks per file, so a commit's patch has to be split on those
+ * headers before each file's rows are numbered — otherwise every file would
+ * share the previous file's line numbers.
+ *
+ * @param {string} patch - the full patch text.
+ * @returns {{path: string, oldPath: string, status: string, rows: object[], added: number, removed: number}[]} one entry per file.
+ */
+export function parseUnifiedDiffFiles(patch) {
+  if (typeof patch !== 'string' || patch.trim() === '') return []
+  const files = []
+  let current = null
+  const flush = () => {
+    if (current === null) return
+    const rows = parsePatchToRows(current.hunkText)
+    let added = 0
+    let removed = 0
+    for (const row of rows) {
+      if (row.type === 'add') added += 1
+      else if (row.type === 'del') removed += 1
+    }
+    files.push({
+      path: current.path,
+      oldPath: current.oldPath,
+      status: current.status,
+      rows,
+      added,
+      removed,
+    })
+    current = null
+  }
+
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      flush()
+      // `diff --git a/<path> b/<path>` — both sides are quoted only when the
+      // path needs escaping, which `-z` avoids elsewhere but not here.
+      const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(line)
+      current = {
+        path: match ? match[2] : '',
+        oldPath: match ? match[1] : '',
+        status: 'M',
+        hunkText: '',
+      }
+      continue
+    }
+    if (current === null) continue
+    if (line.startsWith('new file mode')) { current.status = 'A'; continue }
+    if (line.startsWith('deleted file mode')) { current.status = 'D'; continue }
+    if (line.startsWith('rename from ')) { current.oldPath = line.slice('rename from '.length); current.status = 'R'; continue }
+    if (line.startsWith('rename to ')) { current.path = line.slice('rename to '.length); current.status = 'R'; continue }
+    // The `index`, `---` and `+++` lines carry no line content, and feeding
+    // them to the hunk parser would misread `--- a/x` as a removed line.
+    if (line.startsWith('index ') || line.startsWith('--- ') || line.startsWith('+++ ')) continue
+    current.hunkText += line + '\n'
+  }
+  flush()
+  // A section with no hunks is a pure mode/rename change; keep it so the file
+  // still appears in the list, but with no rows to draw.
+  return files
+}
+
+/**
+ * Split working-tree changes into the groups a source-control view shows.
+ * @param {object[]} changes - records from {@link parseGitStatusEntries}.
+ * @param {(path: string) => {path: string, outsideRoot: boolean}} rebase - maps a repo path onto the root.
+ * @returns {{staged: object[], unstaged: object[], untracked: object[], conflicted: object[], outside: number}} the groups.
+ */
+export function groupGitChanges(changes, rebase) {
+  const groups = { staged: [], unstaged: [], untracked: [], conflicted: [], outside: 0 }
+  for (const change of Array.isArray(changes) ? changes : []) {
+    if (change.ignored === true) continue
+    const placement = typeof rebase === 'function'
+      ? rebase(change.repoPath)
+      : { path: change.repoPath, outsideRoot: false }
+    if (placement.outsideRoot === true) {
+      groups.outside += 1
+      continue
+    }
+    const badge = gitStatusBadge(change)
+    const row = {
+      path: placement.path,
+      repoPath: change.repoPath,
+      oldPath: change.oldPath,
+      index: change.index,
+      worktree: change.worktree,
+      letter: badge.letter,
+      change: badge.label,
+      tone: badge.tone,
+      // A file staged and then edited again is two facts; the row keeps both.
+      partiallyStaged: change.staged === true && change.worktree !== ' ' && change.worktree !== '?',
+      untracked: change.untracked === true,
+    }
+    if (change.conflicted === true) groups.conflicted.push(row)
+    else if (change.untracked === true) groups.untracked.push(row)
+    else {
+      if (change.staged === true) groups.staged.push(row)
+      if (change.worktree !== ' ' && change.worktree !== '?' && change.worktree !== '!') groups.unstaged.push(row)
+    }
+  }
+  return groups
+}

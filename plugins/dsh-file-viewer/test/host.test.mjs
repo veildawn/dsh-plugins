@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { MAX_BYTES, MAX_DOWNLOAD_BYTES, RPC_CHANNEL, ViewerError, collectRoots, handleRpc, handleDownloadRequest } from '../lib/index.js'
+import { GIT_REPO_SCAN_LIMIT, MAX_BYTES, MAX_DOWNLOAD_BYTES, RPC_CHANNEL, ViewerError, collectRoots, gitChildEnv, handleRpc, handleDownloadRequest } from '../lib/index.js'
 
 const ROOT = 'D:/repo'
 const OTHER_ROOT = 'D:/other'
@@ -1318,3 +1318,952 @@ test('the download budget is separate from the in-page preview budget', async ()
 
 
 
+
+/* -------------------------------------------------------------------------- *
+ * Git panel RPC
+ *
+ * These tests drive `handleRpc` through the real discovery/paging code with a
+ * fake git runner. The runner records `(cwd, args)` for every call, which is
+ * the only way to prove the host passes a ref as a data argument — and refuses
+ * to pass a forged one at all.
+ * -------------------------------------------------------------------------- */
+
+const UNIT = '\x1f'
+const RECORD = '\x1e'
+const ok = (stdout) => ({ ok: true, stdout, stderr: '' })
+
+const logRecord = (sha, subject) => [
+  sha, sha.slice(0, 7), '张三', 'zhang@example.com',
+  '2024-05-01T12:00:00+08:00', '2024-05-01T12:00:05+08:00', subject,
+].join(UNIT) + RECORD
+
+const detailRecord = (sha, subject, body) => [
+  sha, sha.slice(0, 7), '张三', 'zhang@example.com',
+  '2024-05-01T12:00:00+08:00', '2024-05-01T12:00:05+08:00', subject, body,
+].join(UNIT) + RECORD
+
+/**
+ * A fake git runner with one canned repository.
+ *
+ * `handler` receives every call and returns a result, or undefined to fail with
+ * an "unsupported" stderr — which is also how a non-repository directory looks
+ * to the discovery code.
+ */
+function createGit(handler) {
+  const calls = []
+  const run = async (cwd, args) => {
+    calls.push([cwd, ...args])
+    return handler(cwd, args) ?? { ok: false, stdout: '', stderr: 'unsupported by this fake' }
+  }
+  run.calls = calls
+  return run
+}
+
+function repoGit({
+  toplevel = ROOT,
+  head = 'main',
+  branches = ['main', 'dev'],
+  count = 0,
+  log = '',
+  detail = '',
+  parents = '',
+  changes = '',
+  checkoutFailure = '',
+} = {}) {
+  return createGit((cwd, args) => {
+    const cmd = args[0]
+    if (cmd === 'rev-parse') {
+      if (args[1] === '--show-toplevel') {
+        return cwd === toplevel ? ok(toplevel + '\n') : { ok: false, stdout: '', stderr: 'fatal: not a git repository' }
+      }
+      if (args[1] === '--show-prefix') return cwd === toplevel ? ok('\n') : undefined
+      if (args[1] === '--abbrev-ref') return ok(head + '\n')
+      if (args[1] === '--short') return ok('a1b2c3d\n')
+      return undefined
+    }
+    if (cmd === 'branch') {
+      // `readBranchNames` asks for full refs; the listing asks for the six
+      // display fields. Both are served so a ref can be validated either way.
+      if (args.includes('--format=%(refname)')) {
+        return ok(branches.map((name) => `refs/heads/${name}`).join('\n') + '\n')
+      }
+      return ok(branches
+        .map((name) => (name === head ? '*' : ' ') + '\t' + `refs/heads/${name}` + '\t' + name
+          + '\ta1b2c3d\t2024-05-01T12:00:00+08:00\t')
+        .join('\n') + '\n')
+    }
+    if (cmd === 'rev-list') {
+      if (args[1] === '--count') return ok(String(count) + '\n')
+      if (args[1] === '--parents') return ok(parents + '\n')
+      return undefined
+    }
+    if (cmd === 'log') {
+      if (args[1] === '-1') return ok(detail)
+      return ok(log)
+    }
+    if (cmd === 'diff-tree') return ok(changes)
+    if (cmd === '-c') {
+      // The checkout is invoked with `-c core.hooksPath=` to disable hooks;
+      // the fixture dispatches on the real subcommand, not the override.
+      return args[2] === 'checkout'
+        ? (checkoutFailure === ''
+          ? ok('Switched to branch\n')
+          : { ok: false, stdout: '', stderr: checkoutFailure })
+        : undefined
+    }
+    if (cmd === 'checkout') {
+      return checkoutFailure === ''
+        ? ok('Switched to branch\n')
+        : { ok: false, stdout: '', stderr: checkoutFailure }
+    }
+    return undefined
+  })
+}
+
+const REPO_TREE = {
+  'D:/repo': { type: 'directory', entries: [{ name: 'src', type: 'directory' }, { name: 'README.md', type: 'file' }] },
+}
+
+test('gitRepos discovers the checkout of the root and never echoes its path', async () => {
+  const git = repoGit({ branches: ['main', 'dev'] })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitRepos', { root: ROOT })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.value.repos.length, 1)
+  const repo = result.value.repos[0]
+  assert.equal(repo.id, '.')
+  assert.equal(repo.current, 'main')
+  assert.equal(repo.detached, false)
+  // The list is keyed by full ref so a local `origin/main` and the remote ref
+  // of the same short name stay distinguishable.
+  assert.deepEqual(repo.branches.map((branch) => branch.name), ['refs/heads/main', 'refs/heads/dev'])
+  assert.deepEqual(repo.branches.map((branch) => branch.shortName), ['main', 'dev'])
+  assert.deepEqual(repo.branches.map((branch) => branch.kind), ['local', 'local'])
+  assert.equal(repo.branches[0].current, true)
+  assert.equal(repo.branches[0].checkoutable, true)
+
+  // The panel addresses a repository by id; the host path stays on the host.
+  assert.equal(JSON.stringify(result.value).includes('D:/repo'), false)
+})
+
+test('a root that is not a checkout still lists the checkouts in its subdirectories', async () => {
+  const tree = {
+    'D:/work': { type: 'directory', entries: [{ name: 'proj-a', type: 'directory' }, { name: 'scratch', type: 'directory' }] },
+    'D:/work/proj-a/.git': { type: 'directory' },
+  }
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+      return cwd === 'D:/work/proj-a'
+        ? ok('D:/work/proj-a\n')
+        : { ok: false, stdout: '', stderr: 'fatal: not a git repository' }
+    }
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') {
+      return args.includes('--format=%(refname:short)')
+        ? ok('main\n')
+        : ok('*\tmain\ta1b2c3d\t2024-05-01T12:00:00+08:00\t\n')
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(tree), { workspaces: ['D:/work'] })
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitRepos', { root: 'D:/work' })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.value.repos.length, 1)
+  assert.equal(result.value.repos[0].id, 'proj-a')
+  assert.equal(result.value.repos[0].name, 'proj-a')
+
+  // Only the directory carrying a `.git` marker was probed; `scratch` cost a
+  // stat and nothing else.
+  const probed = git.calls.filter((call) => call[1] === 'rev-parse' && call[2] === '--show-toplevel')
+  assert.deepEqual(probed.map((call) => call[0]), ['D:/work', 'D:/work/proj-a'])
+})
+
+test('a root with no checkout reports an empty list instead of failing', async () => {
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: createGit(() => undefined) }), 'gitRepos', { root: ROOT })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.value.repos, [])
+})
+
+test('gitCommits pages one branch and reports the totals the pager needs', async () => {
+  const git = repoGit({
+    count: 45,
+    log: logRecord('a1b2c3d4e5f6', '第一个提交') + logRecord('b2c3d4e5f6a7', '第二个提交'),
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommits', {
+    root: ROOT, branch: 'refs/heads/main', offset: 0, limit: 2,
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.value.total, 45)
+  assert.equal(result.value.branch, 'refs/heads/main')
+  assert.equal(result.value.branchKind, 'local')
+  assert.equal(result.value.shortName, 'main')
+  assert.equal(result.value.commits.length, 2)
+  assert.equal(result.value.commits[0].subject, '第一个提交')
+  assert.equal(result.value.hasMore, true)
+
+  // The page is expressed as git's own limit/skip, not by slicing in memory.
+  const logCall = git.calls.find((call) => call[1] === 'log')
+  assert(logCall.includes('--max-count=2'))
+  assert(logCall.includes('--skip=0'))
+  assert(logCall.includes('refs/heads/main'))
+})
+
+test('the last page reports hasMore false', async () => {
+  const git = repoGit({ count: 2, log: logRecord('a1b2c3d4e5f6', 'a') + logRecord('b2c3d4e5f6a7', 'b') })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommits', {
+    root: ROOT, branch: 'refs/heads/main', offset: 2, limit: 2,
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.offset, 2)
+  assert.equal(result.value.hasMore, false)
+  assert.equal(git.calls.find((call) => call[1] === 'log').includes('--skip=2'), true)
+})
+
+test('an empty repository pages to nothing rather than erroring', async () => {
+  const git = repoGit({ count: 0, log: '', head: '' })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommits', { root: ROOT })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.total, 0)
+  assert.deepEqual(result.value.commits, [])
+  assert.equal(result.value.hasMore, false)
+})
+
+test('gitCommitFiles lists the changes of one commit under the root', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const git = repoGit({
+    detail: detailRecord(sha, '修改入口', '修改入口\n\n正文'),
+    parents: `${sha} b2c3d4e5f6a7`,
+    changes: ['M', 'src/app.ts', '', 'A', 'docs/新文件.md', ''].join('\0'),
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFiles', { root: ROOT, sha })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.value.commit.sha, sha)
+  assert.equal(result.value.commit.subject, '修改入口')
+  assert.equal(result.value.commit.body, '修改入口\n\n正文')
+  assert.deepEqual(result.value.files.map((file) => file.path), ['src/app.ts', 'docs/新文件.md'])
+  assert.equal(result.value.files[0].letter, 'M')
+  assert.equal(result.value.files[0].tone, 'mod')
+  assert.equal(result.value.files[1].letter, 'A')
+  assert.equal(result.value.files[1].tone, 'add')
+  assert.equal(result.value.files[0].outsideRoot, false)
+
+  // The diff is taken against the first parent, and paths are NUL-separated so
+  // a non-ASCII name survives.
+  const diffCall = git.calls.find((call) => call[1] === 'diff-tree')
+  assert(diffCall.includes('-z'))
+  assert(diffCall.includes(sha))
+  assert(diffCall.includes('b2c3d4e5f6a7'))
+})
+
+test('a root commit is diffed against the empty tree', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const git = repoGit({
+    detail: detailRecord(sha, '初始提交', '初始提交'),
+    parents: sha,
+    changes: ['A', 'README.md', ''].join('\0'),
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFiles', { root: ROOT, sha })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.files.length, 1)
+  assert(git.calls.find((call) => call[1] === 'diff-tree').includes('--root'))
+})
+
+test('gitCheckout switches to an existing branch and refuses everything else', async () => {
+  const git = repoGit({ branches: ['main', 'dev'] })
+  const ctx = createCtx(createFs(REPO_TREE))
+
+  const switched = await handleRpc(ctx, options({ _runGit: git }), 'gitCheckout', { root: ROOT, branch: 'refs/heads/dev' })
+  assert.equal(switched.ok, true)
+  assert.equal(switched.value.branch, 'refs/heads/dev')
+  assert.equal(switched.value.previous, 'main')
+  assert.equal(switched.value.changed, true)
+  // The write is a plain `checkout <branch>` guarded by a hooks override, so
+  // a repository's `post-checkout` hook never runs on the reader's behalf.
+  assert.deepEqual(
+    git.calls.filter((call) => call[1] === '-c').map((call) => call.slice(1)),
+    [['-c', 'core.hooksPath=', 'checkout', 'dev']],
+  )
+
+  // A name that is not a branch of this checkout is refused before git runs.
+  const before = git.calls.length
+  const forbidden = await handleRpc(ctx, options({ _runGit: git }), 'gitCheckout', { root: ROOT, branch: '-D' })
+  assert.equal(forbidden.ok, false)
+  assert.equal(forbidden.error.code, 'invalid-branch')
+  const unknown = await handleRpc(ctx, options({ _runGit: git }), 'gitCheckout', { root: ROOT, branch: 'release/nope' })
+  assert.equal(unknown.ok, false)
+  assert.equal(unknown.error.code, 'unknown-branch')
+  // Both refusals still ran discovery (that is how the branch list is known),
+  // but neither may ever reach the writing subcommand.
+  assert.equal(
+    git.calls.slice(before).filter((call) => call[1] === 'checkout').length,
+    0,
+    'a refused checkout must never run git checkout',
+  )
+})
+
+test('a checkout that would overwrite local edits reports git-dirty', async () => {
+  const git = repoGit({
+    branches: ['main', 'dev'],
+    checkoutFailure: 'error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/app.ts',
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCheckout', { root: ROOT, branch: 'refs/heads/dev' })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'git-dirty')
+})
+
+test('the Git RPC refuses forged repository ids, refs and hashes', async () => {
+  const git = repoGit({ count: 1, log: logRecord('a1b2c3d4e5f6', 'a') })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const opts = options({ _runGit: git })
+
+  // A path is not an id: the client only ever receives ids from discovery.
+  const forgedRepo = await handleRpc(ctx, opts, 'gitCommits', { root: ROOT, repo: 'D:/repo' })
+  assert.equal(forgedRepo.ok, false)
+  assert.equal(forgedRepo.error.code, 'unknown-repository')
+
+  const forgedRef = await handleRpc(ctx, opts, 'gitCommits', { root: ROOT, branch: 'main --upload-pack=evil' })
+  assert.equal(forgedRef.ok, false)
+  assert.equal(forgedRef.error.code, 'invalid-branch')
+
+  for (const sha of ['main', 'HEAD', '--all', 'abc']) {
+    const result = await handleRpc(ctx, opts, 'gitCommitFiles', { root: ROOT, sha })
+    assert.equal(result.ok, false, `${sha} must be refused`)
+    assert.equal(result.error.code, 'invalid-commit')
+  }
+
+  // Root containment still applies: a root this deployment does not serve is
+  // refused before discovery ever runs.
+  const escaped = await handleRpc(ctx, opts, 'gitRepos', { root: 'D:/not-served-here' })
+  assert.equal(escaped.ok, false)
+  assert.equal(escaped.error.code, 'unknown-root')
+})
+
+test('a root with no checkout refuses history requests with a stable code', async () => {
+  const ctx = createCtx(createFs(REPO_TREE))
+  const opts = options({ _runGit: createGit(() => undefined) })
+  const commits = await handleRpc(ctx, opts, 'gitCommits', { root: ROOT })
+  assert.equal(commits.ok, false)
+  assert.equal(commits.error.code, 'not-a-git-repo')
+  const files = await handleRpc(ctx, opts, 'gitCommitFiles', { root: ROOT, sha: 'a1b2c3d4' })
+  assert.equal(files.ok, false)
+  assert.equal(files.error.code, 'not-a-git-repo')
+})
+
+/* -------------------------------------------------------------------------- *
+ * Confinement and honest reporting
+ *
+ * These cover the failures that the first round of tests could not see: a
+ * checkout reaching above the root, inherited GIT_* variables relocating git,
+ * a discovery budget that hid repositories, and a missing binary reported as
+ * "no repository here".
+ * -------------------------------------------------------------------------- */
+
+test('the git child environment drops every variable that relocates a repository', () => {
+  const base = {
+    PATH: '/usr/local/bin',
+    HOME: '/home/user',
+    GIT_DIR: '/elsewhere/.git',
+    GIT_WORK_TREE: '/elsewhere',
+    GIT_INDEX_FILE: '/elsewhere/index',
+    GIT_OBJECT_DIRECTORY: '/elsewhere/objects',
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: '/elsewhere/alt',
+    GIT_COMMON_DIR: '/elsewhere',
+    GIT_NAMESPACE: 'ns',
+    GIT_PREFIX: 'sub/',
+    GIT_AUTHOR_NAME: 'inherited',
+  }
+
+  const env = gitChildEnv(base)
+
+  for (const key of [
+    'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE', 'GIT_PREFIX',
+  ]) {
+    assert.equal(Object.hasOwn(env, key), false, `${key} must not reach a git child`)
+  }
+
+  // The ambient path and home survive: only repository binding is stripped.
+  assert.equal(env.PATH, '/usr/local/bin')
+  assert.equal(env.HOME, '/home/user')
+  // The viewer's own preferences are still applied.
+  assert.equal(env.GIT_TERMINAL_PROMPT, '0')
+  assert.equal(env.GIT_OPTIONAL_LOCKS, '0')
+  assert.equal(env.LC_ALL, 'C')
+  // The input object is not mutated.
+  assert.equal(base.GIT_DIR, '/elsewhere/.git')
+})
+
+test('a checkout with the root above the repository needs explicit consent', async () => {
+  // The workspace root is `D:/repo/sub`, while the checkout is `D:/repo`: a
+  // checkout would rewrite files the root was never allowed to touch.
+  const tree = {
+    'D:/repo/sub': { type: 'directory', entries: [{ name: 'app.ts', type: 'file' }] },
+  }
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok('D:/repo\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('sub/\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') {
+      // Full refs for validation, the display format for the listing.
+      return args.includes('--format=%(refname)')
+        ? ok('refs/heads/main\nrefs/heads/dev\n')
+        : ok('*\trefs/heads/main\tmain\ta1b2c3d\t2024-05-01T12:00:00+08:00\t\n'
+          + ' \trefs/heads/dev\tdev\ta1b2c3d\t2024-05-01T12:00:00+08:00\t\n')
+    }
+    if (args[0] === '-c' && args[2] === 'checkout') return ok('Switched to branch\n')
+    return undefined
+  })
+
+  const ctx = createCtx(createFs(tree), { workspaces: ['D:/repo/sub'] })
+  const opts = options({ _runGit: git })
+
+  // Discovery reports the scope, which is what the client warns about.
+  const repos = await handleRpc(ctx, opts, 'gitRepos', { root: 'D:/repo/sub' })
+  assert.equal(repos.ok, true)
+  assert.equal(repos.value.repos[0].scope, 'parent')
+
+  const refused = await handleRpc(ctx, opts, 'gitCheckout', { root: 'D:/repo/sub', branch: 'refs/heads/dev' })
+  assert.equal(refused.ok, false)
+  assert.equal(refused.error.code, 'checkout-outside-root')
+  assert.equal(refused.error.details.scope, 'parent')
+  // Refused before any write: no checkout was attempted.
+  assert.equal(git.calls.filter((call) => call[1] === '-c').length, 0)
+
+  // Consent is what makes it proceed, and the operation reports its scope.
+  const allowed = await handleRpc(ctx, opts, 'gitCheckout', {
+    root: 'D:/repo/sub', branch: 'refs/heads/dev', allowOutsideRoot: true,
+  })
+  assert.equal(allowed.ok, true)
+  assert.equal(allowed.value.scope, 'parent')
+})
+
+test('a discovery budget that runs out is reported instead of hidden', async () => {
+  const names = []
+  for (let index = 0; index < GIT_REPO_SCAN_LIMIT + 5; index += 1) names.push(`proj-${String(index).padStart(3, '0')}`)
+  const entries = names.map((name) => ({ name, type: 'directory' }))
+  const tree = { 'D:/many': { type: 'directory', entries } }
+
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+      return { ok: false, stdout: '', stderr: 'fatal: not a git repository' }
+    }
+    return undefined
+  })
+
+  const ctx = createCtx(createFs(tree), { workspaces: ['D:/many'] })
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitRepos', { root: 'D:/many' })
+
+  assert.equal(result.ok, true)
+  // None of the candidates carry a `.git`, so no repository is found...
+  assert.deepEqual(result.value.repos, [])
+  // ...but the caller is told the scan did not finish, rather than being
+  // handed an empty list that looks authoritative.
+  assert.equal(result.value.truncated, true)
+})
+
+test('a complete scan reports truncated false', async () => {
+  const git = repoGit({ toplevel: ROOT })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitRepos', { root: ROOT })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.truncated, false)
+  assert.equal(result.value.repos[0].scope, 'root')
+})
+
+test('a missing git binary is reported, not mistaken for an empty directory', async () => {
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse') return { missing: true, ok: false, stdout: '', stderr: '' }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitRepos', { root: ROOT })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'git-unavailable')
+})
+
+test('a failed diff is an error, not a commit that changed nothing', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('main\n')
+    if (args[0] === 'log') return ok(detailRecord(sha, '标题', '标题'))
+    if (args[0] === 'rev-list' && args[1] === '--parents') return ok(`${sha}\n`)
+    if (args[0] === 'diff-tree') return { ok: false, stdout: '', stderr: 'fatal: bad object' }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFiles', { root: ROOT, sha })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'git-failed')
+})
+
+test('a file opened from a commit is read from that commit, not the working tree', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const shown = []
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('main\n')
+    if (args[0] === 'show') {
+      shown.push(args[1])
+      return ok('export const a = 1\n')
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFile', {
+    root: ROOT, sha, path: 'src/app.ts',
+  })
+
+  assert.equal(result.ok, true)
+  // git wants `<sha>:<repo-relative path>`, which also means a path that looks
+  // like a revision cannot be reinterpreted.
+  assert.deepEqual(shown, [`${sha}:src/app.ts`])
+  assert.equal(result.value.commit, sha)
+  assert.equal(result.value.path, 'src/app.ts')
+  // `splitLines` keeps the trailing newline as an empty final line, exactly as
+  // the working-tree read does, so both previews page identically.
+  assert.equal(result.value.lines.map((row) => row.text).join('\n'), 'export const a = 1\n')
+  assert.equal(result.value.kind, 'text')
+  // No working-tree read happened: the file need not exist on disk at all.
+  assert.equal(ctx.fs.calls.some((call) => call[0] === 'readText'), false)
+})
+
+test('a file deleted by the commit still renders from history', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('main\n')
+    if (args[0] === 'show') return ok('the old contents\n')
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFile', {
+    root: ROOT, sha, path: 'legacy/removed.js',
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.lines[0].text, 'the old contents')
+})
+
+test('asking for a file that is absent from the commit reports not-found', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('main\n')
+    if (args[0] === 'show') {
+      return { ok: false, stdout: '', stderr: "fatal: path 'nope.ts' exists on disk, but not in 'abc'" }
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFile', {
+    root: ROOT, sha, path: 'nope.ts',
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'not-found')
+})
+
+test('a root-relative path outside the repository is refused', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  // The checkout is a subdirectory of the root, so the root's own README is not
+  // part of it and has no repository-relative form.
+  const tree = {
+    'D:/work': { type: 'directory', entries: [{ name: 'app', type: 'directory' }, { name: 'README.md', type: 'file' }] },
+    'D:/work/app/.git': { type: 'directory' },
+  }
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+      return cwd === 'D:/work/app'
+        ? ok('D:/work/app\n')
+        : { ok: false, stdout: '', stderr: 'fatal: not a git repository' }
+    }
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('main\n')
+    return undefined
+  })
+  const ctx = createCtx(createFs(tree), { workspaces: ['D:/work'] })
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFile', {
+    root: 'D:/work', repo: 'app', sha, path: 'README.md',
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'outside-root')
+})
+
+test('a deleted file is read from its parent commit', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const parent = 'b2c3d4e5f6a7'
+  const seen = []
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('main\n')
+    if (args[0] === 'cat-file') return ok('')
+    if (args[0] === 'show') {
+      seen.push(args[1])
+      return ok('doomed\n')
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFile', {
+    root: ROOT, sha, from: parent, path: 'gone.txt',
+  })
+  assert.equal(result.ok, true)
+  // The blob is looked up in the parent, and the response says so.
+  assert.deepEqual(seen, [`${parent}:gone.txt`])
+  assert.equal(result.value.commit, parent)
+  assert.equal(result.value.lines[0].text, 'doomed')
+})
+
+test('an unverified parent hash is refused before it is read', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('main\n')
+    if (args[0] === 'cat-file') return { ok: false, stdout: '', stderr: 'fatal: Not a valid object name' }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFile', {
+    root: ROOT, sha, from: 'c3d4e5f6a7b8', path: 'gone.txt',
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'unknown-commit')
+  assert.equal(git.calls.some((call) => call[1] === 'show'), false)
+})
+
+test('commit detail reports the parent so a deletion can be opened', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const parent = 'b2c3d4e5f6a7'
+  const git = repoGit({
+    detail: detailRecord(sha, '删除文件', '删除文件'),
+    parents: `${sha} ${parent}`,
+    changes: ['D', 'gone.txt', ''].join('\0'),
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFiles', { root: ROOT, sha })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.parentSha, parent)
+  assert.equal(result.value.files[0].letter, 'D')
+})
+
+test('a root commit has no parent to fall back to', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const git = repoGit({
+    detail: detailRecord(sha, '初始', '初始'),
+    parents: sha,
+    changes: ['A', 'README.md', ''].join('\0'),
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitFiles', { root: ROOT, sha })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.parentSha, '')
+})
+
+/* -------------------------------------------------------------------------- *
+ * Remote branches, working-tree changes, commit diffs
+ * -------------------------------------------------------------------------- */
+
+test('gitRepos lists remote branches as browse-only with their remote', async () => {
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'remote') return ok('origin\thttps://example.test/repo.git (fetch)\norigin\thttps://example.test/repo.git (push)\n')
+    if (args[0] === 'branch') {
+      return ok([
+        '*\trefs/heads/main\tmain\taaa\t2024-05-01T12:00:00+08:00\torigin/main',
+        ' \trefs/remotes/origin/main\torigin/main\tbbb\t2024-04-01T12:00:00+08:00\t',
+      ].join('\n') + '\n')
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitRepos', { root: ROOT })
+
+  assert.equal(result.ok, true)
+  const repo = result.value.repos[0]
+  assert.deepEqual(repo.remotes, [{ name: 'origin', url: 'https://example.test/repo.git' }])
+  const remote = repo.branches.find((branch) => branch.kind === 'remote')
+  assert.equal(remote.name, 'refs/remotes/origin/main')
+  assert.equal(remote.shortName, 'origin/main')
+  assert.equal(remote.remote, 'origin')
+  // Browse-only: the client uses this to disable the checkout button.
+  assert.equal(remote.checkoutable, false)
+  assert.equal(repo.branches.find((branch) => branch.kind === 'local').checkoutable, true)
+})
+
+test('a remote branch history is read through its qualified ref', async () => {
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('refs/heads/main\nrefs/remotes/origin/release\n')
+    if (args[0] === 'rev-list') return ok('1\n')
+    if (args[0] === 'log') return ok(logRecord('a1b2c3d4e5f6', 'remote only'))
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommits', {
+    root: ROOT, branch: 'refs/remotes/origin/release',
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.value.branchKind, 'remote')
+  assert.equal(result.value.shortName, 'origin/release')
+  assert.equal(result.value.commits[0].subject, 'remote only')
+  // git needs the qualified ref: `origin/release` would also match a local
+  // branch of that name.
+  const logCall = git.calls.find((call) => call[1] === 'log')
+  assert(logCall.includes('refs/remotes/origin/release'))
+})
+
+test('checking out a remote branch is refused as read-only', async () => {
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'branch') return ok('refs/heads/main\nrefs/remotes/origin/release\n')
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCheckout', {
+    root: ROOT, branch: 'refs/remotes/origin/release',
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'remote-branch-readonly')
+  assert.equal(git.calls.some((call) => call[1] === '-c'), false)
+})
+
+test('the workspace change list groups staged, unstaged, untracked and conflicts', async () => {
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'status') {
+      return ok([
+        'M  staged.txt', '',
+        ' M worktree.txt', '',
+        '?? new.txt', '',
+        'UU conflicted.txt', '',
+      ].join('\0'))
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitStatusChanges', { root: ROOT })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.value.current, 'main')
+  assert.deepEqual(result.value.staged.map((row) => row.path), ['staged.txt'])
+  assert.deepEqual(result.value.unstaged.map((row) => row.path), ['worktree.txt'])
+  assert.deepEqual(result.value.untracked.map((row) => row.path), ['new.txt'])
+  assert.deepEqual(result.value.conflicted.map((row) => row.path), ['conflicted.txt'])
+  assert.equal(result.value.total, 4)
+  // The status read is NUL-separated and lists every untracked file.
+  const statusCall = git.calls.find((call) => call[1] === 'status')
+  assert(statusCall.includes('-z'))
+  assert(statusCall.includes('--untracked-files=all'))
+})
+
+test('a workspace change outside the root is counted, not listed', async () => {
+  const tree = {
+    'D:/repo/sub': { type: 'directory', entries: [] },
+  }
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok('D:/repo\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('sub/\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'status') {
+      return ok(['M  sub/inside.txt', '', 'M  outside.txt', ''].join('\0'))
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(tree), { workspaces: ['D:/repo/sub'] })
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitStatusChanges', { root: 'D:/repo/sub' })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.value.staged.map((row) => row.path), ['inside.txt'])
+  assert.equal(result.value.outside, 1)
+})
+
+test('a staged and an unstaged diff are two different reads', async () => {
+  const seen = []
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'diff') {
+      seen.push(args.slice(1))
+      return ok([
+        'diff --git a/a.txt b/a.txt',
+        '--- a/a.txt',
+        '+++ b/a.txt',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ].join('\n'))
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+
+  const unstaged = await handleRpc(ctx, options({ _runGit: git }), 'gitWorkspaceDiff', { root: ROOT, path: 'a.txt' })
+  assert.equal(unstaged.ok, true)
+  assert.equal(unstaged.value.hasDiff, true)
+  assert.equal(unstaged.value.staged, false)
+  assert.equal(unstaged.value.rows.some((row) => row.type === 'add' && row.text === 'new'), true)
+
+  const staged = await handleRpc(ctx, options({ _runGit: git }), 'gitWorkspaceDiff', { root: ROOT, path: 'a.txt', staged: true })
+  assert.equal(staged.ok, true)
+  assert.equal(staged.value.staged, true)
+
+  assert.deepEqual(seen, [['--no-color', '--', 'a.txt'], ['--cached', '--no-color', '--', 'a.txt']])
+})
+
+test('an untracked file renders as an all-additions diff', async () => {
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'diff') return ok('')
+    if (args[0] === 'ls-files') return { ok: false, stdout: '', stderr: 'did not match any file' }
+    return undefined
+  })
+  const tree = {
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/new.txt': { type: 'file', size: 4, text: 'hi\nyo' },
+  }
+  const ctx = createCtx(createFs(tree))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitWorkspaceDiff', { root: ROOT, path: 'new.txt' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.hasDiff, true)
+  assert.equal(result.value.untracked, true)
+  assert.deepEqual(result.value.rows.filter((row) => row.type === 'add').map((row) => row.text), ['hi', 'yo'])
+})
+
+test('a commit diff covers every file and counts its own lines', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const parent = 'b2c3d4e5f6a7'
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'rev-list') return ok(`${sha} ${parent}\n`)
+    if (args[0] === 'diff') {
+      return ok([
+        'diff --git a/src/app.ts b/src/app.ts',
+        '--- a/src/app.ts',
+        '+++ b/src/app.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+        'diff --git a/added.txt b/added.txt',
+        'new file mode 100644',
+        '--- /dev/null',
+        '+++ b/added.txt',
+        '@@ -0,0 +1,2 @@',
+        '+one',
+        '+two',
+      ].join('\n'))
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitDiff', { root: ROOT, sha })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.value.parentSha, parent)
+  assert.equal(result.value.files.length, 2)
+  assert.equal(result.value.files[0].path, 'src/app.ts')
+  assert.equal(result.value.files[0].added, 1)
+  assert.equal(result.value.files[0].removed, 1)
+  assert.equal(result.value.files[1].letter, 'A')
+  assert.equal(result.value.files[1].added, 2)
+  // Totals are summed across files for the header.
+  assert.deepEqual(result.value.summary, { added: 3, removed: 1 })
+
+  // The diff is taken against the same parent the file list used.
+  const diffCall = git.calls.find((call) => call[1] === 'diff')
+  assert(diffCall.includes(parent))
+  assert(diffCall.includes(sha))
+})
+
+test('a root commit diffs against the empty tree', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'rev-list') return ok(`${sha}\n`)
+    if (args[0] === 'show') {
+      return ok([
+        'diff --git a/README.md b/README.md',
+        'new file mode 100644',
+        '--- /dev/null',
+        '+++ b/README.md',
+        '@@ -0,0 +1 @@',
+        '+hello',
+      ].join('\n'))
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitDiff', { root: ROOT, sha })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.parentSha, '')
+  assert.equal(result.value.files[0].path, 'README.md')
+  assert.equal(result.value.files[0].added, 1)
+})
+
+test('a commit diff narrowed to one path only reads that file', async () => {
+  const sha = 'a1b2c3d4e5f6'
+  const parent = 'b2c3d4e5f6a7'
+  const git = createGit((cwd, args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return ok(ROOT + '\n')
+    if (args[0] === 'rev-parse' && args[1] === '--show-prefix') return ok('\n')
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') return ok('main\n')
+    if (args[0] === 'rev-list') return ok(`${sha} ${parent}\n`)
+    if (args[0] === 'diff') {
+      return ok([
+        'diff --git a/src/app.ts b/src/app.ts',
+        '--- a/src/app.ts',
+        '+++ b/src/app.ts',
+        '@@ -1 +1 @@',
+        '-old',
+        '+new',
+      ].join('\n'))
+    }
+    return undefined
+  })
+  const ctx = createCtx(createFs(REPO_TREE))
+  const result = await handleRpc(ctx, options({ _runGit: git }), 'gitCommitDiff', {
+    root: ROOT, sha, path: 'src/app.ts',
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.files.length, 1)
+  const diffCall = git.calls.find((call) => call[1] === 'diff')
+  assert.deepEqual(diffCall.slice(-2), ['--', 'src/app.ts'])
+})

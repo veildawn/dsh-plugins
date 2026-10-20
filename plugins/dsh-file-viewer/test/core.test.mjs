@@ -30,9 +30,30 @@ import {
   mediaTypeOf,
   normalizeSafePaths,
   parseGitStatus,
+  parseGitBranches,
+  parseGitCommitDetail,
+  parseGitLog,
+  parseGitNameStatus,
   parsePatchToDiffs,
   parsePatchToRows,
   rebaseGitPaths,
+  commitPathWithinRoot,
+  parseGitBranchList,
+  revisionOfBranch,
+  isCheckoutableBranch,
+  parseGitStatusEntries,
+  gitStatusBadge,
+  groupGitChanges,
+  parseUnifiedDiffFiles,
+  gitChangeOf,
+  GIT_COMMIT_PAGE_MAX,
+  GIT_COMMIT_PAGE_SIZE,
+  isCandidateRepoDirectory,
+  isSafeBranchName,
+  isSafeCommitSha,
+  normalizeCommitPage,
+  normalizeGitPath,
+  relativePathWithin,
   resolveLanguage,
   resolveWindow,
   sortEntries,
@@ -833,3 +854,378 @@ test('parsePatchToRows parses patch and untracked text into line-numbered rows',
 
 
 
+
+/* -------------------------------------------------------------------------- *
+ * Git panel
+ *
+ * The host asks git for machine-readable output (`--format` with unit and
+ * record separators, `-z` name-status), so these parsers only have to handle
+ * the shapes git actually prints. The cases below are real output shapes,
+ * including the ones that are easy to misread: quoted non-ASCII paths, a rename
+ * carrying two paths, and a message body containing newlines.
+ * -------------------------------------------------------------------------- */
+
+test('branch names are validated as refs before they reach git', () => {
+  for (const name of ['main', 'feature/git-panel', 'release-1.2', 'v1.0.0-rc.1']) {
+    assert.equal(isSafeBranchName(name), true, `${name} must be accepted`)
+  }
+  // A leading dash would be parsed by git as an option, which is the one case
+  // that turns a data value into command-line syntax.
+  for (const name of ['-D', '--exec=rm -rf /', 'a..b', 'a b', 'a~1', 'a^', 'a:b', 'a?', 'a*', 'a[', 'a\\b',
+    '/main', 'main/', '.main', 'a/.hidden', 'main.lock', 'a@{1}', 'a//b', '', 'HEAD~1']) {
+    assert.equal(isSafeBranchName(name), false, `${JSON.stringify(name)} must be refused`)
+  }
+  assert.equal(isSafeBranchName(undefined), false)
+  assert.equal(isSafeBranchName(42), false)
+})
+
+test('only concrete hex commit ids are accepted, never revision expressions', () => {
+  assert.equal(isSafeCommitSha('a'.repeat(40)), true)
+  assert.equal(isSafeCommitSha('0123456'), true)
+  assert.equal(isSafeCommitSha('abc1234def'), true)
+  for (const value of ['abc', 'HEAD', 'main', 'A'.repeat(40), 'a'.repeat(41), 'abc1234~1', '', undefined, 7]) {
+    assert.equal(isSafeCommitSha(value), false, `${JSON.stringify(value)} must be refused`)
+  }
+})
+
+test('a commit page is clamped onto the supported window', () => {
+  const defaults = normalizeCommitPage({})
+  assert.equal(defaults.offset, 0)
+  assert.equal(defaults.limit, GIT_COMMIT_PAGE_SIZE)
+
+  // A forged page cannot pull all of history or page backwards.
+  assert.equal(normalizeCommitPage({ limit: 100000 }).limit, GIT_COMMIT_PAGE_MAX)
+  assert.equal(normalizeCommitPage({ offset: -5 }).offset, 0)
+  assert.equal(normalizeCommitPage({ limit: 0 }).limit, GIT_COMMIT_PAGE_SIZE)
+  assert.deepEqual(normalizeCommitPage({ offset: 60, limit: 20 }), { offset: 60, limit: 20 })
+})
+
+test('git paths normalize for comparison without losing a drive letter', () => {
+  assert.equal(normalizeGitPath('D:\\repo\\sub\\'), 'D:/repo/sub')
+  assert.equal(normalizeGitPath('/repo/sub/'), '/repo/sub')
+  assert.equal(normalizeGitPath('.'), '')
+  assert.equal(normalizeGitPath(undefined), '')
+})
+
+test('relativePathWithin distinguishes equal, nested and unrelated paths', () => {
+  assert.equal(relativePathWithin('/repo', '/repo'), '')
+  assert.equal(relativePathWithin('/repo/', '/repo/src'), 'src')
+  assert.equal(relativePathWithin('/repo', '/repo/src/app'), 'src/app')
+  assert.equal(relativePathWithin('/repo', '/repository'), null)
+  assert.equal(relativePathWithin('/repo/src', '/repo'), null)
+  assert.equal(relativePathWithin('', '/repo'), null)
+})
+
+test('only plausible subdirectories are probed for their own checkout', () => {
+  assert.equal(isCandidateRepoDirectory('packages'), true)
+  assert.equal(isCandidateRepoDirectory('dsh-plugins'), true)
+  // Dot directories are skipped in the tree already, and a dependency cache
+  // never holds a checkout worth spending a git process on.
+  assert.equal(isCandidateRepoDirectory('.git'), false)
+  assert.equal(isCandidateRepoDirectory('.cache'), false)
+  assert.equal(isCandidateRepoDirectory('node_modules'), false)
+  assert.equal(isCandidateRepoDirectory(''), false)
+  assert.equal(isCandidateRepoDirectory(undefined), false)
+})
+
+test('branch listing keeps the current marker, tip and upstream apart', () => {
+  const stdout = [
+    '*\tmain\ta1b2c3d\t2024-05-01T12:00:00+08:00\torigin/main',
+    ' \tfeature/git-panel\te4f5a6b\t2024-04-28T09:30:00+08:00\t',
+    ' \trelease-1.2\t0c1d2e3\t2024-04-01T18:00:00+08:00\torigin/release-1.2',
+  ].join('\n')
+  const branches = parseGitBranches(stdout)
+  assert.equal(branches.length, 3)
+  assert.deepEqual(branches[0], {
+    name: 'main', current: true, sha: 'a1b2c3d', date: '2024-05-01T12:00:00+08:00', upstream: 'origin/main',
+  })
+  assert.equal(branches[1].current, false)
+  assert.equal(branches[1].upstream, '')
+  assert.equal(branches[2].name, 'release-1.2')
+
+  // An empty repository prints nothing at all.
+  assert.deepEqual(parseGitBranches(''), [])
+  assert.deepEqual(parseGitBranches('   \n'), [])
+  assert.deepEqual(parseGitBranches(undefined), [])
+})
+
+test('commit log records survive a subject containing the separators', () => {
+  const unit = '\x1f'
+  const record = '\x1e'
+  const stdout = [
+    `a1b2c3d4e5f6${unit}a1b2c3d${unit}张三${unit}zhang@example.com${unit}2024-05-01T12:00:00+08:00${unit}2024-05-01T12:00:05+08:00${unit}修复：文件路径分隔符${record}`,
+    `\n0c1d2e3f4a5b${unit}0c1d2e3${unit}Li Si${unit}li@example.com${unit}2024-04-30T08:00:00+08:00${unit}2024-04-30T08:00:01+08:00${unit}feat: add${unit}panel${record}`,
+  ].join('')
+
+  const commits = parseGitLog(stdout)
+  assert.equal(commits.length, 2)
+  assert.equal(commits[0].sha, 'a1b2c3d4e5f6')
+  assert.equal(commits[0].shortSha, 'a1b2c3d')
+  assert.equal(commits[0].author, '张三')
+  assert.equal(commits[0].authorEmail, 'zhang@example.com')
+  assert.equal(commits[0].subject, '修复：文件路径分隔符')
+  // A stray unit separator inside the subject is field content, not a new field.
+  assert.equal(commits[1].subject, 'feat: add\x1fpanel')
+
+  // Records that are not commits are dropped rather than rendered as blanks.
+  assert.deepEqual(parseGitLog('garbage\n'), [])
+  assert.deepEqual(parseGitLog(''), [])
+})
+
+test('one commit detail carries its message body and metadata', () => {
+  const unit = '\x1f'
+  const stdout = `a1b2c3d4${unit}a1b2c3d${unit}张三${unit}zhang@example.com${unit}2024-05-01T12:00:00+08:00${unit}2024-05-01T12:00:05+08:00${unit}标题行${unit}标题行\n\n正文第一段\n正文第二段\x1e\n`
+  const parsed = parseGitCommitDetail(stdout)
+  assert.notEqual(parsed, null)
+  assert.equal(parsed.commit.subject, '标题行')
+  assert.equal(parsed.body, '标题行\n\n正文第一段\n正文第二段')
+  assert.equal(parsed.commit.authoredAt, '2024-05-01T12:00:00+08:00')
+
+  assert.equal(parseGitCommitDetail(''), null)
+  assert.equal(parseGitCommitDetail(undefined), null)
+})
+
+test('name-status parsing handles every change kind and both path shapes', () => {
+  const stdout = [
+    'M', 'src/app.ts', '',
+    'A', 'docs/新文件.md', '',
+    'D', 'legacy/old.js', '',
+    'R100', 'src/before.ts', 'src/after.ts', '',
+    'C075', 'src/a.ts', 'src/a-copy.ts', '',
+  ].join('\0')
+
+  const changes = parseGitNameStatus(stdout)
+  assert.equal(changes.length, 5)
+  assert.deepEqual(changes[0], { status: 'M', oldPath: null, path: 'src/app.ts' })
+  assert.deepEqual(changes[1], { status: 'A', oldPath: null, path: 'docs/新文件.md' })
+  assert.deepEqual(changes[3], { status: 'R100', oldPath: 'src/before.ts', path: 'src/after.ts' })
+  assert.deepEqual(changes[4], { status: 'C075', oldPath: 'src/a.ts', path: 'src/a-copy.ts' })
+
+  assert.deepEqual(parseGitNameStatus(''), [])
+  assert.deepEqual(parseGitNameStatus(undefined), [])
+})
+
+test('a change code maps to one badge with a tone', () => {
+  assert.deepEqual(gitChangeOf('A'), { letter: 'A', label: '新增', tone: 'add' })
+  assert.deepEqual(gitChangeOf('M'), { letter: 'M', label: '修改', tone: 'mod' })
+  assert.deepEqual(gitChangeOf('D'), { letter: 'D', label: '删除', tone: 'del' })
+  assert.equal(gitChangeOf('R100').label, '重命名')
+  assert.equal(gitChangeOf('C075').letter, 'C')
+  // An unknown code still renders as a change rather than disappearing.
+  assert.deepEqual(gitChangeOf('Z'), { letter: 'Z', label: '变更', tone: 'mod' })
+  assert.deepEqual(gitChangeOf(undefined), { letter: '?', label: '变更', tone: 'mod' })
+})
+
+test('a changed path is rebased onto the root for both placements', () => {
+  // The repository is a subdirectory of the root.
+  assert.deepEqual(commitPathWithinRoot({ prefix: 'packages/app', rootRelative: '' }, 'src/index.ts'), {
+    path: 'packages/app/src/index.ts', outsideRoot: false,
+  })
+
+  // The root is a subdirectory of the repository: only the files below it can
+  // be opened, and the rest are reported rather than dropped silently.
+  assert.deepEqual(commitPathWithinRoot({ prefix: '', rootRelative: 'sub/dir' }, 'sub/dir/a.ts'), {
+    path: 'a.ts', outsideRoot: false,
+  })
+  assert.deepEqual(commitPathWithinRoot({ prefix: '', rootRelative: 'sub/dir' }, 'docs/readme.md'), {
+    path: 'docs/readme.md', outsideRoot: true,
+  })
+
+  // The root is the checkout itself.
+  assert.deepEqual(commitPathWithinRoot({ prefix: '', rootRelative: '' }, 'src/app.ts'), {
+    path: 'src/app.ts', outsideRoot: false,
+  })
+})
+
+/* -------------------------------------------------------------------------- *
+ * Remote branches, working-tree changes, commit diffs
+ * -------------------------------------------------------------------------- */
+
+test('branch listing separates local and remote refs and drops origin/HEAD', () => {
+  const stdout = [
+    '*\trefs/heads/main\tmain\ta1b2c3d\t2024-05-01T12:00:00+08:00\torigin/main',
+    ' \trefs/heads/dev\tdev\te4f5a6b\t2024-04-28T09:30:00+08:00\t',
+    ' \trefs/remotes/origin/main\torigin/main\t0c1d2e3\t2024-04-01T18:00:00+08:00\t',
+    ' \trefs/remotes/origin/feature/x\torigin/feature/x\t9a8b7c6\t2024-03-01T10:00:00+08:00\t',
+    ' \trefs/remotes/origin/HEAD\torigin/HEAD\t0c1d2e3\t\t',
+  ].join('\n')
+
+  const branches = parseGitBranchList(stdout)
+  assert.equal(branches.length, 4, 'origin/HEAD is a pointer, not a branch')
+  assert.deepEqual(branches.map((b) => b.kind), ['local', 'local', 'remote', 'remote'])
+  assert.equal(branches[0].current, true)
+  assert.equal(branches[2].shortName, 'origin/main')
+  assert.equal(branches[2].remote, 'origin')
+  // A remote branch whose name contains a slash keeps the full remainder.
+  assert.equal(branches[3].remote, 'origin')
+  assert.equal(branches[3].name, 'refs/remotes/origin/feature/x')
+  assert.equal(branches[3].shortName, 'origin/feature/x')
+
+  assert.deepEqual(parseGitBranchList(''), [])
+  assert.deepEqual(parseGitBranchList(undefined), [])
+})
+
+test('a branch ref maps to the revision git should read', () => {
+  // A local branch is already unambiguous.
+  assert.equal(revisionOfBranch({ name: 'refs/heads/main', kind: 'local' }), 'refs/heads/main')
+  // A remote branch is not on the branch namespace, so it must stay qualified.
+  assert.equal(
+    revisionOfBranch({ name: 'refs/remotes/origin/main', kind: 'remote' }),
+    'refs/remotes/origin/main',
+  )
+  // A remote short name is expanded back onto its namespace.
+  assert.equal(
+    revisionOfBranch({ name: 'origin/main', kind: 'remote' }),
+    'refs/remotes/origin/main',
+  )
+  assert.equal(revisionOfBranch({ name: '' }), '')
+  assert.equal(revisionOfBranch(undefined), '')
+})
+
+test('only local branches are checkoutable', () => {
+  assert.equal(isCheckoutableBranch({ kind: 'local' }), true)
+  assert.equal(isCheckoutableBranch({ kind: 'remote' }), false)
+  // An unknown kind is treated as local, which is the conservative default for
+  // a value that came from discovery rather than from a reader.
+  assert.equal(isCheckoutableBranch({}), true)
+  assert.equal(isCheckoutableBranch(undefined), true)
+})
+
+test('porcelain -z status keeps staged, unstaged, untracked and renames apart', () => {
+  const stdout = [
+    'M  staged.txt', '',        // staged modification
+    ' M worktree.txt', '',      // unstaged modification
+    'MM both.txt', '',          // staged and then edited again
+    '?? new.txt', '',           // untracked
+    'A  added.txt', '',         // staged addition
+    'D  deleted.txt', '',       // staged deletion
+    'R  renamed-new.txt', 'renamed-old.txt', '',  // rename: two paths
+    'UU conflicted.txt', '',    // conflict
+  ].join('\0')
+
+  const entries = parseGitStatusEntries(stdout)
+  assert.equal(entries.length, 8)
+
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]))
+  assert.equal(byPath.get('staged.txt').staged, true)
+  assert.equal(byPath.get('staged.txt').worktree, ' ')
+  assert.equal(byPath.get('worktree.txt').staged, false)
+  assert.equal(byPath.get('worktree.txt').worktree, 'M')
+  assert.equal(byPath.get('both.txt').staged, true)
+  assert.equal(byPath.get('both.txt').worktree, 'M')
+  assert.equal(byPath.get('new.txt').untracked, true)
+  assert.equal(byPath.get('added.txt').index, 'A')
+  assert.equal(byPath.get('deleted.txt').index, 'D')
+  // A rename carries the original path, NUL-separated, so no quoting is needed.
+  assert.equal(byPath.get('renamed-new.txt').oldPath, 'renamed-old.txt')
+  assert.equal(byPath.get('renamed-new.txt').index, 'R')
+  assert.equal(byPath.get('conflicted.txt').conflicted, true)
+
+  assert.deepEqual(parseGitStatusEntries(''), [])
+})
+
+test('a status record maps to one badge', () => {
+  assert.deepEqual(gitStatusBadge({ index: 'A', worktree: ' ' }), { letter: 'A', label: '新增', tone: 'add' })
+  assert.deepEqual(gitStatusBadge({ index: 'M', worktree: ' ' }), { letter: 'M', label: '修改', tone: 'mod' })
+  assert.deepEqual(gitStatusBadge({ index: 'D', worktree: ' ' }), { letter: 'D', label: '删除', tone: 'del' })
+  assert.deepEqual(gitStatusBadge({ index: 'R', worktree: ' ' }), { letter: 'R', label: '重命名', tone: 'mod' })
+  assert.deepEqual(gitStatusBadge({ index: '?', worktree: '?', untracked: true }), { letter: '?', label: '未跟踪', tone: 'add' })
+  assert.deepEqual(gitStatusBadge({ conflicted: true }), { letter: 'U', label: '冲突', tone: 'del' })
+  // Staged as a modification but not yet edited again: the index side wins.
+  assert.equal(gitStatusBadge({ index: 'M', worktree: 'M' }).letter, 'M')
+  // Only a working-tree change still reports something.
+  assert.equal(gitStatusBadge({ index: ' ', worktree: 'M' }).letter, 'M')
+})
+
+test('working-tree changes group by staged state and drop what is outside', () => {
+  const changes = [
+    { path: 'a.txt', repoPath: 'a.txt', index: 'M', worktree: ' ', staged: true, untracked: false, ignored: false, conflicted: false },
+    { path: 'b.txt', repoPath: 'b.txt', index: ' ', worktree: 'M', staged: false, untracked: false, ignored: false, conflicted: false },
+    { path: 'c.txt', repoPath: 'c.txt', index: 'M', worktree: 'M', staged: true, untracked: false, ignored: false, conflicted: false },
+    { path: 'd.txt', repoPath: 'd.txt', index: '?', worktree: '?', staged: false, untracked: true, ignored: false, conflicted: false },
+    { path: 'e.txt', repoPath: 'e.txt', index: 'U', worktree: 'U', staged: false, untracked: false, ignored: false, conflicted: true },
+    { path: 'skip.txt', repoPath: 'skip.txt', index: '!', worktree: '!', staged: false, untracked: false, ignored: true, conflicted: false },
+  ]
+  const groups = groupGitChanges(changes, (repoPath) => (
+    repoPath === 'outside.txt'
+      ? { path: repoPath, outsideRoot: true }
+      : { path: repoPath, outsideRoot: false }
+  ))
+
+  assert.deepEqual(groups.staged.map((row) => row.path), ['a.txt', 'c.txt'])
+  assert.deepEqual(groups.unstaged.map((row) => row.path), ['b.txt', 'c.txt'])
+  assert.deepEqual(groups.untracked.map((row) => row.path), ['d.txt'])
+  assert.deepEqual(groups.conflicted.map((row) => row.path), ['e.txt'])
+  // `c.txt` is staged and edited again, which the row records explicitly.
+  assert.equal(groups.staged.find((row) => row.path === 'c.txt').partiallyStaged, true)
+  assert.equal(groups.staged.find((row) => row.path === 'a.txt').partiallyStaged, false)
+  // Ignored entries never surface.
+  assert.equal(groups.staged.some((row) => row.path === 'skip.txt'), false)
+})
+
+test('a multi-file patch is split per file with its own line numbers', () => {
+  const patch = [
+    'diff --git a/src/app.ts b/src/app.ts',
+    'index 111..222 100644',
+    '--- a/src/app.ts',
+    '+++ b/src/app.ts',
+    '@@ -1,2 +1,2 @@',
+    ' keep',
+    '-old line',
+    '+new line',
+    'diff --git a/gone.txt b/gone.txt',
+    'deleted file mode 100644',
+    'index 333..000',
+    '--- a/gone.txt',
+    '+++ /dev/null',
+    '@@ -1 +0,0 @@',
+    '-doomed',
+    'diff --git a/added.txt b/added.txt',
+    'new file mode 100644',
+    'index 000..444',
+    '--- /dev/null',
+    '+++ b/added.txt',
+    '@@ -0,0 +1 @@',
+    '+brand new',
+  ].join('\n')
+
+  const files = parseUnifiedDiffFiles(patch)
+  assert.equal(files.length, 3)
+
+  const app = files[0]
+  assert.equal(app.path, 'src/app.ts')
+  assert.equal(app.status, 'M')
+  assert.equal(app.added, 1)
+  assert.equal(app.removed, 1)
+  // The `---`/`+++` header lines must not be read as content.
+  assert.equal(app.rows.some((row) => row.text === 'a/src/app.ts'), false)
+
+  assert.equal(files[1].path, 'gone.txt')
+  assert.equal(files[1].status, 'D')
+  assert.equal(files[1].removed, 1)
+  assert.equal(files[1].added, 0)
+
+  assert.equal(files[2].path, 'added.txt')
+  assert.equal(files[2].status, 'A')
+  assert.equal(files[2].added, 1)
+
+  assert.deepEqual(parseUnifiedDiffFiles(''), [])
+})
+
+test('a rename in a patch reports both sides', () => {
+  const patch = [
+    'diff --git a/old/name.ts b/new/name.ts',
+    'similarity index 95%',
+    'rename from old/name.ts',
+    'rename to new/name.ts',
+    '@@ -1 +1 @@',
+    '-a',
+    '+b',
+  ].join('\n')
+
+  const files = parseUnifiedDiffFiles(patch)
+  assert.equal(files.length, 1)
+  assert.equal(files[0].status, 'R')
+  assert.equal(files[0].oldPath, 'old/name.ts')
+  assert.equal(files[0].path, 'new/name.ts')
+})

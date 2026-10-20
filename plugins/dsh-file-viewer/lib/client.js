@@ -113,6 +113,32 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** Source-control entry marker: a branch with two commits. */
+    function SvgIconBranch({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        react.createElement("circle", { cx: "4.5", cy: "3.5", r: "1.6" }),
+        react.createElement("circle", { cx: "4.5", cy: "12.5", r: "1.6" }),
+        react.createElement("circle", { cx: "11.5", cy: "6.5", r: "1.6" }),
+        react.createElement("path", { d: "M4.5 5.1v5.8" }),
+        react.createElement("path", { d: "M11.5 8.1c0 2-2.4 2.6-4.6 3.2" })
+      );
+    }
+
+    /** One commit in the history list. */
+    function SvgIconCommit({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round"
+      },
+        react.createElement("circle", { cx: "8", cy: "8", r: "2.4" }),
+        react.createElement("path", { d: "M1.5 8h4.1" }),
+        react.createElement("path", { d: "M10.4 8h4.1" })
+      );
+    }
+
     function SvgIconDownload({ size = 15 }) {
       return react.createElement("svg", {
         width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -283,6 +309,11 @@ window.__ModuleLoader__.load({
     // settings; the key follows the `<plugin>.<setting>` form used elsewhere.
     const ENTRY_POSITION_KEY = "dsh-file-viewer.entry-position";
     const TREE_WIDTH_KEY = "dsh-file-viewer.tree-width";
+    // The drawer's own width, set by dragging its left edge. Stored separately
+    // from the tree width: they answer different questions ("how wide is the
+    // sidebar" vs "how wide is the whole panel"), and dragging one must not
+    // move the other.
+    const SHELL_WIDTH_KEY = "dsh-file-viewer.shell-width";
     // Per-file language overrides, keyed by the file's path within its root.
     // Per-file rather than per-extension because the user chose this file, and
     // a whole suffix could be shared by files that genuinely differ.
@@ -292,6 +323,14 @@ window.__ModuleLoader__.load({
     const DEFAULT_TREE_WIDTH = 280;
     const MIN_TREE_WIDTH = 160;
     const MAX_TREE_WIDTH = 700;
+    /**
+     * Smallest width the drawer may be dragged to.
+     *
+     * It has to hold the sidebar at its own minimum (160) plus enough of the
+     * preview to be worth reading, otherwise a drag can squeeze the content
+     * pane into a sliver that cannot be widened again by its own handle.
+     */
+    const MIN_SHELL_WIDTH = 420;
     // Below this much travel a press is a tap. Large enough to absorb the slip of
     // a finger on a touch target, small enough that a deliberate drag registers.
     const DRAG_SLOP = 8;
@@ -302,6 +341,23 @@ window.__ModuleLoader__.load({
       .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:transparent;pointer-events:auto;animation:fv-fade .16s ease-out}
       .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1);transition:width .2s cubic-bezier(.2,.8,.2,1)}
       .fv-shell[data-fullscreen="true"]{width:100vw;border-left:none}
+      /* The leading edge is the drawer's own resize handle. It is positioned
+         over the border rather than beside it so the panel does not shift when
+         it appears, and it overhangs slightly on both sides to be easy to grab
+         with a pointer or a finger. */
+      .fv-shell{position:relative}
+      .fv-edge{position:absolute;top:0;bottom:0;left:-4px;z-index:6;width:9px;cursor:col-resize;touch-action:none;background:transparent;transition:background-color .15s ease}
+      .fv-edge::after{content:"";position:absolute;top:0;bottom:0;left:4px;width:1px;background:transparent;transition:background-color .15s ease}
+      .fv-edge:hover,.fv-edge:focus-visible{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}
+      .fv-edge:hover::after,.fv-edge:focus-visible::after{background:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .fv-edge[data-dragging="true"]{background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 26%,transparent)}
+      .fv-edge[data-dragging="true"]::after{background:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .fv-edge:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:-2px}
+      /* While dragging, the width transition would lag the pointer by its own
+         duration, so it is dropped for the duration of the gesture. */
+      .fv-shell[data-edge-resizing="true"]{transition:none}
+      .fv-shell[data-edge-resizing="true"] *{pointer-events:none!important;user-select:none}
+      .fv-shell[data-edge-resizing="true"] .fv-edge{pointer-events:auto!important}
       /* Windows desktop paints the native caption buttons (minimize, maximize,
          close) in a strip across the top of the window, above every page layer.
          The shell's overlay seat spans the whole frame — padding box included —
@@ -424,6 +480,75 @@ window.__ModuleLoader__.load({
       .fv-badge{display:inline-block;padding:0 4px;font-size:10px;font-weight:600;line-height:14px;border-radius:4px;margin-left:4px;flex:none}
       .fv-badge-mod{background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d97706) 18%,transparent);color:var(--dsw-alias-state-warning-primary,#d97706)}
       .fv-badge-add{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#10b981) 18%,transparent);color:var(--dsw-alias-state-success-primary,#10b981)}
+      /* --- Git panel -------------------------------------------------------
+         Modelled on VSCode's source-control view: a two-tab sidebar (files /
+         Git), then repository, branch, paged history, and — in the main pane —
+         the files of the selected commit. The sidebar keeps the tree's own
+         container class so every existing mobile rule (full width, pane swap,
+         no resizer) applies to it unchanged. */
+      .fv-side-tabs{position:sticky;top:0;z-index:2;display:flex;flex:none;gap:2px;padding:2px;margin:-6px -6px 4px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff))}
+      .fv-side-tab{display:inline-flex;flex:1 1 0;align-items:center;justify-content:center;gap:5px;min-width:0;height:28px;padding:0 8px;border:none;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-s-14);text-decoration:none;white-space:nowrap;cursor:pointer}
+      .fv-side-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-side-tab[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary);font-weight:600}
+      .fv-side-tab svg{display:block;flex:none}
+      .fv-git-panel{overflow:hidden!important}
+      .fv-git{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;gap:2px;padding-bottom:6px}
+      .fv-git-toolbar{display:flex;flex:none;flex-direction:column;gap:4px;padding:2px 2px 6px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+      .fv-git-row{display:flex;min-width:0;align-items:center;gap:6px}
+      .fv-git-label{flex:none;font-size:11px;color:var(--dsw-alias-label-caption)}
+      .fv-select{box-sizing:border-box;flex:1 1 auto;min-width:0;max-width:100%;height:26px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:24px;cursor:pointer}
+      .fv-select:hover{border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-l2))}
+      .fv-select:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
+      .fv-git-checkout{flex:none;height:26px;padding:0 10px;border:1px solid var(--dsw-alias-brand-primary,#4d6bfe);border-radius:6px;background:none;color:var(--dsw-alias-brand-primary,#4d6bfe);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+      .fv-git-checkout:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 12%,transparent)}
+      .fv-git-checkout:disabled{opacity:.45;cursor:default}
+      .fv-git-current{display:inline-flex;align-items:center;gap:4px;max-width:100%;overflow:hidden;font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;text-overflow:ellipsis}
+      .fv-git-section{display:flex;flex:none;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px 2px;color:var(--dsw-alias-label-caption);font-size:11px;font-weight:600}
+      .fv-git-count{font-weight:400;font-variant-numeric:tabular-nums}
+      .fv-git-list{display:flex;flex:1 1 auto;flex-direction:column;gap:1px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+      .fv-git-commit{display:flex;flex-direction:column;gap:2px;width:100%;min-width:0;padding:6px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:inherit;text-align:left;cursor:pointer}
+      .fv-git-commit:hover{background:var(--dsw-alias-interactive-bg-hover)}
+      .fv-git-commit[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
+      .fv-git-subject{display:-webkit-box;overflow:hidden;font-size:13px;line-height:1.35;word-break:break-word;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+      .fv-git-meta{display:flex;min-width:0;align-items:center;gap:6px;color:var(--dsw-alias-label-caption);font-size:11px;font-variant-numeric:tabular-nums}
+      .fv-git-sha{flex:none;font-family:var(--dsw-font-code,monospace);color:var(--dsw-alias-label-tertiary)}
+      .fv-git-author{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+      .fv-git-date{flex:none}
+      .fv-git-more{flex:none;height:30px;margin:4px 2px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
+      .fv-git-more:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-git-more:disabled{opacity:.5;cursor:default}
+      .fv-git-hint{flex:none;padding:2px 8px;color:var(--dsw-alias-label-caption);font-size:11px;line-height:18px}
+      .fv-git-note{display:flex;flex:none;flex-direction:column;align-items:flex-start;gap:8px;padding:10px 8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+      .fv-commit{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:hidden}
+      .fv-commit-head{display:flex;flex:none;flex-direction:column;gap:4px;padding:12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1,transparent)}
+      .fv-commit-subject{font-size:14px;font-weight:600;line-height:1.4;word-break:break-word}
+      .fv-commit-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--dsw-alias-label-caption);font-size:11px}
+      .fv-commit-sha{font-family:var(--dsw-font-code,monospace);color:var(--dsw-alias-label-tertiary)}
+      .fv-commit-body{max-height:220px;overflow:auto;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-family:var(--dsw-font-code,monospace);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+      .fv-commit-files{display:flex;flex:1 1 auto;flex-direction:column;gap:1px;min-height:0;padding:6px;overflow-y:auto;overscroll-behavior:contain}
+      .fv-commit-file{display:flex;align-items:center;gap:8px;width:100%;min-width:0;min-height:30px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;text-align:left;cursor:pointer}
+      .fv-commit-file:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+      .fv-commit-file:disabled{opacity:.55;cursor:default}
+      .fv-commit-file[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
+      .fv-commit-status{flex:none;width:18px;text-align:center;font-family:var(--dsw-font-code,monospace);font-size:11px;font-weight:700}
+      .fv-commit-status[data-tone="add"]{color:var(--dsw-alias-state-success-primary,#10b981)}
+      .fv-commit-status[data-tone="del"]{color:var(--dsw-alias-state-error-primary,#ef4444)}
+      .fv-commit-status[data-tone="mod"]{color:var(--dsw-alias-state-warning-primary,#d97706)}
+      .fv-commit-path{flex:1 1 auto;min-width:0;font-family:var(--dsw-font-code,monospace);font-size:12px;line-height:1.45;word-break:break-all}
+      .fv-commit-tag{flex:none;padding:1px 6px;border-radius:6px;background:var(--dsw-alias-bg-layer-3,rgba(0,0,0,.05));color:var(--dsw-alias-label-caption);font-family:var(--dsw-font-family);font-size:10px}
+      /* Working-tree changes and a commit's patch share the commit-row visuals
+         so the two panels read as one surface. */
+      .fv-git-changes{display:flex;flex:none;flex-direction:column;gap:1px;max-height:38%;overflow-y:auto;overscroll-behavior:contain;border-bottom:1px solid var(--dsw-alias-border-l1);padding-bottom:4px}
+      .fv-git-change-group{display:flex;flex-direction:column;gap:1px}
+      .fv-git-refresh{width:22px;height:22px;margin-left:auto}
+      .fv-commit-diff{display:flex;flex:1 1 auto;flex-direction:column;gap:2px;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 6px}
+      .fv-commit-diff-file{display:flex;flex:none;flex-direction:column;gap:2px;margin-bottom:8px}
+      .fv-commit-diff-file .fv-git-section{padding:2px 2px 0}
+      .fv-commit-diff-file .fv-diff-view{margin:2px 0}
+      .fv-git-warn{display:flex;align-items:flex-start;gap:6px;padding:6px 8px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d97706) 45%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#d97706) 10%,transparent);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1.5}
+      .fv-git-warn strong{color:var(--dsw-alias-state-warning-primary,#d97706)}
+      .fv-history-banner{display:flex;flex:none;flex-direction:column;gap:2px;margin:6px 6px 0;padding:7px 10px;border:1px solid color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 40%,transparent);border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 10%,transparent);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}
+      .fv-history-hint{color:var(--dsw-alias-label-caption);font-size:11px}
       .fv-modal-scrim{position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:16px;background:color-mix(in srgb,#000 45%,transparent);animation:fv-fade .15s ease-out}
       .fv-modal{width:min(94vw,560px);max-height:86vh;display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);overflow:hidden;font-family:var(--dsw-font-family)}
       .fv-modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--dsw-alias-border-l1)}
@@ -485,6 +610,8 @@ window.__ModuleLoader__.load({
       .fv-shell[data-mobile="true"]{width:100%!important;border-left:none!important}
       .fv-shell[data-mobile="true"] .fv-btn-fullscreen{display:none!important}
       .fv-shell[data-mobile="true"] .fv-resizer{display:none!important}
+      .fv-shell[data-mobile="true"] .fv-edge{display:none!important}
+      .fv-shell[data-fullscreen="true"] .fv-edge{display:none!important}
       .fv-shell[data-mobile="true"] .fv-tree{flex:1 1 auto!important;width:100%!important;min-width:0!important;max-width:none!important;border-right:none!important;padding:6px 6px!important}
       .fv-shell[data-mobile="true"] .fv-row-seat{width:100%!important;max-width:none!important}
       .fv-shell[data-mobile="true"] .fv-row{flex:1 1 auto!important;min-height:38px;padding:6px 6px;align-items:flex-start;padding-left:calc(4px + var(--fv-depth,0) * 8px)!important}
@@ -558,6 +685,20 @@ window.__ModuleLoader__.load({
         .fv-safe-item{padding:8px 8px!important}
         .fv-safe-item-path{font-size:11.5px!important;line-height:1.4!important}
         .fv-btn-del{height:32px!important;min-width:44px!important;font-size:13px!important;padding:4px 8px!important}
+        /* Git panel on a phone: the selects and the commit rows are the two
+           places a finger has to land precisely, so both get a full touch
+           target while the secondary text stays compact. */
+        .fv-side-tabs{margin:-6px -6px 4px!important;padding:2px!important}
+        .fv-side-tab{height:32px!important;font-size:13px!important}
+        .fv-select{height:32px!important;font-size:13px!important;line-height:30px!important}
+        .fv-git-checkout{height:32px!important;padding:0 12px!important;font-size:13px!important}
+        .fv-git-commit{min-height:44px!important;padding:8px!important}
+        .fv-git-subject{font-size:13.5px!important;-webkit-line-clamp:3!important}
+        .fv-git-more{height:38px!important;font-size:13px!important}
+        .fv-commit-file{min-height:42px!important;font-size:13.5px!important}
+        .fv-commit-path{font-size:12px!important}
+        .fv-git-changes{max-height:none!important}
+        .fv-commit-diff-file .fv-diff-table{font-size:12px!important}
       }
     `;
 
@@ -733,6 +874,53 @@ window.__ModuleLoader__.load({
         }
       } catch { /* storage is unavailable */ }
       return DEFAULT_TREE_WIDTH;
+    }
+
+    /**
+     * The drawer width to open with.
+     *
+     * Zero means "use the stylesheet default", which is what an untouched
+     * drawer should do: the default is a fraction of the viewport, and caching
+     * a resolved pixel value would pin it to whatever window happened to be
+     * open at the time.
+     * @returns {number} the stored width, or 0 when unset.
+     */
+    function readShellWidth() {
+      try {
+        const raw = globalThis.localStorage?.getItem(SHELL_WIDTH_KEY);
+        const parsed = raw === null || raw === undefined ? 0 : Number(raw);
+        if (Number.isFinite(parsed) && parsed >= MIN_SHELL_WIDTH) return Math.round(parsed);
+      } catch (_) {}
+      return 0;
+    }
+
+    /**
+     * Remember the drawer width, or forget it when it equals the default.
+     * @param {number} width - the width to store; 0 clears the entry.
+     */
+    function writeShellWidth(width) {
+      try {
+        if (!(width > 0)) globalThis.localStorage?.removeItem(SHELL_WIDTH_KEY);
+        else globalThis.localStorage?.setItem(SHELL_WIDTH_KEY, String(Math.round(width)));
+      } catch (_) {}
+    }
+
+    /**
+     * Clamp a requested drawer width onto what this viewport can honour.
+     *
+     * The upper bound is the frame itself: a panel wider than the window would
+     * push its own header out of reach, so the drag stops at the edge instead
+     * of letting the reader lose the close button.
+     * @param {number} width - requested width in pixels.
+     * @param {number} viewportWidth - available width in pixels.
+     * @returns {number} the width to apply.
+     */
+    function clampShellWidth(width, viewportWidth) {
+      const ceiling = Number.isFinite(viewportWidth) && viewportWidth > 0
+        ? Math.max(MIN_SHELL_WIDTH, viewportWidth)
+        : 1200;
+      const floor = Math.min(MIN_SHELL_WIDTH, ceiling);
+      return Math.round(Math.min(ceiling, Math.max(floor, Number(width) || 0)));
     }
 
     function writeTreeWidth(width) {
@@ -1414,6 +1602,17 @@ window.__ModuleLoader__.load({
       "read-failed": "读取失败，可能没有访问权限。",
       "not-text": "该文件不是 UTF-8 文本（可能是其他编码或二进制内容），查看器无法显示。",
       "unsupported": "宿主端缺少解析该格式所需的依赖。",
+      // Git panel. These mirror the host's codes exactly; an unknown code falls
+      // back to the host's own message, which is written for an operator and is
+      // therefore less specific than these.
+      "not-a-git-repo": "当前根目录及其子目录都不是 Git 仓库。",
+      "unknown-repository": "请求的仓库不在当前根目录内。",
+      "invalid-branch": "分支名不合法。",
+      "unknown-branch": "该分支不存在。",
+      "invalid-commit": "提交标识不合法。",
+      "unknown-commit": "找不到该提交。",
+      "git-dirty": "工作区有未提交的改动，无法切换分支。",
+      "git-failed": "Git 命令执行失败。",
     };
 
     function messageOf(error) {
@@ -1436,12 +1635,917 @@ window.__ModuleLoader__.load({
       };
     }
 
-    /** Decode base64 into a Blob without a data: URL round-trip. */
+    /** Commits per page; the host clamps anything larger to its own ceiling. */
+    const GIT_PAGE_SIZE = 30;
+
+    /** Date part of an ISO timestamp, which is all a history row needs. */
+    function formatCommitDate(value) {
+      const text = typeof value === "string" ? value : "";
+      return text.length >= 10 ? text.slice(0, 10) : text;
+    }
+
+    /** Date and minute of an ISO timestamp, for the commit detail header. */
+    function formatCommitTimestamp(value) {
+      const text = typeof value === "string" ? value : "";
+      return text.length >= 16 ? text.slice(0, 16).replace("T", " ") : text;
+    }
+
+    /**
+     * State and requests for the Git panel.
+     *
+     * Deliberately one controller rather than state spread across the drawer:
+     * the sidebar (repository, branch, paged history) and the main pane (one
+     * commit's changed files) read the same snapshot, and a checkout has to
+     * invalidate both at once. A generation counter makes the newest request
+     * win, so a slow answer can never overwrite a newer branch's history.
+     */
+    function createGitController(request) {
+      const store = createStore({
+        root: "",
+        repos: [], reposStatus: "idle", reposError: null, truncated: false,
+        repoId: "",
+        branches: [], current: "", detached: false, scope: "root",
+        branch: "",
+        commits: [], commitsStatus: "idle", commitsError: null,
+        total: 0, hasMore: false,
+        detail: null, detailStatus: "idle", detailError: null,
+        // One commit's complete patch, keyed by the commit it belongs to.
+        commitDiff: null, commitDiffStatus: "idle", commitDiffError: null,
+        // The working tree's pending changes, grouped like a source-control view.
+        changes: null, changesStatus: "idle", changesError: null,
+        busy: false, notice: "",
+      });
+
+      // Two counters, because the list and the detail are independent
+      // requests: sharing one made a detail read cancel an in-flight page,
+      // which left the pager stuck on "loading more" with its button disabled.
+      let listGeneration = 0;
+      let detailGeneration = 0;
+      // The commit diff and the workspace change list are separate reads again:
+      // opening the diff must not cancel a page load, and refreshing the working
+      // tree must not cancel the diff being read.
+      let diffGeneration = 0;
+      let changesGeneration = 0;
+
+      const patch = (next) => {
+        store.set({ ...store.get(), ...next });
+      };
+
+      const activeRepo = () => {
+        const state = store.get();
+        return state.repos.find((repo) => repo.id === state.repoId) || state.repos[0] || null;
+      };
+
+      /** Drop every cached answer; profile changes make all of them stale. */
+      const reset = (root) => {
+        listGeneration += 1;
+        detailGeneration += 1;
+        store.set({
+          root: typeof root === "string" ? root : "",
+          repos: [], reposStatus: "idle", reposError: null, truncated: false, repoId: "",
+          branches: [], current: "", detached: false, scope: "root", branch: "",
+          commits: [], commitsStatus: "idle", commitsError: null, total: 0, hasMore: false,
+          detail: null, detailStatus: "idle", detailError: null,
+          commitDiff: null, commitDiffStatus: "idle", commitDiffError: null,
+          changes: null, changesStatus: "idle", changesError: null,
+          busy: false, notice: "",
+        });
+      };
+
+      /**
+       * Read one page of history and append or replace the list.
+       * @param {string} branch - branch to page, or "" for the checked-out HEAD.
+       * @param {number} offset - commits to skip.
+       */
+      const loadCommits = (branch, offset) => {
+        const repo = activeRepo();
+        if (repo === null) return Promise.resolve();
+        const root = store.get().root;
+        const ticket = ++listGeneration;
+        patch({ commitsStatus: offset > 0 ? "more" : "loading", commitsError: null });
+        return request("gitCommits", {
+          root,
+          repo: repo.id,
+          ...(branch === "" ? {} : { branch }),
+          offset,
+          limit: GIT_PAGE_SIZE,
+        }).then((value) => {
+          if (ticket !== listGeneration) return;
+          const page = Array.isArray(value?.commits) ? value.commits : [];
+          const previousRows = offset > 0 ? store.get().commits : [];
+          patch({
+            commits: previousRows.concat(page),
+            commitsStatus: "ready",
+            commitsError: null,
+            total: Number.isFinite(Number(value?.total)) ? Number(value.total) : previousRows.length + page.length,
+            hasMore: Boolean(value?.hasMore),
+            branch: typeof value?.branch === "string" ? value.branch : branch,
+          });
+        }).catch((problem) => {
+          if (ticket !== listGeneration) return;
+          patch({ commitsStatus: "error", commitsError: problem });
+        });
+      };
+
+      /**
+       * Re-discover the repositories under the current root and page history.
+       *
+       * `keepBranch` names the branch to come back to. A refresh passes the one
+       * being browsed, so it does not silently jump to the checked-out branch;
+       * a checkout passes the branch it just switched to, so the panel lands
+       * where the reader asked to go.
+       * @param {string} [keepBranch] - branch to select after the reload.
+       */
+      const loadRepos = (keepBranch) => {
+        const root = store.get().root;
+        const before = store.get();
+        const keptBranch = typeof keepBranch === "string" && keepBranch !== ""
+          ? keepBranch
+          : (typeof before.branch === "string" && before.branch !== "" ? before.branch : "");
+        const ticket = ++listGeneration;
+        patch({ reposStatus: "loading", reposError: null, notice: "", detail: null, detailStatus: "idle" });
+        return request("gitRepos", { root }).then((value) => {
+          if (ticket !== listGeneration) return;
+          const repos = Array.isArray(value?.repos) ? value.repos : [];
+          const truncated = value?.truncated === true;
+          if (repos.length === 0) {
+            patch({
+              repos: [], reposStatus: "empty", reposError: null, truncated, repoId: "",
+              branches: [], current: "", detached: false, scope: "root", branch: "",
+              commits: [], commitsStatus: "idle", total: 0, hasMore: false,
+            });
+            return;
+          }
+          // Keep the repository the reader already selected when it is still
+          // present, so a refresh does not jump back to the first checkout.
+          const preferred = store.get().repoId;
+          const repo = repos.find((row) => row.id === preferred) || repos[0];
+          const branches = Array.isArray(repo.branches) ? repo.branches : [];
+          // The checked-out branch is a *short* name from git, while the list
+          // is keyed by full ref; resolve it so the select has a real value.
+          const checkedOut = typeof repo.current === "string" && repo.current !== ""
+            ? (branches.find((row) => row.kind === "local" && row.shortName === repo.current) || null)
+            : null;
+          const current = checkedOut === null ? "" : checkedOut.name;
+          // The kept branch only survives if it still exists here; otherwise
+          // fall back to the checked-out one so the select always has a value.
+          const branch = keptBranch !== "" && branches.some((row) => row.name === keptBranch)
+            ? keptBranch
+            : current;
+          patch({
+            repos,
+            reposStatus: "ready",
+            reposError: null,
+            truncated,
+            remotes: Array.isArray(repo.remotes) ? repo.remotes : [],
+            repoId: repo.id,
+            branches,
+            // Full ref of the checked-out branch, plus what the reader sees.
+            current,
+            currentShort: typeof repo.current === "string" ? repo.current : "",
+            detached: Boolean(repo.detached),
+            scope: repo.scope === "parent" ? "parent" : "root",
+            branch,
+            commits: [],
+            commitsStatus: "idle",
+            commitsError: null,
+            total: 0,
+            hasMore: false,
+          });
+          // Returned so a caller that awaits loadRepos also observes the first
+          // page of history, which is what makes the panel testable end to end.
+          return loadCommits(store.get().branch, 0);
+        }).catch((problem) => {
+          if (ticket !== listGeneration) return;
+          patch({ repos: [], reposStatus: "error", reposError: problem, truncated: false });
+        });
+      };
+
+      /** Load on first use, and retry after a failed load. */
+      const ensure = () => {
+        const status = store.get().reposStatus;
+        if (status === "idle" || status === "error") return loadRepos();
+        return Promise.resolve();
+      };
+
+      /** Switch which repository the panel describes (kept across reloads). */
+      const pickRepo = (repoId) => {
+        const repo = store.get().repos.find((row) => row.id === repoId);
+        if (repo === undefined) return Promise.resolve();
+        detailGeneration += 1;
+        diffGeneration += 1;
+        changesGeneration += 1;
+        const repoBranches = Array.isArray(repo.branches) ? repo.branches : [];
+        const checkedOut = typeof repo.current === "string" && repo.current !== ""
+          ? (repoBranches.find((row) => row.kind === "local" && row.shortName === repo.current) || null)
+          : null;
+        patch({
+          repoId: repo.id,
+          remotes: Array.isArray(repo.remotes) ? repo.remotes : [],
+          branches: repoBranches,
+          current: checkedOut === null ? "" : checkedOut.name,
+          currentShort: typeof repo.current === "string" ? repo.current : "",
+          detached: Boolean(repo.detached),
+          scope: repo.scope === "parent" ? "parent" : "root",
+          branch: checkedOut === null ? "" : checkedOut.name,
+          changes: null, changesStatus: "idle",
+          commitDiff: null, commitDiffStatus: "idle",
+          commits: [],
+          commitsStatus: "idle",
+          total: 0,
+          hasMore: false,
+          detail: null,
+          detailStatus: "idle",
+          notice: "",
+        });
+        return loadCommits(store.get().branch, 0);
+      };
+
+      /** Read another branch's history without touching the working tree. */
+      const pickBranch = (branch) => {
+        if (typeof branch !== "string" || branch === "") return Promise.resolve();
+        // The commit pane belongs to the branch that was on screen, so it is
+        // dropped rather than left describing history the reader just left.
+        detailGeneration += 1;
+        diffGeneration += 1;
+        patch({
+          branch,
+          commits: [], commitsStatus: "idle", total: 0, hasMore: false,
+          detail: null, detailStatus: "idle",
+          commitDiff: null, commitDiffStatus: "idle",
+          notice: "",
+        });
+        return loadCommits(branch, 0);
+      };
+
+      /**
+       * Check the selected branch out, then re-read the whole panel.
+       *
+       * A checkout whose repository lives above the root is sent only with
+       * explicit consent: `allowOutsideRoot` is what the confirmation the
+       * reader just accepted means on the wire.
+       */
+      const checkout = (branch, allowOutsideRoot) => {
+        const repo = activeRepo();
+        const state = store.get();
+        if (repo === null || state.busy || typeof branch !== "string" || branch === "") return Promise.resolve();
+        patch({ busy: true, notice: "" });
+        const payload = { root: state.root, repo: repo.id, branch };
+        if (allowOutsideRoot === true) payload.allowOutsideRoot = true;
+        return request("gitCheckout", payload).then((value) => {
+          const notice = value && value.changed === false ? "已在该分支上" : "已切换到 " + branch;
+          // Set after the reload: loadRepos clears the notice on purpose, since
+          // a stale message about a previous action would outlive it.
+          // Land on the branch that was just checked out: `loadRepos` would
+          // otherwise restore the branch the reader had been browsing.
+          return loadRepos(branch).then(() => patch({ busy: false, notice }));
+        }).catch((problem) => {
+          const code = problem && problem.code;
+          patch({
+            busy: false,
+            notice: code === "git-dirty"
+              ? "工作区有未提交的改动，无法切换分支"
+              : code === "checkout-outside-root"
+                ? "该仓库位于根目录的上级，检出会影响根目录以外的文件"
+                : (problem && problem.message) || "切换分支失败",
+          });
+        });
+      };
+
+      /** Read one commit's metadata and changed files. */
+      const openCommit = (sha) => {
+        const repo = activeRepo();
+        const state = store.get();
+        if (repo === null || typeof sha !== "string" || sha === "") return Promise.resolve();
+        // A detail read is independent of the list: bumping the shared counter
+        // here used to cancel an in-flight page and strand the pager.
+        const ticket = ++detailGeneration;
+        // The diff belongs to the commit that was on screen; a new selection
+        // invalidates it before it can be shown under the wrong header.
+        diffGeneration += 1;
+        patch({ detailStatus: "loading", detail: null, detailError: null, commitDiff: null, commitDiffStatus: "idle" });
+        return request("gitCommitFiles", { root: state.root, repo: repo.id, sha }).then((value) => {
+          if (ticket !== detailGeneration) return;
+          patch({ detailStatus: "ready", detail: value, detailError: null });
+        }).catch((problem) => {
+          if (ticket !== detailGeneration) return;
+          patch({ detailStatus: "error", detail: null, detailError: problem });
+        });
+      };
+
+      /**
+       * Read the working tree's pending changes.
+       *
+       * Called when the Git tab opens and after a checkout, because both are
+       * moments where "what is uncommitted" can have changed underneath the
+       * reader.
+       */
+      const loadChanges = () => {
+        const repo = activeRepo();
+        if (repo === null) return Promise.resolve();
+        const root = store.get().root;
+        const ticket = ++changesGeneration;
+        patch({ changesStatus: "loading", changesError: null });
+        return request("gitStatusChanges", { root, repo: repo.id }).then((value) => {
+          if (ticket !== changesGeneration) return;
+          patch({ changes: value, changesStatus: "ready", changesError: null });
+        }).catch((problem) => {
+          if (ticket !== changesGeneration) return;
+          // A repository that cannot report status is not an empty one; the
+          // message explains rather than showing "no changes".
+          patch({ changes: null, changesStatus: "error", changesError: problem });
+        });
+      };
+
+      /**
+       * Read one commit's complete patch.
+       * @param {string} sha - the commit to read.
+       */
+      const loadCommitDiff = (sha) => {
+        const repo = activeRepo();
+        if (repo === null || typeof sha !== "string" || sha === "") return Promise.resolve();
+        const root = store.get().root;
+        const ticket = ++diffGeneration;
+        patch({ commitDiffStatus: "loading", commitDiff: null, commitDiffError: null });
+        return request("gitCommitDiff", { root, repo: repo.id, sha }).then((value) => {
+          if (ticket !== diffGeneration) return;
+          patch({ commitDiffStatus: "ready", commitDiff: value, commitDiffError: null });
+        }).catch((problem) => {
+          if (ticket !== diffGeneration) return;
+          patch({ commitDiffStatus: "error", commitDiff: null, commitDiffError: problem });
+        });
+      };
+
+      /** Append the next page of history. */
+      const loadMore = () => {
+        const state = store.get();
+        if (!state.hasMore) return Promise.resolve();
+        if (state.commitsStatus === "loading" || state.commitsStatus === "more") return Promise.resolve();
+        return loadCommits(state.branch, state.commits.length);
+      };
+
+      return {
+        store, reset, ensure, loadRepos, pickRepo, pickBranch, checkout,
+        openCommit, loadMore, loadChanges, loadCommitDiff, activeRepo,
+      };
+    }
+
+    /**
+     * The Git sidebar: repository picker, branch picker and paged history.
+     *
+     * The branch select only chooses which history is shown; checking a
+     * branch out rewrites the working tree, so it stays a separate press.
+     * That split is the difference between browsing and mutating, and it is
+     * also what makes it safe to switch branches in a hurry on a phone.
+     */
+    function GitSidebar({ state, width, header, onPickRepo, onPickBranch, onCheckout, onSelectCommit, onLoadMore, onRetry, selectedSha, onSelectChange, onRefreshChanges }) {
+      // Every field is read defensively: this is a pure view over a snapshot,
+      // and a partially populated one (first paint, a failed load) must render
+      // as an empty pane rather than throwing inside the drawer.
+      const repos = Array.isArray(state.repos) ? state.repos : [];
+      const repo = repos.find((row) => row.id === state.repoId) || repos[0] || null;
+      const branches = Array.isArray(state.branches) ? state.branches : [];
+      const commits = Array.isArray(state.commits) ? state.commits : [];
+      const current = typeof state.current === "string" ? state.current : "";
+      const selectedBranch = typeof state.branch === "string" ? state.branch : "";
+      // A detached checkout has no branch to preselect; the history shown is
+      // HEAD's, which the select describes with its own entry.
+      const viewingBranch = selectedBranch !== ""
+        ? selectedBranch
+        : (state.detached === true ? "" : current);
+      const localBranches = branches.filter((branch) => branch.kind !== "remote");
+      const remoteBranches = branches.filter((branch) => branch.kind === "remote");
+      const selectedEntry = branches.find((branch) => branch.name === viewingBranch) || null;
+      // A remote branch is browse-only: checking it out would produce a detached
+      // HEAD (or a new local branch) rather than the switch the reader expects.
+      const checkoutable = selectedEntry === null || selectedEntry.kind !== "remote";
+      const canCheckout = repo !== null && viewingBranch !== "" && viewingBranch !== current
+        && checkoutable && state.busy !== true;
+
+      const wrap = (...children) => react.createElement("div", {
+        className: "fv-tree fv-git-panel",
+        role: "group",
+        "aria-label": "Git 面板",
+        style: typeof width === "number" ? { width: width + "px" } : undefined,
+      }, header, ...children);
+
+      if (state.reposStatus === "loading" || state.reposStatus === "idle") {
+        return wrap(react.createElement("div", { className: "fv-git-note" }, "正在读取仓库…"));
+      }
+      if (state.reposStatus === "error") {
+        return wrap(react.createElement("div", { className: "fv-git-note" },
+          react.createElement("span", { className: "fv-error" }, messageOf(state.reposError)),
+          react.createElement("button", { type: "button", className: "fv-button", onClick: onRetry }, "重试")));
+      }
+      if (repo === null) {
+        return wrap(react.createElement("div", { className: "fv-git-note" },
+          react.createElement("span", null, "当前根目录下没有 Git 仓库。"),
+          react.createElement("span", null, "如果仓库在子目录里，请在上方切换到包含它们的根目录。")));
+      }
+
+      const toolbar = react.createElement("div", { className: "fv-git-toolbar" },
+        repos.length > 1
+          ? react.createElement("div", { className: "fv-git-row" },
+            react.createElement("span", { className: "fv-git-label" }, "仓库"),
+            react.createElement("select", {
+              className: "fv-select",
+              value: repo.id,
+              "aria-label": "选择仓库",
+              onChange: (event) => onPickRepo(event.target.value),
+            }, ...repos.map((row) => react.createElement("option", { key: row.id, value: row.id }, row.name || row.id))))
+          : react.createElement("div", { className: "fv-git-current", title: repo.name || repo.id },
+            react.createElement(SvgIconBranch, { size: 13 }),
+            react.createElement("span", null, repo.name || repo.id)),
+        react.createElement("div", { className: "fv-git-row" },
+          react.createElement("span", { className: "fv-git-label" }, "分支"),
+          branches.length === 0
+            ? react.createElement("span", { className: "fv-git-current" }, repo.empty ? "尚无提交" : current || "未知")
+            : react.createElement("select", {
+              className: "fv-select",
+              value: viewingBranch,
+              "aria-label": "查看分支",
+              onChange: (event) => onPickBranch(event.target.value),
+            },
+              // A detached HEAD has no branch to preselect; offer it as its
+              // own entry so the select can still describe what is shown.
+              state.detached === true ? react.createElement("option", { value: "" }, "HEAD（游离）") : null,
+              // Local and remote branches are grouped because only the local
+              // ones can be checked out; mixing them would invite a click that
+              // silently creates a detached HEAD.
+              localBranches.length > 0
+                ? react.createElement("optgroup", { label: "本地分支" },
+                  ...localBranches.map((branch) => react.createElement("option", {
+                    key: branch.name,
+                    value: branch.name,
+                  }, (branch.shortName || branch.name) + (branch.name === current ? "  · 当前" : ""))))
+                : null,
+              remoteBranches.length > 0
+                ? react.createElement("optgroup", { label: "远程分支" },
+                  ...remoteBranches.map((branch) => react.createElement("option", {
+                    key: branch.name,
+                    value: branch.name,
+                  }, (branch.shortName || branch.name) + "  · 只读")))
+                : null),
+          repo !== null && viewingBranch !== "" && viewingBranch !== current
+            ? react.createElement("button", {
+              type: "button",
+              className: "fv-git-checkout",
+              disabled: !canCheckout,
+              title: checkoutable ? "检出该分支到工作区" : "远程分支只能查看，不能直接检出",
+              onClick: () => onCheckout(viewingBranch),
+            }, state.busy === true ? "切换中…" : (checkoutable ? "检出" : "只读"))
+            : null),
+        typeof state.notice === "string" && state.notice !== ""
+          ? react.createElement("span", { className: "fv-git-hint", role: "status" }, state.notice)
+          : null,
+        // Checking a branch out here rewrites the checkout that *contains* the
+        // root, which is wider than the directory being browsed. Saying so is
+        // the difference between an informed action and a surprise.
+        state.scope === "parent"
+          ? react.createElement("div", { className: "fv-git-warn" },
+            react.createElement("span", null,
+              react.createElement("strong", null, "检出范围提醒："),
+              "该仓库位于当前根目录的上级，检出分支会一并改写根目录以外的文件。"))
+          : null,
+        // The discovery budget ran out, so this list may be incomplete.
+        state.truncated === true
+          ? react.createElement("div", { className: "fv-git-warn" },
+            react.createElement("span", null,
+              react.createElement("strong", null, "列表可能不完整："),
+              "子目录探测已达到上限，未列出的目录里可能还有仓库。"))
+          : null);
+
+      // --- Working-tree changes -------------------------------------------
+      // Grouped the way a source-control view does: what a commit would capture,
+      // what is not staged yet, and what git is not tracking at all.
+      const changes = state.changes || null;
+      const changeGroup = (title, rows, extra) => {
+        if (!Array.isArray(rows) || rows.length === 0) return null;
+        return react.createElement("div", { className: "fv-git-change-group" },
+          react.createElement("div", { className: "fv-git-section" },
+            react.createElement("span", null, title),
+            react.createElement("span", { className: "fv-git-count" }, String(rows.length))),
+          ...rows.map((row) => react.createElement("button", {
+            key: title + "\u0000" + row.path,
+            type: "button",
+            className: "fv-commit-file",
+            title: extra === undefined ? row.path : extra,
+            onClick: () => onSelectChange(row),
+          },
+            react.createElement("span", {
+              className: "fv-commit-status",
+              "data-tone": row.tone || "mod",
+              "aria-label": row.change || "变更",
+            }, row.letter || "M"),
+            react.createElement("span", { className: "fv-commit-path" }, row.path),
+            // Staged and then edited again: the row says so rather than
+            // pretending the file is in one state.
+            row.partiallyStaged === true
+              ? react.createElement("span", { className: "fv-commit-tag" }, "部分暂存")
+              : null)));
+      };
+
+      let changesBody;
+      if (state.changesStatus === "loading" || state.changesStatus === "idle") {
+        changesBody = react.createElement("div", { className: "fv-git-hint" }, "正在读取工作区改动…");
+      } else if (state.changesStatus === "error") {
+        changesBody = react.createElement("div", { className: "fv-git-hint fv-error" }, messageOf(state.changesError));
+      } else if (changes === null || changes.total === 0) {
+        changesBody = react.createElement("div", { className: "fv-git-hint" }, "工作区没有未提交的改动。");
+      } else {
+        changesBody = react.createElement(react.Fragment, null,
+          changeGroup("冲突", changes.conflicted),
+          changeGroup("已暂存", changes.staged),
+          changeGroup("未暂存", changes.unstaged),
+          changeGroup("未跟踪", changes.untracked),
+          changes.outside > 0
+            ? react.createElement("div", { className: "fv-git-hint" }, changes.outside + " 个改动在根目录之外")
+            : null);
+      }
+
+      const changesSection = react.createElement("div", { className: "fv-git-changes" },
+        react.createElement("div", { className: "fv-git-section" },
+          react.createElement("span", null, "工作区改动"),
+          react.createElement("span", { className: "fv-git-count" },
+            changes !== null && typeof changes.total === "number" ? String(changes.total) : ""),
+          react.createElement("button", {
+            type: "button",
+            className: "fv-icon-button fv-git-refresh",
+            "aria-label": "刷新工作区改动",
+            title: "刷新工作区改动",
+            onClick: onRefreshChanges,
+          }, react.createElement(SvgIconRefresh, { size: 13 }))),
+        changesBody);
+
+      const commitRows = commits.map((commit) => react.createElement("button", {
+        key: commit.sha,
+        type: "button",
+        className: "fv-git-commit",
+        "aria-current": selectedSha === commit.sha ? "true" : undefined,
+        title: commit.subject,
+        onClick: () => onSelectCommit(commit),
+      },
+        react.createElement("span", { className: "fv-git-subject" }, commit.subject || "(无提交信息)"),
+        react.createElement("span", { className: "fv-git-meta" },
+          react.createElement("span", { className: "fv-git-sha" }, commit.shortSha || commit.sha.slice(0, 7)),
+          react.createElement("span", { className: "fv-git-author" }, commit.author || ""),
+          react.createElement("span", { className: "fv-git-date" }, formatCommitDate(commit.committedAt || commit.authoredAt)))));
+
+      let listBody;
+      if (state.commitsStatus === "loading" || state.commitsStatus === "idle") {
+        listBody = react.createElement("div", { className: "fv-git-hint" }, "正在读取提交记录…");
+      } else if (state.commitsStatus === "error") {
+        listBody = react.createElement("div", { className: "fv-git-hint fv-error" }, messageOf(state.commitsError));
+      } else if (commitRows.length === 0) {
+        listBody = react.createElement("div", { className: "fv-git-hint" }, repo.empty ? "该仓库还没有提交。" : "该分支没有提交记录。");
+      } else {
+        listBody = commitRows;
+      }
+
+      const shownCount = commits.length;
+      // A counter with no number and a button that cannot appear would leave an
+      // empty strip under a short history, so the footer exists only when it
+      // has something to say.
+      const footer = state.total > 0 || state.hasMore
+        ? react.createElement("div", null,
+          state.total > 0
+            ? react.createElement("div", { className: "fv-git-hint" }, `已显示 ${shownCount} / ${state.total}`)
+            : null,
+          state.hasMore
+            ? react.createElement("button", {
+              type: "button",
+              className: "fv-git-more",
+              disabled: state.commitsStatus === "more",
+              onClick: onLoadMore,
+            }, state.commitsStatus === "more" ? "正在加载…" : "加载更多")
+            : null)
+        : null;
+
+      return wrap(toolbar,
+        changesSection,
+        react.createElement("div", { className: "fv-git-section" },
+          react.createElement("span", null, "提交记录"),
+          react.createElement("span", { className: "fv-git-count" }, state.total > 0 ? String(state.total) : "")),
+        react.createElement("div", { className: "fv-git-list" }, listBody),
+        footer);
+    }
+
+    function DiffView({ diffData, wrap }) {
+      const rows = react.useMemo(() => {
+        if (Array.isArray(diffData?.rows) && diffData.rows.length > 0) {
+          return diffData.rows;
+        }
+        if (Array.isArray(diffData?.diffs)) {
+          const fallback = [];
+          let nLine = 1;
+          for (const hunk of diffData.diffs) {
+            if (hunk.oldText) {
+              for (const l of hunk.oldText.split("\n")) {
+                fallback.push({ type: "del", oldLine: null, newLine: null, text: l });
+              }
+            }
+            if (hunk.newText) {
+              for (const l of hunk.newText.split("\n")) {
+                fallback.push({ type: "add", oldLine: null, newLine: nLine++, text: l });
+              }
+            }
+          }
+          return fallback;
+        }
+        return [];
+      }, [diffData]);
+
+      const [copied, setCopied] = react.useState(false);
+
+      const onCopy = () => {
+        const rawText = rows.map((r) => {
+          const prefix = r.type === "add" ? "+" : (r.type === "del" ? "-" : (r.type === "hunk" ? "" : " "));
+          return prefix + r.text;
+        }).join("\n");
+        if (typeof writeClipboard === "function") {
+          writeClipboard(rawText).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          });
+        }
+      };
+
+      if (rows.length === 0) {
+        if (Array.isArray(diffData?.diffs) && diffData.diffs.length > 0) {
+          return react.createElement(DiffBlock, {
+            diffs: diffData.diffs,
+            labels: DIFF_BLOCK_LABELS,
+            maxLines: Infinity,
+          });
+        }
+        return react.createElement("div", { className: "fv-note" }, "暂无改动差异。");
+      }
+
+      return react.createElement("div", { className: "fv-diff-view" },
+        react.createElement("div", { className: "fv-diff-toolbar" },
+          react.createElement("span", { className: "fv-diff-source-tag" },
+            diffData?.source === "untracked" ? "未跟踪新文件" : (diffData?.source === "working-tree" ? "工作区未提交改动" : "最新提交改动")),
+          react.createElement("div", { style: { flex: "1 1 auto" } }),
+          react.createElement("button", {
+            type: "button",
+            className: "fv-button",
+            style: { height: "26px", fontSize: "12px", padding: "0 10px" },
+            onClick: onCopy,
+          }, copied ? "已复制" : "复制 Diff")),
+        react.createElement("div", {
+          className: "fv-diff-table",
+          "data-wrap": wrap ? "on" : "off",
+        },
+          rows.map((row, idx) => {
+            if (row.type === "hunk") {
+              return react.createElement("div", { key: idx, className: "fv-diff-line fv-diff-hunk" },
+                react.createElement("span", { className: "fv-diff-num fv-diff-hunk-gutter" }, "⋯"),
+                react.createElement("span", { className: "fv-diff-num fv-diff-hunk-gutter fv-diff-num-new" }, "⋯"),
+                react.createElement("span", { className: "fv-diff-sign" }),
+                react.createElement("span", { className: "fv-diff-text" }, row.text));
+            }
+            const isAdd = row.type === "add";
+            const isDel = row.type === "del";
+            const lineCls = "fv-diff-line " + (isAdd ? "fv-diff-add-line" : (isDel ? "fv-diff-del-line" : "fv-diff-ctx-line"));
+            return react.createElement("div", { key: idx, className: lineCls },
+              react.createElement("span", { className: "fv-diff-num fv-diff-num-old" }, row.oldLine !== null ? String(row.oldLine) : ""),
+              react.createElement("span", { className: "fv-diff-num fv-diff-num-new" }, row.newLine !== null ? String(row.newLine) : ""),
+              react.createElement("span", { className: "fv-diff-sign" }, isAdd ? "+" : (isDel ? "-" : " ")),
+              react.createElement("span", { className: "fv-diff-text" }, row.text || " "));
+          })));
+    }
+
+        /**
+     * The main pane for one working-tree change.
+     *
+     * Shows the patch rather than the file contents, because that is what the
+     * row represents: a deletion has nothing to open, and an untracked file has
+     * no before-state to compare against — both still render here.
+     *
+     * @param {{state: object, path: string}} props - panel snapshot and the file to diff.
+     */
+    function WorkspaceChangeDetail({ state, path: filePath, request, repo }) {
+      const [diff, setDiff] = react.useState({ status: "idle", data: null, error: null });
+      // A change can be staged, unstaged, or both. The reader picks which side
+      // to look at instead of the pane guessing.
+      const [side, setSide] = react.useState("worktree");
+
+      const changes = state.changes || null;
+      const row = changes === null
+        ? null
+        : [...(changes.staged || []), ...(changes.unstaged || []), ...(changes.untracked || []), ...(changes.conflicted || [])]
+          .find((candidate) => candidate.path === filePath) || null;
+      // A file that is only staged has no working-tree diff and vice versa, so
+      // the side follows what the row actually contains.
+      const bothSides = row !== null && changes !== null
+        && (changes.staged || []).some((candidate) => candidate.path === filePath)
+        && (changes.unstaged || []).some((candidate) => candidate.path === filePath);
+
+      const effectiveSide = bothSides
+        ? side
+        : (changes !== null && (changes.staged || []).some((candidate) => candidate.path === filePath)
+          ? "staged"
+          : "worktree");
+
+      // The diff is fetched per file and per side: staged and unstaged are two
+      // different patches for the same path, and neither is a superset.
+      react.useEffect(() => {
+        if (typeof filePath !== "string" || filePath === "" || typeof request !== "function") return undefined;
+        let live = true;
+        setDiff((current) => ({ status: "loading", data: current.data, error: null }));
+        request("gitWorkspaceDiff", {
+          root: state.root,
+          repo,
+          path: filePath,
+          staged: effectiveSide === "staged",
+        }).then((value) => {
+          if (live) setDiff({ status: "ready", data: value, error: null });
+        }).catch((problem) => {
+          if (live) setDiff({ status: "error", data: null, error: problem });
+        });
+        return () => { live = false; };
+      }, [filePath, effectiveSide, repo, request, state.root]);
+
+      const body = diff.status === "error"
+        ? react.createElement("div", { className: "fv-note fv-error" }, messageOf(diff.error))
+        : diff.status === "ready" && diff.data !== null
+          ? (diff.data.hasDiff === true
+            ? react.createElement(DiffView, { diffData: diff.data, wrap: false })
+            : react.createElement("div", { className: "fv-note" }, "该文件在" + (effectiveSide === "staged" ? "暂存区" : "工作区") + "没有差异。"))
+          : react.createElement("div", { className: "fv-note" }, "正在读取改动…");
+
+      return react.createElement("div", { className: "fv-commit" },
+        react.createElement("div", { className: "fv-commit-head" },
+          react.createElement("span", { className: "fv-commit-subject" }, filePath || "工作区改动"),
+          react.createElement("span", { className: "fv-commit-meta" },
+            row !== null
+              ? react.createElement("span", null, (row.change || "变更") + (row.partiallyStaged === true ? " · 部分暂存" : ""))
+              : null,
+            react.createElement("span", null, "工作区，未提交"))),
+        bothSides
+          ? react.createElement("div", { className: "fv-sheet-tabs", role: "tablist" },
+            react.createElement("button", {
+              type: "button", className: "fv-tab", "aria-selected": effectiveSide === "staged" ? "true" : "false",
+              onClick: () => setSide("staged"),
+            }, "已暂存"),
+            react.createElement("button", {
+              type: "button", className: "fv-tab", "aria-selected": effectiveSide === "worktree" ? "true" : "false",
+              onClick: () => setSide("worktree"),
+            }, "未暂存"))
+          : null,
+        react.createElement("div", { className: "fv-commit-diff" }, body));
+    }
+
+    /**
+     * The main pane for one commit: header, message, and changed files.
+     *
+     * A file row opens the ordinary preview, so the panel never grows a
+     * second viewer; a row that lands outside the current root stays visible
+     * but disabled rather than silently disappearing.
+     */
+    function CommitDetail({ state, selectedPath, onSelectFile, view, onSwitchView, onLoadDiff }) {
+      if (state.detailStatus === "loading" || state.detailStatus === "idle") {
+        return react.createElement("div", { className: "fv-note" }, "正在读取提交详情…");
+      }
+      if (state.detailStatus === "error") {
+        return react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.detailError));
+      }
+      const detail = state.detail;
+      if (detail === null || detail === undefined || detail.commit === undefined) {
+        return react.createElement("div", { className: "fv-note" }, "未选择提交。");
+      }
+      const commit = detail.commit;
+      const files = Array.isArray(detail.files) ? detail.files : [];
+      const author = typeof commit.author === "string" ? commit.author : "";
+      const authorEmail = typeof commit.authorEmail === "string" ? commit.authorEmail : "";
+      const message = typeof commit.body === "string" ? commit.body : "";
+      const extraMessage = message !== "" && message !== commit.subject ? message : "";
+
+      const fileRows = files.length === 0
+        ? [react.createElement("div", { key: "__none", className: "fv-git-hint" }, "该提交没有文件改动。")]
+        : files.map((file) => {
+          const renamed = typeof file.oldPath === "string" && file.oldPath !== "" && file.oldPath !== file.path;
+          const shown = renamed ? file.oldPath + " → " + file.path : file.path;
+          return react.createElement("button", {
+            key: (file.oldPath || "") + "\u0000" + file.path,
+            type: "button",
+            className: "fv-commit-file",
+            "aria-current": selectedPath !== "" && selectedPath === file.path ? "true" : undefined,
+            title: file.outsideRoot ? "该文件在当前根目录之外，无法在这里打开" : shown,
+            disabled: file.outsideRoot === true,
+            onClick: () => { if (file.outsideRoot !== true) onSelectFile(file); },
+          },
+            react.createElement("span", {
+              className: "fv-commit-status",
+              "data-tone": file.tone || "mod",
+              "aria-label": file.change || "变更",
+            }, file.letter || "?"),
+            react.createElement("span", { className: "fv-commit-path" }, shown),
+            file.outsideRoot === true
+              ? react.createElement("span", { className: "fv-commit-tag" }, "根目录外")
+              : null);
+        });
+
+      // Two views of one commit: which files changed, and what changed inside
+      // them. Both come from the same revision pair, so they cannot disagree.
+      const tabs = react.createElement("div", { className: "fv-sheet-tabs", role: "tablist" },
+        react.createElement("button", {
+          type: "button", className: "fv-tab", "aria-selected": view !== "diff" ? "true" : "false",
+          onClick: () => onSwitchView("files"),
+        }, "变更文件", react.createElement("span", { className: "fv-git-count" }, String(files.length))),
+        react.createElement("button", {
+          type: "button", className: "fv-tab fv-tab-diff", "aria-selected": view === "diff" ? "true" : "false",
+          onClick: () => {
+            onSwitchView("diff");
+            if (onLoadDiff !== undefined) onLoadDiff();
+          },
+        }, "改动内容",
+          state.commitDiff !== null && state.commitDiff !== undefined && state.commitDiff.summary !== undefined
+            ? react.createElement("span", { className: "fv-diff-stat" },
+              state.commitDiff.summary.added > 0
+                ? react.createElement("span", { className: "fv-diff-add" }, "+" + state.commitDiff.summary.added)
+                : null,
+              state.commitDiff.summary.added > 0 && state.commitDiff.summary.removed > 0 ? " " : "",
+              state.commitDiff.summary.removed > 0
+                ? react.createElement("span", { className: "fv-diff-del" }, "-" + state.commitDiff.summary.removed)
+                : null)
+            : null));
+
+      let patchBody;
+      if (state.commitDiffStatus === "loading" || state.commitDiffStatus === "idle") {
+        patchBody = react.createElement("div", { className: "fv-note" }, "正在读取改动内容…");
+      } else if (state.commitDiffStatus === "error") {
+        patchBody = react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.commitDiffError));
+      } else {
+        const diff = state.commitDiff;
+        const diffFiles = diff !== null && diff !== undefined && Array.isArray(diff.files) ? diff.files : [];
+        if (diffFiles.length === 0) {
+          patchBody = react.createElement("div", { className: "fv-note" }, "该提交没有可显示的文本改动。");
+        } else {
+          patchBody = react.createElement("div", { className: "fv-commit-diff" },
+            ...diffFiles.map((file, index) => react.createElement("div", {
+              key: file.path + "\u0000" + index,
+              className: "fv-commit-diff-file",
+            },
+              react.createElement("div", { className: "fv-git-section" },
+                react.createElement("span", { className: "fv-commit-status", "data-tone": file.tone || "mod" }, file.letter || "M"),
+                react.createElement("span", { className: "fv-commit-path" },
+                  file.oldPath !== null && file.oldPath !== file.path
+                    ? file.oldPath + " → " + file.path
+                    : file.path),
+                react.createElement("span", { className: "fv-git-count" },
+                  "+" + (file.added || 0) + " -" + (file.removed || 0))),
+              // Reuses the existing diff renderer, so a commit's patch and a
+              // working-tree diff look and behave the same way.
+              react.createElement(DiffView, { diffData: { rows: file.rows, diffs: [] }, wrap: false }))));
+        }
+      }
+
+      return react.createElement("div", { className: "fv-commit" },
+        react.createElement("div", { className: "fv-commit-head" },
+          react.createElement("span", { className: "fv-commit-subject" }, commit.subject || "(无提交信息)"),
+          react.createElement("span", { className: "fv-commit-meta" },
+            react.createElement("span", { className: "fv-commit-sha" }, commit.sha || ""),
+            author !== ""
+              ? react.createElement("span", null, author + (authorEmail !== "" ? " <" + authorEmail + ">" : ""))
+              : null,
+            react.createElement("span", null, formatCommitTimestamp(commit.committedAt || commit.authoredAt)))),
+        extraMessage === "" ? null : react.createElement("div", { className: "fv-commit-body" }, extraMessage),
+        tabs,
+        view === "diff"
+          ? patchBody
+          : react.createElement("div", { className: "fv-commit-files" }, ...fileRows));
+    }
+
+        /** Decode base64 into a Blob without a data: URL round-trip. */
     function blobOf(base64, mediaType) {
       const binary = atob(base64);
       const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
       return new Blob([bytes], mediaType ? { type: mediaType } : undefined);
+    }
+
+    /**
+     * Classify a path the way the host's `kindOf` does.
+     *
+     * The bundle is one hand-written file and cannot import `lib/core.js`, and
+     * a file opened from a commit has no on-disk metadata to ask about, so the
+     * name alone has to decide which previewer to mount.
+     * @param {string} path - a file path.
+     * @returns {string} the kind the viewer switches on.
+     */
+    function kindOfPath(path) {
+      const base = baseNameOf(path).toLowerCase();
+      const dot = base.lastIndexOf(".");
+      const ext = dot <= 0 ? "" : base.slice(dot + 1).toLowerCase();
+      if (ext === "md" || ext === "markdown" || ext === "mdx") return "markdown";
+      if (ext === "json" || ext === "jsonc" || ext === "json5") return "json";
+      if (ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif" || ext === "webp"
+        || ext === "avif" || ext === "bmp" || ext === "ico" || ext === "svg") return "image";
+      if (ext === "pdf") return "pdf";
+      if (ext === "xlsx" || ext === "xlsm" || ext === "xls") return "sheet";
+      if (ext === "docx" || ext === "doc") return "doc";
+      return "text";
     }
 
     const MEDIA_TYPES = {
@@ -1753,6 +2857,9 @@ window.__ModuleLoader__.load({
       // input state through props.
       const composerStore = createStore(null);
       const request = createRequest(ctx.connection);
+      // One controller for the whole drawer: the Git sidebar and the commit
+      // pane read the same snapshot, and a checkout invalidates both.
+      const git = createGitController(request);
 
       /**
        * The file tree. Directories expand in place rather than replacing the
@@ -1870,7 +2977,7 @@ window.__ModuleLoader__.load({
             }, react.createElement("span", { "aria-hidden": "true" }, "@")));
       }
 
-      function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu, width, gitStatus }) {
+      function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu, width, gitStatus, header }) {
         const children = rows.map((row) => {
           const indent = { "--fv-depth": row.depth, paddingLeft: 8 + row.depth * 14 + "px" };
           if (row.kind === "status") {
@@ -1897,7 +3004,7 @@ window.__ModuleLoader__.load({
         return react.createElement("div", {
           className: "fv-tree", role: "tree", "aria-label": "文件树",
           style: typeof width === "number" ? { width: width + "px" } : undefined,
-        }, ...children);
+        }, header === undefined ? null : header, ...children);
       }
 
       /** Dedicated Image Previewer: zoom, pan, rotate, dimensions, toolbar, and reset. */
@@ -2222,93 +3329,8 @@ window.__ModuleLoader__.load({
       }
 
       /** Line-numbered diff viewer with dual line number gutters. */
-      function DiffView({ diffData, wrap }) {
-        const rows = react.useMemo(() => {
-          if (Array.isArray(diffData?.rows) && diffData.rows.length > 0) {
-            return diffData.rows;
-          }
-          if (Array.isArray(diffData?.diffs)) {
-            const fallback = [];
-            let nLine = 1;
-            for (const hunk of diffData.diffs) {
-              if (hunk.oldText) {
-                for (const l of hunk.oldText.split("\n")) {
-                  fallback.push({ type: "del", oldLine: null, newLine: null, text: l });
-                }
-              }
-              if (hunk.newText) {
-                for (const l of hunk.newText.split("\n")) {
-                  fallback.push({ type: "add", oldLine: null, newLine: nLine++, text: l });
-                }
-              }
-            }
-            return fallback;
-          }
-          return [];
-        }, [diffData]);
-
-        const [copied, setCopied] = react.useState(false);
-
-        const onCopy = () => {
-          const rawText = rows.map((r) => {
-            const prefix = r.type === "add" ? "+" : (r.type === "del" ? "-" : (r.type === "hunk" ? "" : " "));
-            return prefix + r.text;
-          }).join("\n");
-          if (typeof writeClipboard === "function") {
-            writeClipboard(rawText).then(() => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            });
-          }
-        };
-
-        if (rows.length === 0) {
-          if (Array.isArray(diffData?.diffs) && diffData.diffs.length > 0) {
-            return react.createElement(DiffBlock, {
-              diffs: diffData.diffs,
-              labels: DIFF_BLOCK_LABELS,
-              maxLines: Infinity,
-            });
-          }
-          return react.createElement("div", { className: "fv-note" }, "暂无改动差异。");
-        }
-
-        return react.createElement("div", { className: "fv-diff-view" },
-          react.createElement("div", { className: "fv-diff-toolbar" },
-            react.createElement("span", { className: "fv-diff-source-tag" },
-              diffData?.source === "untracked" ? "未跟踪新文件" : (diffData?.source === "working-tree" ? "工作区未提交改动" : "最新提交改动")),
-            react.createElement("div", { style: { flex: "1 1 auto" } }),
-            react.createElement("button", {
-              type: "button",
-              className: "fv-button",
-              style: { height: "26px", fontSize: "12px", padding: "0 10px" },
-              onClick: onCopy,
-            }, copied ? "已复制" : "复制 Diff")),
-          react.createElement("div", {
-            className: "fv-diff-table",
-            "data-wrap": wrap ? "on" : "off",
-          },
-            rows.map((row, idx) => {
-              if (row.type === "hunk") {
-                return react.createElement("div", { key: idx, className: "fv-diff-line fv-diff-hunk" },
-                  react.createElement("span", { className: "fv-diff-num fv-diff-hunk-gutter" }, "⋯"),
-                  react.createElement("span", { className: "fv-diff-num fv-diff-hunk-gutter fv-diff-num-new" }, "⋯"),
-                  react.createElement("span", { className: "fv-diff-sign" }),
-                  react.createElement("span", { className: "fv-diff-text" }, row.text));
-              }
-              const isAdd = row.type === "add";
-              const isDel = row.type === "del";
-              const lineCls = "fv-diff-line " + (isAdd ? "fv-diff-add-line" : (isDel ? "fv-diff-del-line" : "fv-diff-ctx-line"));
-              return react.createElement("div", { key: idx, className: lineCls },
-                react.createElement("span", { className: "fv-diff-num fv-diff-num-old" }, row.oldLine !== null ? String(row.oldLine) : ""),
-                react.createElement("span", { className: "fv-diff-num fv-diff-num-new" }, row.newLine !== null ? String(row.newLine) : ""),
-                react.createElement("span", { className: "fv-diff-sign" }, isAdd ? "+" : (isDel ? "-" : " ")),
-                react.createElement("span", { className: "fv-diff-text" }, row.text || " "));
-            })));
-      }
-
       /** Text, Markdown and JSON: one windowed read, three renderings. */
-      function TextView({ meta, root, wrap, lang }) {
+      function TextView({ meta, root, wrap, lang, commit, repo }) {
         // Callers mount this with a per-file key, so paging state starts fresh
         // for every file instead of leaking the previous file's window into the
         // first request.
@@ -2317,6 +3339,10 @@ window.__ModuleLoader__.load({
         const [raw, setRaw] = react.useState(false);
         const [diffMode, setDiffMode] = react.useState(false);
         const [diffData, setDiffData] = react.useState(null);
+        // A file opened from a commit is read from that commit's blob, never
+        // from the working tree: the two differ exactly when the history is
+        // interesting, and a deleted file has no working-tree copy at all.
+        const fromCommit = typeof commit === "string" && commit !== "";
 
         react.useEffect(() => {
           let live = true;
@@ -2325,18 +3351,30 @@ window.__ModuleLoader__.load({
           // The override rides on the request, so the host resolves the
           // language and the client never highlights on its own authority.
           const langPayload = lang === undefined || lang === "auto" ? {} : { lang };
-          request("read", { root, path: meta.path, offset, limit: WINDOW_LINES, ...langPayload }).then((value) => {
+          const readMethod = fromCommit ? "gitCommitFile" : "read";
+          // `meta.commit` is the commit the bytes come from; for a deletion that
+          // is the parent, and `meta.sha` names the commit being viewed.
+          const readPayload = fromCommit
+            ? { root, repo, sha: commit, path: meta.path, offset, limit: WINDOW_LINES, ...langPayload }
+            : { root, path: meta.path, offset, limit: WINDOW_LINES, ...langPayload };
+          request(readMethod, readPayload).then((value) => {
             if (live) setState({ status: "ready", data: value, error: null });
           }).catch((error) => {
             if (live) setState({ status: "error", data: null, error });
           });
+          // The working-tree diff is meaningless for a historical blob: it
+          // compares the file with the index, not with the parent commit.
+          if (fromCommit) {
+            setDiffData(null);
+            return () => { live = false; };
+          }
           request("diff", { root, path: meta.path }).then((val) => {
             if (live) setDiffData(val);
           }).catch(() => {
             if (live) setDiffData(null);
           });
           return () => { live = false; };
-        }, [root, meta.path, offset, lang]);
+        }, [root, meta.path, offset, lang, fromCommit, commit, repo]);
 
         if (state.status === "error") {
           return react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error));
@@ -2483,7 +3521,7 @@ window.__ModuleLoader__.load({
       }
 
       /** Pick the viewer for a file and keep unsupported formats useful. */
-      function FileView({ meta, root, api, wrap, lang, onDownload }) {
+      function FileView({ meta, root, api, wrap, lang, onDownload, commit, repo }) {
         if (meta === null) {
           return react.createElement("div", { className: "fv-note" }, "从左侧选择一个文件。");
         }
@@ -2509,7 +3547,22 @@ window.__ModuleLoader__.load({
         }
         // The key remounts each viewer per file so no per-file state (paging,
         // active sheet, blob URL) survives a switch.
-        const key = root + "\u0000" + meta.path;
+        const key = root + "\u0000" + meta.path + (commit ? "\u0000" + commit : "");
+        // A blob read from history is not the file on disk. Say which commit it
+        // came from, and call out a deletion, so the preview cannot be mistaken
+        // for the current contents.
+        const fromHistory = typeof commit === "string" && commit !== "";
+        const banner = fromHistory
+          ? react.createElement("div", { className: "fv-history-banner" },
+            react.createElement("span", null,
+              "以下内容来自提交 " + commit.slice(0, 7) + (meta.change ? "，该文件本次为「" + meta.change + "」" : "")),
+            react.createElement("span", { className: "fv-history-hint" }, "这是历史版本，不是工作区当前内容。"))
+          : null;
+        if (fromHistory && meta.kind !== "text" && meta.kind !== "markdown" && meta.kind !== "json") {
+          return react.createElement(react.Fragment, null, banner,
+            react.createElement("div", { className: "fv-note" },
+              "该提交中的文件是 " + meta.kind + " 格式，历史版本暂不支持预览。"));
+        }
         if (meta.kind === "image") return react.createElement(ImageView, { key, meta, root });
         if (meta.kind === "pdf") return react.createElement(BinaryView, { key, meta, root });
         if (meta.kind === "sheet") {
@@ -2518,7 +3571,8 @@ window.__ModuleLoader__.load({
         if (meta.kind === "doc") {
           return react.createElement("div", { className: "fv-content" }, react.createElement(DocView, { key, meta, root }));
         }
-        return react.createElement(TextView, { key, meta, root, wrap, lang });
+        return react.createElement(react.Fragment, null, banner,
+          react.createElement(TextView, { key, meta, root, wrap, lang, commit, repo }));
       }
 
       /** Right-click context menu for file and directory items. */
@@ -2866,6 +3920,74 @@ window.__ModuleLoader__.load({
           setTreeWidth(DEFAULT_TREE_WIDTH);
           writeTreeWidth(DEFAULT_TREE_WIDTH);
         };
+
+        // --- Resizing the whole drawer from its leading edge ---------------
+        // 0 means "whatever the stylesheet picked"; a stored value is only kept
+        // once the reader has actually dragged the edge.
+        const [shellWidth, setShellWidth] = react.useState(readShellWidth);
+        const [edgeResizing, setEdgeResizing] = react.useState(false);
+        const edgeRef = react.useRef(null);
+        const shellWidthRef = react.useRef(shellWidth);
+        shellWidthRef.current = shellWidth;
+
+        const onEdgePointerDown = (event) => {
+          if (event.button !== 0 && event.button !== undefined) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const shellEl = edgeRef.current ? edgeRef.current.parentElement : null;
+          // Measure the rendered panel rather than trusting state: on a fresh
+          // open the width still comes from the stylesheet and no drag has
+          // happened yet.
+          const startW = shellEl ? shellEl.getBoundingClientRect().width : (shellWidthRef.current || 0);
+          edgeRef.current._drag = { startX: event.clientX, startW };
+          setEdgeResizing(true);
+          try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) {}
+        };
+
+        const onEdgePointerMove = (event) => {
+          const drag = edgeRef.current ? edgeRef.current._drag : null;
+          if (!drag) return;
+          // Dragging left widens: the panel is pinned to the right edge, so the
+          // pointer moving away from that edge grows it.
+          const delta = drag.startX - event.clientX;
+          const available = typeof window === "undefined" ? 0 : (window.visualViewport?.width ?? window.innerWidth ?? 0);
+          const next = clampShellWidth(drag.startW + delta, available);
+          setShellWidth(next);
+        };
+
+        const onEdgePointerUp = (event) => {
+          const node = edgeRef.current;
+          if (!node || !node._drag) return;
+          node._drag = null;
+          setEdgeResizing(false);
+          try { event.currentTarget.releasePointerCapture(event.pointerId); } catch (_) {}
+          writeShellWidth(shellWidthRef.current);
+        };
+
+        const onEdgeDoubleClick = () => {
+          // Double-click restores the stylesheet width, which is the same
+          // "forget my preference" gesture the sidebar handle uses.
+          setShellWidth(0);
+          writeShellWidth(0);
+        };
+
+        /** Keyboard resizing: a drag handle that only a pointer can use is a defect. */
+        const onEdgeKeyDown = (event) => {
+          const available = typeof window === "undefined" ? 0 : (window.visualViewport?.width ?? window.innerWidth ?? 0);
+          const shellEl = edgeRef.current ? edgeRef.current.parentElement : null;
+          const current = shellEl ? shellEl.getBoundingClientRect().width : (shellWidthRef.current || 0);
+          const step = event.shiftKey ? 64 : 16;
+          let next = current;
+          if (event.key === "ArrowLeft") next = current + step;
+          else if (event.key === "ArrowRight") next = current - step;
+          else if (event.key === "Home") next = MIN_SHELL_WIDTH;
+          else if (event.key === "End") next = available;
+          else return;
+          event.preventDefault();
+          const clamped = clampShellWidth(next, available);
+          setShellWidth(clamped);
+          writeShellWidth(clamped);
+        };
         // Soft wrap for source views. Off by default: code is written with
         // meaningful line breaks and wrapping obscures them.
         const [wrap, setWrap] = react.useState(false);
@@ -2901,6 +4023,16 @@ window.__ModuleLoader__.load({
 
         const [contextMenu, setContextMenu] = react.useState(null);
         const [gitStatus, setGitStatus] = react.useState({ modified: new Set(), untracked: new Set() });
+        // Which sidebar pane is showing, and whether the main pane is a commit
+        // rather than a file. Both live here because the drawer owns the split.
+        const [side, setSide] = react.useState("files");
+        const [showCommit, setShowCommit] = react.useState(false);
+        // Which commit a previewed file is being read from. Empty means the
+        // ordinary working-tree preview, which is the file tree's behaviour.
+        const [previewCommit, setPreviewCommit] = react.useState("");
+        // Which half of the commit pane is showing: the file list or the patch.
+        const [commitView, setCommitView] = react.useState("files");
+        const gitState = useStore(git.store);
 
         react.useEffect(() => {
           if (!open || !root) return undefined;
@@ -2914,6 +4046,25 @@ window.__ModuleLoader__.load({
           }).catch(() => {});
           return () => { live = false; };
         }, [open, root]);
+
+        // The Git panel describes one root; switching roots drops every cached
+        // repository, branch and page rather than showing another project's
+        // history under the new name.
+        react.useEffect(() => {
+          if (!open) return;
+          git.reset(root);
+          setShowCommit(false);
+        }, [open, root]);
+
+        // Loaded on first use, never on open: most visits never touch the Git
+        // tab, and discovery spawns a git process per candidate repository.
+        react.useEffect(() => {
+          if (!open || side !== "git" || root === "") return;
+          git.ensure();
+          // The working-tree list is part of the panel's first paint, not a
+          // second click: "what is uncommitted" is the first thing to look at.
+          git.loadChanges();
+        }, [open, side, root]);
         const [toast, setToast] = react.useState(null);
         const toastTimer = react.useRef(null);
         const showToast = react.useCallback((msg) => {
@@ -3176,8 +4327,9 @@ window.__ModuleLoader__.load({
         };
 
         // Re-read every directory the reader currently has open, keeping the
-        // tree's shape.
-        const refresh = () => {
+        // tree's shape, plus the status badges a checkout or external edit
+        // invalidates.
+        const reloadWorkingTree = () => {
           treeGeneration.current += 1;
           setNodes(new Map());
           for (const dirPath of ["", ...expanded]) loadDirectory(dirPath);
@@ -3189,10 +4341,118 @@ window.__ModuleLoader__.load({
           }).catch(() => {});
         };
 
+        const refresh = () => {
+          reloadWorkingTree();
+          if (side === "git") {
+            const state = git.store.get();
+            const keepSha = showCommit && state.detail !== null && state.detail !== undefined && state.detail.commit !== undefined
+              ? state.detail.commit.sha
+              : "";
+            if (state.root !== root) git.reset(root);
+            git.loadRepos().then(() => {
+              if (keepSha !== "") git.openCommit(keepSha);
+            });
+          }
+        };
+
+        /** Open one commit in the main pane, replacing whatever was there. */
+        const openCommit = (commit) => {
+          if (commit === null || commit === undefined || typeof commit.sha !== "string") return;
+          setShowCommit(true);
+          setPane("content");
+          setCommitView("files");
+          // Re-opening the commit already on screen costs nothing: its detail
+          // does not depend on the working tree, only on the commit itself.
+          const cached = git.store.get();
+          if (cached.detailStatus === "ready" && cached.detail !== null && cached.detail !== undefined
+            && cached.detail.commit !== undefined && cached.detail.commit.sha === commit.sha) return;
+          git.openCommit(commit.sha);
+        };
+
+        /**
+         * Open one file from a commit in the ordinary preview.
+         *
+         * The row's path is already root-relative (the host rebased it), so it
+         * goes straight through the same `meta` request the tree uses; files
+         * outside the root are disabled in the list and never reach here.
+         */
+        const openCommitFile = (file) => {
+          if (file === null || file === undefined || file.outsideRoot === true) return;
+          if (typeof file.path !== "string" || file.path === "") return;
+          const sha = commitSha;
+          // A deleted file has nothing on disk, and any other file may differ
+          // from the version this commit recorded. The preview therefore reads
+          // the commit's blob, which needs the file's metadata from the same
+          // source rather than a `meta` lookup that would hit the disk.
+          if (sha !== "") {
+            const component = kindOfPath(file.path);
+            // A deletion has no blob in this commit, and a rename's old path
+            // does too. Both still have their previous contents in the parent,
+            // which is the version the reader is asking to see.
+            const letter = typeof file.letter === "string" ? file.letter : "";
+            const detail = gitState.detail;
+            const parentSha = detail && typeof detail.parentSha === "string" ? detail.parentSha : "";
+            const fromParent = (letter === "D" || letter === "R") && parentSha !== "";
+            // A rename shows the old path, because that is the side that still
+            // has content in the parent commit.
+            const blobPath = fromParent && typeof file.oldPath === "string" && file.oldPath !== ""
+              ? file.oldPath
+              : file.path;
+            const readSha = fromParent ? parentSha : sha;
+            setShowCommit(false);
+            setPane("content");
+            setPreviewCommit(readSha);
+            setLangChoice("auto");
+            const ticket = metaTicket.current + 1;
+            metaTicket.current = ticket;
+            const known = detail && Array.isArray(detail.files)
+              ? detail.files.find((row) => row.path === file.path)
+              : null;
+            setMeta({
+              root: root,
+              // The blob path is what the host reads; the display path keeps the
+              // row the reader clicked.
+              path: blobPath,
+              name: baseNameOf(blobPath),
+              displayPath: baseNameOf(blobPath) + " @ " + readSha.slice(0, 7),
+              kind: component,
+              commit: readSha,
+              // The commit records whether the file was added, modified or
+              // deleted; the preview says so instead of looking like a normal
+              // working-tree file.
+              change: known ? known.change : "",
+              changeLetter: known ? known.letter : "",
+              deleted: known ? known.letter === "D" : false,
+            });
+            setError(null);
+            return;
+          }
+          setShowCommit(false);
+          selectFile({ path: file.path, name: baseNameOf(file.path), type: "file" });
+        };
+
+        /**
+         * Open one working-tree change as a diff.
+         *
+         * The main pane shows the patch rather than the file: a deletion has no
+         * file to open, and "what changed" is the question the row answers.
+         */
+        const openWorkspaceChange = (row) => {
+          if (row === null || row === undefined || typeof row.path !== "string" || row.path === "") return;
+          setShowCommit(true);
+          setPane("content");
+          setCommitView("changes");
+          setPreviewCommit("");
+          void row;
+        };
+
         // Clicking two files quickly must not let the slower answer win: only
         // the newest request may write state.
         const selectFile = (entry) => {
           setPane("content");
+          // Selecting from the file tree is always the working tree, so any
+          // commit a preview was read from is dropped here.
+          setPreviewCommit("");
           // The remembered choice for this file takes effect immediately, so
           // the read that follows is already resolved with it.
           setLangChoice(readLangOverride(root, entry.path));
@@ -3224,6 +4484,50 @@ window.__ModuleLoader__.load({
         const activeRoot = roots.find((row) => row.id === root);
         const treeRows = flattenTree({ expanded, nodes });
 
+        /**
+         * The sidebar's two-pane switch, kept out of the tree component so the
+         * Git panel and the file tree share exactly one control and one seat.
+         */
+        const sideTabs = react.createElement("div", {
+          className: "fv-side-tabs",
+          role: "tablist",
+          "aria-label": "侧栏视图",
+        },
+          react.createElement("button", {
+            type: "button",
+            role: "tab",
+            className: "fv-side-tab",
+            "aria-selected": side === "files" ? "true" : "false",
+            title: "浏览项目文件",
+            onClick: () => {
+              setSide("files");
+              setShowCommit(false);
+            },
+          }, "文件"),
+          react.createElement("button", {
+            type: "button",
+            role: "tab",
+            className: "fv-side-tab",
+            "aria-selected": side === "git" ? "true" : "false",
+            title: "查看 Git 分支、提交与改动文件",
+            onClick: () => {
+              setSide("git");
+              git.ensure();
+            },
+          }, react.createElement(SvgIconBranch, { size: 13 }), "Git"));
+
+        const commitSha = gitState.detail !== null && gitState.detail !== undefined && gitState.detail.commit !== undefined
+          ? gitState.detail.commit.sha
+          : "";
+        // The main pane is showing something commit-shaped whenever it is not
+        // the ordinary file preview: a commit, or one working-tree change.
+        const detailPane = showCommit;
+        const commitHeadline = commitView === "changes"
+          ? "工作区改动"
+          : (showCommit && gitState.detail !== null && gitState.detail !== undefined && gitState.detail.commit !== undefined
+            ? "提交 " + (gitState.detail.commit.shortSha || String(gitState.detail.commit.sha || "").slice(0, 7))
+            : "");
+
         const handleDownloadItem = (entry) => {
           if (!entry) return;
           const targetPath = entry.path || entry.displayPath;
@@ -3242,9 +4546,43 @@ window.__ModuleLoader__.load({
             openStore.set(null);
           },
         },
-          react.createElement("div", { className: "fv-shell", "data-fullscreen": fullscreen ? "true" : "false", "data-mobile": isMobile ? "true" : "false" },
+          react.createElement("div", {
+            className: "fv-shell",
+            "data-fullscreen": fullscreen ? "true" : "false",
+            "data-mobile": isMobile ? "true" : "false",
+            "data-edge-resizing": edgeResizing ? "true" : "false",
+            // Only a dragged width overrides the stylesheet default; 0 leaves
+            // the responsive `min(64vw, 1100px)` in charge.
+            style: shellWidth > 0 && !fullscreen ? { width: shellWidth + "px" } : undefined,
+          },
+            // The drawer's own resize handle, seated on its leading edge. It is
+            // skipped on a phone and in fullscreen, where the panel already
+            // spans the frame and there is nothing to widen into.
+            isMobile || fullscreen
+              ? null
+              : react.createElement("div", {
+                ref: edgeRef,
+                className: "fv-edge",
+                role: "separator",
+                tabIndex: 0,
+                "aria-orientation": "vertical",
+                "aria-label": "调整文件查看器宽度",
+                "aria-valuenow": shellWidth > 0 ? shellWidth : undefined,
+                "aria-valuemin": MIN_SHELL_WIDTH,
+                "aria-valuemax": 4000,
+                title: "拖动调整查看器宽度，双击恢复默认",
+                "data-dragging": edgeResizing ? "true" : "false",
+                onPointerDown: onEdgePointerDown,
+                onPointerMove: onEdgePointerMove,
+                onPointerUp: onEdgePointerUp,
+                onPointerCancel: onEdgePointerUp,
+                onDoubleClick: onEdgeDoubleClick,
+                onKeyDown: onEdgeKeyDown,
+              }),
             react.createElement("div", { className: "fv-head" },
-              react.createElement("span", { className: "fv-title" }, "文件"),
+              // The title names the pane the sidebar is showing, so the drawer
+              // never claims to be a file browser while listing Git history.
+              react.createElement("span", { className: "fv-title" }, side === "git" ? "Git" : "文件"),
               roots.length > 1
                 ? react.createElement("select", {
                   className: "fv-root-select",
@@ -3255,11 +4593,11 @@ window.__ModuleLoader__.load({
                 : react.createElement("span", { className: "fv-crumbs" }, activeRoot ? activeRoot.label : ""),
               // The tree shows structure, so the header carries the selected
               // file's path instead of navigable breadcrumbs.
-              react.createElement("div", { className: "fv-crumbs fv-file-path", title: meta === null ? "" : meta.path },
-                meta === null ? "" : meta.path),
+              react.createElement("div", { className: "fv-crumbs fv-file-path", title: showCommit ? "" : (meta === null ? "" : meta.path) },
+                showCommit ? "" : (meta === null ? "" : meta.path)),
               // Only offered where it changes anything: images, PDFs, sheets and
               // documents do not scroll sideways the way source lines do.
-              meta !== null && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
+              !showCommit && meta !== null && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
                 ? react.createElement("button", {
                   type: "button",
                   className: "fv-icon-button",
@@ -3269,7 +4607,7 @@ window.__ModuleLoader__.load({
                   onClick: () => setWrap((current) => !current),
                 }, react.createElement(SvgIconWrap, { size: 15 }))
                 : null,
-              meta !== null && meta.kind !== "directory"
+              !showCommit && meta !== null && meta.kind !== "directory"
                 ? react.createElement("button", {
                   type: "button",
                   className: "fv-icon-button fv-btn-download",
@@ -3308,19 +4646,54 @@ window.__ModuleLoader__.load({
                 type: "button", className: "fv-icon-button fv-btn-close", "aria-label": "关闭", title: "关闭文件查看器", onClick: () => openStore.set(null),
               }, react.createElement(SvgIconClose, { size: 15 }))),
             react.createElement("div", { className: "fv-body", "data-pane": pane, "data-resizing": isResizing ? "true" : "false", "data-mobile": isMobile ? "true" : "false" },
-              react.createElement(Tree, {
-                rows: treeRows,
-                selected: meta === null ? "" : meta.path,
-                onToggle: toggleDirectory,
-                onSelect: selectFile,
-                // Always offered: the DOM fallback covers hosts that leave the
-                // bridge without input props, where gating on the store made the
-                // button vanish with no way to reach it.
-                onMention: mention,
-                onContextMenu: (ctx) => setContextMenu(ctx),
-                width: isMobile ? undefined : treeWidth,
-                gitStatus,
-              }),
+              side === "git"
+                ? react.createElement(GitSidebar, {
+                  state: gitState,
+                  width: isMobile ? undefined : treeWidth,
+                  header: sideTabs,
+                  selectedSha: commitSha,
+                  onPickRepo: git.pickRepo,
+                  onPickBranch: git.pickBranch,
+                  onCheckout: (branch) => {
+                    // A checkout rewrites the working tree, so the tree's
+                    // modified/untracked badges have to be re-read too. The
+                    // commit being viewed survives: it is history, not the
+                    // working tree, and reloading the repository clears it.
+                    const keepSha = commitSha;
+                    const state = git.store.get();
+                    // The repository lives above this root, so the checkout
+                    // reaches outside it. The host refuses without an explicit
+                    // consent flag, which is exactly what this question is.
+                    const consent = state.scope === "parent"
+                      ? (typeof window === "undefined" || typeof window.confirm !== "function"
+                        || window.confirm("该分支所在的仓库位于当前根目录的上级，检出会一并改写根目录以外的文件。确定继续吗？"))
+                      : true;
+                    if (!consent) return;
+                    git.checkout(branch, state.scope === "parent").then(() => {
+                      reloadWorkingTree();
+                      if (keepSha !== "") git.openCommit(keepSha);
+                    });
+                  },
+                  onSelectCommit: openCommit,
+                  onSelectChange: openWorkspaceChange,
+                  onRefreshChanges: git.loadChanges,
+                  onLoadMore: git.loadMore,
+                  onRetry: git.loadRepos,
+                })
+                : react.createElement(Tree, {
+                  rows: treeRows,
+                  selected: meta === null ? "" : meta.path,
+                  onToggle: toggleDirectory,
+                  onSelect: selectFile,
+                  // Always offered: the DOM fallback covers hosts that leave the
+                  // bridge without input props, where gating on the store made the
+                  // button vanish with no way to reach it.
+                  onMention: mention,
+                  onContextMenu: (ctx) => setContextMenu(ctx),
+                  width: isMobile ? undefined : treeWidth,
+                  gitStatus,
+                  header: sideTabs,
+                }),
               react.createElement("div", {
                 className: "fv-resizer",
                 role: "separator",
@@ -3342,14 +4715,17 @@ window.__ModuleLoader__.load({
                   react.createElement("button", {
                     type: "button", className: "fv-icon-button", "aria-label": "返回文件列表", onClick: () => setPane("tree"),
                   }, react.createElement("span", { "aria-hidden": "true" }, "‹")),
-                  react.createElement("span", { className: "fv-main-name" }, meta === null ? "未选择文件" : meta.name),
-                  meta !== null && typeof meta.size === "number"
+                  react.createElement("span", { className: "fv-main-name" },
+                    commitHeadline !== ""
+                      ? commitHeadline
+                      : (meta === null ? "未选择文件" : meta.name)),
+                  meta !== null && !showCommit && typeof meta.size === "number"
                     ? react.createElement("span", null, formatBytes(meta.size))
                     : null,
                   // The language picker sits with the file it applies to, and
                   // is offered only for source views: an image, sheet or
                   // document has no grammar to choose.
-                  meta !== null && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
+                  meta !== null && !showCommit && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
                     ? react.createElement(LanguagePicker, {
                       choice: langChoice,
                       catalog: languageCatalog,
@@ -3358,7 +4734,7 @@ window.__ModuleLoader__.load({
                       onChange: chooseLang,
                     })
                     : null),
-                error !== null && meta === null
+                error !== null && meta === null && !showCommit
                   ? react.createElement("div", { className: "fv-note fv-error" },
                     react.createElement("span", null, messageOf(error)),
                     error?.code === "outside-root"
@@ -3373,9 +4749,41 @@ window.__ModuleLoader__.load({
                         },
                       }, "配置安全访问路径")
                       : null)
-                  : react.createElement(ErrorBoundary, {
-                    resetKey: meta ? meta.path : "",
-                  }, react.createElement(FileView, { meta, root, api: props.api, wrap, lang: langChoice, onDownload: handleDownloadItem })))),
+                  : showCommit
+                    ? react.createElement(ErrorBoundary, {
+                      resetKey: "commit\u0000" + commitSha,
+                    }, commitView === "changes"
+                      ? react.createElement(WorkspaceChangeDetail, {
+                        state: gitState,
+                        path: meta === null ? "" : meta.path,
+                        request,
+                        repo: gitState.repoId,
+                      })
+                      : react.createElement(CommitDetail, {
+                        state: gitState,
+                        selectedPath: meta === null ? "" : meta.path,
+                        onSelectFile: openCommitFile,
+                        view: commitView,
+                        onSwitchView: setCommitView,
+                        onLoadDiff: () => {
+                          const sha = commitSha;
+                          if (sha !== "") git.loadCommitDiff(sha);
+                        },
+                      }))
+                    : react.createElement(ErrorBoundary, {
+                      resetKey: meta ? meta.path : "",
+                    }, react.createElement(FileView, {
+                      meta,
+                      root,
+                      api: props.api,
+                      wrap,
+                      lang: langChoice,
+                      onDownload: handleDownloadItem,
+                      // Empty for a working-tree file; a hash for one opened
+                      // from history, which makes the read a blob lookup.
+                      commit: previewCommit,
+                      repo: gitState.repoId,
+                    })))),
             contextMenu !== null
               ? react.createElement(ContextMenu, {
                 menu: contextMenu,
@@ -3696,11 +5104,15 @@ window.__ModuleLoader__.load({
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
+      SHELL_WIDTH_KEY, MIN_SHELL_WIDTH, readShellWidth, writeShellWidth, clampShellWidth,
       LANG_OVERRIDES_KEY, LANG_OVERRIDES_MAX, readLangOverrides, writeLangOverrides, readLangOverride, writeLangOverride,
       langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
-      triggerDownload, performDownload, isDesktopShell, SvgIconDownload,
+      triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconBranch, SvgIconCommit,
+      // Git panel: controller, views and the small formatters they share.
+      GIT_PAGE_SIZE, createGitController, GitSidebar, CommitDetail, WorkspaceChangeDetail, DiffView, kindOfPath,
+      formatCommitDate, formatCommitTimestamp,
     };
     return module.exports;
   }

@@ -26,7 +26,20 @@ const loadClient = () => {
     globalThis.window = previousWindow
   }
   return definition.factory((id) => (id === 'react'
-    ? { createElement: () => null, useRef: () => ({ current: null }), useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useEffect: () => {} }
+    ? {
+      // A tree-building stub rather than a null one: the Git panel tests read
+      // what a component actually rendered, and children are how that arrives.
+      createElement: (type, props, ...children) => ({
+        type,
+        props: props || {},
+        children: children.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false),
+      }),
+      Fragment: 'fragment',
+      useRef: () => ({ current: null }),
+      useState: (v) => [typeof v === 'function' ? v() : v, () => {}],
+      useEffect: () => {},
+      useCallback: (fn) => fn,
+    }
     : { ReadBlock: null, MarkdownText: null, JsonTree: null }))
 }
 
@@ -900,7 +913,10 @@ test('the language picker offers auto plus the host catalog', () => {
   // The resolved language is what the read actually highlighted with, so the
   // choice travels on the request rather than being applied client-side.
   assert.match(source, /const langPayload = lang === undefined \|\| lang === "auto" \? \{\} : \{ lang \}/)
-  assert.match(source, /request\("read", \{ root, path: meta\.path, offset, limit: WINDOW_LINES, \.\.\.langPayload \}\)/)
+  // The same read payload is built once and either sent as a working-tree read
+  // or, when a commit is being previewed, as a blob lookup for that commit.
+  assert.match(source, /const readPayload = fromCommit/)
+  assert.match(source, /request\(readMethod, readPayload\)/)
   // Choosing persists per file and re-reads immediately.
   assert.match(source, /writeLangOverride\(root, meta\.path, next\)/)
   assert.match(source, /setLangChoice\(readLangOverride\(root, entry\.path\)\)/)
@@ -2039,4 +2055,973 @@ test('品牌色按钮的前景走宿主 token，不硬编码白色', () => {
     source,
     /\.fv-tab\[aria-selected="true"\] \.fv-diff-add,\.fv-tab\[aria-selected="true"\] \.fv-diff-del\{color:var\(--dsw-alias-label-primary-foreground/,
   )
+})
+
+/* -------------------------------------------------------------------------- *
+ * Git panel
+ *
+ * The panel talks to four host methods and keeps one snapshot for both of its
+ * panes, so these tests exercise the controller directly (with a fake RPC) and
+ * then check that the bundle wires the pieces together. The controller tests
+ * matter most: they cover the concurrency rule that a slow answer for an old
+ * branch or commit must never overwrite a newer one.
+ * -------------------------------------------------------------------------- */
+
+const GIT_SHA_A = 'a'.repeat(40)
+const GIT_SHA_B = 'b'.repeat(40)
+
+/**
+ * One repository as the host reports it.
+ *
+ * Branches are keyed by full ref and carry the short name and kind, because a
+ * local branch may share its short name with a remote-tracking one and only the
+ * full ref says which is which.
+ */
+const gitRepo = (overrides = {}) => ({
+  id: '.',
+  name: 'repo',
+  path: '',
+  scope: 'root',
+  remotes: [{ name: 'origin', url: 'https://example.test/repo.git' }],
+  current: 'main',
+  detached: false,
+  empty: false,
+  branches: [
+    { name: 'refs/heads/main', shortName: 'main', kind: 'local', remote: '', current: true, checkoutable: true },
+    { name: 'refs/heads/dev', shortName: 'dev', kind: 'local', remote: '', current: false, checkoutable: true },
+  ],
+  ...overrides,
+})
+
+const gitCommit = (sha, subject) => ({
+  sha,
+  shortSha: sha.slice(0, 7),
+  author: '张三',
+  authorEmail: 'zhang@example.com',
+  authoredAt: '2024-05-01T12:00:00+08:00',
+  committedAt: '2024-05-01T12:00:05+08:00',
+  subject,
+})
+
+test('the Git controller opens the checked-out branch and pages its history', async () => {
+  const { internals } = loadClient()
+  const calls = []
+  const request = async (method, payload) => {
+    calls.push({ method, payload })
+    if (method === 'gitRepos') return { repos: [gitRepo()] }
+    if (method === 'gitCommits') {
+      const offset = payload.offset
+      return {
+        repository: payload.repo,
+        branch: payload.branch,
+        total: 40,
+        offset,
+        limit: payload.limit,
+        commits: [gitCommit(offset === 0 ? GIT_SHA_A : GIT_SHA_B, offset === 0 ? '第一个' : '第二个')],
+        hasMore: offset === 0,
+      }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+
+  let state = git.store.get()
+  assert.equal(state.repos.length, 1)
+  assert.equal(state.repoId, '.')
+  assert.equal(state.branch, 'refs/heads/main')
+  assert.equal(state.current, 'refs/heads/main')
+  assert.deepEqual(state.branches.map((branch) => branch.name), ['refs/heads/main', 'refs/heads/dev'])
+  assert.equal(state.commits.length, 1)
+  assert.equal(state.total, 40)
+  assert.equal(state.hasMore, true)
+
+  // The panel opens on the checked-out branch, first page.
+  const firstPage = calls.find((call) => call.method === 'gitCommits')
+  assert.deepEqual(firstPage.payload, { root: '/repo', repo: '.', branch: 'refs/heads/main', offset: 0, limit: internals.GIT_PAGE_SIZE })
+
+  await git.loadMore()
+  state = git.store.get()
+  assert.equal(state.commits.length, 2)
+  assert.equal(state.commits[1].sha, GIT_SHA_B)
+  assert.equal(state.hasMore, false)
+
+  // Paging past the end is a no-op, not another request.
+  const before = calls.length
+  await git.loadMore()
+  assert.equal(calls.length, before)
+})
+
+test('choosing another branch reloads its history without touching the checkout', async () => {
+  const { internals } = loadClient()
+  const calls = []
+  const request = async (method, payload) => {
+    calls.push({ method, payload })
+    if (method === 'gitRepos') return { repos: [gitRepo()] }
+    if (method === 'gitCommits') {
+      return { repository: payload.repo, branch: payload.branch, total: 1, offset: 0, limit: 30, commits: [gitCommit(GIT_SHA_A, payload.branch)], hasMore: false }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.pickBranch('refs/heads/dev')
+
+  const state = git.store.get()
+  assert.equal(state.branch, 'refs/heads/dev')
+  // The fake echoes the requested branch as the subject, which is now a ref.
+  assert.equal(state.commits[0].subject, 'refs/heads/dev')
+  // Browsing a branch is read-only: only an explicit checkout may write.
+  assert.equal(calls.some((call) => call.method === 'gitCheckout'), false)
+})
+
+test('a checkout that git refuses reports it and clears the busy flag', async () => {
+  const { internals } = loadClient()
+  const request = async (method) => {
+    if (method === 'gitRepos') return { repos: [gitRepo()] }
+    if (method === 'gitCommits') return { repository: '.', branch: 'main', total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    if (method === 'gitCheckout') {
+      const error = new Error('工作区有未提交的改动')
+      error.code = 'git-dirty'
+      throw error
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.checkout('dev')
+
+  const state = git.store.get()
+  assert.equal(state.busy, false)
+  assert.match(state.notice, /未提交的改动/)
+  // The working tree never moved, so the displayed branch is unchanged.
+  assert.equal(state.branch, 'main')
+})
+
+test('a successful checkout notices and re-reads the repository', async () => {
+  const { internals } = loadClient()
+  let repoCalls = 0
+  const request = async (method, payload) => {
+    if (method === 'gitRepos') {
+      repoCalls += 1
+      return { repos: [gitRepo({ current: repoCalls > 1 ? 'dev' : 'main' })] }
+    }
+    if (method === 'gitCommits') return { repository: '.', branch: payload.branch, total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    if (method === 'gitCheckout') return { ok: true, branch: 'dev', previous: 'main', changed: true }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.checkout('dev')
+
+  const state = git.store.get()
+  assert.equal(state.busy, false)
+  assert.match(state.notice, /已切换到 dev/)
+  assert.equal(repoCalls, 2)
+  assert.equal(state.current, 'refs/heads/dev')
+  assert.equal(state.branch, 'refs/heads/dev')
+})
+
+test('a commit detail is read by hash and dropped on reset', async () => {
+  const { internals } = loadClient()
+  const request = async (method, payload) => {
+    if (method === 'gitRepos') return { repos: [gitRepo()] }
+    if (method === 'gitCommits') return { repository: '.', branch: 'main', total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    if (method === 'gitCommitFiles') {
+      assert.deepEqual(payload, { root: '/repo', repo: '.', sha: GIT_SHA_A })
+      return {
+        repository: '.',
+        commit: { ...gitCommit(GIT_SHA_A, '修改入口'), body: '修改入口\n\n正文' },
+        files: [{ path: 'src/app.ts', oldPath: null, status: 'M', letter: 'M', change: '修改', tone: 'mod', outsideRoot: false }],
+      }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.openCommit(GIT_SHA_A)
+
+  let state = git.store.get()
+  assert.equal(state.detailStatus, 'ready')
+  assert.equal(state.detail.commit.sha, GIT_SHA_A)
+  assert.equal(state.detail.commit.body, '修改入口\n\n正文')
+  assert.equal(state.detail.files[0].path, 'src/app.ts')
+
+  git.reset('/repo')
+  state = git.store.get()
+  assert.equal(state.detail, null)
+  assert.equal(state.detailStatus, 'idle')
+})
+
+test('a slow commit answer cannot overwrite a newer selection', async () => {
+  const { internals } = loadClient()
+  const pending = []
+  const request = async (method, payload) => {
+    if (method === 'gitRepos') return { repos: [gitRepo()] }
+    if (method === 'gitCommits') return { repository: '.', branch: 'main', total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    if (method === 'gitCommitFiles') {
+      return new Promise((resolve) => pending.push({ sha: payload.sha, resolve }))
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+
+  const first = git.openCommit(GIT_SHA_A)
+  const second = git.openCommit(GIT_SHA_B)
+  assert.equal(pending.length, 2)
+
+  // The newer selection answers first; the older one arrives afterwards and
+  // must be discarded rather than replacing what the reader is looking at.
+  pending[1].resolve({ repository: '.', commit: { ...gitCommit(GIT_SHA_B, '新') }, files: [] })
+  await second
+  pending[0].resolve({ repository: '.', commit: { ...gitCommit(GIT_SHA_A, '旧') }, files: [] })
+  await first
+
+  const state = git.store.get()
+  assert.equal(state.detail.commit.sha, GIT_SHA_B)
+  assert.equal(state.detail.commit.subject, '新')
+})
+
+test('the Git sidebar renders a repository, branches and history without crashing', () => {
+  const { internals } = loadClient()
+  assert.equal(typeof internals.GitSidebar, 'function')
+  assert.equal(typeof internals.CommitDetail, 'function')
+  assert.equal(typeof internals.createGitController, 'function')
+
+  const state = {
+    root: '/repo',
+    repos: [gitRepo(), gitRepo({ id: 'packages/app', name: 'packages/app', current: 'dev' })],
+    reposStatus: 'ready',
+    reposError: null,
+    repoId: '.',
+    branches: [{ name: 'main', current: true }, { name: 'dev', current: false }],
+    current: 'main',
+    detached: false,
+    branch: 'dev',
+    commits: [gitCommit(GIT_SHA_A, '第一个提交')],
+    commitsStatus: 'ready',
+    commitsError: null,
+    total: 40,
+    hasMore: true,
+    detail: null,
+    detailStatus: 'idle',
+    detailError: null,
+    busy: false,
+    notice: '已在该分支上',
+  }
+  const handlers = {
+    onPickRepo() {},
+    onPickBranch() {},
+    onCheckout() {},
+    onSelectCommit() {},
+    onLoadMore() {},
+    onRetry() {},
+  }
+
+  // Multi-repository, an unhidden checkout button for a non-current branch, a
+  // page counter and a "load more" affordance.
+  assert.doesNotThrow(() => internals.GitSidebar({ state, width: 280, header: null, selectedSha: '', ...handlers }))
+  // Empty and error states are separate branches with no repository to read.
+  assert.doesNotThrow(() => internals.GitSidebar({ state: { ...state, repos: [], reposStatus: 'empty' }, header: null, ...handlers }))
+  assert.doesNotThrow(() => internals.GitSidebar({ state: { ...state, reposStatus: 'error', reposError: new Error('x') }, header: null, ...handlers }))
+})
+
+test('the commit pane renders changed files and disables ones outside the root', () => {
+  const { internals } = loadClient()
+  const base = {
+    repos: [gitRepo()],
+    branch: 'main',
+    total: 0,
+    hasMore: false,
+    commits: [],
+  }
+  const detail = {
+    repository: '.',
+    commit: { ...gitCommit(GIT_SHA_A, '标题'), body: '标题\n\n正文段落' },
+    files: [
+      { path: 'src/app.ts', oldPath: null, status: 'M', letter: 'M', change: '修改', tone: 'mod', outsideRoot: false },
+      { path: 'img/logo.png', oldPath: 'img/old-logo.png', status: 'R100', letter: 'R', change: '重命名', tone: 'mod', outsideRoot: false },
+      { path: 'outside/file.txt', oldPath: null, status: 'M', letter: 'M', change: '修改', tone: 'mod', outsideRoot: true },
+    ],
+  }
+
+  assert.doesNotThrow(() => internals.CommitDetail({
+    state: { ...base, detail, detailStatus: 'ready' },
+    selectedPath: 'src/app.ts',
+    onSelectFile() {},
+  }))
+  // Loading and failed states never read a half-populated detail.
+  assert.doesNotThrow(() => internals.CommitDetail({ state: { ...base, detail: null, detailStatus: 'loading' }, selectedPath: '', onSelectFile() {} }))
+  assert.doesNotThrow(() => internals.CommitDetail({ state: { ...base, detail: null, detailStatus: 'error', detailError: new Error('x') }, selectedPath: '', onSelectFile() {} }))
+})
+
+test('the bundle wires the Git panel to the host RPC methods and its own styles', () => {
+  const source = read('lib/client.js')
+
+  // One method per panel capability; the names must match the host table.
+  for (const method of ['gitRepos', 'gitCommits', 'gitCommitFiles', 'gitCheckout']) {
+    assert.match(source, new RegExp(`request\\("${method}"`), `the client must call the ${method} RPC`)
+  }
+
+  // Sidebar: two tabs sharing one seat, and the tree keeps its container class
+  // so the existing mobile pane-swap rules still apply to the Git panel.
+  assert.match(source, /className: "fv-side-tabs"/)
+  assert.match(source, /className: "fv-tree fv-git-panel"/)
+  assert.match(source, /"aria-selected": side === "git"/)
+  assert.match(source, /side === "git"\s*\n\s*\? react\.createElement\(GitSidebar/)
+
+  // Commit rows and file rows exist as real controls, with the diff letters.
+  assert.match(source, /className: "fv-git-commit"/)
+  assert.match(source, /className: "fv-commit-file"/)
+  assert.match(source, /className: "fv-commit-status"/)
+  assert.match(source, /该文件在当前根目录之外/)
+
+  // Clicking a changed file reuses the file preview rather than a second viewer.
+  assert.match(source, /const openCommitFile = /)
+  assert.match(source, /selectFile\(\{ path: file\.path/)
+
+  // Styles for the panel and its phone layout.
+  assert.match(source, /\.fv-git-commit\{/)
+  assert.match(source, /\.fv-commit-file\{/)
+  assert.match(source, /\.fv-side-tab\{height:32px!important/)
+
+  // The list is only requested when the tab is first opened.
+  assert.match(source, /git\.ensure\(\)/)
+  // Switching roots drops cached history.
+  assert.match(source, /git\.reset\(root\)/)
+})
+
+/* -------------------------------------------------------------------------- *
+ * Git panel: the failures the first round could not see
+ * -------------------------------------------------------------------------- */
+
+test('loading more while opening a commit does not strand the pager', async () => {
+  const { internals } = loadClient()
+  let releaseMore
+  const request = async (method, payload) => {
+    if (method === 'gitRepos') return { repos: [gitRepo()], truncated: false }
+    if (method === 'gitCommits') {
+      if (payload.offset === 0) {
+        return { repository: '.', branch: 'main', total: 40, offset: 0, limit: 30, commits: [gitCommit(GIT_SHA_A, 'a')], hasMore: true }
+      }
+      // The second page stays in flight until the test releases it.
+      return new Promise((resolve) => {
+        releaseMore = () => resolve({
+          repository: '.', branch: 'main', total: 40, offset: 1, limit: 30,
+          commits: [gitCommit(GIT_SHA_B, 'b')], hasMore: false,
+        })
+      })
+    }
+    if (method === 'gitCommitFiles') {
+      return { repository: '.', commit: { ...gitCommit(GIT_SHA_A, 'a') }, files: [] }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+
+  const more = git.loadMore()
+  assert.equal(git.store.get().commitsStatus, 'more')
+
+  // Opening a commit used to share the counter with the list and cancel this
+  // request, leaving the button disabled forever.
+  await git.openCommit(GIT_SHA_A)
+  assert.equal(git.store.get().detailStatus, 'ready')
+
+  releaseMore()
+  await more
+  const state = git.store.get()
+  assert.equal(state.commitsStatus, 'ready')
+  assert.equal(state.commits.length, 2)
+  // And the detail survived the list update.
+  assert.equal(state.detailStatus, 'ready')
+})
+
+test('a refresh keeps the branch being browsed', async () => {
+  const { internals } = loadClient()
+  let repoCalls = 0
+  const request = async (method, payload) => {
+    if (method === 'gitRepos') {
+      repoCalls += 1
+      // The checkout never moves; only browsing changes.
+      return { repos: [gitRepo()], truncated: false }
+    }
+    if (method === 'gitCommits') {
+      return { repository: '.', branch: payload.branch, total: 1, offset: 0, limit: 30, commits: [], hasMore: false }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.pickBranch('refs/heads/dev')
+  assert.equal(git.store.get().branch, 'refs/heads/dev')
+
+  // A refresh must come back to `dev`, not jump to the checked-out `main`.
+  await git.loadRepos()
+  assert.equal(git.store.get().branch, 'refs/heads/dev')
+  assert.equal(repoCalls, 2)
+})
+
+test('a checkout lands on the branch that was checked out', async () => {
+  const { internals } = loadClient()
+  let repoCalls = 0
+  const request = async (method, payload) => {
+    if (method === 'gitRepos') {
+      repoCalls += 1
+      const current = repoCalls > 1 ? 'dev' : 'main'
+      return { repos: [gitRepo({ current })], truncated: false }
+    }
+    if (method === 'gitCommits') {
+      return { repository: '.', branch: payload.branch, total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    }
+    if (method === 'gitCheckout') {
+      assert.equal(payload.allowOutsideRoot, undefined, 'a root-scope checkout needs no consent flag')
+      return { ok: true, branch: 'dev', previous: 'main', changed: true, scope: 'root' }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.pickBranch('main')
+  await git.checkout('refs/heads/dev')
+  assert.equal(git.store.get().branch, 'refs/heads/dev')
+  assert.equal(git.store.get().current, 'refs/heads/dev')
+})
+
+test('a parent-scope checkout sends its consent flag', async () => {
+  const { internals } = loadClient()
+  const seen = []
+  const request = async (method, payload) => {
+    if (method === 'gitRepos') {
+      return { repos: [gitRepo({ scope: 'parent' })], truncated: false }
+    }
+    if (method === 'gitCommits') {
+      return { repository: '.', branch: payload.branch, total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    }
+    if (method === 'gitCheckout') {
+      seen.push(payload.allowOutsideRoot)
+      return { ok: true, branch: 'dev', previous: 'main', changed: true, scope: 'parent' }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  assert.equal(git.store.get().scope, 'parent')
+  await git.checkout('dev', true)
+  assert.deepEqual(seen, [true])
+})
+
+test('a checkout without consent on a parent repository reports the refusal', async () => {
+  const { internals } = loadClient()
+  const request = async (method) => {
+    if (method === 'gitRepos') return { repos: [gitRepo({ scope: 'parent' })], truncated: false }
+    if (method === 'gitCommits') return { repository: '.', branch: 'main', total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    if (method === 'gitCheckout') {
+      const error = new Error('outside root')
+      error.code = 'checkout-outside-root'
+      throw error
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.checkout('dev')
+  const state = git.store.get()
+  assert.equal(state.busy, false)
+  assert.match(state.notice, /根目录以外的文件/)
+})
+
+test('a truncated scan is surfaced to the sidebar', () => {
+  const { internals } = loadClient()
+  const state = {
+    root: '/repo',
+    repos: [gitRepo()],
+    reposStatus: 'ready',
+    reposError: null,
+    truncated: true,
+    repoId: '.',
+    branches: [{ name: 'main', current: true }],
+    current: 'main',
+    detached: false,
+    scope: 'parent',
+    branch: 'main',
+    commits: [],
+    commitsStatus: 'ready',
+    commitsError: null,
+    total: 0,
+    hasMore: false,
+    detail: null,
+    detailStatus: 'idle',
+    detailError: null,
+    busy: false,
+    notice: '',
+  }
+  const handlers = {
+    onPickRepo() {}, onPickBranch() {}, onCheckout() {}, onSelectCommit() {}, onLoadMore() {}, onRetry() {},
+  }
+  const tree = internals.GitSidebar({ state, header: null, selectedSha: '', ...handlers })
+  // The bundle's `createElement` stub keeps children in their own array, so the
+  // walk has to follow that shape rather than React's props.children.
+  const texts = []
+  const walk = (node) => {
+    if (node === null || node === undefined || node === false) return
+    if (Array.isArray(node)) { node.forEach(walk); return }
+    if (typeof node === 'string' || typeof node === 'number') { texts.push(String(node)); return }
+    walk(node.children)
+  }
+  walk(tree)
+  const joined = texts.join('|')
+  // Both warnings appear: the list may be incomplete, and a checkout here
+  // would reach outside the root.
+  assert.match(joined, /列表可能不完整/)
+  assert.match(joined, /检出范围提醒/)
+})
+
+test('a commit preview reads the commit blob and says so', () => {
+  const source = read('lib/client.js')
+
+  // The read is routed by whether a commit is being previewed.
+  assert.match(source, /const fromCommit = typeof commit === "string" && commit !== ""/)
+  assert.match(source, /const readMethod = fromCommit \? "gitCommitFile" : "read"/)
+  // A historical blob has no working-tree diff to show.
+  assert.match(source, /if \(fromCommit\) \{\s*\n\s*setDiffData\(null\)/)
+  // The pane states its provenance rather than looking like the current file.
+  assert.match(source, /className: "fv-history-banner"/)
+  assert.match(source, /这是历史版本，不是工作区当前内容/)
+  // Clicking a changed file opens that commit, not the working tree.
+  assert.match(source, /setPreviewCommit\(readSha\)/)
+  assert.match(source, /const sha = commitSha/)
+  // A deletion (and a rename's old path) has no blob in this commit, so the
+  // parent is read instead; the row's own letter decides which.
+  assert.match(source, /const fromParent = \(letter === "D" \|\| letter === "R"\) && parentSha !== ""/)
+  assert.match(source, /const readSha = fromParent \? parentSha : sha/)
+})
+
+test('a refresh restores the open commit after re-reading the repository', () => {
+  const source = read('lib/client.js')
+  // The branch is reloaded first, then the commit is put back: loadRepos clears
+  // the detail by design, so the order matters.
+  assert.match(source, /git\.loadRepos\(\)\.then\(\(\) => \{\s*\n\s*if \(keepSha !== ""\) git\.openCommit\(keepSha\)/)
+})
+
+/* -------------------------------------------------------------------------- *
+ * Remote branches, working-tree changes, commit diffs (client)
+ * -------------------------------------------------------------------------- */
+
+const remoteRepo = () => gitRepo({
+  branches: [
+    { name: 'refs/heads/main', shortName: 'main', kind: 'local', remote: '', current: true, checkoutable: true },
+    { name: 'refs/heads/dev', shortName: 'dev', kind: 'local', remote: '', current: false, checkoutable: true },
+    { name: 'refs/remotes/origin/release', shortName: 'origin/release', kind: 'remote', remote: 'origin', current: false, checkoutable: false },
+  ],
+})
+
+test('the controller reads the working tree on demand and groups it', async () => {
+  const { internals } = loadClient()
+  const calls = []
+  const request = async (method, payload) => {
+    calls.push({ method, payload })
+    if (method === 'gitRepos') return { repos: [gitRepo()], truncated: false }
+    if (method === 'gitCommits') return { repository: '.', branch: payload.branch, total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    if (method === 'gitStatusChanges') {
+      return {
+        repository: '.', current: 'main', detached: false, outside: 0, total: 2,
+        staged: [{ path: 'a.txt', letter: 'M', change: '修改', tone: 'mod' }],
+        unstaged: [{ path: 'b.txt', letter: 'M', change: '修改', tone: 'mod' }],
+        untracked: [], conflicted: [],
+      }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.loadChanges()
+
+  const state = git.store.get()
+  assert.equal(state.changesStatus, 'ready')
+  assert.equal(state.changes.total, 2)
+  assert.equal(state.changes.staged[0].path, 'a.txt')
+  assert.deepEqual(calls.find((call) => call.method === 'gitStatusChanges').payload, { root: '/repo', repo: '.' })
+})
+
+test('a failed status read is an error, not an empty working tree', async () => {
+  const { internals } = loadClient()
+  const request = async (method) => {
+    if (method === 'gitRepos') return { repos: [gitRepo()], truncated: false }
+    if (method === 'gitCommits') return { repository: '.', branch: 'refs/heads/main', total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    if (method === 'gitStatusChanges') {
+      const error = new Error('boom')
+      error.code = 'git-failed'
+      throw error
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.loadChanges()
+  const state = git.store.get()
+  assert.equal(state.changesStatus, 'error')
+  assert.equal(state.changes, null)
+})
+
+test('the commit diff is read per commit and cleared on a new selection', async () => {
+  const { internals } = loadClient()
+  const calls = []
+  const request = async (method, payload) => {
+    calls.push({ method, payload })
+    if (method === 'gitRepos') return { repos: [gitRepo()], truncated: false }
+    if (method === 'gitCommits') return { repository: '.', branch: 'refs/heads/main', total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    if (method === 'gitCommitFiles') return { repository: '.', commit: { ...gitCommit(GIT_SHA_A, 'x') }, files: [] }
+    if (method === 'gitCommitDiff') {
+      return {
+        repository: '.', sha: payload.sha, parentSha: GIT_SHA_B, patch: '', outside: 0,
+        summary: { added: 3, removed: 1 },
+        files: [{ path: 'a.txt', oldPath: null, status: 'M', letter: 'M', tone: 'mod', added: 3, removed: 1, rows: [] }],
+      }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await git.openCommit(GIT_SHA_A)
+  await git.loadCommitDiff(GIT_SHA_A)
+
+  let state = git.store.get()
+  assert.equal(state.commitDiffStatus, 'ready')
+  assert.deepEqual(state.commitDiff.summary, { added: 3, removed: 1 })
+  assert.deepEqual(calls.find((call) => call.method === 'gitCommitDiff').payload, { root: '/repo', repo: '.', sha: GIT_SHA_A })
+
+  // Selecting another commit invalidates the patch before it can be shown
+  // under the wrong header.
+  await git.openCommit(GIT_SHA_B)
+  state = git.store.get()
+  assert.equal(state.commitDiff, null)
+  assert.equal(state.commitDiffStatus, 'idle')
+})
+
+test('the branch picker groups local and remote and disables checkout for remotes', () => {
+  const { internals } = loadClient()
+  const state = {
+    root: '/repo',
+    repos: [remoteRepo()],
+    reposStatus: 'ready',
+    reposError: null,
+    truncated: false,
+    remotes: [{ name: 'origin', url: 'https://example.test/repo.git' }],
+    repoId: '.',
+    branches: remoteRepo().branches,
+    current: 'refs/heads/main',
+    currentShort: 'main',
+    detached: false,
+    scope: 'root',
+    // A remote branch is selected: the checkout control must not offer a write.
+    branch: 'refs/remotes/origin/release',
+    commits: [], commitsStatus: 'ready', commitsError: null, total: 0, hasMore: false,
+    changes: null, changesStatus: 'ready', changesError: null,
+    detail: null, detailStatus: 'idle', detailError: null,
+    commitDiff: null, commitDiffStatus: 'idle', commitDiffError: null,
+    busy: false, notice: '',
+  }
+  const handlers = {
+    onPickRepo() {}, onPickBranch() {}, onCheckout() {}, onSelectCommit() {},
+    onLoadMore() {}, onRetry() {}, onSelectChange() {}, onRefreshChanges() {},
+  }
+
+  const tree = internals.GitSidebar({ state, header: null, selectedSha: '', ...handlers })
+  const texts = []
+  const walk = (node) => {
+    if (node === null || node === undefined || node === false) return
+    if (Array.isArray(node)) { node.forEach(walk); return }
+    if (typeof node === 'string' || typeof node === 'number') { texts.push(String(node)); return }
+    // An `<optgroup>` carries its heading as an attribute, not a text child.
+    if (node.type === 'optgroup' && node.props && node.props.label) texts.push(String(node.props.label))
+    walk(node.children)
+  }
+  walk(tree)
+  const joined = texts.join('|')
+  assert.match(joined, /本地分支/)
+  assert.match(joined, /远程分支/)
+  assert.match(joined, /只读/)
+
+  const checkouts = []
+  const walkButtons = (node) => {
+    if (node === null || node === undefined || node === false) return
+    if (Array.isArray(node)) { node.forEach(walkButtons); return }
+    if (node.props && node.props.className === 'fv-git-checkout') checkouts.push(node)
+    walkButtons(node.children)
+  }
+  walkButtons(tree)
+  // Selecting a remote branch yields a disabled, browse-only control.
+  assert.equal(checkouts.length, 1)
+  assert.equal(checkouts[0].props.disabled, true)
+})
+
+test('the workspace change pane lists grouped rows and opens a diff', () => {
+  const { internals } = loadClient()
+  const opened = []
+  const state = {
+    root: '/repo',
+    repos: [gitRepo()],
+    reposStatus: 'ready', reposError: null, truncated: false, remotes: [],
+    repoId: '.',
+    branches: gitRepo().branches,
+    current: 'refs/heads/main', currentShort: 'main', detached: false, scope: 'root',
+    branch: 'refs/heads/main',
+    commits: [], commitsStatus: 'ready', commitsError: null, total: 0, hasMore: false,
+    changes: {
+      repository: '.', current: 'main', detached: false, outside: 1, total: 4,
+      staged: [{ path: 'a.txt', letter: 'M', change: '修改', tone: 'mod', partiallyStaged: true }],
+      unstaged: [{ path: 'a.txt', letter: 'M', change: '修改', tone: 'mod' }],
+      untracked: [{ path: 'new.txt', letter: '?', change: '未跟踪', tone: 'add' }],
+      conflicted: [{ path: 'c.txt', letter: 'U', change: '冲突', tone: 'del' }],
+    },
+    changesStatus: 'ready', changesError: null,
+    detail: null, detailStatus: 'idle', detailError: null,
+    commitDiff: null, commitDiffStatus: 'idle', commitDiffError: null,
+    busy: false, notice: '',
+  }
+  const tree = internals.GitSidebar({
+    state, header: null, selectedSha: '',
+    onPickRepo() {}, onPickBranch() {}, onCheckout() {}, onSelectCommit() {},
+    onLoadMore() {}, onRetry() {},
+    onSelectChange: (row) => opened.push(row.path),
+    onRefreshChanges() {},
+  })
+
+  const texts = []
+  const walk = (node) => {
+    if (node === null || node === undefined || node === false) return
+    if (Array.isArray(node)) { node.forEach(walk); return }
+    if (typeof node === 'string' || typeof node === 'number') { texts.push(String(node)); return }
+    walk(node.children)
+  }
+  walk(tree)
+  const joined = texts.join('|')
+  for (const group of ['工作区改动', '已暂存', '未暂存', '未跟踪', '冲突']) {
+    assert.match(joined, new RegExp(group), `the ${group} group must render`)
+  }
+  assert.match(joined, /部分暂存/)
+  assert.match(joined, /1 个改动在根目录之外/)
+
+  // The row is a real control that opens the diff.
+  const rows = []
+  const walkRows = (node) => {
+    if (node === null || node === undefined || node === false) return
+    if (Array.isArray(node)) { node.forEach(walkRows); return }
+    if (node.props && node.props.className === 'fv-commit-file' && node.props.onClick) rows.push(node)
+    walkRows(node.children)
+  }
+  walkRows(tree)
+  assert(rows.length >= 4)
+  rows[0].props.onClick()
+  assert.equal(opened.length, 1)
+})
+
+test('the commit pane switches between files and the full patch', () => {
+  const { internals } = loadClient()
+  const switches = []
+  const loads = []
+  const state = {
+    detailStatus: 'ready',
+    detail: {
+      repository: '.',
+      commit: { ...gitCommit(GIT_SHA_A, '标题'), body: '标题' },
+      parentSha: GIT_SHA_B,
+      files: [{ path: 'a.txt', oldPath: null, status: 'M', letter: 'M', change: '修改', tone: 'mod', outsideRoot: false }],
+    },
+    commitDiff: {
+      repository: '.', sha: GIT_SHA_A, parentSha: GIT_SHA_B, patch: '', outside: 0,
+      summary: { added: 2, removed: 1 },
+      files: [{
+        path: 'a.txt', oldPath: null, status: 'M', letter: 'M', change: '修改', tone: 'mod',
+        added: 2, removed: 1, rows: [{ type: 'del', oldLine: 1, newLine: null, text: 'old' }, { type: 'add', oldLine: null, newLine: 1, text: 'new' }],
+      }],
+    },
+    commitDiffStatus: 'ready',
+    commitDiffError: null,
+  }
+
+  // The files tab renders the changed-file rows.
+  const filesView = internals.CommitDetail({
+    state, selectedPath: '', onSelectFile() {},
+    view: 'files', onSwitchView: (v) => switches.push(v), onLoadDiff: () => loads.push(true),
+  })
+  const collect = (node, out = []) => {
+    if (node === null || node === undefined || node === false) return out
+    if (Array.isArray(node)) { node.forEach((n) => collect(n, out)); return out }
+    if (typeof node === 'string' || typeof node === 'number') { out.push(String(node)); return out }
+    collect(node.children, out)
+    return out
+  }
+  const filesText = collect(filesView).join('|')
+  assert.match(filesText, /变更文件/)
+  assert.match(filesText, /改动内容/)
+  assert.match(filesText, /a\.txt/)
+
+  // The diff tab renders per-file patches with their counts.
+  const diffView = internals.CommitDetail({
+    state, selectedPath: '', onSelectFile() {},
+    view: 'diff', onSwitchView: (v) => switches.push(v), onLoadDiff: () => loads.push(true),
+  })
+  const diffText = collect(diffView).join('|')
+  assert.match(diffText, /\+2 -1/)
+
+  // Clicking the diff tab asks for the patch.
+  const tabs = []
+  const walkTabs = (node) => {
+    if (node === null || node === undefined || node === false) return
+    if (Array.isArray(node)) { node.forEach(walkTabs); return }
+    if (node.props && node.props.className === 'fv-tab fv-tab-diff') tabs.push(node)
+    walkTabs(node.children)
+  }
+  walkTabs(filesView)
+  assert.equal(tabs.length, 1)
+  tabs[0].props.onClick()
+  assert.deepEqual(switches, ['diff'])
+  assert.equal(loads.length, 1)
+})
+
+test('the bundle wires the three new host methods', () => {
+  const source = read('lib/client.js')
+  for (const method of ['gitStatusChanges', 'gitWorkspaceDiff', 'gitCommitDiff']) {
+    assert.match(source, new RegExp(`request\\("${method}"`), `the client must call ${method}`)
+  }
+  // Remote branches are grouped and browse-only.
+  assert.match(source, /label: "本地分支"/)
+  assert.match(source, /label: "远程分支"/)
+  assert.match(source, /远程分支只能查看，不能直接检出/)
+  // The working-tree list is loaded with the tab, not behind a second click.
+  assert.match(source, /git\.loadChanges\(\)/)
+  // The diff reuses the existing renderer rather than a second one.
+  assert.match(source, /react\.createElement\(DiffView, \{ diffData: \{ rows: file\.rows, diffs: \[\] \}/)
+  // Styles for the new panes.
+  assert.match(source, /\.fv-git-changes\{/)
+  assert.match(source, /\.fv-commit-diff-file\{/)
+})
+
+/* -------------------------------------------------------------------------- *
+ * Resizing the whole drawer from its leading edge
+ *
+ * The sidebar handle only redistributes space *inside* the panel. Widening the
+ * panel itself needs its own handle on the leading edge, its own persisted
+ * width, and its own clamping — the three things these tests pin down.
+ * -------------------------------------------------------------------------- */
+
+test('the drawer width is clamped to the frame, never below its own minimum', () => {
+  const { internals } = loadClient()
+  const min = internals.MIN_SHELL_WIDTH
+
+  // Below the floor is raised: a narrower panel cannot hold the sidebar plus a
+  // readable preview.
+  assert.equal(internals.clampShellWidth(100, 1400), min)
+  assert.equal(internals.clampShellWidth(0, 1400), min)
+  // Beyond the frame is cut back, so the panel can never push its own close
+  // button off screen.
+  assert.equal(internals.clampShellWidth(5000, 1400), 1400)
+  // A value inside the range is honoured exactly.
+  assert.equal(internals.clampShellWidth(900, 1400), 900)
+  // Junk falls back to the floor rather than producing NaN in a style string.
+  assert.equal(internals.clampShellWidth(NaN, 1400), min)
+  assert.equal(internals.clampShellWidth('abc', 1400), min)
+  // With no measurable viewport the value still survives, so a width is not
+  // lost while the window is being resized.
+  assert.equal(internals.clampShellWidth(900, 0), 900)
+})
+
+test('the drawer width is remembered separately from the sidebar width', () => {
+  const { internals } = loadClient()
+  const previous = globalThis.localStorage
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+  }
+  try {
+    // Two independent keys: dragging the edge must not move the sidebar handle
+    // and vice versa.
+    assert.notEqual(internals.SHELL_WIDTH_KEY, internals.TREE_WIDTH_KEY)
+
+    assert.equal(internals.readShellWidth(), 0, 'an untouched drawer uses the stylesheet default')
+    internals.writeShellWidth(860)
+    assert.equal(internals.readShellWidth(), 860)
+    assert.equal(store.get(internals.SHELL_WIDTH_KEY), '860')
+    // The sidebar key is untouched by a drawer resize.
+    assert.equal(store.has(internals.TREE_WIDTH_KEY), false)
+
+    // Writing 0 forgets the preference, which is what double-click means.
+    internals.writeShellWidth(0)
+    assert.equal(internals.readShellWidth(), 0)
+    assert.equal(store.has(internals.SHELL_WIDTH_KEY), false)
+
+    // A stored value below the floor is ignored rather than applied.
+    store.set(internals.SHELL_WIDTH_KEY, '100')
+    assert.equal(internals.readShellWidth(), 0)
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage
+    else globalThis.localStorage = previous
+  }
+})
+
+test('the drawer renders a leading-edge handle and applies the dragged width', () => {
+  const source = read('lib/client.js')
+
+  // The handle exists, is positioned over the leading border, and is a real
+  // separator for assistive technology.
+  assert.match(source, /className: "fv-edge"/)
+  assert.match(source, /role: "separator"/)
+  assert.match(source, /"aria-label": "调整文件查看器宽度"/)
+  assert.match(source, /tabIndex: 0/)
+  assert.match(source, /\.fv-edge\{position:absolute;top:0;bottom:0;left:-4px/)
+
+  // The dragged width overrides the stylesheet default on the shell itself.
+  assert.match(source, /style: shellWidth > 0 && !fullscreen \? \{ width: shellWidth \+ "px" \} : undefined/)
+
+  // Dragging left widens, because the panel is pinned to the trailing edge.
+  assert.match(source, /const delta = drag\.startX - event\.clientX/)
+
+  // The width transition is dropped mid-gesture, or the panel lags the pointer.
+  assert.match(source, /\.fv-shell\[data-edge-resizing="true"\]\{transition:none\}/)
+  assert.match(source, /"data-edge-resizing": edgeResizing \? "true" : "false"/)
+
+  // It is meaningless where the panel already spans the frame.
+  assert.match(source, /isMobile \|\| fullscreen\s*\n\s*\? null/)
+  assert.match(source, /\.fv-shell\[data-fullscreen="true"\] \.fv-edge\{display:none!important\}/)
+  assert.match(source, /\.fv-shell\[data-mobile="true"\] \.fv-edge\{display:none!important\}/)
+
+  // A pointer-only handle would be inaccessible; arrows and Home/End work too.
+  assert.match(source, /const onEdgeKeyDown = \(event\) => \{/)
+  assert.match(source, /event\.key === "ArrowLeft"/)
+  assert.match(source, /event\.shiftKey \? 64 : 16/)
+  // Double-click restores the default.
+  assert.match(source, /const onEdgeDoubleClick = \(\) => \{/)
+  assert.match(source, /writeShellWidth\(0\)/)
 })
