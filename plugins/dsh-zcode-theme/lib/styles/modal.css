@@ -33,7 +33,9 @@
 [data-dsh-theme="zcode"] .dsh-ph-backdrop,
 [data-dsh-theme="zcode"] .dsh-remote-gate-mask,
 [data-dsh-theme="zcode"] .BInVoG_mask,
+[data-dsh-theme="zcode"] .vExQgW_mask,
 [data-dsh-theme="zcode"] .VOzbGW_mask,
+[data-dsh-theme="zcode"] ._97McFa_mask,
 [data-dsh-theme="zcode"] [class*="_mask_"],
 [data-dsh-theme="zcode"] body > div[role="presentation"]:has(>[role="dialog"]) {
   background: rgba(0, 0, 0, 0.45);
@@ -55,7 +57,8 @@
 
 /* 会话头部工具栏菜单与下拉浮层 (如 open-in-app 本地打开、session-log-export 下载日志更多操作等)：
    确保下拉浮层 z-index 处于正常层级，且定位不被父级或移动端规则截断 */
-[data-dsh-theme="zcode"] ._7yHdaG_header [role="menu"] {
+[data-dsh-theme="zcode"] ._7yHdaG_header [role="menu"],
+[data-dsh-theme="zcode"] .TvmKiG_header [role="menu"] {
   z-index: 1050;
 }
 

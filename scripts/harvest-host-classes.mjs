@@ -45,7 +45,32 @@ function classesOf(text) {
   return [...classes].sort()
 }
 
-/** 从 app.asar 读出 `{ bundle: classes[] }`。 */
+/**
+ * 抽出 `{ "module.css": { part: "Hash_part" } }`。
+ *
+ * 只看 `.Hash_part` 的文本无法判断两个构建里哪两条是「同一个部件」：一个 bundle
+ * 里有十几个 `root`、几十个 `title`，按后缀配对会张冠李戴。CSS Modules 在每个
+ * 组件文件顶部留下 `const tagId = "@deepseek-ai/<bundle>/<file>.module.css"`，
+ * 紧跟一份 `{ part: className }` 映射表——它是 JSX 真正使用的 className，
+ * 拿它当配对键（bundle + 文件 + part）才是精确的。
+ */
+function modulesOf(text) {
+  const out = {}
+  const anchors = [...text.matchAll(/const tagId(?:\$\d+)? = "@deepseek-ai\/dsh-client-ui-[^"/]+\/([^"]+\.module\.css)";/g)]
+  for (let i = 0; i < anchors.length; i++) {
+    const start = anchors[i].index
+    const end = i + 1 < anchors.length ? anchors[i + 1].index : text.length
+    const chunk = text.slice(start, end)
+    const block = chunk.match(/\{\s*\n((?:\s*"[^"]+":\s*"[^"]+",?\s*\n)+)\s*\};/)
+    if (!block) continue
+    const map = {}
+    for (const pair of block[1].matchAll(/"([^"]+)":\s*"([^"]+)"/g)) map[pair[1]] = pair[2]
+    if (Object.keys(map).length > 0) out[anchors[i][1]] = map
+  }
+  return out
+}
+
+/** 从 app.asar 读出 `{ bundle: { classes[], modules{} } }`。 */
 function harvestAsar(asarPath) {
   const fd = openSync(asarPath, 'r')
   const sizeBuf = Buffer.alloc(8)
@@ -73,29 +98,40 @@ function harvestAsar(asarPath) {
     if (!matched) continue
     const buf = Buffer.alloc(entry.size)
     readSync(fd, buf, 0, entry.size, dataOffset + Number(entry.offset))
-    byBundle[matched[1]] = classesOf(buf.toString('utf8'))
+    const text = buf.toString('utf8')
+    byBundle[matched[1]] = { classes: classesOf(text), modules: modulesOf(text) }
   }
   closeSync(fd)
   return byBundle
 }
 
-/** 从 Web 版 `@deepseek-ai` 目录读出 `{ bundle: classes[] }`。 */
+/** 从 Web 版 `@deepseek-ai` 目录读出 `{ bundle: { classes[], modules{} } }`。 */
 function harvestWeb(scopeDir) {
   const byBundle = {}
   for (const name of readdirSync(scopeDir)) {
     if (!name.startsWith('dsh-client-ui-')) continue
     const file = join(scopeDir, name, 'lib', 'client.js')
     if (!existsSync(file)) continue
-    byBundle[name.replace('dsh-client-ui-', '')] = classesOf(readFileSync(file, 'utf8'))
+    const text = readFileSync(file, 'utf8')
+    byBundle[name.replace('dsh-client-ui-', '')] = { classes: classesOf(text), modules: modulesOf(text) }
   }
   return byBundle
 }
 
-/** 合并多份来源：同一 bundle 取并集，这样两套哈希都能被测试认可。 */
-function mergeInto(target, source) {
-  for (const [bundle, list] of Object.entries(source)) {
-    const set = new Set([...(target[bundle] ?? []), ...list])
-    target[bundle] = [...set].sort()
+/**
+ * 合并多份来源。
+ *
+ * 类名取并集（存活校验需要两套哈希都算「存在」），但模块映射必须**按构建来源
+ * 分开存**：桌面版与 Web 版对同一个 `InputBar.module.css` 都有 `primary`，
+ * 合成一个对象时后写的会把先写的覆盖掉，配对信息就丢了。
+ */
+function mergeInto(target, source, kind) {
+  for (const [bundle, value] of Object.entries(source)) {
+    const slot = (target[bundle] ??= { classes: new Set(), modules: {} })
+    for (const cls of value.classes) slot.classes.add(cls)
+    for (const [file, map] of Object.entries(value.modules)) {
+      slot.modules[file] = { ...(slot.modules[file] ?? {}), [kind]: map }
+    }
   }
 }
 
@@ -137,18 +173,33 @@ if (args.includes('--all')) {
 }
 
 const byBundle = {}
-for (const source of sources) mergeInto(byBundle, source.data)
+for (const source of sources) mergeInto(byBundle, source.data, source.kind)
+
+// 序列化。
+// `bundles` 保持「bundle → 类名数组」的形状不变：主题与移动端适配的存活测试都直接
+// `Object.values(bundles).flat()` 取全集，改结构会静默改变它们的判据。
+// 新增的 CSS Module 映射（两套构建的 part → className 对照）单独放在顶层 `modules`。
+const bundles = {}
+const modules = {}
+for (const [bundle, slot] of Object.entries(byBundle)) {
+  bundles[bundle] = [...slot.classes].sort()
+  if (Object.keys(slot.modules).length > 0) modules[bundle] = slot.modules
+}
 
 const payload = {
   // 来源与宿主版本：用于人工核对 fixture 是否过期。
   note: '由 scripts/harvest-host-classes.mjs 抽取，勿手改；宿主升级后重跑。桌面版与 Web 版哈希不同，两套都要收录。',
   sources: sources.map((s) => ({ kind: s.kind, label: s.label })),
-  bundles: byBundle,
+  bundles,
+  // 按 bundle + 模块文件 + part 给出两套构建的真实 className，用于校验主题是否
+  // 同时覆盖了桌面版与 Web 版（只写一侧时，另一侧的选择器永远不命中）。
+  modules,
 }
 
 mkdirSync(dirname(outFile), { recursive: true })
 writeFileSync(outFile, `${JSON.stringify(payload, null, 1)}\n`)
 
-const total = Object.values(byBundle).reduce((sum, list) => sum + list.length, 0)
+const total = Object.values(bundles).reduce((sum, list) => sum + list.length, 0)
+const moduleCount = Object.values(modules).reduce((sum, slot) => sum + Object.keys(slot).length, 0)
 console.log(`写入 ${outFile}`)
-console.log(`bundle 数 ${Object.keys(byBundle).length}，类名 ${total} 个`)
+console.log(`bundle 数 ${Object.keys(bundles).length}，类名 ${total} 个，CSS Module 映射 ${moduleCount} 份`)

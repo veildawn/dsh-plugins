@@ -1,9 +1,13 @@
 /* Chat：宿主真实类名 EvIC1a_*（ui-chat/ChatView）、Sixlwa_*（ui-chat/MessageItem）。
    官方把整列画布与消息体统一成 --color-background，不额外铺卡片底色。 */
 [data-dsh-theme="zcode"] .EvIC1a_root,
+[data-dsh-theme="zcode"] ._6nxh1G_root,
 [data-dsh-theme="zcode"] .EvIC1a_frame,
+[data-dsh-theme="zcode"] ._6nxh1G_frame,
 [data-dsh-theme="zcode"] .EvIC1a_scroll,
+[data-dsh-theme="zcode"] ._6nxh1G_scroll,
 [data-dsh-theme="zcode"] .EvIC1a_column,
+[data-dsh-theme="zcode"] ._6nxh1G_column,
 [data-dsh-theme="zcode"] [data-chat-flow] {
   background: var(--color-background);
   border-radius: 0;
@@ -11,7 +15,8 @@
 }
 
 /* Chat：用户气泡为 Module Surface，AI 消息融入画布。 */
-[data-dsh-theme="zcode"] .Sixlwa_bubble {
+[data-dsh-theme="zcode"] .Sixlwa_bubble,
+[data-dsh-theme="zcode"] .P9wcjW_bubble {
   background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: 16px;
@@ -23,7 +28,9 @@
 [data-dsh-theme="zcode"] [data-chat-flow-kind="turn-process"],
 [data-dsh-theme="zcode"] [data-chat-flow-kind="turn-tail"],
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"] .Sixlwa_bubble,
-[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] .Sixlwa_bubble {
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"] .P9wcjW_bubble,
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] .Sixlwa_bubble,
+[data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] .P9wcjW_bubble {
   background: transparent;
   border-color: transparent;
 }
@@ -32,6 +39,7 @@
    的标签是 foreground-subtlest，无底、无背景框，运行态靠宿主扫光装饰层表达。
    注：ReasoningRow 没有 body 类，旧写法里的 body 选择器一直是死的，已删。 */
 [data-dsh-theme="zcode"] .lcKema_root,
+[data-dsh-theme="zcode"] .ES3sqa_root,
 [data-dsh-theme="zcode"] [data-variant="think"],
 [data-dsh-theme="zcode"] [data-step-process] {
   background: none;
@@ -40,12 +48,14 @@
 }
 
 [data-dsh-theme="zcode"] .lcKema_thinkBody,
+[data-dsh-theme="zcode"] .ES3sqa_thinkBody,
 [data-dsh-theme="zcode"] [data-step-process-body] {
   background: transparent;
 }
 
 /* 恢复会话区滚动容器的透明底，绝不误填大灰条。 */
-[data-dsh-theme="zcode"] .EvIC1a_scroll {
+[data-dsh-theme="zcode"] .EvIC1a_scroll,
+[data-dsh-theme="zcode"] ._6nxh1G_scroll {
   background: transparent;
 }
 
@@ -53,12 +63,15 @@
 [data-dsh-theme="zcode"] [class*="_errorSummary"],
 [data-dsh-theme="zcode"] [class*="_turnError"],
 [data-dsh-theme="zcode"] .Sixlwa_turnErrorMessage,
-[data-dsh-theme="zcode"] .Sixlwa_turnErrorTitle {
+[data-dsh-theme="zcode"] .P9wcjW_turnErrorMessage,
+[data-dsh-theme="zcode"] .Sixlwa_turnErrorTitle,
+[data-dsh-theme="zcode"] .P9wcjW_turnErrorTitle {
   color: var(--color-foreground-subtle);
 }
 
 [data-dsh-theme="zcode"] [data-tool] [class*="_title"],
-[data-dsh-theme="zcode"] .CY-8Ka_title {
+[data-dsh-theme="zcode"] .CY-8Ka_title,
+[data-dsh-theme="zcode"] .Qf4lJq_title {
   color: var(--color-foreground);
 }
 
@@ -80,6 +93,7 @@
 
 /* 对齐 ZCode 消息正文排版 (Markdown、列表、段落、表格) */
 [data-dsh-theme="zcode"] .Sixlwa_bubble,
+[data-dsh-theme="zcode"] .P9wcjW_bubble,
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant"],
 [data-dsh-theme="zcode"] [data-chat-flow-kind="assistant-step"] {
   font-size: var(--zai-text-ui-base);

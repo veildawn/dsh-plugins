@@ -46,6 +46,21 @@ node scripts/harvest-host-classes.mjs --web   # 只采 `dsh web` 的前端
 （同一时期桌面是 `Qt4Hga_primary`、Web 是 `uV2eYG_primary`）。只采一侧，
 另一侧的选择器就全是死的，而且测试照样绿。
 
+**每条宿主选择器都要同时写两套哈希**，用逗号并成一个选择器列表：
+
+```css
+[data-dsh-theme="zcode"] .uV2eYG_primary,
+[data-dsh-theme="zcode"] .Qt4Hga_primary { /* ... */ }
+```
+
+只写一套的后果不是「样式略有差异」，而是整条规则在另一侧完全消失。2026-10 的
+桌面端发送按钮就是典型：主题只写了 Web 版的 `.uV2eYG_primary`，桌面版
+`.Qt4Hga_primary` 仍按宿主的 `background:var(--dsw-alias-button-info-fill)` 加
+硬编码 `color:#fff` 渲染，而主题把该 Token 映射成暗色 `#ffffff`——白底白图标，
+按钮看起来成了一个灰点。`test/host-selectors.test.mjs` 里「两套构建的覆盖次数
+必须一致」就是守这条：fixture 的 `modules` 映射表按 `bundle + 模块文件 + 部件名`
+给出两套构建的真实 className，同名部件在主题里出现次数不等就失败。
+
 三条约定：
 
 - 前缀可以很短（`pI_x6G_*` 首段只有 2 个字符），采集正则的下限不能写成 4。
@@ -104,13 +119,13 @@ node scripts/harvest-host-classes.mjs --web   # 只采 `dsh web` 的前端
 ## 安装
 
 ```bash
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.2.4/dsh-zcode-theme-0.2.4.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.2.5/dsh-zcode-theme-0.2.5.tgz
 ```
 
 或本地打包：
 
 ```bash
-dsh plugin --profile web add ./plugins/dsh-zcode-theme/dsh-zcode-theme-0.2.4.tgz
+dsh plugin --profile web add ./plugins/dsh-zcode-theme/dsh-zcode-theme-0.2.5.tgz
 ```
 
 ## 重启生效

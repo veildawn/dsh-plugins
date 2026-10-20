@@ -7,9 +7,28 @@ import { STYLE_FILES } from '../lib/css.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-// fixture 由 scripts/harvest-host-classes.mjs 从宿主抽取，仓库级共享（移动端适配测试也用）。
+// fixture 由 scripts/harvest-host-classes.mjs 从宿主抽取，仓库级共享（移动端适配测试也用），
+// 收录桌面版与 Web 版两套构建。
 const fixture = JSON.parse(await readFile(join(root, '../../test/fixtures/host-classes.json'), 'utf8'))
 const hostClasses = new Set(Object.values(fixture.bundles).flat())
+
+/**
+ * 宿主「同一个部件」在两套构建里的哈希对照。
+ *
+ * 键是 CSS Modules 映射表里的部件名（`primary`、`root`、`trigger`），值是该部件
+ * 在两个构建里各自的真实 className。同一部件名会在多个 bundle 里重复出现
+ * （`root` 有三十多个），所以按 bundle + 模块文件分组后再比对，避免张冠李戴。
+ */
+const modulePairs = []
+for (const [bundle, files] of Object.entries(fixture.modules ?? {})) {
+  for (const [file, kinds] of Object.entries(files)) {
+    if (!kinds.desktop || !kinds.web) continue
+    for (const [part, desktop] of Object.entries(kinds.desktop)) {
+      const web = kinds.web[part]
+      if (web !== undefined) modulePairs.push({ bundle, file, part, desktop, web })
+    }
+  }
+}
 
 async function themeCssSources() {
   const names = (await readdir(join(root, 'lib/styles'))).filter((name) => name.endsWith('.css'))
@@ -42,6 +61,48 @@ test('主题里的 CSS Module 类名全部存在于宿主', async () => {
     }
   }
   assert.deepEqual([...new Set(missing)], [], `以下类名在宿主不存在，选择器永远不命中：${[...new Set(missing)].join(', ')}`)
+})
+
+/**
+ * 双构建孪生：主题引用的每个宿主类名，必须同时带上它在**另一套构建**里的对应类名。
+ *
+ * 事故现场（2026-10，本次）：上一版把 60 个选择器从桌面哈希整体换成 Web 哈希，
+ * 于是 `dsh web` 正常、桌面版全线失效。发送按钮在桌面上的规则是
+ * `.Qt4Hga_primary{background:var(--dsw-alias-button-info-fill);color:#fff}`，
+ * 主题的 `.uV2eYG_primary` 一条都命中不了，于是 `--dsw-alias-button-info-fill`
+ * 被主题映射成暗色 `#ffffff`、宿主又写死 `color:#fff` —— 白底白图标，
+ * 截图里那个 `#808080` 的灰圆点就是「白纸飞机叠在白底上、再被 disabled 的 0.4
+ * 透明度压暗」的结果。存活测试当时全绿，因为它只校验类名在 fixture 里存在。
+ *
+ * 所以这里校验「成对出现」，而且是**按选择器逐条**比对，不是「类名出现过就行」：
+ * `.Qt4Hga_primary:hover` 存在并不能替代缺失的 `.Qt4Hga_primary` 基础规则。
+ * 判据是「同一部件的两套类名在主题里出现次数必须一致」——Web 版写了基础规则 +
+ * hover + active 三条，桌面版少一条就说明有规则只在单侧生效。
+ */
+test('每个宿主类名都同时覆盖桌面版与 Web 版两套哈希', async () => {
+  const sources = await themeCssSources()
+  const counts = new Map()
+  for (const text of sources) {
+    for (const match of text.matchAll(/\.(_?[A-Za-z0-9][A-Za-z0-9_-]*_[A-Za-z][A-Za-z0-9]*)/g)) {
+      counts.set(match[1], (counts.get(match[1]) ?? 0) + 1)
+    }
+  }
+  const lonely = []
+  for (const pair of modulePairs) {
+    const webCount = counts.get(pair.web) ?? 0
+    const desktopCount = counts.get(pair.desktop) ?? 0
+    if (webCount === 0 && desktopCount === 0) continue
+    if (webCount === desktopCount) continue
+    lonely.push(
+      `${pair.bundle}/${pair.file} 的 "${pair.part}"：Web 版 ${pair.web} 用了 ${webCount} 次，`
+      + `桌面版 ${pair.desktop} 用了 ${desktopCount} 次`,
+    )
+  }
+  assert.deepEqual(
+    [...new Set(lonely)],
+    [],
+    `以下选择器两套构建的覆盖次数不一致，少的那一侧规则不生效：\n  ${[...new Set(lonely)].join('\n  ')}`,
+  )
 })
 
 /**
@@ -112,22 +173,34 @@ test('三栏框架使用官方两层底色与圆角内容卡', async () => {
 })
 
 /**
- * 主题不得再引用「按模块名猜」的历史选择器。
+ * 主题不得引用两套构建里都不存在的哈希前缀。
  *
- * 这批前缀在宿主 0.2.1-rc.2 已经全部不存在，且不在 fixture 里。清单必须写
- * **已废弃**的前缀，不能把当前正在用的写进来——2026-10 曾误把 `pI_x6G_`
- * 等在用前缀列进这里，导致测试永远失败。
+ * 这条防的是「按模块名猜」的历史选择器：`Dc7zOa_header`、`Sh0Q9G_trigger`
+ * 这类名字在宿主 0.2.1-rc.2 里早已不存在。判据必须基于 fixture（两套构建的
+ * 真实类名），而不是手写一份黑名单——手写清单一旦把在用前缀写进去就永远失败，
+ * 反过来漏掉真正废弃的又永远绿。
+ *
+ * 上面的「类名全部存在于宿主」测试已经覆盖了「类名不存在」；这里额外守住
+ * **前缀**级别：一个前缀在宿主里一个类名都没有，说明整块选择器是死代码。
  */
-test('不再引用已失效的历史类名', async () => {
+test('不引用宿主两套构建里都不存在的哈希前缀', async () => {
   const sources = await themeCssSources()
-  const retired = ['hHd-Xa_', 'YDXeBa_', 'uV2eYG_', 'iWlSmW_', 'wSkVaW_', 'JObwrW_', 'EvIC1a_', 'Sixlwa_', 'lcKema_', 'pI_x6G_', 'ZuhsRW_', 'VOzbGW_', 'BInVoG_', 'rS3zOq_', 'CY-8Ka_', '_7KE1Ra_', '_5OnbHa_']
-  // 只保留「确实不在当前 fixture 里」的前缀；在用的一律剔除，避免误伤。
-  const live = retired.filter((prefix) => ![...hostClasses].some((cls) => cls.startsWith(prefix.replace(/^_/, ''))))
+  // 前缀比对要忽略前导下划线：fixture 的 classes 列表对数字开头的类名存的是
+  // 去掉下划线的形式（`LS25G_frame`），而 DOM 上的真实 className 带下划线
+  // （`_LS25G_frame`）——见 fixture 的 modules 映射表。
+  const hostPrefixes = new Set()
+  for (const cls of hostClasses) {
+    const cut = cls.lastIndexOf('_')
+    if (cut > 0) hostPrefixes.add(cls.slice(0, cut).replace(/^_/, ''))
+  }
+  const dead = new Set()
   for (const text of sources) {
-    for (const name of live) {
-      assert.equal(text.includes(name), false, `仍引用已失效的历史类名 ${name}`)
+    for (const match of text.matchAll(/\.(_?[A-Za-z0-9][A-Za-z0-9_-]*)_[A-Za-z][A-Za-z0-9]*/g)) {
+      const prefix = match[1].replace(/^_/, '')
+      if (!hostPrefixes.has(prefix)) dead.add(match[0].slice(1))
     }
   }
+  assert.deepEqual([...dead], [], `以下哈希前缀在宿主两套构建里都不存在：${[...dead].join(', ')}`)
 })
 
 /**

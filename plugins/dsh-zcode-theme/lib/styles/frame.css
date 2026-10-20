@@ -2,16 +2,19 @@
    宿主 pI_x6G_frame 用 --dsw-alias-bg-base 铺满，pI_x6G_sidebarCol 自带
    --dsw-specific-sidebar-fill 与 0.5px 右边框，pI_x6G_centerCol 自带 bg-base。
    这里把底色拆成两层：窗口 = --color-background-win-alt，主区 = --color-background。 */
-[data-dsh-theme="zcode"] .pI_x6G_frame {
+[data-dsh-theme="zcode"] .pI_x6G_frame,
+[data-dsh-theme="zcode"] ._LS25G_frame {
   background: var(--color-background-win-alt);
 }
 
-[data-dsh-theme="zcode"] .pI_x6G_sidebarCol {
+[data-dsh-theme="zcode"] .pI_x6G_sidebarCol,
+[data-dsh-theme="zcode"] ._LS25G_sidebarCol {
   background: var(--color-background-win-alt);
   border-right: none;
 }
 
-[data-dsh-theme="zcode"] .pI_x6G_centerCol {
+[data-dsh-theme="zcode"] .pI_x6G_centerCol,
+[data-dsh-theme="zcode"] ._LS25G_centerCol {
   background: var(--color-background);
   /* 官方 Windows 桌面用 6px 面板圆角（resolveWorkspaceShellPanelRadiusPx），
      并以 4px 留白把内容卡从窗口边缘内缩。 */
@@ -22,26 +25,31 @@
 }
 
 /* 右栏与主区同层，跟随同一张卡片，避免右侧出现第二块底色。 */
-[data-dsh-theme="zcode"] .pI_x6G_rightbarCol {
+[data-dsh-theme="zcode"] .pI_x6G_rightbarCol,
+[data-dsh-theme="zcode"] ._LS25G_rightbarCol {
   background: var(--color-background-win-alt);
 }
 
 /* 底部行（终端抽屉等）与窗口同底色，不再单独成块。 */
-[data-dsh-theme="zcode"] .pI_x6G_bottomRow {
+[data-dsh-theme="zcode"] .pI_x6G_bottomRow,
+[data-dsh-theme="zcode"] ._LS25G_bottomRow {
   background: var(--color-background-win-alt);
 }
 
 /* 宿主给侧栏列挂了 0.5px 右边框，官方 ZCode 侧栏直接坐在窗口底色上、无分隔线。 */
-[data-dsh-theme="zcode"] [data-platform="darwin"] .pI_x6G_centerCol {
+[data-dsh-theme="zcode"] [data-platform="darwin"] .pI_x6G_centerCol,
+[data-dsh-theme="zcode"] [data-platform="darwin"] ._LS25G_centerCol {
   border-left: 1px solid var(--color-border);
 }
 
 /* 侧栏折叠时主区独占整行，去掉左侧留白，避免出现悬空边框。 */
-[data-dsh-theme="zcode"] .pI_x6G_frame[data-sidebar-collapsed] .pI_x6G_centerCol {
+[data-dsh-theme="zcode"] .pI_x6G_frame[data-sidebar-collapsed] .pI_x6G_centerCol,
+[data-dsh-theme="zcode"] ._LS25G_frame[data-sidebar-collapsed] ._LS25G_centerCol {
   margin-left: 4px;
 }
 
 /* 拖动分隔条：官方只在 hover 时显出一条 0.5px 前景色细线。 */
-[data-dsh-theme="zcode"] .pI_x6G_handle {
+[data-dsh-theme="zcode"] .pI_x6G_handle,
+[data-dsh-theme="zcode"] ._LS25G_handle {
   background: transparent;
 }

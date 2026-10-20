@@ -142,7 +142,8 @@
 }
 
 /* 兼容标记选择器：宿主工具卡终端体（ui-tool 的 o3BgMG_terminalBody）。 */
-[data-dsh-theme="zcode"] .o3BgMG_terminalBody {
+[data-dsh-theme="zcode"] .o3BgMG_terminalBody,
+[data-dsh-theme="zcode"] .j9L3CW_terminalBody {
   background: var(--color-background);
 }
 

@@ -186,5 +186,9 @@ test('上下文用量表接入官方色阶', async () => {
   for (const cls of ['JObwrW_colorSystem', 'JObwrW_colorTools', 'JObwrW_colorMessages']) {
     assert.ok(css.includes(`[class*="${cls}"]`), `缺少上下文用量表着色：${cls}`)
   }
-  assert.match(css, /\[class\*="JObwrW_colorSystem"\]\s*\{\s*--meter-tint:\s*var\(--color-context-breakdown-1\)/)
+  // 选择器是一整个列表（Web 版与桌面版哈希各占一行），断言规则体内有 --meter-tint，
+  // 而不是要求选择器后面紧跟 `{`。
+  const rule = css.match(/\[class\*="JObwrW_colorSystem"\][^{}]*\{([^}]*)\}/)
+  assert.ok(rule, '缺少 JObwrW_colorSystem 的 --meter-tint 规则')
+  assert.match(rule[1], /--meter-tint:\s*var\(--color-context-breakdown-1\)/)
 })

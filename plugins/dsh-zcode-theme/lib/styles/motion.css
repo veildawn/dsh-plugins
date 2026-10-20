@@ -8,7 +8,8 @@
     scroll-behavior: auto !important;
   }
 
-  [data-dsh-theme="zcode"] .uV2eYG_primary:active {
+  [data-dsh-theme="zcode"] .uV2eYG_primary:active,
+  [data-dsh-theme="zcode"] .Qt4Hga_primary:active {
     transform: none;
   }
 }

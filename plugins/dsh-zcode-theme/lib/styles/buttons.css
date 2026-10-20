@@ -31,8 +31,11 @@
 [data-dsh-theme="zcode"] button[data-variant="ghost"],
 [data-dsh-theme="zcode"] button[class*="_ghost_"],
 [data-dsh-theme="zcode"] .IW6AQa_iconButton,
+[data-dsh-theme="zcode"] .cX-2eG_iconButton,
 [data-dsh-theme="zcode"] .YDXeBa_iconButton,
-[data-dsh-theme="zcode"] .YDXeBa_iconButton {
+[data-dsh-theme="zcode"] .JdKHja_iconButton,
+[data-dsh-theme="zcode"] .YDXeBa_iconButton,
+[data-dsh-theme="zcode"] .JdKHja_iconButton {
   background: transparent;
   border-radius: 8px;
 }
@@ -40,8 +43,11 @@
 [data-dsh-theme="zcode"] button[data-variant="ghost"]:hover,
 [data-dsh-theme="zcode"] button[class*="_ghost_"]:hover,
 [data-dsh-theme="zcode"] .IW6AQa_iconButton:hover,
+[data-dsh-theme="zcode"] .cX-2eG_iconButton:hover,
 [data-dsh-theme="zcode"] .YDXeBa_iconButton:hover,
-[data-dsh-theme="zcode"] .YDXeBa_iconButton:hover {
+[data-dsh-theme="zcode"] .JdKHja_iconButton:hover,
+[data-dsh-theme="zcode"] .YDXeBa_iconButton:hover,
+[data-dsh-theme="zcode"] .JdKHja_iconButton:hover {
   background: var(--color-surface);
 }
 

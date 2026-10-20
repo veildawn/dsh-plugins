@@ -28,7 +28,7 @@
  * `npm test` / `scripts/release.sh` anywhere.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -81,7 +81,20 @@ function isHashPrefix(candidate) {
   return /[A-Z0-9-]/.test(candidate) || candidate.length >= 5;
 }
 
-/** Collect every hash prefix the host's own bundles mention, plus known cross-build/desktop hashes. */
+/**
+ * Collect every hash prefix the host's own bundles mention, plus known cross-build/desktop hashes.
+ *
+ * 桌面版（Electron，前端打在 app.asar 里）与 Web 版（`dsh web`，前端在
+ * node_modules/@deepseek-ai/dsh-client-ui-*）是**两次独立构建**，同一个组件的
+ * CSS Modules 哈希完全不同：`dsh web` 是 `uV2eYG_primary`，桌面版是 `Qt4Hga_primary`。
+ * 主题这类插件必须同时带两套选择器，所以门禁也要认两套前缀——只扫 Web 版会把
+ * 桌面版的选择器全部判成死代码，逼着作者删掉它们。
+ *
+ * 桌面版前端不在 dsh 安装目录里，按下面的顺序找：
+ *   1. 环境变量 DSH_APP_ASAR（显式指定 app.asar）
+ *   2. macOS 默认安装路径
+ * 找不到就只按 Web 版校验（CI / Linux 上通常没有桌面版）。
+ */
 const KNOWN_CROSS_BUILD_HASHES = new Set(['ccegLa', 'NXnJXa', 'f0iH8G', 'gehEqa', 'Sh0Q9G', 'FJxK0a']);
 const hostHashes = new Set(KNOWN_CROSS_BUILD_HASHES);
 for (const name of readdirSync(hostScope)) {
@@ -96,7 +109,60 @@ for (const name of readdirSync(hostScope)) {
   }
 }
 
-console.log('dsh ' + hostVersion + ' @ ' + hostRoot + ' (' + hostHashes.size + ' hash prefix(es))');
+/** 从 app.asar 的 header 里读出所有 dsh-client-ui-* 的 client.js 内容。 */
+function readAsarBundles(asarPath) {
+  const fd = openSync(asarPath, 'r');
+  try {
+    const sizeBuf = Buffer.alloc(8);
+    readSync(fd, sizeBuf, 0, 8, 0);
+    const headerPickleSize = sizeBuf.readUInt32LE(4);
+    const headerPickle = Buffer.alloc(headerPickleSize);
+    readSync(fd, headerPickle, 0, headerPickleSize, 8);
+    const headerStringSize = headerPickle.readUInt32LE(4);
+    const header = JSON.parse(headerPickle.subarray(8, 8 + headerStringSize).toString('utf8'));
+    const dataOffset = 8 + headerPickleSize;
+
+    const entries = [];
+    const walk = (node, prefix) => {
+      for (const [name, value] of Object.entries(node.files || {})) {
+        const full = prefix + '/' + name;
+        if (value.files) walk(value, full);
+        else entries.push({ path: full, size: value.size, offset: value.offset });
+      }
+    };
+    walk(header, '');
+
+    const texts = [];
+    for (const entry of entries) {
+      if (!/\/dsh-client-ui-[^/]+\/lib\/client\.js$/.test(entry.path)) continue;
+      const buf = Buffer.alloc(entry.size);
+      readSync(fd, buf, 0, entry.size, dataOffset + Number(entry.offset));
+      texts.push(buf.toString('utf8'));
+    }
+    return texts;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+const desktopAsarCandidates = [
+  process.env.DSH_APP_ASAR,
+  '/Applications/DeepSeek Harness.app/Contents/Resources/app.asar',
+].filter((candidate) => typeof candidate === 'string' && candidate !== '');
+let desktopChecked = false;
+for (const asarPath of desktopAsarCandidates) {
+  if (!existsSync(asarPath)) continue;
+  for (const source of readAsarBundles(asarPath)) {
+    for (const match of source.matchAll(/\.([A-Za-z0-9-]{1,8})_[A-Za-z][a-zA-Z0-9]*/g)) {
+      if (isHashPrefix(match[1])) hostHashes.add(match[1]);
+    }
+  }
+  desktopChecked = true;
+  break;
+}
+
+console.log('dsh ' + hostVersion + ' @ ' + hostRoot + ' (' + hostHashes.size + ' hash prefix(es)'
+  + (desktopChecked ? ', Web + 桌面两套构建' : ', 仅 Web 版构建') + ')');
 
 const pluginDirs = targets.length > 0
   ? targets.map((target) => resolve(REPO_ROOT, target))
