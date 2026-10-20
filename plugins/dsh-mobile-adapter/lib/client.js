@@ -112,24 +112,22 @@ window.__ModuleLoader__.load({
         [data-chat-flow] [class*="_actions"] button{box-sizing:border-box;flex:0 0 32px;width:32px!important;height:32px!important;min-width:32px!important;min-height:32px!important;border-radius:50%!important;padding:5px}
         [data-chat-flow] [class*="_actions"] :where([class*="_timeStart"],[class*="_timeEnd"]){display:none!important}
         /* 输入框下方的 dock（「N 轮 M 步 · tok/s」「用量 · 缓存命中」统计行与
-           上下文用量圆环）在移动端必须保持**单行**：宿主把它们排在同一行，一旦
-           允许折行，窄屏上会被拆成「2 轮 182 步」「75.9M tok · 缓存命中」「52%」
-           三行，既撑高输入卡片、又把内容挤到卡片底部。这里固定 nowrap + 紧凑
-           字号，宽度不够时整行横向滚动（滚动条隐藏），信息不丢、排版不散；
-           末尾的用量圆环用 sticky 钉在右端，横向滚动时也始终可见。
+           上下文用量圆环）在移动端固定为**单行三列**：
+             [轮次/速度] [用量/缓存] [上下文圆环]
+           不折行、不横向滚动（横滑在手机上很难被发现，还会把圆环推出视野）；
+           宽度不够时三列各自收缩、文字用省略号截断，圆环保持完整。
            选择器只认宿主写死的 data-composer-dock，或脚本在移动端打上的
            data-dsh-dock（旧宿主只有哈希类名，由 balanceComposerDock() 识别后标记）。
            不写具体哈希类名：附件队列 _7yHdaG_dock 也以 _dock 结尾，误伤它会把
            附件面板的排版一起改掉。 */
-        [data-composer-dock],[data-dsh-dock]{box-sizing:border-box;width:auto;max-width:100%;min-width:0;flex-wrap:nowrap!important;justify-content:center!important;justify-content:safe center!important;align-items:center!important;column-gap:6px!important;row-gap:0!important;padding:2px 10px 0!important;overflow-x:auto!important;overflow-y:hidden!important;scrollbar-width:none!important;overscroll-behavior-x:contain!important;-webkit-overflow-scrolling:touch!important}
-        [data-composer-dock]::-webkit-scrollbar,[data-dsh-dock]::-webkit-scrollbar{display:none!important;width:0!important;height:0!important}
-        /* 单行排布下禁止子项收缩：flex-shrink 默认 1 会把药丸压扁、文字挤出边界。 */
-        [data-composer-dock]>*,[data-dsh-dock]>*{flex:none!important;min-width:max-content}
-        /* 末尾的上下文用量圆环钉在右端，横向滚动时不会被裁掉一半。 */
-        [data-composer-dock]>:last-child,[data-dsh-dock]>:last-child{position:sticky!important;right:0!important;z-index:1;background:var(--dsw-specific-input-major,transparent);padding-left:4px!important}
-        [data-composer-dock] [data-composer-stat],[data-dsh-dock] [data-composer-stat]{min-width:0;font-size:10.5px!important;line-height:14px!important}
-        [data-composer-dock] [data-composer-stat] :is(button,span),[data-dsh-dock] [data-composer-stat] :is(button,span){box-sizing:border-box;font-size:10.5px!important;line-height:14px!important;padding:0 1px!important;gap:2px!important}
-        [data-composer-dock] [data-composer-stat] svg,[data-dsh-dock] [data-composer-stat] svg{width:11px!important;height:11px!important;flex:none}
+        [data-composer-dock],[data-dsh-dock]{box-sizing:border-box;width:auto;max-width:100%;min-width:0;flex-wrap:nowrap!important;justify-content:space-between!important;align-items:center!important;column-gap:8px!important;row-gap:0!important;padding:2px 10px 0!important;overflow:hidden!important;overscroll-behavior-x:contain!important}
+        /* 前两列等分剩余宽度并允许收缩（收缩后走省略号）；圆环列保持内容宽度。 */
+        [data-composer-dock]>*,[data-dsh-dock]>*{flex:1 1 0!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;display:flex!important;align-items:center!important;justify-content:flex-start!important}
+        [data-composer-dock]>:last-child,[data-dsh-dock]>:last-child{flex:0 0 auto!important;min-width:max-content!important;justify-content:flex-end!important;position:static!important;background:none!important;padding-left:0!important}
+        [data-composer-dock] [data-composer-stat],[data-dsh-dock] [data-composer-stat]{font-size:10.5px!important;line-height:14px!important;min-width:0!important;max-width:100%!important;overflow:hidden!important}
+        [data-composer-dock] [data-composer-stat]>*,[data-dsh-dock] [data-composer-stat]>*{box-sizing:border-box!important;display:flex!important;align-items:center!important;gap:3px!important;padding:0!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;font-size:10.5px!important;line-height:14px!important}
+        [data-composer-dock] [data-composer-stat] span,[data-dsh-dock] [data-composer-stat] span{display:block!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+        [data-composer-dock] [data-composer-stat] svg,[data-dsh-dock] [data-composer-stat] svg{width:11px!important;height:11px!important;flex:none!important}
         /* 由脚本配平的收纳态：卡片预留出 dock 的高度，dock 用等量负边距回到
            卡片内部。高度取自真实测量值（--dsh-dock-reserve），所以统计行折行、
            meter 高度随宿主换代变化时都不会再出现「圆环浮在输入框外」或

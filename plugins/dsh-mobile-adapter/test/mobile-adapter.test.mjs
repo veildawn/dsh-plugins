@@ -358,13 +358,21 @@ test('Conversation mobile CSS keeps a bounded scrollport and compact composer st
   assert.doesNotMatch(css, /\[data-composer-stat\]\{display:none/,
     '统计药丸不允许再被整行隐藏，否则输入框下方会凭空空出一块')
   assert.match(css, /\[data-composer-dock\] \[data-composer-stat\][^{]*\{[^}]*font-size:10\.5px!important/,
-    '统计药丸在移动端改用紧凑字号，单行里塞得下更多内容')
-  assert.match(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*flex-wrap:nowrap!important;[^}]*overflow-x:auto!important/,
-    'dock 必须固定单行并允许横向滚动，否则窄屏会被拆成多行')
+    '统计药丸在移动端改用紧凑字号，单行三列里塞得下更多内容')
+  assert.match(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*flex-wrap:nowrap!important;[^}]*justify-content:space-between!important/,
+    'dock 必须固定单行并均分三列，否则窄屏会被拆成多行')
+  assert.match(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*overflow:hidden!important/,
+    'dock 不允许横向滚动：横滑在手机上难被发现，还会把圆环推出视野')
+  assert.doesNotMatch(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*overflow-x:auto/,
+    'dock 不允许横向滚动')
   assert.doesNotMatch(css, /\[data-composer-dock\],\[data-dsh-dock\]\{[^}]*flex-wrap:wrap!important/,
-    'dock 不允许再折行：折行会把统计行拆成三行并撑高输入卡片')
-  assert.match(css, /\[data-composer-dock\]>:last-child,\[data-dsh-dock\]>:last-child\{[^}]*position:sticky!important;right:0!important/,
-    '末尾的上下文用量圆环要钉在右端，横向滚动时不被裁掉')
+    'dock 不允许折行：折行会把统计行拆成多行并撑高输入卡片')
+  assert.match(css, /\[data-composer-dock\]>\*,\[data-dsh-dock\]>\*\{[^}]*flex:1 1 0!important;[^}]*min-width:0!important;[^}]*overflow:hidden!important/,
+    '统计列必须可收缩，才能让省略号生效')
+  assert.match(css, /\[data-composer-dock\]>:last-child,\[data-dsh-dock\]>:last-child\{[^}]*flex:0 0 auto!important/,
+    '上下文用量圆环列保持内容宽度，不被省略号截断')
+  assert.match(css, /\[data-composer-dock\] \[data-composer-stat\] span,\[data-dsh-dock\] \[data-composer-stat\] span\{[^}]*text-overflow:ellipsis!important;[^}]*white-space:nowrap!important/,
+    '统计文字超宽时必须走省略号，而不是换行或溢出')
   assert.doesNotMatch(css, /\.FJxK0a_root\{display:none/, '失效的旧哈希类名规则必须移除')
   assert.doesNotMatch(css, /stats-expanded/)
   // 只断言当前宿主真实存在的前缀：p-xYUq / osXY9a 在 Web 版与桌面版都已不存在，
