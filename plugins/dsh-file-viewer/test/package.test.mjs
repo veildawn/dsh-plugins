@@ -1997,6 +1997,46 @@ test('client bundle UI wires download button in head, context menu item, and bin
   // SvgIconDownload
   assert.match(source, /function SvgIconDownload/)
 })
+/**
+ * 宿主只提供 `--dsw-font-base-strong-16`，没有 `--dsw-font-m-16`。
+ * 引用不存在的 token 会让整条 `font:` 简写失效——标题静默退回默认字号，没有报错。
+ * 统一要求：字阶 token 必须带完整 fallback，宿主换名字时至少退化成正确字号。
+ */
+test('标题字阶引用宿主真实 token，并带字号 fallback', () => {
+  const source = read('lib/client.js')
+  for (const selector of ['.fv-title', '.fv-modal-title']) {
+    const rule = source.match(new RegExp(`\\${selector}\\{[^}]*\\}`))?.[0]
+    assert.ok(rule, `缺少 ${selector} 规则`)
+    assert.match(
+      rule,
+      /var\(--dsw-font-base-strong-16,600 16px\/24px var\(--dsw-font-family\)\)/,
+      `${selector} 必须用宿主真实存在的字阶 token 并带 fallback`,
+    )
+    assert.doesNotMatch(rule, /--dsw-font-m-16/, `${selector} 引用了宿主不存在的 --dsw-font-m-16`)
+  }
+})
 
-
-
+/**
+ * 品牌色块的文字必须走 `--dsw-alias-label-primary-foreground`。
+ * Zai 这类主题会把 `--dsw-alias-brand-primary` 映射成单色（亮色 #000 / 暗色 #fff），
+ * 硬编码 `#fff` 在暗色下就是白底白字；反过来，主题的 foreground 一定与 brand 反色。
+ */
+test('品牌色按钮的前景走宿主 token，不硬编码白色', () => {
+  const source = read('lib/client.js')
+  const rules = [
+    ...source.matchAll(/\.fv-tab\[aria-selected="true"\]\{[^}]*\}/g),
+    ...source.matchAll(/\.fv-btn-primary\{[^}]*\}/g),
+    ...source.matchAll(/\.fv-input-row \.fv-button\{[^}]*\}/g),
+  ].map((match) => match[0])
+  assert.equal(rules.length, 3, '品牌色块规则数量变化，请同步更新这条断言')
+  for (const rule of rules) {
+    assert.match(rule, /background:var\(--dsw-alias-brand-primary/)
+    assert.match(rule, /color:var\(--dsw-alias-label-primary-foreground/)
+    assert.doesNotMatch(rule, /(?:^|;)color:#fff/, `硬编码白色会在暗色主题下白底白字：${rule.slice(0, 80)}`)
+  }
+  // 选中态里的 diff 统计同样跟着前景 token 走，否则暗色下增减行号会看不见。
+  assert.match(
+    source,
+    /\.fv-tab\[aria-selected="true"\] \.fv-diff-add,\.fv-tab\[aria-selected="true"\] \.fv-diff-del\{color:var\(--dsw-alias-label-primary-foreground/,
+  )
+})
