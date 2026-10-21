@@ -1,0 +1,245 @@
+/* Composer 输入卡与发送按钮。移动端 44px 触控区由 dsh-mobile-adapter 负责。
+   宿主真实类名：uV2eYG_*（ui-conversation/InputBar）、
+   iWlSmW_trigger（ui-permission-presets）、7KE1Ra_*（ui-model-selection）、
+   JObwrW_*（ui-conversation/ContextMeter）。
+   以数字开头的 CSS Module 类名要写成 `\33 ` 十六进制转义，宿主 hash 一变就得重算，
+   这里统一用 [class*="..."] 属性子串匹配，避免转义写错导致整条规则被丢弃。 */
+html[data-theme-studio] [data-composer-card],
+html[data-theme-studio] .uV2eYG_card,
+html[data-theme-studio] .Qt4Hga_card {
+  background: var(--color-input);
+  border: 1px solid var(--color-input-border);
+  border-radius: 14px;
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] [data-composer-card]:focus-within,
+html[data-theme-studio] .uV2eYG_card:focus-within,
+html[data-theme-studio] .Qt4Hga_card:focus-within {
+  border-color: var(--color-border-hover);
+  box-shadow: none;
+}
+
+html[data-theme-studio] [data-composer-card] textarea,
+html[data-theme-studio] .uV2eYG_input,
+html[data-theme-studio] .Qt4Hga_input {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] [data-composer-card] textarea::placeholder,
+html[data-theme-studio] .uV2eYG_placeholder,
+html[data-theme-studio] .Qt4Hga_placeholder {
+  color: var(--color-foreground-subtlest);
+}
+
+html[data-theme-studio] .uV2eYG_primary,
+html[data-theme-studio] .Qt4Hga_primary {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .uV2eYG_primary:hover,
+html[data-theme-studio] .Qt4Hga_primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .uV2eYG_primary:active,
+html[data-theme-studio] .Qt4Hga_primary:active {
+  background: var(--color-secondary);
+  color: var(--color-foreground);
+  transform: scale(0.95);
+}
+
+/* ZCode 底部控制栏按钮样式（+号、权限、模型选择、推理强度等） */
+html[data-theme-studio] .uV2eYG_tools,
+html[data-theme-studio] .Qt4Hga_tools,
+html[data-theme-studio] .uV2eYG_trailing,
+html[data-theme-studio] .Qt4Hga_trailing {
+  gap: 8px;
+  align-items: center;
+}
+
+html[data-theme-studio] .uV2eYG_add,
+html[data-theme-studio] .Qt4Hga_add {
+  background: transparent;
+  color: var(--color-foreground-subtle);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  display: grid;
+  place-items: center;
+}
+
+html[data-theme-studio] .uV2eYG_add:hover:not(:disabled),
+html[data-theme-studio] .Qt4Hga_add:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 权限触发器（宿主 ui-permission-presets 的 iWlSmW_trigger） */
+html[data-theme-studio] [class*="iWlSmW_trigger"],
+html[data-theme-studio] [class*="qVH09a_trigger"] {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-foreground-subtle);
+  font-size: 13px;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+html[data-theme-studio] [class*="iWlSmW_trigger"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"]:hover:not(:disabled) {
+  background: var(--color-surface);
+}
+
+/* 下拉箭头始终保持低调暗灰，分离主图标与文字高亮 */
+html[data-theme-studio] [class*="iWlSmW_trigger"] [class*="chevron"],
+html[data-theme-studio] [class*="qVH09a_trigger"] [class*="chevron"],
+html[data-theme-studio] [class*="iWlSmW_trigger"] [class*="Chevron"],
+html[data-theme-studio] [class*="qVH09a_trigger"] [class*="Chevron"] {
+  color: var(--color-foreground-subtlest);
+}
+
+/* 1. 仅可查看 (read-only)：安全绿高亮 */
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="仅可查看"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="仅可查看"],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="只读"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="只读"],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="Read Only" i],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="Read Only" i],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="read-only"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="read-only"] {
+  color: var(--color-success);
+}
+
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="仅可查看"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="仅可查看"]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="只读"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="只读"]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="Read Only" i]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="Read Only" i]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="read-only"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="read-only"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-success) 12%, transparent);
+  color: var(--color-success);
+}
+
+/* 2. 工作区内修改 (workspace-write)：官方品牌色（单色前景，非彩色） */
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="工作区内修改"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="工作区内修改"],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="工作区写入"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="工作区写入"],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="Workspace Write" i],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="Workspace Write" i],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="workspace-write"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="workspace-write"] {
+  color: var(--color-brand);
+}
+
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="工作区内修改"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="工作区内修改"]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="工作区写入"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="工作区写入"]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="Workspace Write" i]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="Workspace Write" i]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="workspace-write"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="workspace-write"]:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+/* 3. 完全权限 (danger-full-access)：官方 warning 语义色 */
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="完全权限"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="完全权限"],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="完全访问"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="完全访问"],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="Full access" i],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="Full access" i],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="Full Access"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="Full Access"],
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="danger-full-access"],
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="danger-full-access"],
+html[data-theme-studio] [class*="iWlSmW_trigger"][title*="Full file access"],
+html[data-theme-studio] [class*="qVH09a_trigger"][title*="Full file access"],
+html[data-theme-studio] [class*="iWlSmW_trigger"][title*="完全权限"],
+html[data-theme-studio] [class*="qVH09a_trigger"][title*="完全权限"] {
+  color: var(--color-warning);
+}
+
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="完全权限"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="完全权限"]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="完全访问"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="完全访问"]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="Full access" i]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="Full access" i]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="Full Access"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="Full Access"]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][aria-label*="danger-full-access"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][aria-label*="danger-full-access"]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][title*="Full file access"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][title*="Full file access"]:hover:not(:disabled),
+html[data-theme-studio] [class*="iWlSmW_trigger"][title*="完全权限"]:hover:not(:disabled),
+html[data-theme-studio] [class*="qVH09a_trigger"][title*="完全权限"]:hover:not(:disabled) {
+  background: var(--color-warning-surface);
+  color: var(--color-warning-surface-foreground);
+}
+
+/* 模型与思考强度选择器（宿主 ui-model-selection 的 7KE1Ra_trigger） */
+html[data-theme-studio] ._7KE1Ra_trigger,
+html[data-theme-studio] .WqxjfG_trigger {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-foreground-subtle);
+  font-size: 13px;
+  font-weight: 400;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+html[data-theme-studio] ._7KE1Ra_trigger:hover:not(:disabled),
+html[data-theme-studio] .WqxjfG_trigger:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] ._7KE1Ra_triggerEffort,
+html[data-theme-studio] .WqxjfG_triggerEffort {
+  color: var(--color-foreground-subtlest);
+  font-size: 12px;
+  padding-left: 2px;
+}
+
+/* 上下文占用表（宿主 ContextMeter JObwrW_*）：宿主用 --meter-tint 分三段着色，
+   但取自 --dsw-static-neutral-bluish-400 / --dsw-static-blue-450 等基础色板。
+   官方 Zai 为用量图与上下文分解各配了一条蓝色阶（--color-usage-chart-*、
+   --color-context-breakdown-*），这里按官方色阶重新着色。 */
+html[data-theme-studio] [class*="JObwrW_colorSystem"],
+html[data-theme-studio] [class*="e1PTRq_colorSystem"] {
+  --meter-tint: var(--color-context-breakdown-1);
+}
+
+html[data-theme-studio] [class*="JObwrW_colorTools"],
+html[data-theme-studio] [class*="e1PTRq_colorTools"] {
+  --meter-tint: var(--color-context-breakdown-2);
+}
+
+html[data-theme-studio] [class*="JObwrW_colorMessages"],
+html[data-theme-studio] [class*="e1PTRq_colorMessages"] {
+  --meter-tint: var(--color-context-breakdown-3);
+}

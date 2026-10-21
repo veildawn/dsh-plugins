@@ -1,0 +1,73 @@
+{
+  "name": "@weniatall/dsh-theme-studio",
+  "version": "0.1.1",
+  "description": "Theme Studio for DeepSeek Harness: switchable built-in themes (ZCode / Apple Glass), unified design tokens compatible with every dsh plugin, and user-customizable background, fonts and field colors",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./tokens": "./lib/tokens.js",
+    "./themes": "./lib/themes/index.js",
+    "./settings": "./lib/settings.js",
+    "./css": "./lib/css.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/tokens.js",
+    "lib/themes",
+    "lib/settings.js",
+    "lib/css.js",
+    "lib/client.js",
+    "lib/styles",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "theme",
+    "zcode",
+    "apple",
+    "glass",
+    "design-tokens",
+    "ui"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-theme-studio"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-theme-studio#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=20.3"
+  }
+}

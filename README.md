@@ -17,7 +17,8 @@
 | **`dsh-terminal`** | [`plugins/dsh-terminal`](plugins/dsh-terminal) | 跨平台本地交互式终端（移动端专属对话框底部工具箱二合一入口、PC端隐藏、多标签并发、触控辅助键盘） | [`v0.1.17`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-terminal@v0.1.17) |
 | **`dsh-archive-manager`** | [`plugins/dsh-archive-manager`](plugins/dsh-archive-manager) | 会话归档管理器（侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间） | [`v0.2.15`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-archive-manager@v0.2.15) |
 | **`dsh-prompt-history`** | [`plugins/dsh-prompt-history`](plugins/dsh-prompt-history) | 提示词历史导航、修改重发与跨端同步器（已发气泡悬浮✏️修改与🔄重发、移动端提示词按钮归入工作区工具箱、自适应底部抽屉、严格会话绑定防串门、宿主持久化跨端漫游） | [`v0.4.11`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-prompt-history@v0.4.11) |
-| **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | ZCode 官方 Zai 主题（193 项官方色板逐值对齐并由快照测试守护、单色品牌体系、轨迹色与 Mention 节点语义、终端 ANSI 16 色、首屏直出零闪烁、Z 轴契约：页面 chrome 必须让位于应用级浮层） | [`v0.2.4`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.2.4) |
+| **`dsh-theme-studio`** | [`plugins/dsh-theme-studio`](plugins/dsh-theme-studio) | 主题工作室：4 款可切换内置主题（ZCode 官方 / ZCode 单色极简 / 苹果玻璃 / 玻璃彩色）、统一 Token 契约（一份 `HOST_TOKEN_MAP` 服务全部主题，宿主 145 个 `--dsw-*` 全覆盖）、插件兼容层（显式定义插件引用但宿主未定义的别名，并逐插件扫描守护）、背景（纯色/图片/不透明度）、字体、字号、11 项字段颜色可视化自定义并持久化到 `~/.dsh/theme-studio/settings.json`、白名单式输入校验防 CSS 注入、首屏直出零闪烁、变量按 body/:root 分层解决宿主特异性覆盖、`prefers-reduced-transparency` 无障碍退化 | [`v0.1.1`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-theme-studio@v0.1.1) |
+| **`dsh-zcode-theme`** | [`plugins/dsh-zcode-theme`](plugins/dsh-zcode-theme) | **（已废弃，兼容薄壳）** ZCode 主题已并入 `dsh-theme-studio` 的 `zcode` / `zcode-mono` 内置主题；本包仅保留旧属性与样式标签 id 以保证平滑升级，薄壳产出的变量与工作室逐值相同、检测到 `data-theme-studio` 时让位、不再调用 `overrideTokens` 以免覆盖其它主题 | [`v0.3.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-zcode-theme@v0.3.0) |
 | **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | 决策模型原生工具插件（可直接下拉选择 dsh 已配置的提供商与模型，此时接口地址与 API Key 完全由提供商配置解析；也可手写 baseURL/Key/模型 ID。决策模型按 `/v1/models` 的 `modality`、静态 `modality`（含 dsh-ai-proxy 材料化写入）、classifier 协议、模型类型与名称识别；默认仍为 TypeSafe Jev 官方地址、Choice/Score/Noul 三大决策原语、/v1/systemone 与 /v1/decisions 端点切换、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.2.6`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.2.6) |
 | **`dsh-image-gen`** | [`plugins/dsh-image-gen`](plugins/dsh-image-gen) | DSH 原生生图插件（把文生图作为原生工具暴露，可直接下拉选择 dsh 已配置的提供商与模型、或手动填写 baseURL/Key，内置尺寸与画质选择，支持 http/https/socks5 代理；设置面板可实时切换并测试连通性） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-image-gen@v0.1.5) |
 | **`dsh-task-models`** | [`plugins/dsh-task-models`](plugins/dsh-task-models) | 独立子任务模型路由插件（按任务类型为子代理选择模型、显式标签优先与词边界匹配、规则试运行预览、workflow 模型标注附路由解释、可选 TypeSafe Jev 决策、可选轻量分类回退、有界决策超时与取消传播、不依赖任何 Agent Preset 或角色路由插件） | [`v0.3.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-task-models@v0.3.0) |
@@ -75,8 +76,9 @@ dsh plugin --profile web add @weniatall/dsh-archive-manager
 # 9. 安装提示词历史与跨端漫游
 dsh plugin --profile web add @weniatall/dsh-prompt-history
 
-# 10. 安装 ZCode 主题
-dsh plugin --profile web add @weniatall/dsh-zcode-theme
+# 10. 安装主题工作室（ZCode / 苹果玻璃等多款主题 + 外观自定义）
+dsh plugin --profile web add @weniatall/dsh-theme-studio
+#     （旧包 @weniatall/dsh-zcode-theme 已并入上面这个，仅作兼容薄壳保留）
 
 # 11. 安装决策模型（默认 TypeSafe Jev，也可选 dsh 已配置的提供商）
 dsh plugin --profile web add @weniatall/dsh-jev

@@ -1,7 +1,7 @@
 {
   "name": "@weniatall/dsh-zcode-theme",
-  "version": "0.2.5",
-  "description": "ZCode (Zai) official theme for DeepSeek Harness: zero-flash dark canvas, official Zai palette parity, token-driven palettes",
+  "version": "0.3.0",
+  "description": "Deprecated compatibility shell for the ZCode visual theme, now built into @weniatall/dsh-theme-studio",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -16,7 +16,6 @@
     "lib/tokens.js",
     "lib/css.js",
     "lib/client.js",
-    "lib/styles",
     "README.md",
     "cordis.patch.yml"
   ],
@@ -29,12 +28,12 @@
     "dsh",
     "theme",
     "zcode",
-    "design-system",
-    "ui"
+    "deprecated"
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.6"
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.0-rc.6",
+    "@weniatall/dsh-theme-studio": ">=0.1.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1"
@@ -63,5 +62,9 @@
   },
   "engines": {
     "node": ">=20.3"
+  },
+  "deprecated": "Merged into @weniatall/dsh-theme-studio (built-in themes: zcode, zcode-mono). Install that package instead.",
+  "dependencies": {
+    "@weniatall/dsh-theme-studio": "workspace:*"
   }
 }

@@ -1,0 +1,4 @@
+# Cordis bundle patch: 挂载主题工作室（多主题切换 + 视觉自定义）。
+- insert:
+    - id: theme-studio
+      name: '@weniatall/dsh-theme-studio'

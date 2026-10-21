@@ -1,7 +1,7 @@
 /* Top Bar / 会话头：宿主真实类名 7yHdaG_header（ui-conversation/WorkspaceHeader）。
    官方头部是 --color-header 底 + 发丝下边框，tab 选中态用前景色而非品牌蓝。 */
-[data-dsh-theme="zcode"] ._7yHdaG_header,
-[data-dsh-theme="zcode"] .TvmKiG_header {
+html[data-theme-studio] ._7yHdaG_header,
+html[data-theme-studio] .TvmKiG_header {
   background: var(--color-header);
   background: color-mix(in srgb, var(--color-header) 92%, transparent);
   border-bottom: 1px solid var(--color-border);
@@ -10,7 +10,7 @@
 }
 
 /* 移动端顶栏：仅定制背景底色与发丝边框材质，绝不覆盖定位 (position: fixed) 与层级 (z-index: 900) */
-[data-dsh-theme="zcode"] .dsh-mobile-bar {
+html[data-theme-studio] .dsh-mobile-bar {
   background: var(--color-header);
   background: color-mix(in srgb, var(--color-header) 92%, transparent);
   border-bottom: 1px solid var(--color-border);
@@ -25,43 +25,43 @@
    自己的工具栏图标叠成一团（2026-10 用户截图报障）。
    保留 position/overflow：下拉菜单要能溢出头部，它作为本层的子元素依旧浮在头部其它
    内容之上，只是整体让位于应用级浮层。 */
-[data-dsh-theme="zcode"] .wSkVaW_headerUtilities,
-[data-dsh-theme="zcode"] ._1O6vqW_headerUtilities {
+html[data-theme-studio] .wSkVaW_headerUtilities,
+html[data-theme-studio] ._1O6vqW_headerUtilities {
   position: relative;
   z-index: 19;
   overflow: visible;
 }
 
-[data-dsh-theme="zcode"] .wSkVaW_headerUtilities [role="menu"],
-[data-dsh-theme="zcode"] ._1O6vqW_headerUtilities [role="menu"] {
+html[data-theme-studio] .wSkVaW_headerUtilities [role="menu"],
+html[data-theme-studio] ._1O6vqW_headerUtilities [role="menu"] {
   z-index: 1000;
   box-shadow: var(--dsw-elevation-prominent);
 }
 
 /* 官方 Tab 选中态：--color-tab-active 底 + 主文字色，不做彩色下划线。 */
-[data-dsh-theme="zcode"] .wSkVaW_tab[aria-selected="true"],
-[data-dsh-theme="zcode"] ._1O6vqW_tab[aria-selected="true"],
-[data-dsh-theme="zcode"] .wSkVaW_tab.wSkVaW_tabActive,
-[data-dsh-theme="zcode"] ._1O6vqW_tab._1O6vqW_tabActive {
+html[data-theme-studio] .wSkVaW_tab[aria-selected="true"],
+html[data-theme-studio] ._1O6vqW_tab[aria-selected="true"],
+html[data-theme-studio] .wSkVaW_tab.wSkVaW_tabActive,
+html[data-theme-studio] ._1O6vqW_tab._1O6vqW_tabActive {
   background: var(--color-tab-active);
   color: var(--color-foreground);
 }
 
-[data-dsh-theme="zcode"] .wSkVaW_tab,
-[data-dsh-theme="zcode"] ._1O6vqW_tab,
-[data-dsh-theme="zcode"] .wSkVaW_crumb,
-[data-dsh-theme="zcode"] ._1O6vqW_crumb {
+html[data-theme-studio] .wSkVaW_tab,
+html[data-theme-studio] ._1O6vqW_tab,
+html[data-theme-studio] .wSkVaW_crumb,
+html[data-theme-studio] ._1O6vqW_crumb {
   color: var(--color-foreground-subtle);
 }
 
-[data-dsh-theme="zcode"] .wSkVaW_crumbCurrent,
-[data-dsh-theme="zcode"] ._1O6vqW_crumbCurrent {
+html[data-theme-studio] .wSkVaW_crumbCurrent,
+html[data-theme-studio] ._1O6vqW_crumbCurrent {
   color: var(--color-foreground);
 }
 
-[data-dsh-theme="zcode"] .wSkVaW_tab[aria-selected="true"]:after,
-[data-dsh-theme="zcode"] ._1O6vqW_tab[aria-selected="true"]:after,
-[data-dsh-theme="zcode"] .wSkVaW_tabActive:after,
-[data-dsh-theme="zcode"] ._1O6vqW_tabActive:after {
+html[data-theme-studio] .wSkVaW_tab[aria-selected="true"]:after,
+html[data-theme-studio] ._1O6vqW_tab[aria-selected="true"]:after,
+html[data-theme-studio] .wSkVaW_tabActive:after,
+html[data-theme-studio] ._1O6vqW_tabActive:after {
   background: var(--color-foreground);
 }

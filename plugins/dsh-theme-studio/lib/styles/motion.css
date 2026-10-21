@@ -1,15 +1,15 @@
 @media (prefers-reduced-motion: reduce) {
-  [data-dsh-theme="zcode"] *,
-  [data-dsh-theme="zcode"] *::before,
-  [data-dsh-theme="zcode"] *::after {
+  html[data-theme-studio] *,
+  html[data-theme-studio] *::before,
+  html[data-theme-studio] *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
 
-  [data-dsh-theme="zcode"] .uV2eYG_primary:active,
-  [data-dsh-theme="zcode"] .Qt4Hga_primary:active {
+  html[data-theme-studio] .uV2eYG_primary:active,
+  html[data-theme-studio] .Qt4Hga_primary:active {
     transform: none;
   }
 }

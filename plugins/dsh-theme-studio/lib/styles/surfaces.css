@@ -5,11 +5,11 @@
    --color-background 的圆角卡片（见 frame.css）。
    注：宿主 [data-slot] 只用于插槽系统标识（DOM 上仅渲染 root 等少数值），
    不能拿来当组件选择器；这里一律用 ui-* 插件的真实 CSS Module 类名。 */
-[data-dsh-theme="zcode"] body,
-[data-dsh-theme="zcode"] #root {
+html[data-theme-studio] body,
+html[data-theme-studio] #root {
   background: var(--color-background-win-alt);
 }
 
-[data-dsh-theme="zcode"] [role="dialog"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]) {
+html[data-theme-studio] [role="dialog"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]) {
   background: var(--color-card);
 }

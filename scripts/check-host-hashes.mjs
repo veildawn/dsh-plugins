@@ -93,10 +93,49 @@ function isHashPrefix(candidate) {
  * 桌面版前端不在 dsh 安装目录里，按下面的顺序找：
  *   1. 环境变量 DSH_APP_ASAR（显式指定 app.asar）
  *   2. macOS 默认安装路径
- * 找不到就只按 Web 版校验（CI / Linux 上通常没有桌面版）。
+ *   3. 仓库里的宿主类名快照 `test/fixtures/host-classes.json`——它由
+ *      `scripts/harvest-host-classes.mjs --all` 从两套构建采集，两边的部件都在。
+ *
+ * 没有第 3 条时，Linux / CI（没有桌面版）会把**所有**桌面版选择器判成死代码，
+ * 逼着作者删掉它们——那才是真的破坏桌面端：用户升级后发现主题在桌面版上
+ * 一条规则都不命中。
  */
 const KNOWN_CROSS_BUILD_HASHES = new Set(['ccegLa', 'NXnJXa', 'f0iH8G', 'gehEqa', 'Sh0Q9G', 'FJxK0a']);
 const hostHashes = new Set(KNOWN_CROSS_BUILD_HASHES);
+
+/**
+ * 把仓库快照里记录的哈希前缀并入已知集合。
+ *
+ * 快照的 `modules` 映射表按 `bundle + 模块文件 + 部件名` 给出两套构建的真实
+ * className；`bundles` 是采集到的全部类名。两者都读，覆盖更完整。
+ * 快照缺失或损坏时静默跳过：门禁退化为「只认当前宿主」，仍然有效。
+ */
+function addSnapshotHashes() {
+  const snapshotPath = join(REPO_ROOT, 'test', 'fixtures', 'host-classes.json');
+  if (!existsSync(snapshotPath)) return;
+  let snapshot;
+  try {
+    snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'));
+  } catch {
+    return;
+  }
+  const collect = (cls) => {
+    if (typeof cls !== 'string') return;
+    const prefix = cls.split('_')[0];
+    if (isHashPrefix(prefix)) hostHashes.add(prefix);
+  };
+  for (const list of Object.values(snapshot.bundles ?? {})) {
+    for (const cls of list) collect(cls);
+  }
+  for (const files of Object.values(snapshot.modules ?? {})) {
+    for (const kinds of Object.values(files ?? {})) {
+      for (const side of Object.values(kinds ?? {})) {
+        for (const cls of Object.values(side ?? {})) collect(cls);
+      }
+    }
+  }
+}
+addSnapshotHashes();
 for (const name of readdirSync(hostScope)) {
   for (const file of ['lib/client.js', 'lib/index.js']) {
     const path = join(hostScope, name, file);

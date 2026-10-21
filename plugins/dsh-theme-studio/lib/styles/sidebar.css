@@ -1,0 +1,163 @@
+/* Sidebar / Session：官方侧栏直接坐在窗口底色上（DesktopWindowFrame 的
+   --color-background-win-alt），并不使用 --color-sidebar；主区才是那张
+   --color-background 的内缩圆角卡片。宿主真实类名：侧栏壳 _2H3hWW_*
+   （ui-sidebar/SidebarRoot）、会话与项目行 hIlkoa_*（ui-workspace/Rows）、
+   列表区 9lTDKa_*（ui-workspace）。 */
+html[data-theme-studio] .hHd-Xa_root,
+html[data-theme-studio] .ixJ31a_root {
+  background: var(--color-background-win-alt);
+  color: var(--color-foreground);
+}
+
+/* 顶部品牌区：弱化为低对比文字，不做纯白底块 */
+html[data-theme-studio] .hHd-Xa_brand,
+html[data-theme-studio] .ixJ31a_brand {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .hHd-Xa_brand:hover,
+html[data-theme-studio] .ixJ31a_brand:hover {
+  color: var(--color-foreground);
+}
+
+/* HARNESS 徽标背景与文字：柔和半透明中性灰底 */
+html[data-theme-studio] .hHd-Xa_brand svg rect,
+html[data-theme-studio] .ixJ31a_brand svg rect,
+html[data-theme-studio] .hHd-Xa_brandName svg rect,
+html[data-theme-studio] .ixJ31a_brandName svg rect {
+  fill: var(--color-foreground-subtle);
+  opacity: 0.85;
+}
+
+html[data-theme-studio] .hHd-Xa_brand:hover svg rect,
+html[data-theme-studio] .ixJ31a_brand:hover svg rect,
+html[data-theme-studio] .hHd-Xa_brandName:hover svg rect,
+html[data-theme-studio] .ixJ31a_brandName:hover svg rect {
+  fill: var(--color-foreground);
+  opacity: 1;
+}
+
+/* 纯本地开发构建指示器 tag 弱化 */
+html[data-theme-studio] .hHd-Xa_buildVersion,
+html[data-theme-studio] .ixJ31a_buildVersion {
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
+}
+
+/* 新会话按钮：官方是 --color-input 底的抬升块，无品牌色描边 */
+html[data-theme-studio] .hHd-Xa_newSession,
+html[data-theme-studio] .ixJ31a_newSession {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .hHd-Xa_newSession:hover,
+html[data-theme-studio] .ixJ31a_newSession:hover {
+  background: var(--color-surface-hover);
+}
+
+/* 顶部「插件 / 自动化」行：选中态用 surface 抬升，不用彩色底 */
+html[data-theme-studio] .hHd-Xa_panelRow,
+html[data-theme-studio] .ixJ31a_panelRow {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .hHd-Xa_panelRow:hover,
+html[data-theme-studio] .ixJ31a_panelRow:hover,
+html[data-theme-studio] .hHd-Xa_panelActive,
+html[data-theme-studio] .ixJ31a_panelActive {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .IW6AQa_iconButton,
+html[data-theme-studio] .cX-2eG_iconButton,
+html[data-theme-studio] .IW6AQa_iconButton,
+html[data-theme-studio] .cX-2eG_iconButton {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .IW6AQa_iconButton:hover,
+html[data-theme-studio] .cX-2eG_iconButton:hover,
+html[data-theme-studio] .IW6AQa_iconButton:hover,
+html[data-theme-studio] .cX-2eG_iconButton:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 工作区 / 会话行：圆角与悬停抬升沿用宿主，仅把选中态从品牌色换成官方 surface-hover。 */
+html[data-theme-studio] .YDXeBa_sessionRow,
+html[data-theme-studio] .JdKHja_sessionRow,
+html[data-theme-studio] .YDXeBa_projectRow,
+html[data-theme-studio] .JdKHja_projectRow,
+html[data-theme-studio] .YDXeBa_searchResultRow,
+html[data-theme-studio] .JdKHja_searchResultRow {
+  border-radius: 10px;
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .YDXeBa_sessionRow:hover,
+html[data-theme-studio] .JdKHja_sessionRow:hover,
+html[data-theme-studio] .YDXeBa_projectRow:hover,
+html[data-theme-studio] .JdKHja_projectRow:hover,
+html[data-theme-studio] .YDXeBa_searchResultRow:hover,
+html[data-theme-studio] .JdKHja_searchResultRow:hover {
+  background: var(--color-surface-hover);
+}
+
+/* 选中态：官方用 --color-surface-hover 抬升，不引入彩色左边条。 */
+html[data-theme-studio] .YDXeBa_sessionRow.YDXeBa_selected,
+html[data-theme-studio] .JdKHja_sessionRow.JdKHja_selected,
+html[data-theme-studio] .YDXeBa_searchResultRow.YDXeBa_selected,
+html[data-theme-studio] .JdKHja_searchResultRow.JdKHja_selected {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+  box-shadow: none;
+}
+
+/* 项目行选中：官方 --color-file-node 系列（蓝调）而非品牌色 */
+html[data-theme-studio] .YDXeBa_projectRow.YDXeBa_selected,
+html[data-theme-studio] .JdKHja_projectRow.JdKHja_selected,
+html[data-theme-studio] .YDXeBa_projectRow:has([aria-selected="true"]),
+html[data-theme-studio] .JdKHja_projectRow:has([aria-selected="true"]),
+html[data-theme-studio] .YDXeBa_projectRow[data-active="true"],
+html[data-theme-studio] .JdKHja_projectRow[data-active="true"] {
+  background: var(--color-file-node);
+  color: var(--color-file-node-foreground);
+  border: none;
+}
+
+html[data-theme-studio] .YDXeBa_folderActive,
+html[data-theme-studio] .JdKHja_folderActive,
+html[data-theme-studio] .YDXeBa_projectRow.YDXeBa_selected .YDXeBa_folder,
+html[data-theme-studio] .JdKHja_projectRow.JdKHja_selected .JdKHja_folder,
+html[data-theme-studio] .YDXeBa_projectRow.YDXeBa_selected .YDXeBa_title,
+html[data-theme-studio] .JdKHja_projectRow.JdKHja_selected .JdKHja_title {
+  color: var(--color-file-node-foreground);
+}
+
+/* 会话列表滚动区与分区标题：官方标题用 foreground-subtlest 的常规字重。 */
+html[data-theme-studio] .bhn1Oq_sectionLabel,
+html[data-theme-studio] .byfCcW_sectionLabel {
+  color: var(--color-foreground-subtlest);
+}
+
+html[data-theme-studio] .bhn1Oq_fade,
+html[data-theme-studio] .byfCcW_fade {
+  background: linear-gradient(to bottom, transparent, var(--color-background-win-alt));
+}
+
+/* 侧边栏底部连接状态指示器：融入 surface 质感，不使用高饱和色块 */
+html[data-theme-studio] div[class*="_indicator_"],
+html[data-theme-studio] div[class*="_warning_"],
+html[data-theme-studio] div[class*="_success_"] {
+  background-color: var(--color-surface);
+  color: var(--color-foreground);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+html[data-theme-studio] div[class*="_indicator_"] svg {
+  color: var(--color-warning);
+}

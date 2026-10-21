@@ -1,0 +1,263 @@
+/* ============================================================================
+   苹果玻璃（Apple Liquid Glass）材质层
+   ============================================================================
+
+   这份样式表只在玻璃主题下生效（html[data-theme-studio="glass"] /
+   "glass-color"），ZCode 系列不加载。它负责基座样式表不表达的那部分：
+   **毛玻璃材质本身**。
+
+   Apple Liquid Glass 的四条可辨识特征，逐条对应到实现：
+
+   1. 背景透光：`backdrop-filter: blur() saturate()`。模糊半径与饱和度走
+      `--ts-blur` / `--ts-saturate`，用户可在设置里调，主题只给默认值。
+      没有这一步，半透明色块只会显得「发灰」，不会显得「是玻璃」。
+   2. 轮廓光：`box-shadow: inset 0 1px 0 var(--ts-glass-highlight)`。
+      亮色模式光在顶边（模拟光源在上方），暗色模式改为整圈细描边
+      （`--ts-glass-edge`），因为深色背景上顶边高光会变成一道刺眼白线。
+   3. 边缘分离：`border: 1px solid var(--ts-glass-edge)`，让面板从壁纸上
+      「切」出来，而不是糊在一起。
+   4. 饱和提升：透上来的背景会被 `saturate()` 提饱和——这是玻璃「润」的
+      来源。没有它，低饱和壁纸透过来会让界面显得脏。
+
+   ## 为什么不用 `@supports` 兜底
+
+   `backdrop-filter` 在 Chromium 76+ / Safari 9+（带前缀）全面可用，宿主本身
+   就要求现代 Chromium。不支持时浏览器会忽略该属性，退化为「半透明纯色块」，
+   仍然可读——这比写两套降级配色更简单，也不会出现「某些机器上是另一套主题」。
+
+   ## 为什么不改布局
+
+   本文件只碰 background / border / box-shadow / backdrop-filter / border-radius。
+   间距、尺寸、z-index 全部留给基座样式表与 `dsh-mobile-adapter`。玻璃是一种
+   材质，不是一种布局。
+
+   ============================================================================ */
+
+/* 玻璃主题的作用域。两款玻璃主题共用同一套材质规则，只在 Token 取值上不同。 */
+html[data-theme-studio="glass"],
+html[data-theme-studio="glass-color"] {
+  /* 玻璃层的关键：让根元素自己也有材质，避免滚动到边界时露出纯色 */
+  background-color: var(--color-background-win-alt);
+}
+
+/* ---------------------------------------------------------------------------
+   一、根画布：用径向渐变模拟「壁纸」
+   ---------------------------------------------------------------------------
+   Apple 的玻璃永远叠在一张壁纸之上。这里不引入图片资源（主题必须能离线、
+   零外部依赖），改用两层低饱和径向渐变：左上暖光、右下冷光。观感接近
+   macOS 默认壁纸的柔焦效果，且完全由 Token 驱动，明暗两套自动切换。
+
+   注意：壁纸画在 `body` 上，但基座 frame.css 会把框架层铺成
+   不透明的 `--color-background-win-alt`。若不同时把框架层改为透明，壁纸会
+   被整层盖住——玻璃就失去「有东西透上来」的依据，只剩半透明卡片飘在纯色上。
+   下面第二段规则就是为此存在的。 */
+html[data-theme-studio="glass"] body,
+html[data-theme-studio="glass-color"] body {
+  background-color: var(--color-background-win-alt);
+  background-image:
+    radial-gradient(120% 90% at 12% 0%, var(--ts-wallpaper-1, transparent) 0%, transparent 58%),
+    radial-gradient(110% 80% at 88% 100%, var(--ts-wallpaper-2, transparent) 0%, transparent 62%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* 框架层透明：让壁纸透出来。用 background: none 而不是 transparent，
+   避免把 background-image 一并继承/叠加造成重复绘制。
+   两套构建的哈希必须成对写：只写 Web 版哈希时，桌面版对应类名的框架层
+   仍是不透明实色，玻璃主题在桌面上看不到壁纸。 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .pI_x6G_frame,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) ._LS25G_frame {
+  background: none;
+}
+
+/* ---------------------------------------------------------------------------
+   二、三栏框架：面板本身成为一块玻璃
+   ---------------------------------------------------------------------------
+   基座 frame.css 把主区画成「窗口底色上的内缩圆角卡片」。玻璃主题沿用这个
+   结构（它是 DSH 的骨架，不该被主题改写），但把卡片的填充换成玻璃材质。 */
+html[data-theme-studio="glass"] .pI_x6G_centerCol,
+html[data-theme-studio="glass"] ._LS25G_centerCol,
+html[data-theme-studio="glass-color"] .pI_x6G_centerCol,
+html[data-theme-studio="glass-color"] ._LS25G_centerCol {
+  background: var(--color-background);
+  -webkit-backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  border: 1px solid var(--ts-glass-edge);
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 8px 24px -12px rgba(0, 0, 0, 0.12);
+}
+
+/* 侧栏：玻璃比主区更「薄」——透明度更高、模糊略低，形成前后景深。
+   这是 macOS 上「侧栏在后、内容在前」的观感来源。 */
+html[data-theme-studio="glass"] .pI_x6G_sidebarCol,
+html[data-theme-studio="glass"] ._LS25G_sidebarCol,
+html[data-theme-studio="glass-color"] .pI_x6G_sidebarCol,
+html[data-theme-studio="glass-color"] ._LS25G_sidebarCol {
+  background: var(--color-sidebar);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.7)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.7)) saturate(var(--ts-saturate));
+  border-right: 1px solid var(--color-border);
+}
+
+/* ---------------------------------------------------------------------------
+   三、头部与工具栏：悬浮玻璃条
+   ---------------------------------------------------------------------------
+   Apple 的工具栏是「浮在内容上的玻璃条」，不是一条实色。这里给它：
+   - 半透明底（--color-header 本身就是半透明）
+   - 模糊 + 饱和
+   - 底边一条 1px 光边，而不是灰色 hairline */
+html[data-theme-studio="glass"] ._7yHdaG_header,
+html[data-theme-studio="glass"] .TvmKiG_header,
+html[data-theme-studio="glass-color"] ._7yHdaG_header,
+html[data-theme-studio="glass-color"] .TvmKiG_header,
+html[data-theme-studio="glass"] .dsh-mobile-bar,
+html[data-theme-studio="glass-color"] .dsh-mobile-bar {
+  background: var(--color-header);
+  -webkit-backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  border-bottom: 1px solid var(--ts-glass-edge);
+  box-shadow: inset 0 -1px 0 var(--ts-glass-highlight);
+}
+
+/* ---------------------------------------------------------------------------
+   四、卡片与浮层：厚玻璃
+   ---------------------------------------------------------------------------
+   对话框、菜单、toast 用比面板更高的不透明度与更强阴影：它们离用户更「近」，
+   在 z 轴上更高，Apple 的做法是让它们更实、阴影更远。 */
+html[data-theme-studio="glass"] [role="dialog"][aria-modal="true"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
+html[data-theme-studio="glass"] [role="menu"],
+html[data-theme-studio="glass"] [class*="toast"],
+html[data-theme-studio="glass"] [class*="Toast"],
+html[data-theme-studio="glass-color"] [role="dialog"][aria-modal="true"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
+html[data-theme-studio="glass-color"] [role="menu"],
+html[data-theme-studio="glass-color"] [class*="toast"],
+html[data-theme-studio="glass-color"] [class*="Toast"] {
+  background: var(--color-card);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 1.2)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 1.2)) saturate(var(--ts-saturate));
+  border: 1px solid var(--ts-glass-edge);
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    var(--dsw-shadow-lv3);
+}
+
+/* 社区插件的模态卡（dm-modal-card / dam-modal-card / fv-modal）同样处理：
+   它们各自写了背景色，不接管就会在玻璃界面上出现一块「实心纸片」。 */
+html[data-theme-studio="glass"] .dm-modal-card,
+html[data-theme-studio="glass"] .dam-modal-card,
+html[data-theme-studio="glass"] .dam-card,
+html[data-theme-studio="glass"] .fv-modal,
+html[data-theme-studio="glass-color"] .dm-modal-card,
+html[data-theme-studio="glass-color"] .dam-modal-card,
+html[data-theme-studio="glass-color"] .dam-card,
+html[data-theme-studio="glass-color"] .fv-modal {
+  background: var(--color-card);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 1.2)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 1.2)) saturate(var(--ts-saturate));
+  border: 1px solid var(--ts-glass-edge);
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    var(--dsw-shadow-lv3);
+}
+
+/* ---------------------------------------------------------------------------
+   五、输入卡：可聚焦玻璃
+   ---------------------------------------------------------------------------
+   玻璃主题下输入框是最需要克制的地方：模糊太强会让用户看不清自己在打什么。
+   这里只保留很轻的模糊，聚焦时用品牌色描边 + 一圈柔光。 */
+html[data-theme-studio="glass"] [data-composer-card],
+html[data-theme-studio="glass"] .uV2eYG_card,
+html[data-theme-studio="glass"] .Qt4Hga_card,
+html[data-theme-studio="glass-color"] [data-composer-card],
+html[data-theme-studio="glass-color"] .uV2eYG_card,
+html[data-theme-studio="glass-color"] .Qt4Hga_card {
+  background: var(--color-input);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate));
+  border: 1px solid var(--color-input-border);
+  box-shadow: inset 0 1px 0 var(--ts-glass-highlight);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+/* 聚焦：品牌色描边 + 外圈柔光。用 box-shadow 画外圈而不是 outline，
+   这样圆角能跟着卡片走（outline 在圆角元素上会画出方角）。 */
+html[data-theme-studio="glass"] [data-composer-card]:focus-within,
+html[data-theme-studio="glass"] .uV2eYG_card:focus-within,
+html[data-theme-studio="glass"] .Qt4Hga_card:focus-within,
+html[data-theme-studio="glass-color"] [data-composer-card]:focus-within,
+html[data-theme-studio="glass-color"] .uV2eYG_card:focus-within,
+html[data-theme-studio="glass-color"] .Qt4Hga_card:focus-within {
+  border-color: var(--color-input-border-focused);
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 0 0 3px color-mix(in srgb, var(--color-input-border-focused) 22%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   六、按钮：玻璃主题下的实心主按钮要保留「可按」的实感
+   ---------------------------------------------------------------------------
+   玻璃界面里，全透明按钮会让人分不清哪里能点。主按钮保持实心品牌色，
+   次级按钮用很浅的玻璃底 + 光边。 */
+html[data-theme-studio="glass"] button[data-variant="primary"],
+html[data-theme-studio="glass"] button[class*="_primary_"],
+html[data-theme-studio="glass-color"] button[data-variant="primary"],
+html[data-theme-studio="glass-color"] button[class*="_primary_"] {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  border: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+html[data-theme-studio="glass"] button[data-variant="secondary"],
+html[data-theme-studio="glass"] button[class*="_secondary_"],
+html[data-theme-studio="glass-color"] button[data-variant="secondary"],
+html[data-theme-studio="glass-color"] button[class*="_secondary_"] {
+  background: var(--color-input);
+  color: var(--color-foreground);
+  border: 1px solid var(--ts-glass-edge);
+  box-shadow: inset 0 1px 0 var(--ts-glass-highlight);
+}
+
+/* ---------------------------------------------------------------------------
+   七、滚动条：玻璃上的滚动条要更细、更淡
+   ---------------------------------------------------------------------------
+   宿主滚动条走 --dsh-scrollbar-thumb，这里只调细度，颜色仍由 Token 决定。 */
+html[data-theme-studio="glass"],
+html[data-theme-studio="glass-color"] {
+  --dsh-scrollbar-width: 6px;
+  --dsh-scrollbar-thumb-border: 1px;
+}
+
+/* ---------------------------------------------------------------------------
+   八、无障碍：降低透明度偏好
+   ---------------------------------------------------------------------------
+   有用户会因为视力或晕动症关闭「减少透明度」（macOS 的 Reduce Transparency）。
+   此时必须退化为实心表面——半透明 + 模糊在低对比显示器上会显著降低可读性，
+   这是无障碍要求，不是审美偏好。 */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-theme-studio="glass"] *,
+  html[data-theme-studio="glass-color"] * {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  /* 材质退化后，半透明 Token 会让文字落在不可控的底色上。
+     这里把三个关键表面强制拉回不透明，颜色取该主题亮暗两态各自的实色。 */
+  html[data-theme-studio="glass"] body,
+  html[data-theme-studio="glass-color"] body {
+    background-image: none;
+  }
+}
+
+/* 强制对比度偏好：同样去掉材质，保证文字始终落在纯色上。 */
+@media (prefers-contrast: more) {
+  html[data-theme-studio="glass"] *,
+  html[data-theme-studio="glass-color"] * {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}

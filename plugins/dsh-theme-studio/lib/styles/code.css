@@ -3,8 +3,8 @@
    注意只认宿主 Markdown 渲染出来的代码块容器（.md-code-block 及其内部 pre）：
    裸 `pre` 会把插件的任务日志框（如插件管理的 .dm-install-log）一并改写成
    代码块皮肤，日志背景与文字色被主题接管后反而更难读。 */
-[data-dsh-theme="zcode"] .md-code-block,
-[data-dsh-theme="zcode"] .md-code-block pre {
+html[data-theme-studio] .md-code-block,
+html[data-theme-studio] .md-code-block pre {
   background: var(--color-background);
   border: 1px solid var(--color-border);
   border-radius: 12px;
@@ -14,36 +14,36 @@
 }
 
 /* 代码块内部由 .md-code-block 提供外框，内层 pre 不再重复描边圆角。 */
-[data-dsh-theme="zcode"] .md-code-block pre {
+html[data-theme-studio] .md-code-block pre {
   border: 0;
   border-radius: 0;
 }
 
-[data-dsh-theme="zcode"] .md-code-block [class*="_banner"],
-[data-dsh-theme="zcode"] .md-code-block [class*="banner"] {
+html[data-theme-studio] .md-code-block [class*="_banner"],
+html[data-theme-studio] .md-code-block [class*="banner"] {
   background: var(--color-panel);
 }
 
-[data-dsh-theme="zcode"] .md-code-block [class*="_infostring"],
-[data-dsh-theme="zcode"] .md-code-block [class*="infostring"] {
+html[data-theme-studio] .md-code-block [class*="_infostring"],
+html[data-theme-studio] .md-code-block [class*="infostring"] {
   color: var(--color-foreground-subtlest);
 }
 
-[data-dsh-theme="zcode"] .md-code-block button,
-[data-dsh-theme="zcode"] .md-code-block [class*="_copyButton"] {
+html[data-theme-studio] .md-code-block button,
+html[data-theme-studio] .md-code-block [class*="_copyButton"] {
   background: var(--color-surface);
   color: var(--color-foreground-subtle);
   border-radius: 8px;
 }
 
-[data-dsh-theme="zcode"] .md-code-block button:hover,
-[data-dsh-theme="zcode"] .md-code-block [class*="_copyButton"]:hover {
+html[data-theme-studio] .md-code-block button:hover,
+html[data-theme-studio] .md-code-block [class*="_copyButton"]:hover {
   background: var(--color-surface-hover);
 }
 
 /* 行内代码标签 (Inline Code)：官方 --color-markdown-inline-code 作底色，
    文字仍走正文色，保证任何主题下都读得清。 */
-[data-dsh-theme="zcode"] :not(pre) > code {
+html[data-theme-studio] :not(pre) > code {
   background-color: var(--color-markdown-inline-code);
   color: var(--color-foreground);
   border: 1px solid var(--color-border);

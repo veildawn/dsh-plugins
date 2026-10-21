@@ -4,14 +4,14 @@
    取值会退回跟随操作系统的 prefers-color-scheme —— 应用主题是暗色、系统却是
    亮色时，主题色全部解析到亮色侧，与宿主已成对写入的暗色 Token 打架
    （日志 pre 变白底、表单控件变黑字）。保持继承即可跟随应用主题。 */
-[data-dsh-theme="zcode"] {
+html[data-theme-studio] {
   /* Shiki 代码高亮默认前景色与注释色，跟随官方 --color-foreground 阶梯 */
   --shiki-foreground: var(--color-foreground);
   --shiki-token-comment: var(--color-foreground-subtle);
 }
 
-[data-dsh-theme="zcode"],
-[data-dsh-theme="zcode"] body {
+html[data-theme-studio],
+html[data-theme-studio] body {
   background: var(--color-background-win-alt);
   color: var(--color-foreground);
 }

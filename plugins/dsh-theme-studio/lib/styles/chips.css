@@ -1,29 +1,29 @@
 /* Chip：默认胶囊灰底，选中才抬升，不用大面积品牌色。
    宿主真实类名：rtYPxa_*（ui-conversation/ReferenceChip）、2XZxNq_selector（ui-chat）。 */
-[data-dsh-theme="zcode"] .yAWgPa_chip,
-[data-dsh-theme="zcode"] .BrezkG_chip,
-[data-dsh-theme="zcode"] ._2XZxNq_selector,
-[data-dsh-theme="zcode"] .NScxBa_selector,
-[data-dsh-theme="zcode"] [class*="_chip"] {
+html[data-theme-studio] .yAWgPa_chip,
+html[data-theme-studio] .BrezkG_chip,
+html[data-theme-studio] ._2XZxNq_selector,
+html[data-theme-studio] .NScxBa_selector,
+html[data-theme-studio] [class*="_chip"] {
   background: var(--color-input);
   border: 1px solid var(--color-border);
   color: var(--color-foreground-subtle);
   border-radius: 999px;
 }
 
-[data-dsh-theme="zcode"] .yAWgPa_chip[data-selected],
-[data-dsh-theme="zcode"] .BrezkG_chip[data-selected],
-[data-dsh-theme="zcode"] .yAWgPa_chip[aria-pressed="true"],
-[data-dsh-theme="zcode"] .BrezkG_chip[aria-pressed="true"],
-[data-dsh-theme="zcode"] [class*="_chip"][data-selected],
-[data-dsh-theme="zcode"] [class*="_chip"][aria-selected="true"] {
+html[data-theme-studio] .yAWgPa_chip[data-selected],
+html[data-theme-studio] .BrezkG_chip[data-selected],
+html[data-theme-studio] .yAWgPa_chip[aria-pressed="true"],
+html[data-theme-studio] .BrezkG_chip[aria-pressed="true"],
+html[data-theme-studio] [class*="_chip"][data-selected],
+html[data-theme-studio] [class*="_chip"][aria-selected="true"] {
   background: var(--color-surface-hover);
   color: var(--color-foreground);
   border: 1px solid var(--color-border-hover);
 }
 
 /* 官方：mention 引用是结构化视觉标签而非可点击控件，光标保持默认。 */
-[data-dsh-theme="zcode"] [data-composer-chip] {
+html[data-theme-studio] [data-composer-chip] {
   cursor: default;
   border-radius: var(--dsw-radius-sm);
 }
@@ -31,59 +31,59 @@
 /* Mention 节点：官方为六类引用各配一组 Token（docs/ui/mention-node-tokens.md）。
    宿主把引用类型写在 [data-composer-chip] 上，取值来自 ui-reference 的 appearance：
    file / skill / command / session / subagent；没有 plugin 这一类。 */
-[data-dsh-theme="zcode"] [data-composer-chip="file"],
-[data-dsh-theme="zcode"] [data-composer-chip="folder"] {
+html[data-theme-studio] [data-composer-chip="file"],
+html[data-theme-studio] [data-composer-chip="folder"] {
   background: var(--color-file-node);
   color: var(--color-file-node-foreground);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="skill"] {
+html[data-theme-studio] [data-composer-chip="skill"] {
   background: var(--color-skill-node);
   color: var(--color-skill-node-foreground);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="command"] {
+html[data-theme-studio] [data-composer-chip="command"] {
   background: var(--color-command-node);
   color: var(--color-command-node-foreground);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="subagent"] {
+html[data-theme-studio] [data-composer-chip="subagent"] {
   background: var(--color-subagent-node);
   color: var(--color-subagent-node-foreground);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="session"] {
+html[data-theme-studio] [data-composer-chip="session"] {
   background: var(--color-session-node);
   color: var(--color-session-node-foreground);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="plugin"] {
+html[data-theme-studio] [data-composer-chip="plugin"] {
   background: var(--color-plugin-node);
   color: var(--color-plugin-node-foreground);
 }
 
 /* 悬停态使用官方 *-node-hover，只加深底色，不改文字色。 */
-[data-dsh-theme="zcode"] [data-composer-chip="file"]:hover,
-[data-dsh-theme="zcode"] [data-composer-chip="folder"]:hover {
+html[data-theme-studio] [data-composer-chip="file"]:hover,
+html[data-theme-studio] [data-composer-chip="folder"]:hover {
   background: var(--color-file-node-hover);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="skill"]:hover {
+html[data-theme-studio] [data-composer-chip="skill"]:hover {
   background: var(--color-skill-node-hover);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="command"]:hover {
+html[data-theme-studio] [data-composer-chip="command"]:hover {
   background: var(--color-command-node-hover);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="subagent"]:hover {
+html[data-theme-studio] [data-composer-chip="subagent"]:hover {
   background: var(--color-subagent-node-hover);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="session"]:hover {
+html[data-theme-studio] [data-composer-chip="session"]:hover {
   background: var(--color-session-node-hover);
 }
 
-[data-dsh-theme="zcode"] [data-composer-chip="plugin"]:hover {
+html[data-theme-studio] [data-composer-chip="plugin"]:hover {
   background: var(--color-plugin-node-hover);
 }

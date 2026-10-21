@@ -1,0 +1,93 @@
+/* Desktop Modal / 浮层。Bottom Sheet 位置由 dsh-mobile-adapter 负责。
+   宿主真实类名：各 ui-* 插件的 *Dialog / *mask；社区插件（dm-* / dam-* / fv-*）
+   自带稳定 kebab 类名，直接沿用。 */
+html[data-theme-studio] [role="dialog"][aria-modal="true"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
+html[data-theme-studio] .dm-modal-card,
+html[data-theme-studio] .dam-modal-card,
+html[data-theme-studio] .dam-card,
+html[data-theme-studio] .fv-modal {
+  background: var(--color-card);
+  border: 1px solid var(--color-border-hover);
+  border-radius: 20px;
+  box-shadow: var(--dsw-elevation-prominent);
+}
+
+/* 文件查看器侧边抽屉容器：桌面端必须保持完全透明，无遮罩与白块，露出主会话 */
+html[data-theme-studio] .fv-scrim {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-theme-studio] .fv-shell {
+  background: var(--color-card);
+}
+
+/* 模态弹出框与抽屉遮罩层：统一使用低透明度磨砂半透明背景，消除生硬实色黑块与全白遮挡 */
+html[data-theme-studio] .dm-modal-scrim,
+html[data-theme-studio] .dam-backdrop,
+html[data-theme-studio] .dam-modal-scrim,
+html[data-theme-studio] .fv-modal-scrim,
+html[data-theme-studio] .fv-context-backdrop,
+html[data-theme-studio] .term-tools-backdrop,
+html[data-theme-studio] .dsh-ph-backdrop,
+html[data-theme-studio] .dsh-remote-gate-mask,
+html[data-theme-studio] .BInVoG_mask,
+html[data-theme-studio] .vExQgW_mask,
+html[data-theme-studio] .VOzbGW_mask,
+html[data-theme-studio] ._97McFa_mask,
+html[data-theme-studio] [class*="_mask_"],
+html[data-theme-studio] body > div[role="presentation"]:has(>[role="dialog"]) {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* 嵌套在 presentation 内部用于点击关闭的遮罩占位层保持透明 */
+html[data-theme-studio] body > div[role="presentation"] > [aria-hidden="true"] {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-theme-studio] [role="menu"] {
+  background: var(--color-menu);
+  border: 1px solid var(--color-border-hover);
+}
+
+/* 会话头部工具栏菜单与下拉浮层 (如 open-in-app 本地打开、session-log-export 下载日志更多操作等)：
+   确保下拉浮层 z-index 处于正常层级，且定位不被父级或移动端规则截断 */
+html[data-theme-studio] ._7yHdaG_header [role="menu"],
+html[data-theme-studio] .TvmKiG_header [role="menu"] {
+  z-index: 1050;
+}
+
+/* 排除 menu 锚点容器误设边框背景 */
+html[data-theme-studio] [class*="_menuAnchor"] {
+  background: transparent;
+  border: none;
+}
+
+html[data-theme-studio] [class*="toast"],
+html[data-theme-studio] [class*="Toast"] {
+  background: var(--color-toast);
+  border: 1px solid var(--color-border-hover);
+  border-radius: 16px;
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] [class*="sheet"],
+html[data-theme-studio] [class*="Sheet"],
+html[data-theme-studio] [class*="drawer"],
+html[data-theme-studio] [class*="Drawer"] {
+  background: var(--color-panel);
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] [class*="sheet"] [class*="handle"],
+html[data-theme-studio] [class*="Sheet"] [class*="Handle"],
+html[data-theme-studio] [class*="drawer"] [class*="handle"],
+html[data-theme-studio] [class*="Drawer"] [class*="Handle"] {
+  background: var(--color-secondary);
+  border-radius: 999px;
+}
