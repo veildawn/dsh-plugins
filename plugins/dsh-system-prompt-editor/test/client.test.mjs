@@ -241,3 +241,52 @@ test('宿主端确实注册了 RPC 通道', () => {
   assert.match(hostSource, /rpc\.handle\(/, '宿主端必须调用 connection.rpc.handle 注册通道')
   assert.match(hostSource, /RPC_CHANNEL,/, 'rpc.handle 的第一个参数必须是 RPC_CHANNEL')
 })
+
+/**
+ * 回归：按名称定位必须用下拉框列出真实 section，不能要求用户手填内部标识。
+ *
+ * 背景：section 名是内部实现（harness:identity、deployment:persona-prefix），
+ * 对普通用户不可见也不友好。最初版本是一个文本输入框，用户根本无法知道
+ * 该填什么。现在改为从 describe 返回的 sections 渲染下拉框。
+ */
+
+test('按名称定位使用 select 下拉框，而不是文本输入框', () => {
+  const source = readClient()
+
+  assert.match(source, /rule\.matchKind === 'name'/, '应存在 name 匹配的专属分支')
+  // 反证：不应再出现要求用户手填 section 名的 input + placeholder。
+  assert.doesNotMatch(source, /placeholder: rule\.matchKind === 'name' \? 'harness:identity'/)
+  // 下拉框选项必须来自 describe 返回的 sections
+  assert.match(source, /Array\.isArray\(view\.sections\) \? view\.sections : \[\]\)\.map\(\(section\) => react\.createElement\('option'/)
+})
+
+test('sectionLabel 为官方段落提供中文可读名称', () => {
+  const source = readClient()
+  const labels = source.match(/const SECTION_LABELS = \{[\s\S]*?\n    \}/)
+  const labelFn = source.match(/function sectionLabel[\s\S]*?\n    \}/)
+  assert.ok(labels && labelFn, '未能提取 SECTION_LABELS / sectionLabel')
+
+  // eslint-disable-next-line no-new-func
+  const { sectionLabel } = new Function(`${labels[0]}\n${labelFn[0]}\nreturn { sectionLabel }`)()
+
+  // 已知段落应显示中文含义
+  assert.match(sectionLabel({ name: 'harness:identity', length: 48 }), /身份声明/)
+  assert.match(sectionLabel({ name: 'deployment:persona-prefix' }), /角色设定/)
+  // 未知段落回落到原名，不能显示空
+  assert.match(sectionLabel({ name: 'custom-thing' }), /^custom-thing/)
+  // 原名必须保留，便于排障时对上号
+  assert.match(sectionLabel({ name: 'harness:identity' }), /harness:identity/)
+})
+
+test('存量配置指向的段落不在列表中时仍保留该选项', () => {
+  const source = readClient()
+  // 预设切换后，规则指向的 section 可能暂时不存在；此时绝不能让下拉框空白，
+  // 否则用户会以为配置丢了。
+  assert.match(source, /当前配置，未出现在段落列表中/)
+  assert.match(source, /__current__/)
+})
+
+test('下拉框提供清空选项', () => {
+  const source = readClient()
+  assert.match(source, /value: ''\s*\},\s*'（请选择段落）'/)
+})

@@ -159,6 +159,48 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * 官方已知段落的可读名称。
+     *
+     * section 名是内部标识（harness:identity、deployment:persona-prefix），
+     * 直接展示对普通用户不友好。这里映射成中文含义，未收录的按原名展示。
+     */
+    const SECTION_LABELS = {
+      'harness:identity': '身份声明（我是谁）',
+      'deployment:persona-prefix': '角色设定·前段（系统人设）',
+      'deployment:persona-suffix': '角色设定·后段（收尾提醒）',
+      'tool-bash': 'Bash 工具说明',
+      'tool-pwsh': 'PowerShell 工具说明',
+      'tool-read': '读取文件工具说明',
+      'tool-write': '写入文件工具说明',
+      'tool-edit': '编辑文件工具说明',
+      'tool-glob': '文件搜索工具说明',
+      'tool-grep': '内容搜索工具说明',
+      'tool-jobs': '后台任务工具说明',
+      'tool-web-search': '联网搜索工具说明',
+      'tool-web-fetch': '网页抓取工具说明',
+      'tool-goal': '目标管理工具说明',
+      'tool-workflow': '工作流工具说明',
+      'tool-subagent': '子代理工具说明',
+      'mcp-servers': 'MCP 服务说明',
+    }
+
+    /**
+     * 生成下拉选项的可读标签。
+     *
+     * 同时展示中文含义与原始 section 名：前者降低理解门槛，后者让用户在
+     * 排障、手写配置或对照文档时仍能对上号。
+     * @param {{name: string, length?: number}} section - 段落摘要。
+     * @returns {string} 展示文本。
+     */
+    function sectionLabel(section) {
+      const name = section && section.name ? String(section.name) : ''
+      const known = SECTION_LABELS[name]
+      const base = known ? `${known}（${name}）` : name
+      const size = section && typeof section.length === 'number' ? ` · ${section.length} 字` : ''
+      return `${base}${size}`
+    }
+
     /** 设置页主组件。 */
     function SystemPromptEditor(props) {
       const rpcCall = props && props.rpcCall
@@ -336,20 +378,48 @@ window.__ModuleLoader__.load({
                 value: option.value,
               }, option.label))),
             ),
-            rule.matchKind === 'all' ? null : react.createElement('div', { className: 'spe-field', style: { flex: '2 1 260px' } },
-              react.createElement('label', { className: 'spe-label' },
-                rule.matchKind === 'name' ? '段落名称（如 harness:identity）'
-                  : rule.matchKind === 'prefix' ? '名称前缀（如 tool-）'
+            rule.matchKind === 'all' ? null : rule.matchKind === 'name'
+              ? react.createElement('div', { className: 'spe-field', style: { flex: '2 1 260px' } },
+                react.createElement('label', { className: 'spe-label' }, '选择段落'),
+                react.createElement('select', {
+                  className: 'spe-select',
+                  value: rule.matchValue,
+                  onChange: (event) => updateRule(index, { matchValue: event.target.value }),
+                },
+                  // 空值选项：让用户能主动清空一个误设的值。
+                  react.createElement('option', { value: '' }, '（请选择段落）'),
+                  // 兼容存量配置：若规则已指向一个当前不存在的段落名，
+                  // 也要把它作为一个选项保留，否则下拉框会显示空白、
+                  // 用户误以为规则没保存。这种情况通常是预设切换导致的。
+                  rule.matchValue && !(view && Array.isArray(view.sections) && view.sections.some((s) => s.name === rule.matchValue))
+                    ? react.createElement('option', { key: '__current__', value: rule.matchValue },
+                      `${rule.matchValue}（当前配置，未出现在段落列表中）`)
+                    : null,
+                  (view && Array.isArray(view.sections) ? view.sections : []).map((section) => react.createElement('option', {
+                    key: section.name,
+                    value: section.name,
+                    title: section.preview || '',
+                  }, sectionLabel(section))),
+                ),
+                react.createElement('span', { className: 'spe-hint' },
+                  view && Array.isArray(view.sections) && view.sections.length > 0
+                    ? '下方列出的是当前真实存在的所有段落，选中即可，无需手填名称。'
+                    : '尚未读取到段落列表，请先点击下方「重新读取」。'
+                ),
+              )
+              : react.createElement('div', { className: 'spe-field', style: { flex: '2 1 260px' } },
+                react.createElement('label', { className: 'spe-label' },
+                  rule.matchKind === 'prefix' ? '名称前缀（如 tool-）'
                     : rule.matchKind === 'text' ? '包含的文本'
                       : '正则表达式'
+                ),
+                react.createElement('input', {
+                  className: 'spe-input',
+                  value: rule.matchValue,
+                  placeholder: rule.matchKind === 'prefix' ? 'tool-' : '',
+                  onChange: (event) => updateRule(index, { matchValue: event.target.value }),
+                }),
               ),
-              react.createElement('input', {
-                className: 'spe-input',
-                value: rule.matchValue,
-                placeholder: rule.matchKind === 'name' ? 'harness:identity' : '',
-                onChange: (event) => updateRule(index, { matchValue: event.target.value }),
-              }),
-            ),
           ),
 
           react.createElement('div', { className: 'spe-row' },
