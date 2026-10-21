@@ -83,13 +83,13 @@ export const GLASS_PALETTE = {
   'primary-foreground': { light: '#ffffff', dark: '#ffffff' },
 
   // —— 边框：玻璃用「光」而非灰线 ——
-  border: { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.12)' },
-  'border-hover': { light: 'rgba(0, 0, 0, 0.14)', dark: 'rgba(255, 255, 255, 0.2)' },
-  'card-border': { light: 'rgba(255, 255, 255, 0.9)', dark: 'rgba(255, 255, 255, 0.14)' },
+  border: { light: 'rgba(0, 0, 0, 0.05)', dark: 'rgba(255, 255, 255, 0.065)' },
+  'border-hover': { light: 'rgba(0, 0, 0, 0.10)', dark: 'rgba(255, 255, 255, 0.12)' },
+  'card-border': { light: 'rgba(255, 255, 255, 0.60)', dark: 'rgba(255, 255, 255, 0.08)' },
   'card-selected': { light: 'rgba(255, 255, 255, 0.94)', dark: 'rgba(56, 59, 68, 0.94)' },
-  'input-border': { light: 'rgba(0, 0, 0, 0.1)', dark: 'rgba(255, 255, 255, 0.14)' },
+  'input-border': { light: 'rgba(0, 0, 0, 0.06)', dark: 'rgba(255, 255, 255, 0.08)' },
   'input-border-focused': { light: '#0071e3', dark: '#0a84ff' },
-  'input-border-hover': { light: 'rgba(0, 0, 0, 0.16)', dark: 'rgba(255, 255, 255, 0.22)' },
+  'input-border-hover': { light: 'rgba(0, 0, 0, 0.12)', dark: 'rgba(255, 255, 255, 0.15)' },
   'input-focused': { light: 'rgba(255, 255, 255, 0.96)', dark: 'rgba(60, 63, 72, 0.94)' },
 
   // —— 状态：Apple 系统语义色 ——
@@ -245,8 +245,8 @@ export const GLASS_MATERIAL = {
   '--ts-blur': '30px',
   '--ts-saturate': '180%',
   '--ts-glass-tint': 'rgba(255, 255, 255, 0.42)',
-  '--ts-glass-highlight': 'rgba(255, 255, 255, 0.72)',
-  '--ts-glass-edge': 'rgba(255, 255, 255, 0.9)',
+  '--ts-glass-highlight': 'rgba(255, 255, 255, 0.55)',
+  '--ts-glass-edge': 'rgba(255, 255, 255, 0.50)',
   '--ts-surface-alpha': '82%',
   // 「壁纸」：两层低饱和径向渐变，模拟 macOS 默认壁纸的柔焦观感。
   // 亮色是冷白偏蓝的晨光，暗色是深空蓝紫的夜光。
@@ -290,7 +290,7 @@ export const GLASS_MATERIAL = {
  * 同一条 0.72 白高光放到深色背景上会变成刺眼的白边。
  */
 export const GLASS_MATERIAL_DARK = {
-  '--ts-glass-tint': 'rgba(120, 140, 180, 0.14)',
-  '--ts-glass-highlight': 'rgba(255, 255, 255, 0.16)',
-  '--ts-glass-edge': 'rgba(255, 255, 255, 0.2)',
+  '--ts-glass-tint': 'rgba(120, 140, 180, 0.08)',
+  '--ts-glass-highlight': 'rgba(255, 255, 255, 0.08)',
+  '--ts-glass-edge': 'rgba(255, 255, 255, 0.08)',
 }

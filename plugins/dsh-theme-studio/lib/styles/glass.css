@@ -101,20 +101,19 @@ html[data-theme-studio="glass-color"] ._LS25G_sidebarCol {
   border-right: 1px solid var(--color-border);
 }
 
-/* 侧边栏「+ 新会话」按钮：半透明微光药丸，消除突兀纯白长条 */
+/* 侧边栏「+ 新会话」按钮：半透明微光胶囊，消除突兀纯白长条与生硬闭合框线 */
 :is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(.hHd-Xa_newSession, .ixJ31a_newSession) {
   background: var(--color-surface) !important;
-  border: 1px solid var(--ts-glass-edge) !important;
+  border: none !important;
   box-shadow: inset 0 1px 0 var(--ts-glass-highlight);
   -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.5)) saturate(var(--ts-saturate));
   backdrop-filter: blur(calc(var(--ts-blur) * 0.5)) saturate(var(--ts-saturate));
   color: var(--color-foreground) !important;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.15s ease, transform 0.1s ease;
 }
 
 :is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(.hHd-Xa_newSession, .ixJ31a_newSession):hover {
   background: var(--color-surface-hover) !important;
-  border-color: var(--color-border-hover) !important;
 }
 
 /* 侧边栏「归档箱」按钮：恢复侧栏条目的透明与悬停微光，杜绝纯白膏药 */
@@ -145,6 +144,13 @@ html[data-theme-studio="glass-color"] ._LS25G_sidebarCol {
   backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
   border-bottom: 1px solid var(--ts-glass-edge);
   box-shadow: inset 0 -1px 0 var(--ts-glass-highlight);
+}
+
+/* 移动端顶栏与会话头去重叠分割线：杜绝层层横线堆叠 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) body:has(.dsh-mobile-bar) .wSkVaW_header,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) body:has(.dsh-mobile-bar) ._1O6vqW_header {
+  border-bottom: none !important;
+  box-shadow: none !important;
 }
 
 /* 选项卡激活下划线带柔和蓝色微光晕，消除死硬黑块感 */
@@ -343,6 +349,42 @@ html[data-theme-studio="glass-color"] button[class*="_secondary_"] {
   -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate));
   backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate));
   border: 1px solid var(--ts-glass-edge);
+}
+
+/* 代码块（Code Block）：去除粗重闭合画框，改用极淡发丝微光 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .md-code-block,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .md-code-block pre {
+  background: var(--color-panel) !important;
+  border: 1px solid var(--ts-glass-edge) !important;
+  box-shadow: inset 0 1px 0 var(--ts-glass-highlight), 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .md-code-block pre {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* 引用块（Blockquote）：去除四周闭合实线，仅保留左侧精致彩色引导条 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) blockquote {
+  border-left: 2.5px solid var(--color-brand) !important;
+  border-top: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  background: var(--color-surface) !important;
+  border-radius: 0 10px 10px 0;
+  box-shadow: inset 0 1px 0 var(--ts-glass-highlight);
+}
+
+/* 全量设置页：消除每个设置页内部各组之间的生硬实线与粗糙闭合边框 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [data-shortcut-modal="settings"] :where(fieldset, section, [class*="_section"], [class*="_card"], [class*="_group"]) {
+  border-color: var(--ts-glass-edge) !important;
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [data-shortcut-modal="settings"] hr,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [data-shortcut-modal="settings"] [class*="_separator"],
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [data-shortcut-modal="settings"] [class*="_divider"] {
+  border-color: var(--ts-glass-edge) !important;
+  opacity: 0.6;
 }
 
 /* ---------------------------------------------------------------------------

@@ -40,7 +40,7 @@ export const GLASS_COLOR_OVERRIDES = {
   toast: { light: 'rgba(250, 251, 255, 0.94)', dark: 'rgba(52, 54, 74, 0.94)' },
   tooltip: { light: 'rgba(248, 249, 255, 0.94)', dark: 'rgba(46, 48, 66, 0.94)' },
   'card-selected': { light: 'rgba(255, 255, 255, 0.95)', dark: 'rgba(64, 66, 88, 0.94)' },
-  'card-border': { light: 'rgba(255, 255, 255, 0.92)', dark: 'rgba(160, 170, 255, 0.16)' },
+  'card-border': { light: 'rgba(255, 255, 255, 0.60)', dark: 'rgba(160, 170, 255, 0.08)' },
   'input-focused': { light: 'rgba(255, 255, 255, 0.97)', dark: 'rgba(68, 70, 94, 0.94)' },
 
   // —— 强调：SystemIndigo，比基座的系统蓝更有「彩色玻璃」味道 ——
@@ -154,14 +154,14 @@ export const GLASS_COLOR_MATERIAL = {
   '--ts-blur': '36px',
   '--ts-saturate': '200%',
   '--ts-glass-tint': 'rgba(226, 228, 255, 0.44)',
-  '--ts-glass-highlight': 'rgba(255, 255, 255, 0.76)',
-  '--ts-glass-edge': 'rgba(228, 230, 255, 0.92)',
+  '--ts-glass-highlight': 'rgba(255, 255, 255, 0.60)',
+  '--ts-glass-edge': 'rgba(228, 230, 255, 0.55)',
   '--ts-surface-alpha': '84%',
 }
 
 /** 彩色玻璃的暗色材质。 */
 export const GLASS_COLOR_MATERIAL_DARK = {
-  '--ts-glass-tint': 'rgba(120, 122, 200, 0.18)',
-  '--ts-glass-highlight': 'rgba(190, 192, 255, 0.18)',
-  '--ts-glass-edge': 'rgba(170, 172, 255, 0.22)',
+  '--ts-glass-tint': 'rgba(120, 122, 200, 0.10)',
+  '--ts-glass-highlight': 'rgba(190, 192, 255, 0.08)',
+  '--ts-glass-edge': 'rgba(170, 172, 255, 0.08)',
 }
