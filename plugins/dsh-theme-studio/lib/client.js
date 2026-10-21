@@ -381,6 +381,7 @@ window.__ModuleLoader__.load({
 .ts-colors{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
 .ts-color{display:flex;align-items:center;gap:8px}
 .ts-color .ts-input[type=text]{flex:1 1 auto;min-width:0}
+.ts-color .ts-input[type=color]{flex:0 0 34px;width:34px;height:34px;padding:2px;cursor:pointer;border-radius:var(--dsw-radius-sm)}
 .ts-hint{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin:0;word-break:break-all}
 select.ts-input{cursor:pointer;padding-right:24px}
 select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}
@@ -437,6 +438,32 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
           h('option', { key: opt.label, value: opt.value }, opt.label)
         )
       )
+    }
+
+    /** 颜色输入复合控件：左侧拾色器 + 右侧直接输入色号文本框 + 复位按钮。 */
+    function colorInput(current, onPick, placeholder, defaultColor = '#1a1a1a') {
+      return h('div', { className: 'ts-color', style: { width: '100%' } },
+        h('input', {
+          className: 'ts-input',
+          type: 'color',
+          title: '点击调出拾色器',
+          value: toColorInputValue(current, defaultColor),
+          onChange: (e) => onPick(e.target.value),
+        }),
+        h('input', {
+          className: 'ts-input',
+          type: 'text',
+          placeholder: placeholder || '例如 #1e1e2e 或 rgba(20,20,25,0.8)',
+          value: current ?? '',
+          onChange: (e) => onPick(e.target.value.trim()),
+        }),
+        current
+          ? h('button', {
+              className: 'ts-btn ts-btn-mini',
+              type: 'button',
+              onClick: () => onPick(''),
+            }, '复位')
+          : null)
     }
 
     /** 主题卡片。 */
@@ -615,12 +642,19 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
       ), { flex: '0 0 auto' })
 
       const colorControl = background.mode === 'color'
-        ? field('背景色', h('input', {
-            className: 'ts-input',
-            type: 'color',
-            value: toColorInputValue(background.value, '#1a1a1a'),
-            onChange: (e) => patchBackground('value', e.target.value),
-          }))
+        ? field('背景颜色（支持直接输入色号）', colorInput(
+            background.value,
+            (val) => patchBackground('value', val),
+            '例如 #1e1e2e 或 #f5f5f5'
+          ))
+        : null
+
+      const imageColorControl = background.mode === 'image'
+        ? field('衬底底色（可选，支持直接输入色号）', colorInput(
+            background.value,
+            (val) => patchBackground('value', val),
+            '例如 #1e1e2e 或 rgba(0,0,0,0.5)'
+          ))
         : null
 
       // —— 背景图片控件 ——
@@ -693,31 +727,13 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
 
       // —— 字段颜色 ——
       const colorGrid = h('div', { className: 'ts-colors' },
-        FIELD_COLOR_ROLES.map((role) => {
-          const current = fieldColors[role.key]
-          return h('div', { key: role.key, className: 'ts-color' },
-            h('input', {
-              className: 'ts-input',
-              type: 'color',
-              title: role.label,
-              value: toColorInputValue(current, '#888888'),
-              onChange: (e) => patchColor(role.key, e.target.value),
-            }),
-            h('input', {
-              className: 'ts-input',
-              type: 'text',
-              placeholder: role.label,
-              value: current ?? '',
-              onChange: (e) => patchColor(role.key, e.target.value.trim()),
-            }),
-            current
-              ? h('button', {
-                  className: 'ts-btn ts-btn-mini',
-                  type: 'button',
-                  onClick: () => patchColor(role.key, ''),
-                }, '复位')
-              : null)
-        }))
+        FIELD_COLOR_ROLES.map((role) =>
+          field(role.label, colorInput(
+            fieldColors[role.key],
+            (val) => patchColor(role.key, val),
+            role.label,
+            '#888888'
+          ))))
 
       // —— 玻璃材质 ——
       const glassRow = isGlass
@@ -762,6 +778,7 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
           h('div', { className: 'ts-section-title' }, '背景'),
           h('div', { className: 'ts-row' }, modeControl, colorControl),
           imageRow,
+          imageColorControl,
           imagePreview,
           clearRow),
 
