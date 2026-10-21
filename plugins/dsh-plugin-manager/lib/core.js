@@ -383,7 +383,7 @@ export const LOCAL_MONOREPO_PLUGINS = [
     id: 'dsh-theme-studio',
     name: 'dsh-theme-studio',
     title: '主题工作室',
-    description: '4 款可切换内置主题（ZCode 官方 / ZCode 单色极简 / 苹果玻璃 / 玻璃彩色）+ 背景、字体、字号、字段颜色自定义；统一 Token 契约兼容仓库内所有插件。',
+    description: 'DSH 官方多主题与视觉定制中心：内置 ZCode 官方、ZCode 单色极简、苹果玻璃、玻璃彩色 4 款主题，支持自定义背景图/背景色、字体、字号与字段颜色，统一 Token 契约兼容所有插件。',
     author: 'veildawn',
     category: 'ui',
     tags: ['theme', 'glass', 'apple', 'zcode', 'design-system', 'tokens', 'ui'],
