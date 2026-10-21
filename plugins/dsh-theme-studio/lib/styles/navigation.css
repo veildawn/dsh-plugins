@@ -1,5 +1,8 @@
-/* Top Bar / 会话头：宿主真实类名 7yHdaG_header（ui-conversation/WorkspaceHeader）。
-   官方头部是 --color-header 底 + 发丝下边框，tab 选中态用前景色而非品牌蓝。 */
+/* Top Bar / 会话头：宿主真实主顶栏为 wSkVaW_header / _1O6vqW_header，
+   队列/附加栏头部为 _7yHdaG_header / TvmKiG_header。
+   官方头部是 --color-header 底 + 发丝下边框。 */
+html[data-theme-studio] .wSkVaW_header,
+html[data-theme-studio] ._1O6vqW_header,
 html[data-theme-studio] ._7yHdaG_header,
 html[data-theme-studio] .TvmKiG_header {
   background: var(--color-header);
@@ -38,17 +41,31 @@ html[data-theme-studio] ._1O6vqW_headerUtilities [role="menu"] {
   box-shadow: var(--dsw-elevation-prominent);
 }
 
-/* 官方 Tab 选中态：--color-tab-active 底 + 主文字色，不做彩色下划线。 */
+/* 会话选项卡（对话 / 轨迹）：下划线指示器型 Tab。
+   背景必须为透明，彻底消除紧贴文字边缘的长方形惨白背景色块。
+   激活时文字提亮为主前景色，未激活为次要前景色。 */
+html[data-theme-studio] .wSkVaW_tab,
+html[data-theme-studio] ._1O6vqW_tab {
+  background: transparent !important;
+  color: var(--color-foreground-subtle);
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+html[data-theme-studio] .wSkVaW_tab:hover,
+html[data-theme-studio] ._1O6vqW_tab:hover {
+  color: var(--color-foreground);
+}
+
 html[data-theme-studio] .wSkVaW_tab[aria-selected="true"],
 html[data-theme-studio] ._1O6vqW_tab[aria-selected="true"],
 html[data-theme-studio] .wSkVaW_tab.wSkVaW_tabActive,
 html[data-theme-studio] ._1O6vqW_tab._1O6vqW_tabActive {
-  background: var(--color-tab-active);
+  background: transparent !important;
   color: var(--color-foreground);
+  font-weight: 600;
 }
 
-html[data-theme-studio] .wSkVaW_tab,
-html[data-theme-studio] ._1O6vqW_tab,
 html[data-theme-studio] .wSkVaW_crumb,
 html[data-theme-studio] ._1O6vqW_crumb {
   color: var(--color-foreground-subtle);
@@ -59,9 +76,18 @@ html[data-theme-studio] ._1O6vqW_crumbCurrent {
   color: var(--color-foreground);
 }
 
+/* 底部指示线：圆润细腻的高亮线，使用主题品牌/强调色，明暗皆有良好对比。 */
+html[data-theme-studio] .wSkVaW_tab:after,
+html[data-theme-studio] ._1O6vqW_tab:after {
+  transition: background-color 0.15s ease;
+}
+
 html[data-theme-studio] .wSkVaW_tab[aria-selected="true"]:after,
 html[data-theme-studio] ._1O6vqW_tab[aria-selected="true"]:after,
 html[data-theme-studio] .wSkVaW_tabActive:after,
 html[data-theme-studio] ._1O6vqW_tabActive:after {
-  background: var(--color-foreground);
+  background: var(--color-primary);
+  height: 2px;
+  border-radius: 999px;
+  bottom: -1px;
 }

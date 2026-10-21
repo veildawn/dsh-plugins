@@ -30,8 +30,10 @@ import { BUILTIN_THEMES, DEFAULT_THEME_ID, THEME_IDS, getTheme, normalizeThemeId
 import { fullThemeCss } from './css.js'
 import {
   BACKGROUND_MIME,
+  CODE_FONT_OPTIONS,
   FIELD_COLOR_ROLES,
   MAX_BACKGROUND_BYTES,
+  TEXT_FONT_OPTIONS,
   backgroundDir,
   customCss,
   loadSettings,
@@ -61,7 +63,7 @@ export const FONT_SIZE_RANGES = Object.freeze({
 })
 
 export { THEME_ATTR, STYLE_ID, THEME_IDS, BUILTIN_THEMES, DEFAULT_THEME_ID, getTheme, normalizeThemeId }
-export { FIELD_COLOR_ROLES, FONT_SIZE_RANGES as FONT_SIZES }
+export { FIELD_COLOR_ROLES, FONT_SIZE_RANGES as FONT_SIZES, TEXT_FONT_OPTIONS, CODE_FONT_OPTIONS }
 export { loadSettings, normalizeSettings, customCss, resolveSettingsPath }
 // 供兼容薄壳（dsh-zcode-theme）及下游复用同一份变量与色板定义。
 export { themeVarsCss }
@@ -225,6 +227,10 @@ export function buildSettingsView(settings, settingsPath) {
     })),
     fieldColorRoles: FIELD_COLOR_ROLES,
     fontSizeRanges: FONT_SIZE_RANGES,
+    fontOptions: {
+      text: TEXT_FONT_OPTIONS,
+      code: CODE_FONT_OPTIONS,
+    },
     backgroundUrl: backgroundUrl(settings.background?.file),
     backgroundDir: backgroundDir(settingsPath),
     settingsFile: settingsPath,

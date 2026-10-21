@@ -108,17 +108,23 @@ html[data-theme-studio="glass-color"] ._LS25G_sidebarCol {
    - 半透明底（--color-header 本身就是半透明）
    - 模糊 + 饱和
    - 底边一条 1px 光边，而不是灰色 hairline */
-html[data-theme-studio="glass"] ._7yHdaG_header,
-html[data-theme-studio="glass"] .TvmKiG_header,
-html[data-theme-studio="glass-color"] ._7yHdaG_header,
-html[data-theme-studio="glass-color"] .TvmKiG_header,
-html[data-theme-studio="glass"] .dsh-mobile-bar,
-html[data-theme-studio="glass-color"] .dsh-mobile-bar {
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .wSkVaW_header,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) ._1O6vqW_header,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) ._7yHdaG_header,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .TvmKiG_header,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .dsh-mobile-bar {
   background: var(--color-header);
   -webkit-backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
   backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
   border-bottom: 1px solid var(--ts-glass-edge);
   box-shadow: inset 0 -1px 0 var(--ts-glass-highlight);
+}
+
+/* 选项卡激活下划线带柔和蓝色微光晕，消除死硬黑块感 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .wSkVaW_tabActive:after,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) ._1O6vqW_tabActive:after {
+  background: var(--color-primary);
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--color-primary) 55%, transparent);
 }
 
 /* ---------------------------------------------------------------------------
@@ -223,7 +229,45 @@ html[data-theme-studio="glass-color"] button[class*="_secondary_"] {
 }
 
 /* ---------------------------------------------------------------------------
-   七、滚动条：玻璃上的滚动条要更细、更淡
+   七、输入框停靠底与设置页面：透明化通透层
+   --------------------------------------------------------------------------- */
+/* 输入框停靠区渐变遮罩：改为透明，不遮挡壁纸与玻璃卡片 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .wSkVaW_composerSeat,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) ._1O6vqW_composerSeat {
+  background: transparent !important;
+}
+
+/* 设置页内部通透化：让弹窗卡片的毛玻璃底透出来，不铺实色遮挡 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [data-shortcut-modal="settings"] nav,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [data-shortcut-modal="settings"] [class*="_options"],
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [data-shortcut-modal="settings"] [class*="_content"],
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .VOzbGW_options,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) ._97McFa_options,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .VOzbGW_nav,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) ._97McFa_nav,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .VOzbGW_content,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) ._97McFa_content {
+  background: transparent !important;
+}
+
+/* 主题工作室自己的设置卡片 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .ts-section {
+  background: var(--color-panel);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.6)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.6)) saturate(var(--ts-saturate));
+  border: 1px solid var(--ts-glass-edge);
+  box-shadow: inset 0 1px 0 var(--ts-glass-highlight);
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .ts-theme {
+  background: var(--color-card);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate));
+  border: 1px solid var(--ts-glass-edge);
+}
+
+/* ---------------------------------------------------------------------------
+   八、滚动条：玻璃上的滚动条要更细、更淡
    ---------------------------------------------------------------------------
    宿主滚动条走 --dsh-scrollbar-thumb，这里只调细度，颜色仍由 Token 决定。 */
 html[data-theme-studio="glass"],
@@ -233,7 +277,7 @@ html[data-theme-studio="glass-color"] {
 }
 
 /* ---------------------------------------------------------------------------
-   八、无障碍：降低透明度偏好
+   九、无障碍：降低透明度偏好
    ---------------------------------------------------------------------------
    有用户会因为视力或晕动症关闭「减少透明度」（macOS 的 Reduce Transparency）。
    此时必须退化为实心表面——半透明 + 模糊在低对比显示器上会显著降低可读性，

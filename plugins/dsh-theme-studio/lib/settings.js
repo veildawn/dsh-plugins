@@ -49,6 +49,56 @@ export const BACKGROUND_MIME = Object.freeze({
 /** 字体名的最大长度（一个大字体栈足够，再长就是垃圾输入）。 */
 const MAX_FONT_LENGTH = 512
 
+/** 精选正文字体预设选项（供设置面板下拉选择，不让用户手填，防输错与注入）。 */
+export const TEXT_FONT_OPTIONS = Object.freeze([
+  { value: '', label: '跟随主题 / 系统原生默认' },
+  {
+    value: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Helvetica, Arial, sans-serif',
+    label: '苹方 / San Francisco (Apple 风格)',
+  },
+  {
+    value: 'Segoe UI, "Microsoft YaHei UI", "Microsoft YaHei", -apple-system, sans-serif',
+    label: '微软雅黑 / Segoe UI (Windows 推荐)',
+  },
+  {
+    value: '"Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", -apple-system, sans-serif',
+    label: '思源黑体 (Noto Sans SC 均衡)',
+  },
+  {
+    value: 'Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',
+    label: 'Inter (国际现代极简)',
+  },
+  {
+    value: '"LXGW WenKai", "霞鹜文楷", "STKaiti", "KaiTi", serif',
+    label: '霞鹜文楷 / 楷体 (人文舒适阅读)',
+  },
+])
+
+/** 精选代码等宽字体预设选项（等宽 + CJK 回退链，避免中文变宋体）。 */
+export const CODE_FONT_OPTIONS = Object.freeze([
+  { value: '', label: '跟随主题 / 系统等宽默认' },
+  {
+    value: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "PingFang SC", "Microsoft YaHei", monospace',
+    label: 'JetBrains Mono (现代编程推荐)',
+  },
+  {
+    value: '"Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "PingFang SC", "Microsoft YaHei", monospace',
+    label: 'Fira Code (经典连字)',
+  },
+  {
+    value: 'ui-monospace, SFMono-Regular, Menlo, Monaco, "PingFang SC", "Microsoft YaHei", monospace',
+    label: 'SF Mono / Menlo (Apple 终端)',
+  },
+  {
+    value: '"Cascadia Code", Consolas, "Segoe UI Mono", "Microsoft YaHei", monospace',
+    label: 'Cascadia Code / Consolas (微软代码栈)',
+  },
+  {
+    value: '"Source Code Pro", Consolas, Monaco, "PingFang SC", "Microsoft YaHei", monospace',
+    label: 'Source Code Pro (Adobe 经典等宽)',
+  },
+])
+
 /** 字段色的语义角色：设置面板里逐项可改。 */
 export const FIELD_COLOR_ROLES = Object.freeze([
   { key: 'foreground', label: '正文文字', variable: '--color-foreground' },

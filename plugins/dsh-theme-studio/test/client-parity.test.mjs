@@ -120,3 +120,9 @@ test('客户端暴露的属性名与服务端一致', async () => {
   assert.equal(client.internals.THEME_ATTR, server.THEME_ATTR)
   assert.equal(client.internals.STYLE_ID, server.STYLE_ID)
 })
+
+test('正文与代码字体下拉预设选项两端一致', async () => {
+  const { TEXT_FONT_OPTIONS, CODE_FONT_OPTIONS } = await import('../lib/settings.js')
+  assert.deepEqual(client.internals.TEXT_FONT_OPTIONS, TEXT_FONT_OPTIONS, '正文字体选项两端不一致')
+  assert.deepEqual(client.internals.CODE_FONT_OPTIONS, CODE_FONT_OPTIONS, '代码字体选项两端不一致')
+})

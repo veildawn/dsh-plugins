@@ -150,6 +150,56 @@ window.__ModuleLoader__.load({
       ],
     }
 
+    // 与服务端 settings.js 的 TEXT_FONT_OPTIONS 保持一致（测试守护）。
+    const TEXT_FONT_OPTIONS = [
+      { value: '', label: '跟随主题 / 系统原生默认' },
+      {
+        value: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Helvetica, Arial, sans-serif',
+        label: '苹方 / San Francisco (Apple 风格)',
+      },
+      {
+        value: 'Segoe UI, "Microsoft YaHei UI", "Microsoft YaHei", -apple-system, sans-serif',
+        label: '微软雅黑 / Segoe UI (Windows 推荐)',
+      },
+      {
+        value: '"Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", -apple-system, sans-serif',
+        label: '思源黑体 (Noto Sans SC 均衡)',
+      },
+      {
+        value: 'Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif',
+        label: 'Inter (国际现代极简)',
+      },
+      {
+        value: '"LXGW WenKai", "霞鹜文楷", "STKaiti", "KaiTi", serif',
+        label: '霞鹜文楷 / 楷体 (人文舒适阅读)',
+      },
+    ]
+
+    // 与服务端 settings.js 的 CODE_FONT_OPTIONS 保持一致（测试守护）。
+    const CODE_FONT_OPTIONS = [
+      { value: '', label: '跟随主题 / 系统等宽默认' },
+      {
+        value: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "PingFang SC", "Microsoft YaHei", monospace',
+        label: 'JetBrains Mono (现代编程推荐)',
+      },
+      {
+        value: '"Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "PingFang SC", "Microsoft YaHei", monospace',
+        label: 'Fira Code (经典连字)',
+      },
+      {
+        value: 'ui-monospace, SFMono-Regular, Menlo, Monaco, "PingFang SC", "Microsoft YaHei", monospace',
+        label: 'SF Mono / Menlo (Apple 终端)',
+      },
+      {
+        value: '"Cascadia Code", Consolas, "Segoe UI Mono", "Microsoft YaHei", monospace',
+        label: 'Cascadia Code / Consolas (微软代码栈)',
+      },
+      {
+        value: '"Source Code Pro", Consolas, Monaco, "PingFang SC", "Microsoft YaHei", monospace',
+        label: 'Source Code Pro (Adobe 经典等宽)',
+      },
+    ]
+
     // 与服务端 FONT_SIZE_RANGES 一致（测试守护）。
     const FONT_SIZE_RANGES = {
       text: { min: 10, max: 22, label: '正文' },
@@ -332,6 +382,8 @@ window.__ModuleLoader__.load({
 .ts-color{display:flex;align-items:center;gap:8px}
 .ts-color .ts-input[type=text]{flex:1 1 auto;min-width:0}
 .ts-hint{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin:0;word-break:break-all}
+select.ts-input{cursor:pointer;padding-right:24px}
+select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}
 `
 
     /** 读取文件为 data URL。 */
@@ -367,6 +419,24 @@ window.__ModuleLoader__.load({
       return h('label', { className: 'ts-field', style },
         h('span', { className: 'ts-label' }, label),
         children)
+    }
+
+    /** 字体下拉选择控件（只选不填，防止输错与 CSS 注入）。 */
+    function fontSelect(options, current, onPick) {
+      const val = typeof current === 'string' ? current : ''
+      const hasMatch = options.some((opt) => opt.value === val)
+      return h('select', {
+        className: 'ts-input',
+        value: val,
+        onChange: (e) => onPick(e.target.value),
+      },
+        !hasMatch && val !== ''
+          ? h('option', { key: 'current-custom', value: val }, `当前已存自定义: ${val.slice(0, 32)}…`)
+          : null,
+        options.map((opt) =>
+          h('option', { key: opt.label, value: opt.value }, opt.label)
+        )
+      )
     }
 
     /** 主题卡片。 */
@@ -602,21 +672,11 @@ window.__ModuleLoader__.load({
         : null
 
       // —— 字体与字号 ——
+      const textOptions = view?.fontOptions?.text ?? TEXT_FONT_OPTIONS
+      const codeOptions = view?.fontOptions?.code ?? CODE_FONT_OPTIONS
       const fontRow = h('div', { className: 'ts-row' },
-        field('正文字体', h('input', {
-          className: 'ts-input',
-          type: 'text',
-          placeholder: '例如 "PingFang SC", sans-serif',
-          value: fonts.text ?? '',
-          onChange: (e) => patchFont('text', e.target.value),
-        })),
-        field('代码字体', h('input', {
-          className: 'ts-input',
-          type: 'text',
-          placeholder: '例如 "JetBrains Mono", monospace',
-          value: fonts.code ?? '',
-          onChange: (e) => patchFont('code', e.target.value),
-        })))
+        field('正文字体', fontSelect(textOptions, fonts.text, (val) => patchFont('text', val))),
+        field('代码字体', fontSelect(codeOptions, fonts.code, (val) => patchFont('code', val))))
 
       const sizeRow = h('div', { className: 'ts-row' },
         Object.entries(FONT_SIZE_RANGES).map(([role, spec]) =>
@@ -831,6 +891,8 @@ window.__ModuleLoader__.load({
       FIELD_COLOR_ROLES,
       FIELD_HOST_TOKENS,
       FONT_SIZE_RANGES,
+      TEXT_FONT_OPTIONS,
+      CODE_FONT_OPTIONS,
       legacyIdOf,
       applyToDocument,
       customLayerCss,
