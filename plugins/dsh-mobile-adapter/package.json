@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-mobile-adapter",
-  "version": "0.1.53",
+  "version": "0.1.54",
   "description": "Zero-intrusion mobile drawer and responsive layout adapter for DeepSeek Harness Web",
   "type": "module",
   "main": "lib/index.js",
