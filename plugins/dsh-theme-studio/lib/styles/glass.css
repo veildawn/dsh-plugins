@@ -286,6 +286,30 @@ html[data-theme-studio="glass-color"] .Qt4Hga_card:focus-within {
   color: var(--color-foreground) !important;
 }
 
+/* 移动端输入框上方模型徽标：Apple 悬浮毛玻璃胶囊与品牌呼吸灯 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .dsh-mobile-composer-info {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--ts-glass-edge) !important;
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 2px 8px rgba(0, 0, 0, 0.05) !important;
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate));
+  color: var(--color-foreground-subtle) !important;
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .dsh-mobile-composer-info::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  margin-right: 6px;
+  flex: none;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-primary) 65%, transparent);
+}
+
 /* ---------------------------------------------------------------------------
    六、按钮：玻璃主题下的实心主按钮要保留「可按」的实感
    ---------------------------------------------------------------------------
