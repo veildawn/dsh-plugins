@@ -33,6 +33,19 @@ window.__ModuleLoader__.load({
         .dsh-mobile-icon:hover,.dsh-mobile-icon:active,.dsh-mobile-view:hover,.dsh-mobile-view:active{background:var(--dsw-alias-interactive-bg-hover)}
         .dsh-mobile-view{box-sizing:border-box;min-width:72px;height:44px;flex:none;border:0;border-radius:12px;background:transparent;color:inherit;font:600 13px/1 var(--dsw-font-family);display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 10px;cursor:pointer;white-space:nowrap}
         .dsh-mobile-view[hidden]{display:none}
+        /* 全屏切换：进入后隐藏顶栏，会话区收回被顶栏占用的 52px 上内边距，
+           让内容真正铺满整块屏幕；再点同一按钮（浮层小胶囊）退出。 */
+        .dsh-mobile-fullscreen-toggle{box-sizing:border-box;width:40px;min-width:40px;height:36px;flex:none;border:0;border-radius:10px;background:transparent;color:inherit;display:inline-grid;place-items:center;cursor:pointer;padding:0}
+        .dsh-mobile-fullscreen-toggle:hover,.dsh-mobile-fullscreen-toggle:active{background:var(--dsw-alias-interactive-bg-hover)}
+        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-bar{display:none!important}
+        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-fullscreen-toggle{position:fixed;z-index:940;top:calc(6px + var(--dsh-sat));right:max(6px,var(--dsh-sar));width:30px;min-width:30px;height:30px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-base) 82%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:var(--dsw-shadow-lv2);opacity:.5;transition:opacity .18s var(--ds-ease-in-out)}
+        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-fullscreen-toggle:hover,
+        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-fullscreen-toggle:active,
+        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-fullscreen-toggle:focus-visible{opacity:1}
+        html[data-dsh-mobile-fullscreen=true] .pI_x6G_centerCol,
+        html[data-dsh-mobile-fullscreen=true] [data-slot="root"]>div>div:has(>[data-slot="conversation"]),
+        html[data-dsh-mobile-fullscreen=true] [data-slot="root"]>div>div:has([data-slot*="main"]),
+        html[data-dsh-mobile-fullscreen=true] [data-slot="root"]>div>div:has([data-slot*="conversation"]){padding-top:var(--dsh-sat)!important}
         .dsh-mobile-titlebox{min-width:0;flex:1;display:flex;flex-direction:column;justify-content:center;gap:1px}
         .dsh-mobile-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--dsw-font-s-strong-14);font-weight:600}
         .dsh-mobile-status{display:flex;width:max-content;max-width:100%;align-items:center;gap:5px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -594,7 +607,14 @@ window.__ModuleLoader__.load({
       const view = doc.createElement('button')
       view.type = 'button'
       view.className = 'dsh-mobile-view'
-      bar.append(menu, titleBox, view)
+
+      // 全屏切换：进入后顶栏隐藏、会话区铺满整屏；退出按钮以浮层小胶囊停在右上角。
+      const fullscreenToggle = doc.createElement('button')
+      fullscreenToggle.type = 'button'
+      fullscreenToggle.className = 'dsh-mobile-fullscreen-toggle'
+      fullscreenToggle.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 5.6V2.6h3M14 5.6V2.6h-3M2 10.4v3h3M14 10.4v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+
+      bar.append(menu, titleBox, view, fullscreenToggle)
 
       const backdrop = doc.createElement('button')
       backdrop.type = 'button'
@@ -814,6 +834,9 @@ window.__ModuleLoader__.load({
 
       const sync = () => {
         const mobile = media.matches
+        // 视口变宽（旋转到平板/桌面）时全屏失去意义：顶栏本来就不占位，
+        // 停在「隐藏顶栏」状态会让用户找不到菜单入口，这里静默退回。
+        if (!mobile && fullscreen) applyFullscreen(false)
         const open = isOpen()
         const sidebar = sidebarOf()
         const state = statusOf(doc)
@@ -949,6 +972,51 @@ window.__ModuleLoader__.load({
 
       menu.addEventListener('click', toggle)
       backdrop.addEventListener('click', () => close(true))
+
+      // —— 全屏切换 ——
+      // 状态只活在内存里：全屏是即时浏览偏好，不该跨刷新持久化——
+      // 用户下次打开应用时更希望看到带导航栏的正常界面。
+      let fullscreen = false
+      const isFullscreen = () => fullscreen
+      /**
+       * 应用全屏状态。
+       *
+       * 顶栏在全屏时被 `display:none` 隐藏，所以退出按钮必须**移出**顶栏挂到
+       * body 上，由 CSS 的 fixed 定位把它变成右上角半透明浮层胶囊；退出全屏
+       * 时再搬回顶栏右侧，恢复成普通工具按钮。
+       */
+      const applyFullscreen = (next) => {
+        const target = Boolean(next) && media.matches
+        fullscreen = target
+        // 属性挂在 <html> 上：CSS 里所有全屏规则都以 html[data-dsh-mobile-fullscreen]
+        // 为作用域，挂到 #root 会让这些规则一条都不命中。
+        const rootEl = doc.documentElement
+        if (target) {
+          rootEl.setAttribute('data-dsh-mobile-fullscreen', 'true')
+          if (fullscreenToggle.parentElement !== doc.body) doc.body.append(fullscreenToggle)
+        } else {
+          rootEl.removeAttribute('data-dsh-mobile-fullscreen')
+          if (fullscreenToggle.parentElement !== bar) bar.append(fullscreenToggle)
+        }
+        const nextLabel = target ? '退出全屏' : '进入全屏'
+        if (fullscreenToggle.getAttribute('aria-label') !== nextLabel) {
+          fullscreenToggle.setAttribute('aria-label', nextLabel)
+          fullscreenToggle.title = nextLabel
+        }
+        fullscreenToggle.setAttribute('aria-pressed', String(target))
+        // 相关布局变量变化后让宿主的 sticky/滚动容器重新测量。
+        // 不派发 win.Event：测试替身与部分 WebView 没有该构造器，
+        // 直接调用已有的 syncViewport 更可靠，也不依赖事件系统。
+        win.requestAnimationFrame(() => syncViewport())
+      }
+
+      fullscreenToggle.addEventListener('click', () => {
+        // 进入全屏前先收起侧边抽屉，否则它会盖住刚铺满的内容区
+        if (!fullscreen && isOpen()) close(false)
+        applyFullscreen(!fullscreen)
+        sync()
+      })
+
       view.addEventListener('click', () => {
         if (isRightbarOpen()) {
           closeRightbar()

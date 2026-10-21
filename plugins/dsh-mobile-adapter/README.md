@@ -14,15 +14,16 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 - 📑 **抽屉与弹窗防溢出**：对侧边栏会话抽屉、历史记录抽屉等全部进行移动端全屏/半屏底部抽屉（Bottom Sheet）自适应改造。
 - ↩️ **右侧栏（文件/终端）避让与一键返回**：右侧栏在移动端展开时自动避开顶部导航栏并放大 tab 与收起按钮触控区，顶栏右上角变为「← 对话」一键收起面板回到会话；冷启动恢复页面时若右侧栏曾处于展开态，自动收起，不再出现刷新或重开网页后被锁在文件栏、回不到对话的问题。
 - 🔍 **聚焦输入不再整页放大**：iOS Safari 会对计算字号小于 16px 的可编辑元素（输入框已是 contenteditable）聚焦时强制放大整个视口，顶栏按钮随之被挤出屏幕。输入区字号现统一抬到 16px 下限（用户在设置里选定的更大字号照常生效），聚焦时页面保持原有缩放，按钮不再消失。
+- ⛶ **一键全屏沉浸**：顶栏右侧提供全屏切换按钮。进入后顶栏隐藏、会话区收回被占用的 52px 上内边距，内容真正铺满整屏；退出按钮搬出顶栏、以半透明毛玻璃浮层胶囊常驻右上角（默认 50% 透明度，悬停/聚焦恢复），不会随顶栏一起消失。进入前自动收起侧边抽屉，旋转到平板/桌面宽度时静默退回普通模式；状态只存内存不落盘，刷新后回到带导航栏的正常界面。
 
 ## 安装
 
 ```bash
 # 1. 使用 GitHub Release 在线安装
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.53/dsh-mobile-adapter-0.1.53.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.55/dsh-mobile-adapter-0.1.55.tgz
 
 # 2. 或在本地打包安装
-dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.53.tgz
+dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.55.tgz
 ```
 
 ## 选择器契约

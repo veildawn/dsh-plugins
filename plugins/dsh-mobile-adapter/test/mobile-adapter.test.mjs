@@ -348,6 +348,11 @@ test('Conversation mobile CSS keeps a bounded scrollport and compact composer st
   const css = cssForAssertions
   assert.match(css, /max-width:768px/)
   assert.match(css, /\.dsh-mobile-bar\{[^}]*display:flex/)
+  // 全屏切换：进入后顶栏隐藏、会话区收回顶部内边距、退出按钮以浮层胶囊常驻右上角
+  assert.match(css, /html\[data-dsh-mobile-fullscreen=true\] \.dsh-mobile-bar\{display:none!important\}/)
+  assert.match(css, /html\[data-dsh-mobile-fullscreen=true\] \.dsh-mobile-fullscreen-toggle\{position:fixed;[^}]*top:calc\(6px \+ var\(--dsh-sat\)\);right:max\(6px,var\(--dsh-sar\)\)/)
+  assert.match(css, /html\[data-dsh-mobile-fullscreen=true\] \.pI_x6G_centerCol,[\s\S]*padding-top:var\(--dsh-sat\)!important\}/)
+  assert.match(css, /\.dsh-mobile-fullscreen-toggle\{[^}]*width:40px/)
   assert.match(css, /\.dsh-mobile-status\{[^}]*font-size:11px;[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/)
   assert.match(css, /\.dsh-mobile-status\[data-plan=true\]\{[^}]*color:var\(--dsw-alias-state-warn-label\);font-weight:600\}/)
   assert.match(css, /100dvh/)
@@ -727,7 +732,7 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   client.apply(f.ctx)
   const bar = f.doc.body.children.find((node) => node.className === 'dsh-mobile-bar')
   const backdrop = f.doc.body.children.find((node) => node.className === 'dsh-mobile-backdrop')
-  const [menu, titleBox, view] = bar.children
+  const [menu, titleBox, view, fullscreenToggle] = bar.children
   const [title, status] = titleBox.children
   assert.equal(bar.hidden, false)
   assert.equal(title.textContent, '移动端适配会话')
@@ -837,6 +842,27 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   f.doc.activeElement = f.doc.body
   f.doc.emit('focusout')
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '0px')
+
+  // —— 全屏切换 ——
+  // 状态挂在 <html> 上（CSS 规则全部以 html[data-dsh-mobile-fullscreen] 为作用域），
+  // 退出按钮必须从顶栏搬到 body，否则顶栏被 display:none 后按钮一起消失。
+  assert.equal(fullscreenToggle.parentElement, bar, '全屏按钮默认在顶栏内')
+  assert.equal(fullscreenToggle.getAttribute('aria-label'), null, '初始未写 aria-label')
+  fullscreenToggle.emit('click')
+  assert.equal(f.doc.documentElement.getAttribute('data-dsh-mobile-fullscreen'), 'true')
+  assert.equal(fullscreenToggle.parentElement, f.doc.body, '进入全屏后按钮搬到 body 上作浮层')
+  assert.equal(fullscreenToggle.getAttribute('aria-label'), '退出全屏')
+  assert.equal(fullscreenToggle.getAttribute('aria-pressed'), 'true')
+
+  fullscreenToggle.emit('click')
+  assert.equal(f.doc.documentElement.getAttribute('data-dsh-mobile-fullscreen'), null)
+  assert.equal(fullscreenToggle.parentElement, bar, '退出全屏后按钮搬回顶栏')
+  assert.equal(fullscreenToggle.getAttribute('aria-label'), '进入全屏')
+  assert.equal(fullscreenToggle.getAttribute('aria-pressed'), 'false')
+
+  // 全屏时打开侧栏要先收起：否则抽屉会盖住刚铺满的内容区
+  fullscreenToggle.emit('click')
+  menu.emit('click')
 
   const uploadBtn = f.doc.tools.children.find((node) => node.className === 'dsh-mobile-upload-btn')
   assert(uploadBtn, 'upload button should be prepended into composer tools in mobile mode')
