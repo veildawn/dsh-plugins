@@ -33,8 +33,11 @@ window.__ModuleLoader__.load({
         .dsh-mobile-icon:hover,.dsh-mobile-icon:active,.dsh-mobile-view:hover,.dsh-mobile-view:active{background:var(--dsw-alias-interactive-bg-hover)}
         .dsh-mobile-view{box-sizing:border-box;min-width:72px;height:44px;flex:none;border:0;border-radius:12px;background:transparent;color:inherit;font:600 13px/1 var(--dsw-font-family);display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 10px;cursor:pointer;white-space:nowrap}
         .dsh-mobile-view[hidden]{display:none}
-        /* 全屏切换：进入后隐藏顶栏，会话区收回被顶栏占用的 52px 上内边距，
-           让内容真正铺满整块屏幕；再点同一按钮（浮层小胶囊）退出。 */
+        /* 全屏切换：两层同时生效。
+           1) 应用层：隐藏自绘顶栏、内容区收回 52px 上内边距；
+           2) 浏览器层：脚本调 requestFullscreen()，让浏览器自身的地址栏与底部
+              工具栏一起收起（这两条属于浏览器 chrome，CSS 动不了）。
+           浏览器进入全屏后视口高度会变化，这里让根容器跟随 100dvh 重新铺满。 */
         .dsh-mobile-fullscreen-toggle{box-sizing:border-box;width:40px;min-width:40px;height:36px;flex:none;border:0;border-radius:10px;background:transparent;color:inherit;display:inline-grid;place-items:center;cursor:pointer;padding:0}
         .dsh-mobile-fullscreen-toggle:hover,.dsh-mobile-fullscreen-toggle:active{background:var(--dsw-alias-interactive-bg-hover)}
         html[data-dsh-mobile-fullscreen=true] .dsh-mobile-bar{display:none!important}
@@ -46,6 +49,17 @@ window.__ModuleLoader__.load({
         html[data-dsh-mobile-fullscreen=true] [data-slot="root"]>div>div:has(>[data-slot="conversation"]),
         html[data-dsh-mobile-fullscreen=true] [data-slot="root"]>div>div:has([data-slot*="main"]),
         html[data-dsh-mobile-fullscreen=true] [data-slot="root"]>div>div:has([data-slot*="conversation"]){padding-top:var(--dsh-sat)!important}
+        /* 浏览器全屏后视口变高：根容器与滚动区跟随重铺，避免底部留白或
+           输入框被挤出屏幕。用 :fullscreen 伪类双保险——即使脚本没能改到
+           data 属性（例如用户通过浏览器菜单进入全屏），布局也能自洽。 */
+        html[data-dsh-mobile-fullscreen=true],
+        html[data-dsh-mobile-fullscreen=true] body,
+        html:fullscreen,
+        html:fullscreen body{height:100dvh!important;overflow:hidden!important}
+        html[data-dsh-mobile-fullscreen=true] #root,
+        html:fullscreen #root{height:100dvh!important}
+        html[data-dsh-mobile-fullscreen=true] [data-composer-seat],
+        html:fullscreen [data-composer-seat]{padding-bottom:max(8px,var(--dsh-sab))!important}
         .dsh-mobile-titlebox{min-width:0;flex:1;display:flex;flex-direction:column;justify-content:center;gap:1px}
         .dsh-mobile-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--dsw-font-s-strong-14);font-weight:600}
         .dsh-mobile-status{display:flex;width:max-content;max-width:100%;align-items:center;gap:5px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -974,29 +988,75 @@ window.__ModuleLoader__.load({
       backdrop.addEventListener('click', () => close(true))
 
       // —— 全屏切换 ——
-      // 状态只活在内存里：全屏是即时浏览偏好，不该跨刷新持久化——
-      // 用户下次打开应用时更希望看到带导航栏的正常界面。
+      // 分两层：
+      //   1) 应用层：隐藏自绘顶栏、内容区收回 52px 上内边距（属性 + CSS）；
+      //   2) 浏览器层：调 Fullscreen API 让浏览器自身的地址栏与底部工具栏一起隐藏。
+      // 只做第 1 层时，手机上看到的仍是「应用顶栏没了，但浏览器导航栏和底部工具栏
+      // 都还在」，用户会认为全屏没生效——这两条栏属于浏览器 chrome，只能靠
+      // requestFullscreen() 收起。
+      // 状态只活在内存里：全屏是即时浏览偏好，不该跨刷新持久化。
       let fullscreen = false
       const isFullscreen = () => fullscreen
+      const docEl = doc.documentElement
+      // 记录是否为「我们自己发起的」浏览器全屏，避免用户按 Esc 退出时误把
+      // 应用层状态也留在半屏错位状态。
+      let browserFullscreenRequested = false
+
+      const fullscreenElementOf = () =>
+        doc.fullscreenElement || doc.webkitFullscreenElement || null
+
+      const requestBrowserFullscreen = () => {
+        const request = docEl.requestFullscreen || docEl.webkitRequestFullscreen
+        if (typeof request !== 'function') return
+        browserFullscreenRequested = true
+        try {
+          const result = request.call(docEl, { navigationUI: 'hide' })
+          // 标准 API 返回 Promise；webOS/旧 WebView 可能返回 undefined。
+          if (result && typeof result.catch === 'function') {
+            result.catch(() => { browserFullscreenRequested = false })
+          }
+        } catch (_) {
+          browserFullscreenRequested = false
+        }
+      }
+
+      const exitBrowserFullscreen = () => {
+        browserFullscreenRequested = false
+        if (fullscreenElementOf() === null) return
+        const exit = doc.exitFullscreen || doc.webkitExitFullscreen
+        if (typeof exit !== 'function') return
+        try {
+          const result = exit.call(doc)
+          if (result && typeof result.catch === 'function') result.catch(() => {})
+        } catch (_) {}
+      }
+
       /**
        * 应用全屏状态。
        *
        * 顶栏在全屏时被 `display:none` 隐藏，所以退出按钮必须**移出**顶栏挂到
        * body 上，由 CSS 的 fixed 定位把它变成右上角半透明浮层胶囊；退出全屏
        * 时再搬回顶栏右侧，恢复成普通工具按钮。
+       *
+       * @param {boolean} next 目标状态
+       * @param {{ skipBrowser?: boolean }} [options] skipBrowser 为 true 时不动浏览器层，
+       *   用于响应浏览器自己发起的 fullscreenchange（例如用户按 Esc 退出）。
        */
-      const applyFullscreen = (next) => {
+      const applyFullscreen = (next, options = {}) => {
         const target = Boolean(next) && media.matches
         fullscreen = target
         // 属性挂在 <html> 上：CSS 里所有全屏规则都以 html[data-dsh-mobile-fullscreen]
         // 为作用域，挂到 #root 会让这些规则一条都不命中。
-        const rootEl = doc.documentElement
         if (target) {
-          rootEl.setAttribute('data-dsh-mobile-fullscreen', 'true')
+          docEl.setAttribute('data-dsh-mobile-fullscreen', 'true')
           if (fullscreenToggle.parentElement !== doc.body) doc.body.append(fullscreenToggle)
         } else {
-          rootEl.removeAttribute('data-dsh-mobile-fullscreen')
+          docEl.removeAttribute('data-dsh-mobile-fullscreen')
           if (fullscreenToggle.parentElement !== bar) bar.append(fullscreenToggle)
+        }
+        if (!options.skipBrowser) {
+          if (target) requestBrowserFullscreen()
+          else exitBrowserFullscreen()
         }
         const nextLabel = target ? '退出全屏' : '进入全屏'
         if (fullscreenToggle.getAttribute('aria-label') !== nextLabel) {
@@ -1009,6 +1069,19 @@ window.__ModuleLoader__.load({
         // 直接调用已有的 syncViewport 更可靠，也不依赖事件系统。
         win.requestAnimationFrame(() => syncViewport())
       }
+
+      // 浏览器层退出（用户按 Esc、系统手势、切后台等）时同步应用层：
+      // 否则顶栏仍是隐藏状态，但浏览器工具栏回来了，界面处于半屏错位。
+      // 只处理我们自己发起过的情况，避免宿主/其它插件进入全屏时被我们误退。
+      const onFullscreenChange = () => {
+        if (fullscreenElementOf() !== null) return
+        if (!browserFullscreenRequested) return
+        browserFullscreenRequested = false
+        if (fullscreen) applyFullscreen(false, { skipBrowser: true })
+        sync()
+      }
+      doc.addEventListener('fullscreenchange', onFullscreenChange)
+      doc.addEventListener('webkitfullscreenchange', onFullscreenChange)
 
       fullscreenToggle.addEventListener('click', () => {
         // 进入全屏前先收起侧边抽屉，否则它会盖住刚铺满的内容区
@@ -1169,6 +1242,12 @@ window.__ModuleLoader__.load({
         doc.removeEventListener('keydown', onKeyDown)
         doc.removeEventListener('pointerdown', onPointerDown)
         doc.removeEventListener('pointerup', onPointerUp)
+        doc.removeEventListener('fullscreenchange', onFullscreenChange)
+        doc.removeEventListener('webkitfullscreenchange', onFullscreenChange)
+        // 卸载时若还停在浏览器全屏，必须退出：否则宿主页面被卸载后
+        // 浏览器仍留在全屏态，用户会卡在没有地址栏的空白页里。
+        exitBrowserFullscreen()
+        docEl.removeAttribute('data-dsh-mobile-fullscreen')
         doc.documentElement.style.removeProperty('--dsh-vvh')
         doc.documentElement.style.removeProperty('--dsh-keyboard-inset')
         style.remove()
@@ -1179,6 +1258,7 @@ window.__ModuleLoader__.load({
         toolsBtn.remove()
         toolsBackdrop.remove()
         toolsMenu.remove()
+        fullscreenToggle.remove()
         infoEl.remove()
         const addBtn = doc.querySelector('[data-composer-card] .ccegLa_add, [data-composer-card] .uV2eYG_add, [data-composer-card] [class*="_add"], [data-composer-card] button[aria-haspopup="listbox"]')
         if (addBtn && typeof addBtn.style?.removeProperty === 'function') {

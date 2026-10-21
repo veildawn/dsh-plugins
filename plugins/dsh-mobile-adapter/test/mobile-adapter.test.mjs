@@ -118,6 +118,22 @@ class Document extends Events {
   constructor() {
     super()
     this.documentElement = new Element('html', this)
+    // Fullscreen API 替身：只记录调用次数与当前全屏元素，不模拟真实渲染。
+    this.fullscreenElement = null
+    this.exitFullscreenCalls = 0
+    this.documentElement.requestFullscreenCalls = 0
+    this.documentElement.requestFullscreen = () => {
+      this.documentElement.requestFullscreenCalls += 1
+      this.fullscreenElement = this.documentElement
+      return Promise.resolve()
+    }
+    this.documentElement.webkitRequestFullscreen = this.documentElement.requestFullscreen
+    this.exitFullscreen = () => {
+      this.exitFullscreenCalls += 1
+      this.fullscreenElement = null
+      return Promise.resolve()
+    }
+    this.webkitExitFullscreen = this.exitFullscreen
     this.head = new Element('head', this)
     this.body = new Element('body', this)
     this.root = new Element('div', this)
@@ -353,6 +369,10 @@ test('Conversation mobile CSS keeps a bounded scrollport and compact composer st
   assert.match(css, /html\[data-dsh-mobile-fullscreen=true\] \.dsh-mobile-fullscreen-toggle\{position:fixed;[^}]*top:calc\(6px \+ var\(--dsh-sat\)\);right:max\(6px,var\(--dsh-sar\)\)/)
   assert.match(css, /html\[data-dsh-mobile-fullscreen=true\] \.pI_x6G_centerCol,[\s\S]*padding-top:var\(--dsh-sat\)!important\}/)
   assert.match(css, /\.dsh-mobile-fullscreen-toggle\{[^}]*width:40px/)
+  // 浏览器全屏后视口变高，根容器必须跟随 100dvh 重铺；:fullscreen 伪类作双保险，
+  // 覆盖用户通过浏览器菜单进入全屏（未经过我们的按钮）的场景。
+  assert.match(css, /html\[data-dsh-mobile-fullscreen=true\],[\s\S]*html:fullscreen,[\s\S]*height:100dvh!important;overflow:hidden!important\}/)
+  assert.match(css, /html:fullscreen #root\{height:100dvh!important\}/)
   assert.match(css, /\.dsh-mobile-status\{[^}]*font-size:11px;[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis/)
   assert.match(css, /\.dsh-mobile-status\[data-plan=true\]\{[^}]*color:var\(--dsw-alias-state-warn-label\);font-weight:600\}/)
   assert.match(css, /100dvh/)
@@ -853,12 +873,28 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   assert.equal(fullscreenToggle.parentElement, f.doc.body, '进入全屏后按钮搬到 body 上作浮层')
   assert.equal(fullscreenToggle.getAttribute('aria-label'), '退出全屏')
   assert.equal(fullscreenToggle.getAttribute('aria-pressed'), 'true')
+  // 浏览器层必须真的调用 requestFullscreen：只隐藏自绘顶栏时，手机上的浏览器
+  // 地址栏与底部工具栏仍在，用户会认为全屏完全没生效。
+  assert.equal(f.doc.documentElement.requestFullscreenCalls, 1, '必须调用浏览器 Fullscreen API')
+  assert.equal(f.doc.fullscreenElement, f.doc.documentElement, '进入全屏后 document.fullscreenElement 指向 html')
 
   fullscreenToggle.emit('click')
   assert.equal(f.doc.documentElement.getAttribute('data-dsh-mobile-fullscreen'), null)
   assert.equal(fullscreenToggle.parentElement, bar, '退出全屏后按钮搬回顶栏')
   assert.equal(fullscreenToggle.getAttribute('aria-label'), '进入全屏')
   assert.equal(fullscreenToggle.getAttribute('aria-pressed'), 'false')
+  assert.equal(f.doc.exitFullscreenCalls, 1, '退出时必须调 exitFullscreen')
+  assert.equal(f.doc.fullscreenElement, null)
+
+  // 浏览器自行退出（用户按 Esc / 系统手势）时应用层要跟着复位，
+  // 否则顶栏仍是隐藏的、浏览器工具栏却回来了，界面处于半屏错位。
+  fullscreenToggle.emit('click')
+  assert.equal(f.doc.documentElement.getAttribute('data-dsh-mobile-fullscreen'), 'true')
+  f.doc.fullscreenElement = null
+  f.doc.emit('fullscreenchange')
+  assert.equal(f.doc.documentElement.getAttribute('data-dsh-mobile-fullscreen'), null,
+    '浏览器层退出后应用层同步复位')
+  assert.equal(fullscreenToggle.parentElement, bar, '复位后按钮回到顶栏')
 
   // 全屏时打开侧栏要先收起：否则抽屉会盖住刚铺满的内容区
   fullscreenToggle.emit('click')
