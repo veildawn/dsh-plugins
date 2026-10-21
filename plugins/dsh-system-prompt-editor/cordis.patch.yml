@@ -1,0 +1,57 @@
+# dsh-system-prompt-editor 的 cordis patch。
+#
+# 加载方式（在 profile 里引用本插件包时，dsh 会自动读取 package.json 的
+# dsh.bundle.patch 指向本文件）：
+#   dsh plugin --profile web add ./plugins/dsh-system-prompt-editor
+#
+# 本插件只在**全局层**注册一次：
+#   - 改写已有段落走 `system-prompt/assemble` waterfall（全局监听器可收到所有
+#     scope 的组装请求，因此天然对所有会话生效）；
+#   - 追加段落走 `systemPrompt.section()`，使用带命名空间的 section 名
+#     （`prompt-editor:custom:*`），不会与官方或其它插件冲突。
+#
+# 注意：不要把这个插件挂进 agent preset 的 plugins 列表里再加一份——
+# 配置只应存一份，按预设/会话的差异化请用规则里的 `applyTo` 字段表达。
+- insert:
+    - id: system-prompt-editor
+      name: './lib/index.js'
+      inject:
+        - systemPrompt
+      config:
+        # 总开关；关闭后系统提示词完全恢复官方默认，配置仍保留。
+        enabled: true
+
+        # 本地持久化文件路径。留空则使用
+        # ~/.dsh/system-prompt-editor/settings.json
+        #
+        # 当 profile 里存在 settings 服务时，配置会优先写入 profile 文档，
+        # 这个路径只作为 settings 不可用时的兜底。
+        settingsFile: ''
+
+        # 改写规则。默认留空，全部在设置页「系统提示词」里可视化编辑。
+        #
+        # 规则结构示例（前端保存时会写成这种形式）：
+        #   - id: rename-identity
+        #     enabled: true
+        #     match:
+        #       kind: name            # all | name | prefix | text | regex
+        #       name: harness:identity
+        #     action:
+        #       kind: replaceText      # replaceText | setText | prepend | append | remove
+        #       find: You are an AI agent powered by DeepSeek Harness.
+        #       replace: You are Aria, an internal engineering assistant.
+        #       all: true
+        #     applyTo:                # 省略表示所有会话
+        #       mode: presets          # presets | sessions
+        #       ids: [standard-zh]
+        rules: []
+
+        # 追加的自定义段落，会作为独立 section 插入提示词。
+        #
+        # 段落结构示例：
+        #   - id: tone
+        #     enabled: true
+        #     text: Always answer in Chinese.
+        #     position: after-persona   # before-persona | after-persona | before-tools | after-tools | end
+        #     # order: 10210           # 显式数值优先于 position
+        appendSections: []

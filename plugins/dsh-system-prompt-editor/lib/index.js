@@ -1,0 +1,522 @@
+/**
+ * dsh-system-prompt-editor 宿主端。
+ *
+ * 职责：
+ *  1. 把配置（settings 服务 / 本地 JSON）读进内存，并在变更时刷新；
+ *  2. 通过 `system-prompt/assemble` waterfall 改写已组装的 sections；
+ *  3. 通过 `systemPrompt.section()` 注册用户追加的自定义段落；
+ *  4. 通过 `connection.rpc` 暴露设置页所需的方法。
+ *
+ * 为什么以 waterfall 为主通道：
+ * `harness:identity`、`deployment:persona-prefix` 等 section 已在全局层硬编码
+ * 注册，全局再注册同名会直接抛错（`prompt section "x" is already registered`）。
+ * 而 waterfall 拿到的就是最终 assembly，返回值权威，因此全局插件也能安全地
+ * 改写任意段落，且不会与其它插件抢占 section 命名空间。
+ *
+ * @module @weniatall/dsh-system-prompt-editor
+ */
+
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+import z from '@deepseek-ai/schemastery'
+
+import {
+  CUSTOM_SECTION_PREFIX,
+  NS,
+  asText,
+  applyRules,
+  defaultConfig,
+  findUnknownVariables,
+  normalizeConfig,
+  renderSections,
+} from './core.js'
+
+/** 前端设置页使用的 RPC 通道。 */
+export const RPC_CHANNEL = '/dsh-system-prompt-editor'
+
+/**
+ * 组装上下文里的“旁路”标记。
+ *
+ * 设置页需要展示**真正的系统默认提示词**，但 `systemPrompt.assemble()` 会触发
+ * 所有已注册的 waterfall —— 包括本插件自己。如果不加旁路，`baseline` 拿到的
+ * 会是已经被本插件改写过的文本，用户就永远看不到“默认是什么样”。
+ *
+ * `AssembleContext` 是开放对象（官方类型允许模块扩展），额外字段对其它监听器
+ * 无副作用：它们只会忽略不认识的键。
+ */
+const BYPASS_KEY = '__systemPromptEditorBypass'
+
+/**
+ * 配置 schema。
+ *
+ * 用 `z.any()` 承接规则数组：规则结构由 lib/core.js 的归一化函数校验，
+ * 这里如果写成严格 schema，用户写错一个字段就会导致整个配置加载失败，
+ * 而我们的设计是“坏规则只废掉那一条”。
+ */
+export const Config = z.object({
+  enabled: z.boolean().default(true).description('总开关；关闭后所有规则与追加段落都不生效'),
+  settingsFile: z
+    .string()
+    .default('')
+    .description('本地持久化配置文件路径（留空则使用 ~/.dsh/system-prompt-editor/settings.json）'),
+  rules: z.array(z.any()).default([]).description('提示词改写规则列表'),
+  appendSections: z.array(z.any()).default([]).description('追加的自定义提示词段落列表'),
+})
+
+/** 插件名（Cordis 用于诊断与配置归属）。 */
+export const name = 'system-prompt-editor'
+
+/** 依赖的服务。 */
+export const inject = ['systemPrompt']
+
+/**
+ * 解析 dsh 主目录。
+ * @returns {string} 配置根目录。
+ */
+export function resolveDshHome() {
+  return process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
+}
+
+/**
+ * 默认的本地配置文件路径。
+ * @returns {string} 绝对路径。
+ */
+export function defaultSettingsFilePath() {
+  return path.join(resolveDshHome(), 'system-prompt-editor', 'settings.json')
+}
+
+/**
+ * 解析用户配置的路径，支持 `~` 前缀。
+ * @param {string} configured - 用户配置值。
+ * @returns {string} 绝对路径。
+ */
+export function resolveSettingsFilePath(configured) {
+  const trimmed = asText(configured).trim()
+  if (trimmed === '') return defaultSettingsFilePath()
+  if (trimmed === '~') return os.homedir()
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return path.join(os.homedir(), trimmed.slice(2))
+  }
+  return path.resolve(trimmed)
+}
+
+/**
+ * 读取本地 JSON 配置；任何异常都返回 `null`，由调用方回退到默认值。
+ * @param {string} filePath - 配置文件路径。
+ * @returns {object|null} 解析结果。
+ */
+export function readPersistedSettings(filePath) {
+  try {
+    const target = filePath || defaultSettingsFilePath()
+    if (!fs.existsSync(target)) return null
+    const data = JSON.parse(fs.readFileSync(target, 'utf8'))
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 原子写入本地 JSON 配置。
+ *
+ * 先写临时文件再 `rename`：中途崩溃时旧文件保持完整，
+ * 不会留下半截 JSON 让下次启动读失败。
+ * @param {string} filePath - 目标路径。
+ * @param {object} patch - 要合并的字段。
+ * @returns {boolean} 是否写入成功。
+ */
+export function writePersistedSettings(filePath, patch) {
+  const target = filePath || defaultSettingsFilePath()
+  const temp = `${target}.${process.pid}.tmp`
+  try {
+    const current = readPersistedSettings(target) || {}
+    const next = { ...current, ...patch, updatedAt: new Date().toISOString() }
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+    fs.renameSync(temp, target)
+    return true
+  } catch {
+    try {
+      if (fs.existsSync(temp)) fs.rmSync(temp, { force: true })
+    } catch {
+      // 清理失败不影响返回值。
+    }
+    return false
+  }
+}
+
+/**
+ * 从 agent 上尽力解析当前会话的预设 id 与会话 id。
+ *
+ * 这些字段来自 `dsh-session` / `dsh-agent`，并非所有部署都会提供；
+ * 全部按可选处理，拿不到就返回 `null`，由 `ruleAppliesTo` 决定放行。
+ * @param {unknown} agent - assembly 上下文里的 agent（可能不存在）。
+ * @returns {{presetId: string|null, sessionId: string|null}} 上下文标识。
+ */
+export function resolveAgentIdentity(agent) {
+  const result = { presetId: null, sessionId: null }
+  if (!agent || typeof agent !== 'object') return result
+
+  try {
+    const header = agent.session?.header
+    if (header && typeof header === 'object') {
+      const preset = asText(header.agentPreset).trim()
+      if (preset !== '') result.presetId = preset
+      const id = asText(header.id ?? header.sessionId).trim()
+      if (id !== '') result.sessionId = id
+    }
+  } catch {
+    // 探测失败一律视为未知。
+  }
+
+  if (result.sessionId === null) {
+    try {
+      const id = asText(agent.session?.id).trim()
+      if (id !== '') result.sessionId = id
+    } catch {
+      // 忽略。
+    }
+  }
+
+  return result
+}
+
+/**
+ * 记录非致命诊断日志。
+ * @param {object} ctx - 上下文。
+ * @param {string} message - 日志内容。
+ */
+function warn(ctx, message) {
+  try {
+    if (typeof ctx?.logger?.warn === 'function') ctx.logger.warn(`[system-prompt-editor] ${message}`)
+  } catch {
+    // 诊断日志永不阻断主流程。
+  }
+}
+
+/**
+ * 组装给设置页的视图数据。
+ *
+ * 这是前端唯一的数据入口：它同时返回**当前配置**、**归一化后的真实生效规则**、
+ * **当前系统提示词**（默认展示需求）以及**逐条规则命中情况**。
+ * @param {object} state - 插件运行时状态。
+ * @param {{preview?: object}} [options] - 预览模式：用候选配置渲染而不落盘。
+ * @returns {Promise<object>} 视图数据。
+ */
+export async function buildSettingsView(state, options = {}) {
+  const config = options.preview === undefined
+    ? state.current()
+    : normalizeConfig(options.preview)
+
+  let baseline = null
+  let effective = null
+  let variables = {}
+  let sections = []
+  let ruleResults = []
+  let failure = null
+
+  try {
+    // 组装一次“真正的系统默认提示词”：带上旁路标记，让本插件的 waterfall 跳过
+    // 自己的改写，这样用户看到的 baseline 才是官方原始内容。
+    const baselineAssembly = await state.prompt.assemble({ scope: undefined, [BYPASS_KEY]: true })
+    variables = baselineAssembly?.variables && typeof baselineAssembly.variables === 'object'
+      ? baselineAssembly.variables
+      : {}
+
+    const originalSections = Array.isArray(baselineAssembly?.sections) ? baselineAssembly.sections : []
+    // 追加段落是通过正式 section 注册进入 assembly 的，旁路标记拦不住它们，
+    // 因此这里再按命名空间前缀剔除一次，保证 baseline 是“纯官方默认”。
+    const officialSections = originalSections.filter(
+      (section) => !asText(section?.name).startsWith(CUSTOM_SECTION_PREFIX),
+    )
+    baseline = renderSections(officialSections, variables)
+
+    // 预览要包含自定义段落，否则用户看不到“追加”的效果；
+    // 与宿主 waterfall 不同，这里 includeAppended 默认为 true。
+    const rewritten = applyRules(officialSections, config, {})
+    effective = renderSections(rewritten.sections, variables)
+    ruleResults = rewritten.ruleResults
+
+    sections = originalSections.map((section) => ({
+      name: asText(section?.name),
+      length: asText(section?.text).length,
+      preview: asText(section?.text).slice(0, 240),
+    }))
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error)
+  }
+
+  const unknownVariables = []
+  const collectUnknown = (text) => {
+    for (const varName of findUnknownVariables(text, variables)) {
+      if (!unknownVariables.includes(varName)) unknownVariables.push(varName)
+    }
+  }
+  for (const section of config.appendSections || []) {
+    if (section.enabled) collectUnknown(section.text)
+  }
+  for (const rule of config.rules || []) {
+    if (!rule.enabled || !rule.action) continue
+    if (typeof rule.action.text === 'string') collectUnknown(rule.action.text)
+    if (typeof rule.action.replace === 'string') collectUnknown(rule.action.replace)
+  }
+
+  return {
+    ok: true,
+    channel: RPC_CHANNEL,
+    config,
+    baseline,
+    effective,
+    variables,
+    unknownVariables,
+    sections,
+    ruleResults,
+    diagnostics: config.diagnostics || [],
+    failure,
+    settingsFile: state.settingsFile,
+    storageKind: state.storageKind,
+    hint: failure === null
+      ? 'baseline 是当前系统默认提示词，effective 是套用规则后的结果。'
+      : '无法组装提示词，请检查 systemPrompt 服务是否就绪。',
+  }
+}
+
+/**
+ * 插件入口。
+ * @param {object} ctx - Cordis 上下文。
+ * @param {object} config - 插件配置。
+ */
+export function apply(ctx, config) {
+  let stored = normalizeConfig(config ?? defaultConfig())
+  const listeners = new Set()
+
+  const settingsFile = resolveSettingsFilePath(config?.settingsFile)
+
+  // —— 配置来源 ——
+  // 优先使用官方 settings 服务（配置会进入 profile 文档，随 profile 保存）；
+  // 否则退化为本地 JSON 文件（file-viewer 已验证过的兼容路径）。
+  let storageKind = 'memory'
+  let scope = null
+
+  try {
+    if (typeof ctx.settings?.register === 'function') {
+      const base = ctx.fiber?.entry?.options?.config ?? config ?? {}
+      scope = ctx.settings.register(NS, Config, { base })
+      storageKind = 'settings'
+    }
+  } catch (error) {
+    warn(ctx, `settings 服务注册失败，回退到本地文件：${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  // 走本地文件时必须监听 loader/volatile-update 重新读盘，
+  // 否则另一个浏览器或编辑器改了同一份文件，本进程永远看不到新值。
+  const usingFile = scope === null
+
+  if (usingFile) {
+    const persisted = readPersistedSettings(settingsFile)
+    if (persisted !== null) stored = normalizeConfig(persisted)
+    storageKind = 'file'
+  }
+
+  const current = () => {
+    if (scope !== null) {
+      try {
+        return normalizeConfig(scope.get())
+      } catch (error) {
+        warn(ctx, `读取 settings 失败，沿用内存值：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    return stored
+  }
+
+  // —— 主通道：waterfall 改写 ——
+  const disposeWaterfall = ctx.on('system-prompt/assemble', async (assembly, context, next) => {
+    const result = await next()
+    try {
+      // 设置页请求“纯默认”视图时跳过本插件的改写，否则 baseline 会被自己污染。
+      if (context?.[BYPASS_KEY] === true) return result
+
+      const active = current()
+      if (active.enabled === false) return result
+      if ((active.rules || []).length === 0) return result
+
+      const identity = resolveAgentIdentity(context?.agent)
+      // includeAppended: false —— 自定义段落已通过 systemPrompt.section() 正式注册，
+      // 这里只负责改写已有段落，避免同一段文字出现两次。
+      const outcome = applyRules(result?.sections || [], active, identity, { includeAppended: false })
+
+      // 保留官方其它字段（contexts/tools/variables），只替换 sections。
+      return { ...result, sections: outcome.sections }
+    } catch (error) {
+      // 任何异常都必须放行原始 assembly：宁可提示词没被改，也不能让会话挂掉。
+      warn(ctx, `改写系统提示词失败，已回退原始内容：${error instanceof Error ? error.message : String(error)}`)
+      return result
+    }
+  })
+  ctx.on('dispose', disposeWaterfall)
+
+  // —— 辅通道：追加自定义段落 ——
+  // 这部分走正式的 section 注册，能享受官方排序与插值。
+  // waterfall 里刻意不追加段落（includeAppended: false），否则会与这里重复。
+  const disposers = []
+
+  const syncSections = () => {
+    while (disposers.length > 0) {
+      const dispose = disposers.pop()
+      try {
+        if (typeof dispose === 'function') dispose()
+      } catch {
+        // 卸载失败无妨，后续会重新注册。
+      }
+    }
+
+    const active = current()
+    if (active.enabled === false) return
+
+    for (const section of active.appendSections || []) {
+      if (!section.enabled || !section.valid) continue
+      try {
+        const unregister = ctx.systemPrompt.section({
+          name: section.name,
+          order: section.order,
+          text: section.text,
+        })
+        if (typeof unregister === 'function') disposers.push(unregister)
+      } catch (error) {
+        warn(ctx, `注册自定义段落 "${section.name}" 失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  }
+
+  syncSections()
+  ctx.on('dispose', () => {
+    while (disposers.length > 0) {
+      const dispose = disposers.pop()
+      try {
+        if (typeof dispose === 'function') dispose()
+      } catch {
+        // 忽略。
+      }
+    }
+  })
+
+  // 配置变化时重新同步 section 注册。
+  const notify = () => {
+    for (const listener of listeners) {
+      try {
+        listener()
+      } catch {
+        // 单个监听器失败不影响其它。
+      }
+    }
+  }
+
+  let watchDispose = null
+  if (scope !== null && typeof scope.watch === 'function') {
+    watchDispose = scope.watch(() => {
+      syncSections()
+      notify()
+    })
+  } else if (typeof ctx.on === 'function') {
+    watchDispose = ctx.on('loader/volatile-update', () => {
+      const persisted = readPersistedSettings(settingsFile)
+      if (persisted !== null) {
+        stored = normalizeConfig(persisted)
+        syncSections()
+        notify()
+      }
+    })
+  }
+  if (typeof watchDispose === 'function') ctx.on('dispose', watchDispose)
+
+  const state = {
+    prompt: ctx.systemPrompt,
+    current,
+    settingsFile,
+    storageKind,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    async save(patch) {
+      const normalized = normalizeConfig(patch)
+      if (scope !== null) {
+        const section = {
+          enabled: normalized.enabled,
+          settingsFile: asText(config?.settingsFile),
+          rules: normalized.rules,
+          appendSections: normalized.appendSections,
+        }
+        if (typeof scope.replace === 'function') {
+          await scope.replace(section)
+        } else if (typeof scope.update === 'function') {
+          await scope.update(section)
+        }
+      } else {
+        const ok = writePersistedSettings(settingsFile, {
+          enabled: normalized.enabled,
+          rules: normalized.rules,
+          appendSections: normalized.appendSections,
+        })
+        if (!ok) throw new Error(`写入配置文件失败：${settingsFile}`)
+      }
+      // 只有持久化成功后才更新内存值：若写入失败就抛错，外层不会走到这里，
+      // 因此不会出现"用户以为没保存成功、规则却已经生效"的静默不一致。
+      stored = normalized
+      syncSections()
+      notify()
+      return normalized
+    },
+  }
+
+  // —— RPC：设置页数据通道 ——
+  if (ctx.connection?.rpc?.handle) {
+    ctx.connection.rpc.handle(
+      RPC_CHANNEL,
+      async (method, payload) => {
+        try {
+          if (method === 'describe') {
+            return { ok: true, value: await buildSettingsView(state) }
+          }
+          if (method === 'preview') {
+            const view = await buildSettingsView(state, { preview: payload?.config })
+            return { ok: true, value: view }
+          }
+          if (method === 'save') {
+            const saved = await state.save(payload?.config ?? {})
+            const view = await buildSettingsView(state)
+            return { ok: true, value: { saved, view } }
+          }
+          if (method === 'reset') {
+            const saved = await state.save(defaultConfig())
+            const view = await buildSettingsView(state)
+            return { ok: true, value: { saved, view } }
+          }
+          return { ok: false, error: { message: `未知方法：${String(method)}` } }
+        } catch (error) {
+          return {
+            ok: false,
+            error: { message: error instanceof Error ? error.message : String(error) },
+          }
+        }
+      },
+      { authority: 'trusted-host' },
+    )
+  } else {
+    warn(ctx, 'connection.rpc 不可用，设置页将无法读取配置。')
+  }
+}
+
+/** 便于测试与诊断的内部工具。 */
+export const _internals = {
+  normalizeConfig,
+  resolveAgentIdentity,
+  readPersistedSettings,
+  writePersistedSettings,
+  resolveSettingsFilePath,
+  defaultSettingsFilePath,
+  buildSettingsView,
+}
