@@ -64,9 +64,12 @@ window.__ModuleLoader__.load({
       .spe-card{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-l,12px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform))}
       .spe-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
       .spe-card-title{font-weight:600;font-size:13px}
-      .spe-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+      /* align-items:flex-start —— 同一行里各字段顶部对齐。
+         用 flex-end 时，只要某一侧多出一行文字（例如说明），
+         底部对齐就会把它的控件顶高，与旁边的控件错位。 */
+      .spe-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
       .spe-field{display:flex;flex-direction:column;gap:6px;flex:1 1 200px;min-width:0}
-      .spe-label{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500}
+      .spe-label{color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;line-height:16px}
       .spe-input,.spe-select,.spe-textarea{box-sizing:border-box;width:100%;padding:0 10px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:8px;outline:none;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
       .spe-input,.spe-select{height:34px}
       .spe-textarea{min-height:76px;padding:8px 10px;font-family:var(--dsw-font-family-mono,ui-monospace,monospace);font-size:12px;line-height:18px;resize:vertical}
@@ -87,6 +90,8 @@ window.__ModuleLoader__.load({
       .spe-status.ok{background:color-mix(in srgb,var(--dsw-alias-state-success-primary,#22c55e) 10%,transparent);color:var(--dsw-alias-state-success-primary,#22c55e)}
       .spe-status.err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d84848) 10%,transparent);color:var(--dsw-alias-state-error-primary,#d84848)}
       .spe-hint{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}
+      /* 独立成行的说明：紧跟在某个 spe-row 之后，整体略收紧，不参与行内对齐 */
+      .spe-hint-block{margin-top:-2px;padding-left:2px}
       .spe-empty{padding:18px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
       .spe-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
       .spe-spacer{flex:1 1 auto}
@@ -401,11 +406,6 @@ window.__ModuleLoader__.load({
                     title: section.preview || '',
                   }, sectionLabel(section))),
                 ),
-                react.createElement('span', { className: 'spe-hint' },
-                  view && Array.isArray(view.sections) && view.sections.length > 0
-                    ? '下方列出的是当前真实存在的所有段落，选中即可，无需手填名称。'
-                    : '尚未读取到段落列表，请先点击下方「重新读取」。'
-                ),
               )
               : react.createElement('div', { className: 'spe-field', style: { flex: '2 1 260px' } },
                 react.createElement('label', { className: 'spe-label' },
@@ -421,6 +421,16 @@ window.__ModuleLoader__.load({
                 }),
               ),
           ),
+
+          // 说明文字放在整行下方，而不是塞进右侧 field 里。
+          // 否则右侧比左侧多一行文字，在 align-items:flex-end 下会把
+          // 两个下拉框顶成错位——这正是之前视觉不对齐的原因。
+          rule.matchKind === 'name'
+            ? react.createElement('p', { className: 'spe-hint spe-hint-block' },
+              view && Array.isArray(view.sections) && view.sections.length > 0
+                ? '下拉框列出的是当前真实存在的所有段落，选中即可，无需手填名称。'
+                : '尚未读取到段落列表，请先点击下方「重新读取」。')
+            : null,
 
           react.createElement('div', { className: 'spe-row' },
             react.createElement('div', { className: 'spe-field' },

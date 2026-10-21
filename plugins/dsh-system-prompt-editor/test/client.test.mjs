@@ -290,3 +290,44 @@ test('下拉框提供清空选项', () => {
   const source = readClient()
   assert.match(source, /value: ''\s*\},\s*'（请选择段落）'/)
 })
+
+/**
+ * 回归：同一行内的字段必须顶部对齐，说明文字不得塞进字段内部。
+ *
+ * 背景：曾经把「选择段落」的说明文字放在右侧 spe-field 里，而 .spe-row 用的是
+ * align-items:flex-end。右侧比左侧多一行文字，底部对齐就把右侧下拉框顶高，
+ * 与左侧「定位方式」下拉框错位——视觉上明显不齐。
+ *
+ * 修法有两层，缺一不可：
+ *   1. .spe-row 改为 align-items:flex-start（顶部对齐，任何高度差都不再错位）
+ *   2. 说明文字移出 spe-field，放到整行下方独立渲染
+ */
+
+test('spe-row 使用顶部对齐，避免高度不同的字段错位', () => {
+  const source = readClient()
+  const rowRule = source.match(/\.spe-row\{([^}]*)\}/)
+  assert.ok(rowRule, '应存在 .spe-row 规则')
+  assert.match(rowRule[1], /align-items:flex-start/,
+    '.spe-row 必须顶部对齐；flex-end 会在字段高度不同时造成错位')
+  assert.doesNotMatch(rowRule[1], /align-items:flex-end/)
+})
+
+test('选择段落的说明文字不在字段内部', () => {
+  const source = readClient()
+
+  // 旧写法：spe-field 内部塞一个行内 span hint
+  assert.doesNotMatch(source, /react\.createElement\('span', \{ className: 'spe-hint' \},/,
+    '不应再用行内 span 承载说明文字')
+
+  // 新写法：块级说明，紧跟整行之后
+  assert.match(source, /className: 'spe-hint spe-hint-block'/,
+    '说明文字应作为独立块渲染')
+})
+
+test('spe-label 有固定行高，保证两侧标签基线一致', () => {
+  const source = readClient()
+  const labelRule = source.match(/\.spe-label\{([^}]*)\}/)
+  assert.ok(labelRule, '应存在 .spe-label 规则')
+  assert.match(labelRule[1], /line-height:16px/,
+    '标签需要固定行高，否则两侧标签高度不同也会导致控件错位')
+})
