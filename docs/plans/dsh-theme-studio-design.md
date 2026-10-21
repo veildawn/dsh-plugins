@@ -188,8 +188,8 @@ html[data-theme-studio] body[data-ds-dark-theme] { --color-foreground: #xxx; --d
 
 | 指标 | 结果 |
 | :--- | :--- |
-| 测试 | **111 / 111 通过**（theme-studio）+ **21 / 21**（zcode-theme 薄壳） |
-| 内置主题 | 4 款（ZCode 官方 / ZCode 单色极简 / 苹果玻璃 / 玻璃彩色） |
+| 测试 | **113 / 113 通过**（theme-studio）+ **22 / 22**（zcode-theme 薄壳） |
+| 内置主题 | 系统默认（默认无主题，保持原生） + 4 款定制主题（ZCode 官方 / ZCode 单色极简 / 苹果玻璃 / 玻璃彩色） |
 | 宿主 Token 覆盖 | 145 项，全部明暗成对 |
 | 插件引用覆盖 | 仓库内插件引用的 `--dsw-*` **零缺口**（扫描式守护） |
 | 首屏产物体积 | 全 4 套主题约 217 KB（未压缩；gzip 后约 30 KB） |

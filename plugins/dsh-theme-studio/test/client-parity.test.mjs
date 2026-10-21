@@ -92,8 +92,9 @@ test('旧属性映射两端一致', () => {
   assert.equal(legacyIdOf('zcode-mono'), 'zcode-mono')
   assert.equal(legacyIdOf('glass'), 'glass')
   assert.equal(legacyIdOf('glass-color'), 'glass-color')
-  // 未知 id 回落自身，不抛错
-  assert.equal(legacyIdOf(undefined), 'zcode')
+  assert.equal(legacyIdOf('none'), null)
+  // 未指定或默认时为 none，不映射旧属性
+  assert.equal(legacyIdOf(undefined), null)
 })
 
 test('客户端声明了正确的注入依赖', () => {

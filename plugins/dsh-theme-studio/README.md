@@ -8,16 +8,19 @@ DeepSeek Harness (DSH) Web 的**主题工作室**：内置多款可切换主题�
 
 ## 内置主题
 
+安装后**默认不使用主题**（保持 DSH 官方原生风格与组件外观，零样式侵入）；可在设置中随时按需启用：
+
 | id | 名称 | 风格 |
 | :--- | :--- | :--- |
-| `zcode` | **ZCode 官方**（默认） | 单色品牌 + 灰阶层级，官方 202 项色板逐值对齐 |
+| `none` | **系统默认**（默认） | 保持 DeepSeek Harness 原生界面风格，不使用任何定制主题 |
+| `zcode` | **ZCode 官方** | 单色品牌 + 灰阶层级，官方 202 项色板逐值对齐 |
 | `zcode-mono` | **ZCode 单色极简** | 收敛所有装饰色为灰阶，只保留 destructive 的红色 |
 | `glass` | **苹果玻璃** | Apple Liquid Glass：真实背景模糊、饱和提升、轮廓光描边 |
 | `glass-color` | **玻璃彩色** | 彩色玻璃：更强模糊与色相折射，强调色用 Apple 系统色 |
 
-每款主题都**同时携带明暗两套色板**，由宿主的明暗偏好决定取哪套——用户不需要为
-暗色单独再选一次主题。切换主题只改 `html[data-theme-studio]` 的属性值，
-四套变量块在首屏一次性注入，因此切换是**零闪烁、零重排、零网络请求**的。
+每款具体主题都**同时携带明暗两套色板**，由宿主的明暗偏好决定取哪套——用户不需要为
+暗色单独再选一次主题。切换主题只改 `html[data-theme-studio]` 的属性值（系统默认时自动移除该属性，彻底退化为原生），
+变量块在首屏一次性注入，因此切换是**零闪烁、零重排、零网络请求**的。
 
 ## 统一 Token 契约
 
@@ -174,7 +177,7 @@ dsh plugin --profile web add @weniatall/dsh-theme-studio
 
 ```bash
 cd plugins/dsh-theme-studio && npm pack
-dsh plugin --profile web add ./plugins/dsh-theme-studio/dsh-theme-studio-0.1.2.tgz
+dsh plugin --profile web add ./plugins/dsh-theme-studio/dsh-theme-studio-0.1.3.tgz
 ```
 
 ## 重启生效

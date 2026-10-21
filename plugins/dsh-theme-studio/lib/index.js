@@ -116,16 +116,20 @@ export function themeStyleTag(options = {}) {
 /**
  * 生成设置根属性的内联脚本。
  *
- * 同时写新旧两套属性：
- *   - `data-theme-studio`：本插件的作用域；
- *   - `data-dsh-theme`：旧插件的属性，值是主题的 `legacyId`（玻璃主题没有，
- *     此时写主题 id 本身，保证旧消费者至少能命中一个存在的值）。
+ * 当用户未选择主题或选择「系统默认」时，移除主题属性，让宿主完全保持官方原生样式；
+ * 当选择具体主题时，同时写新旧两套属性（旧属性用于兼容读 data-dsh-theme 的插件）。
  *
  * @param {string} [themeId]
  * @returns {string}
  */
 export function themeScopeScript(themeId) {
   const id = normalizeThemeId(themeId, DEFAULT_THEME_ID)
+  if (id === 'none') {
+    return (
+      `document.documentElement.removeAttribute('${THEME_ATTR}');` +
+      `document.documentElement.removeAttribute('data-dsh-theme');`
+    )
+  }
   const theme = getTheme(id)
   const legacy = theme?.legacyId ?? id
   return (
@@ -150,15 +154,21 @@ export function themeInjections(themeId) {
 /**
  * 给 `<html>` 打上主题 Scope，避免覆盖其它属性。
  *
+ * 默认「系统默认」（none）时不给 html 打任何主题属性，保持干净原生；
+ * 仅当选择了具体主题时才打上 data-theme-studio 与兼容属性。
+ *
  * @param {string} tag
  * @param {string} [themeId]
  * @returns {string}
  */
 export function withThemeAttribute(tag, themeId) {
   const id = normalizeThemeId(themeId, DEFAULT_THEME_ID)
+  const stripped = tag.replace(ATTR_RE, '')
+  if (id === 'none') {
+    return stripped
+  }
   const theme = getTheme(id)
   const legacy = theme?.legacyId ?? id
-  const stripped = tag.replace(ATTR_RE, '')
   return stripped.replace(
     /<html/i,
     `<html ${THEME_ATTR}="${id}" data-dsh-theme="${legacy}"`,

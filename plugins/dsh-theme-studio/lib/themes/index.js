@@ -46,6 +46,15 @@ export {
 } from './glass-color-palette.js'
 export { inheritPalette, inheritMaterial, paletteDiffKeys } from './inherit.js'
 
+/** 系统默认（不使用主题）：保持 DSH 官方原生风格，不覆盖主题色板与组件样式。 */
+export const NONE_THEME = Object.freeze({
+  id: 'none',
+  label: '系统默认',
+  description: '保持 DeepSeek Harness 原生界面风格，不使用任何定制主题。',
+  palette: Object.freeze({}),
+  surface: { light: '#ffffff', dark: '#151517' },
+})
+
 /** ZCode 官方主题：直接使用上游 202 项官方色板，不做任何改动。 */
 export const ZCODE_THEME = Object.freeze({
   id: 'zcode',
@@ -91,18 +100,18 @@ export const GLASS_COLOR_THEME = Object.freeze({
 /**
  * 全部内置主题，顺序即设置面板的展示顺序。
  *
- * 顺序有讲究：ZCode 官方排第一（它是仓库既有用户最熟悉的那款，默认值），
- * 两个玻璃主题放在最后——它们是这次新增的「视觉探索」选项。
+ * 系统默认（不使用主题）排第一项，作为出厂默认值；用户自选时可切换到具体主题。
  */
 export const BUILTIN_THEMES = Object.freeze([
+  NONE_THEME,
   ZCODE_THEME,
   ZCODE_MONO_THEME,
   GLASS_THEME,
   GLASS_COLOR_THEME,
 ])
 
-/** 默认主题 id。 */
-export const DEFAULT_THEME_ID = 'zcode'
+/** 默认主题 id：默认不使用主题，保持宿主原生风格。 */
+export const DEFAULT_THEME_ID = 'none'
 
 /** 内置主题 id 列表。 */
 export const THEME_IDS = Object.freeze(BUILTIN_THEMES.map((theme) => theme.id))

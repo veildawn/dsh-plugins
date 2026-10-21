@@ -159,7 +159,8 @@ window.__ModuleLoader__.load({
 
     /** 主题 id → 旧属性值（与服务端 legacyId 规则一致）。 */
     function legacyIdOf(themeId) {
-      const id = typeof themeId === 'string' && themeId !== '' ? themeId : 'zcode'
+      const id = typeof themeId === 'string' && themeId !== '' ? themeId : 'none'
+      if (id === 'none') return null
       if (id === 'zcode') return 'zcode'
       if (id === 'zcode-mono') return 'zcode-mono'
       return id
@@ -228,26 +229,27 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const scope = `:is(html[${THEME_ATTR}], html:root)`
       let css = ''
-      if (lines.length > 0) css += `html[${THEME_ATTR}] {\n${lines.join('\n')}\n}\n`
+      if (lines.length > 0) css += `${scope} {\n${lines.join('\n')}\n}\n`
       if (backgroundLines.length > 0) {
-        css += `html[${THEME_ATTR}] body {\n${backgroundLines.join('\n')}\n}\n`
-        css += `html[${THEME_ATTR}] body[data-ds-dark-theme] {\n${backgroundLines.join('\n')}\n}\n`
+        css += `${scope} body {\n${backgroundLines.join('\n')}\n}\n`
+        css += `${scope} body[data-ds-dark-theme] {\n${backgroundLines.join('\n')}\n}\n`
       }
       if (fieldLines.length > 0) {
-        css += `html[${THEME_ATTR}] body {\n${fieldLines.join('\n')}\n}\n`
-        css += `html[${THEME_ATTR}] body[data-ds-dark-theme] {\n${fieldLines.join('\n')}\n}\n`
+        css += `${scope} body {\n${fieldLines.join('\n')}\n}\n`
+        css += `${scope} body[data-ds-dark-theme] {\n${fieldLines.join('\n')}\n}\n`
       }
       if (background.mode === 'image' && backgroundUrl && background.opacity < 100) {
         const fade = ((100 - background.opacity) / 100).toFixed(2)
         css +=
-          `html[${THEME_ATTR}] body::before {\n` +
+          `${scope} body::before {\n` +
           '  content: "";\n' +
           '  position: fixed;\n' +
           '  inset: 0;\n' +
           '  pointer-events: none;\n' +
           '  z-index: -1;\n' +
-          '  background: var(--color-background);\n' +
+          '  background: var(--color-background, var(--dsw-alias-bg-base));\n' +
           `  opacity: ${fade};\n` +
           '}\n'
       }
@@ -261,10 +263,17 @@ window.__ModuleLoader__.load({
      */
     function applyToDocument(input) {
       if (typeof document === 'undefined') return
-      const themeId = input?.themeId || 'zcode'
+      const themeId = input?.themeId || 'none'
       const root = document.documentElement
-      root.setAttribute(THEME_ATTR, themeId)
-      root.setAttribute(LEGACY_ATTR, legacyIdOf(themeId))
+      if (themeId === 'none') {
+        root.removeAttribute(THEME_ATTR)
+        root.removeAttribute(LEGACY_ATTR)
+      } else {
+        root.setAttribute(THEME_ATTR, themeId)
+        const legacy = legacyIdOf(themeId)
+        if (legacy) root.setAttribute(LEGACY_ATTR, legacy)
+        else root.removeAttribute(LEGACY_ATTR)
+      }
 
       const css = customLayerCss(input?.settings ?? {}, input?.backgroundUrl)
       let style = document.getElementById(CUSTOM_STYLE_ID)
@@ -516,7 +525,7 @@ window.__ModuleLoader__.load({
       }
 
       const themes = view?.themes ?? []
-      const activeTheme = draft?.theme ?? 'zcode'
+      const activeTheme = draft?.theme ?? 'none'
       const background = draft?.background ?? { mode: 'none', value: '', fit: 'cover', opacity: 100 }
       const fonts = draft?.fonts ?? {}
       const sizes = draft?.fontSizes ?? {}
@@ -724,7 +733,7 @@ window.__ModuleLoader__.load({
             className: 'ts-btn',
             type: 'button',
             disabled: busy,
-            onClick: () => run('reset', {}, '已恢复默认（ZCode 官方主题、无自定义背景与字体）。'),
+            onClick: () => run('reset', {}, '已恢复默认（保持原生风格、无自定义背景与字体）。'),
           }, '恢复默认'),
           h('button', {
             className: 'ts-btn ts-btn-primary',

@@ -119,6 +119,7 @@ test('主题 CSS 引用的 --color-* 键在每款主题色板中都存在', asyn
   assert.ok(referenced.size > 20, `只引用到 ${referenced.size} 个语义色，可能是正则失效`)
 
   for (const theme of BUILTIN_THEMES) {
+    if (theme.id === 'none') continue
     const missing = [...referenced].filter((key) => !(key in theme.palette))
     assert.deepEqual(missing, [], `主题 ${theme.id} 缺少被 CSS 引用的语义色：${missing.join(', ')}`)
   }

@@ -25,7 +25,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { homedir } from 'node:os'
-import { HOST_TOKEN_MAP, resolveKey } from './tokens.js'
+import { HOST_TOKEN_MAP, THEME_ATTR, resolveKey } from './tokens.js'
 import { getTheme } from './themes/index.js'
 
 /** 默认设置文件位置。 */
@@ -468,36 +468,38 @@ export function customCss(settings, options = {}) {
     }
   }
 
+  const scope = `:is(html[${THEME_ATTR}], html:root)`
   let css = ''
   if (lines.length > 0) {
-    css += `html[data-theme-studio] {\n${lines.join('\n')}\n}\n`
+    css += `${scope} {\n${lines.join('\n')}\n}\n`
   }
   if (backgroundLines.length > 0) {
     // 背景挂 body：玻璃主题的壁纸也在 body 上，同级且自定义层后注入 → 压过它。
     // 暗色块同样要写，否则宿主 `body[data-ds-dark-theme]` 上的规则会在暗色下回弹。
-    css += `html[data-theme-studio] body {\n${backgroundLines.join('\n')}\n}\n`
-    css += `html[data-theme-studio] body[data-ds-dark-theme] {\n${backgroundLines.join('\n')}\n}\n`
+    css += `${scope} body {\n${backgroundLines.join('\n')}\n}\n`
+    css += `${scope} body[data-ds-dark-theme] {\n${backgroundLines.join('\n')}\n}\n`
   }
   if (fieldLines.length > 0) {
     // 字段色挂在 body 上：宿主的 --dsw-* 定义在 body / body[data-ds-dark-theme]，
     // 语义 --color-* 定义在我们的主题块里。挂在 html 上会被宿主的 body 规则
     // 反向压掉，挂到 body 才与之同级且后写者胜。
-    css += `html[data-theme-studio] body {\n${fieldLines.join('\n')}\n}\n`
+    css += `${scope} body {\n${fieldLines.join('\n')}\n}\n`
     // 宿主暗色块的特异性是 (0,1,1)，下面这条 (0,1,2) 压过它。
-    css += `html[data-theme-studio] body[data-ds-dark-theme] {\n${fieldLines.join('\n')}\n}\n`
+    css += `${scope} body[data-ds-dark-theme] {\n${fieldLines.join('\n')}\n}\n`
   }
   if (hasBackgroundImage && background.opacity < 100) {
     // 图片透明度：只用 ::before 叠一层半透明白/黑，而不是改元素本身的 opacity
     // ——改元素 opacity 会连带把子元素（整个应用）一起变透明。
+    const fade = ((100 - background.opacity) / 100).toFixed(2)
     css +=
-      `html[data-theme-studio] body::before {\n` +
+      `${scope} body::before {\n` +
       `  content: "";\n` +
       `  position: fixed;\n` +
       `  inset: 0;\n` +
       `  pointer-events: none;\n` +
       `  z-index: -1;\n` +
-      `  background: var(--color-background);\n` +
-      `  opacity: ${((100 - background.opacity) / 100).toFixed(2)};\n` +
+      `  background: var(--color-background, var(--dsw-alias-bg-base));\n` +
+      `  opacity: ${fade};\n` +
       `}\n`
   }
 

@@ -504,6 +504,10 @@ const BODY_SCOPED_EXTRAS = new Set([
  * @returns {string}
  */
 export function themeVarsCss(theme, options = {}) {
+  // 系统默认（不使用主题）：不输出任何变量覆盖，让宿主完全保持原生样式。
+  if (!theme || theme.id === 'none' || !theme.palette || Object.keys(theme.palette).length === 0) {
+    return ''
+  }
   const { includeColorVars = true, extraDeclarations = [] } = options
   const base = `html[${THEME_ATTR}="${theme.id}"]`
   const htmlLines = [...extraDeclarations]

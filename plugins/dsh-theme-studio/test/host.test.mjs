@@ -55,17 +55,26 @@ test('patchIndex 覆盖旧插件属性 data-dsh-theme', () => {
   assert.equal((htmlTag.match(/data-dsh-theme/g) ?? []).length, 1, `html 标签属性重复：${htmlTag}`)
 })
 
-test('每款主题都能直出，且产物包含该主题自己的变量块', () => {
+test('每款具象主题都能直出，且产物包含该主题自己的变量块', () => {
   for (const id of THEME_IDS) {
+    if (id === 'none') continue
     const out = patchIndex(HTML, { themeId: id })
     assert.match(out, new RegExp(`<html ${THEME_ATTR}="${id}"`), `${id} 缺主题属性`)
     assert.match(out, new RegExp(`html\\[${THEME_ATTR}="${id}"\\] \\{`), `${id} 缺变量块`)
   }
 })
 
-test('首屏产物包含全部四套主题（切换零成本）', () => {
+test('默认主题（none）直出不注入主题属性与旧属性，保持纯净原生', () => {
+  const out = patchIndex(HTML, { themeId: 'none' })
+  const htmlTag = out.match(/<html[^>]*>/)[0]
+  assert.equal(htmlTag.includes(THEME_ATTR), false, '系统默认时不应有 data-theme-studio 属性')
+  assert.equal(htmlTag.includes('data-dsh-theme'), false, '系统默认时不应有 data-dsh-theme 属性')
+})
+
+test('首屏产物包含全部具体主题变量块（切换零成本）', () => {
   const out = patchIndex(HTML, { themeId: 'zcode' })
   for (const id of THEME_IDS) {
+    if (id === 'none') continue
     assert.match(out, new RegExp(`html\\[${THEME_ATTR}="${id}"\\]`), `缺 ${id} 的变量块`)
   }
 })
@@ -147,7 +156,7 @@ test('buildSettingsView 提供稳定的 effective 结构', () => {
   // 空设置时 settings 是 {}（不落盘噪音），但 effective 必须是完整形状，
   // 否则面板里每个输入框都要写 `?? ''` 兜底，还容易漏。
   assert.deepEqual(view.settings, {})
-  assert.equal(view.effective.theme, 'zcode')
+  assert.equal(view.effective.theme, 'none')
   assert.equal(view.effective.background.mode, 'none')
   assert.equal(view.effective.background.fit, 'cover')
   assert.equal(view.effective.background.opacity, 100)

@@ -24,8 +24,9 @@ import {
 } from '../lib/tokens.js'
 import { BUILTIN_THEMES, THEME_IDS, getTheme, normalizeThemeId } from '../lib/themes/index.js'
 
-test('每款主题都能解析出全部宿主 Token', () => {
+test('每款具象主题都能解析出全部宿主 Token', () => {
   for (const theme of BUILTIN_THEMES) {
+    if (theme.id === 'none') continue
     const tokens = buildHostTokens(theme.palette)
     assert.deepEqual(
       Object.keys(tokens).sort(),
@@ -100,7 +101,9 @@ test('body 级 Token 判定与宿主定义位置一致', () => {
 })
 
 test('主题变量块把 body 级 Token 写在 body 选择器上', () => {
+  assert.equal(themeVarsCss(getTheme('none')), '', 'none 主题不应输出任何变量声明')
   for (const theme of BUILTIN_THEMES) {
+    if (theme.id === 'none') continue
     const css = themeVarsCss(theme)
     const htmlBlock = css.match(/^html\[data-theme-studio="[^"]+"\] \{([\s\S]*?)\n\}/)
     assert.ok(htmlBlock, `${theme.id} 缺少 html 变量块`)
@@ -143,12 +146,12 @@ test('ZCode 主题没有暗色材质块', () => {
 
 test('主题 id 规范化', () => {
   assert.equal(normalizeThemeId('glass'), 'glass')
-  assert.equal(normalizeThemeId('nope'), 'zcode')
-  assert.equal(normalizeThemeId(undefined), 'zcode')
+  assert.equal(normalizeThemeId('nope'), 'none')
+  assert.equal(normalizeThemeId(undefined), 'none')
   assert.equal(normalizeThemeId(null, 'glass'), 'glass')
 })
 
 test('内置主题 id 与顺序稳定', () => {
-  assert.deepEqual([...THEME_IDS], ['zcode', 'zcode-mono', 'glass', 'glass-color'])
-  assert.equal(BUILTIN_THEMES.length, 4)
+  assert.deepEqual([...THEME_IDS], ['none', 'zcode', 'zcode-mono', 'glass', 'glass-color'])
+  assert.equal(BUILTIN_THEMES.length, 5)
 })

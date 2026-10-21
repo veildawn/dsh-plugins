@@ -212,8 +212,8 @@ test('customCss：纯色背景写在 body 上（不会被玻璃壁纸盖住）',
   const css = customCss({ background: { mode: 'color', value: '#123456' } })
   assert.match(css, /background-color: #123456;/)
   // 必须落在 body 块：写 html 会被玻璃主题画在 body 上的壁纸整层盖住
-  assert.match(css, /html\[data-theme-studio\] body \{\s*background-color: #123456;/)
-  assert.match(css, /html\[data-theme-studio\] body\[data-ds-dark-theme\] \{\s*background-color: #123456;/)
+  assert.match(css, /:is\(html\[data-theme-studio\], html:root\) body \{\s*background-color: #123456;/)
+  assert.match(css, /:is\(html\[data-theme-studio\], html:root\) body\[data-ds-dark-theme\] \{\s*background-color: #123456;/)
 })
 
 test('customCss：图片背景含 URL 与铺满方式，且写在 body 上', () => {
@@ -225,7 +225,7 @@ test('customCss：图片背景含 URL 与铺满方式，且写在 body 上', () 
   assert.match(css, /background-size: contain;/)
   assert.match(css, /background-repeat: no-repeat;/)
   // 背景图同样必须挂在 body 上
-  assert.match(css, /html\[data-theme-studio\] body \{\s*background-image: url\("\/api\/x\/bg\.png"\)/)
+  assert.match(css, /:is\(html\[data-theme-studio\], html:root\) body \{\s*background-image: url\("\/api\/x\/bg\.png"\)/)
 })
 
 test('customCss：不透明度生成遮罩层而不是改元素 opacity', () => {
@@ -248,7 +248,7 @@ test('customCss：字体同时覆盖四个别名', () => {
 
 test('customCss：字段色同时写 body 与暗色 body', () => {
   const css = customCss({ fieldColors: { foreground: '#010203' } })
-  assert.match(css, /html\[data-theme-studio\] body \{[\s\S]*--color-foreground: #010203;/)
+  assert.match(css, /:is\(html\[data-theme-studio\], html:root\) body \{[\s\S]*--color-foreground: #010203;/)
   assert.match(css, /body\[data-ds-dark-theme\] \{[\s\S]*--color-foreground: #010203;/)
 })
 
