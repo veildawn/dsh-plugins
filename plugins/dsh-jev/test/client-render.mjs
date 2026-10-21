@@ -379,12 +379,31 @@ check(
 );
 
 ctx.lastCall = null;
-ctx.rpcResult = { ok: true, value: { durationMs: 12, model: 'jev-latest', source: 'provider', provider: 'ai-proxy', baseURL: 'http://192.168.1.253:8319/v1', endpoint: '/v1/decisions', apiKeyFrom: 'credentials:AIPROXY_DSH_WEB_ACCESS_TOKEN' } };
+ctx.rpcResult = { ok: true, value: { durationMs: 12, model: 'jev-latest', source: 'provider', provider: 'ai-proxy', url: 'http://192.168.1.253:8319/v1/decisions', baseURL: 'http://192.168.1.253:8319/v1', endpoint: '/v1/decisions', apiKeyFrom: 'credentials:AIPROXY_DSH_WEB_ACCESS_TOKEN' } };
 await findAll(render(), (n) => n.type === 'button' && n.children?.[0] === '测试连接')[0].props.onClick();
 check('provider test sends the provider payload', ctx.lastCall?.method === 'testConnection' && ctx.lastCall.payload.provider === 'ai-proxy', JSON.stringify(ctx.lastCall));
 tree = render();
 const providerStatus = findAll(tree, (n) => n.props?.className === 'jev-status ok')[0];
 check('a successful provider test names the provider', String(providerStatus?.children?.[0] ?? '').includes('提供商 ai-proxy'), String(providerStatus?.children?.[0]));
+// 提供商 baseURL 自带 /v1、端点也以 /v1 开头：回显必须只出现一次 /v1。
+const providerStatusText = String(providerStatus?.children?.[0] ?? '');
+check(
+  'the provider test shows the real request URL without a doubled /v1',
+  providerStatusText.includes('http://192.168.1.253:8319/v1/decisions') && !providerStatusText.includes('/v1/v1'),
+  providerStatusText,
+);
+
+// 旧版服务端没有 url 字段时，前端仍需本地去重兜底。
+ctx.lastCall = null;
+ctx.rpcResult = { ok: true, value: { durationMs: 12, model: 'jev-latest', source: 'provider', provider: 'ai-proxy', baseURL: 'http://192.168.1.253:8319/v1', endpoint: '/v1/decisions', apiKeyFrom: 'credentials:AIPROXY_DSH_WEB_ACCESS_TOKEN' } };
+await findAll(render(), (n) => n.type === 'button' && n.children?.[0] === '测试连接')[0].props.onClick();
+tree = render();
+const fallbackStatusText = String(findAll(tree, (n) => n.props?.className === 'jev-status ok')[0]?.children?.[0] ?? '');
+check(
+  'a legacy response without url still avoids a doubled /v1',
+  fallbackStatusText.includes('http://192.168.1.253:8319/v1/decisions') && !fallbackStatusText.includes('/v1/v1'),
+  fallbackStatusText,
+);
 
 // ---------------------------------------------------------------------------
 // 7. 切换回 manual 时端点跟随默认值

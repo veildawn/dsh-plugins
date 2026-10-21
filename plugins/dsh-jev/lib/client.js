@@ -84,6 +84,26 @@ window.__ModuleLoader__.load({
       return names.join("+");
     }
 
+    /**
+     * 拼出「测试连接」回显里的目标地址。
+     *
+     * 优先用服务端回传的 url —— 那是本次真正请求的完整地址。服务端拼接时会先
+     * 剥掉 baseURL 尾部的 /v1，所以提供商配了 http://host:8319/v1 时，
+     * 直接 baseURL + endpoint 会显示成 .../v1/v1/decisions，与实际请求不符。
+     * 旧版服务端没有 url 字段时退化为本地拼接，并同样做一次去重兜底。
+     */
+    function formatTargetUrl(res) {
+      if (res && typeof res.url === "string" && res.url !== "") return res.url;
+      const base = String((res && res.baseURL) || "").trim().replace(/\/+$/, "");
+      const ep = String((res && res.endpoint) || "").trim();
+      if (!base) return ep;
+      if (!ep) return base;
+      // 兜底：base 已带 /v1（或更具体的端点）且 ep 也以 /v1 开头时，去掉重复前缀。
+      if (/\/v1\/(?:systemone|decisions)$/i.test(base)) return base;
+      if (/\/v1$/i.test(base) && /^\/v1\//i.test(ep)) return base + ep.replace(/^\/v1/i, "");
+      return base + (ep.startsWith("/") ? ep : "/" + ep);
+    }
+
     /** pi-ai 的 classifier 协议：命中时在模型标签上标出来源。 */
     const CLASSIFIER_APIS = ["typesafe-system-one", "cloudflare-workers-ai-system-one", "llama-cpp-classify", "openai-decisions"];
 
@@ -316,7 +336,7 @@ window.__ModuleLoader__.load({
           const res = await rpcCall("testConnection", buildPayload());
           if (res && res.durationMs !== undefined) {
             const target = (res.source === "provider" ? "提供商 " + res.provider + " " : "") +
-              (res.baseURL || "") + (res.endpoint || "");
+              formatTargetUrl(res);
             setStatus({
               ok: true,
               msg: "✓ 连接成功！[" + target + "] 决策模型 " + res.model + " 响应正常（" +

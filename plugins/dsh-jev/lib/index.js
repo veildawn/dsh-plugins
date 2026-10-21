@@ -1769,6 +1769,9 @@ async function handleSettingsRpc(config, method, payload = {}) {
           model: testModel,
           source: effective.source,
           provider: effective.providerId,
+          // 回传本次实际请求的完整地址：baseURL 常自带 /v1（如 http://host:8319/v1），
+          // 与 endpoint（/v1/decisions）直接相连会显示成 /v1/v1/decisions，与实际不符。
+          url: buildEndpointUrl(baseURL, effective.endpoint),
           baseURL,
           endpoint: effective.endpoint,
           apiKeyFrom: keyInfo.from,

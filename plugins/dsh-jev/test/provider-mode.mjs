@@ -279,6 +279,13 @@ check('provider mode testConnection succeeds', providerTest.ok === true, JSON.st
 check('provider testConnection reports the model', providerTest.value?.model === 'jev-latest', JSON.stringify(providerTest.value));
 check('provider testConnection hits /v1/decisions', requestLog[0]?.url === '/v1/decisions', requestLog[0]?.url);
 check('provider testConnection reports the key source', String(providerTest.value?.apiKeyFrom).startsWith('credentials:'), JSON.stringify(providerTest.value?.apiKeyFrom));
+// 提供商 baseURL 是 <mock>/v1，端点 /v1/decisions：回显的 url 必须是实际请求地址，
+// 不能把两者直接相连成 /v1/v1/decisions。
+check(
+  'provider testConnection reports the real request url without a doubled /v1',
+  providerTest.value?.url === mockBase + '/v1/decisions' && !String(providerTest.value?.url).includes('/v1/v1'),
+  JSON.stringify(providerTest.value?.url),
+);
 
 requestLog.length = 0;
 const manualTestSession = register({ source: 'manual' });
