@@ -364,10 +364,14 @@ test('Conversation mobile CSS keeps a bounded scrollport and compact composer st
   const css = cssForAssertions
   assert.match(css, /max-width:768px/)
   assert.match(css, /\.dsh-mobile-bar\{[^}]*display:flex/)
-  // 全屏切换：进入后顶栏隐藏、会话区收回顶部内边距、退出按钮以浮层胶囊常驻右上角
-  assert.match(css, /html\[data-dsh-mobile-fullscreen=true\] \.dsh-mobile-bar\{display:none!important\}/)
-  assert.match(css, /html\[data-dsh-mobile-fullscreen=true\] \.dsh-mobile-fullscreen-toggle\{position:fixed;[^}]*top:calc\(6px \+ var\(--dsh-sat\)\);right:max\(6px,var\(--dsh-sar\)\)/)
-  assert.match(css, /html\[data-dsh-mobile-fullscreen=true\] \.pI_x6G_centerCol,[\s\S]*padding-top:var\(--dsh-sat\)!important\}/)
+  // 全屏切换：只收起浏览器自身的地址栏与底部工具栏，应用自己的导航必须保留。
+  // 手机上的「全屏」诉求是「别让浏览器 chrome 占地方」，不是「把应用顶栏也藏掉」。
+  assert.doesNotMatch(css, /html\[data-dsh-mobile-fullscreen=true\] \.dsh-mobile-bar\{display:none/)
+  assert.doesNotMatch(css, /html\[data-dsh-mobile-fullscreen=true\] \.wSkVaW_header/)
+  assert.doesNotMatch(css, /html\[data-dsh-mobile-fullscreen=true\] \[data-slot="conversation\.session\.header"\]/)
+  assert.doesNotMatch(css, /html\[data-dsh-mobile-fullscreen=true\] \[data-conversation-tabs\]\{display:none/)
+  // 全屏按钮仍留在顶栏原位，不再搬到 body 当浮层
+  assert.doesNotMatch(css, /html\[data-dsh-mobile-fullscreen=true\] \.dsh-mobile-fullscreen-toggle\{position:fixed/)
   assert.match(css, /\.dsh-mobile-fullscreen-toggle\{[^}]*width:40px/)
   // 浏览器全屏后视口变高，根容器必须跟随 100dvh 重铺；:fullscreen 伪类作双保险，
   // 覆盖用户通过浏览器菜单进入全屏（未经过我们的按钮）的场景。
@@ -864,30 +868,31 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '0px')
 
   // —— 全屏切换 ——
-  // 状态挂在 <html> 上（CSS 规则全部以 html[data-dsh-mobile-fullscreen] 为作用域），
-  // 退出按钮必须从顶栏搬到 body，否则顶栏被 display:none 后按钮一起消失。
+  // 只收起浏览器自身的 chrome（地址栏/底部工具栏），应用自己的顶栏与会话头
+  // 全部保留。全屏按钮始终留在顶栏原位，全屏前后位置完全一致、无跳变。
   assert.equal(fullscreenToggle.parentElement, bar, '全屏按钮默认在顶栏内')
   assert.equal(fullscreenToggle.getAttribute('aria-label'), null, '初始未写 aria-label')
   fullscreenToggle.emit('click')
   assert.equal(f.doc.documentElement.getAttribute('data-dsh-mobile-fullscreen'), 'true')
-  assert.equal(fullscreenToggle.parentElement, f.doc.body, '进入全屏后按钮搬到 body 上作浮层')
+  assert.equal(fullscreenToggle.parentElement, bar, '进入全屏后按钮仍留在顶栏，不搬动')
+  assert.equal(bar.hidden, false, '全屏不隐藏顶栏')
   assert.equal(fullscreenToggle.getAttribute('aria-label'), '退出全屏')
   assert.equal(fullscreenToggle.getAttribute('aria-pressed'), 'true')
-  // 浏览器层必须真的调用 requestFullscreen：只隐藏自绘顶栏时，手机上的浏览器
-  // 地址栏与底部工具栏仍在，用户会认为全屏完全没生效。
+  // 浏览器层必须真的调用 requestFullscreen：应用层再怎么排版也动不了浏览器
+  // 自己的地址栏与底部工具栏，只有这个 API 能收起它们。
   assert.equal(f.doc.documentElement.requestFullscreenCalls, 1, '必须调用浏览器 Fullscreen API')
   assert.equal(f.doc.fullscreenElement, f.doc.documentElement, '进入全屏后 document.fullscreenElement 指向 html')
 
   fullscreenToggle.emit('click')
   assert.equal(f.doc.documentElement.getAttribute('data-dsh-mobile-fullscreen'), null)
-  assert.equal(fullscreenToggle.parentElement, bar, '退出全屏后按钮搬回顶栏')
+  assert.equal(fullscreenToggle.parentElement, bar, '退出全屏后按钮仍在顶栏')
   assert.equal(fullscreenToggle.getAttribute('aria-label'), '进入全屏')
   assert.equal(fullscreenToggle.getAttribute('aria-pressed'), 'false')
   assert.equal(f.doc.exitFullscreenCalls, 1, '退出时必须调 exitFullscreen')
   assert.equal(f.doc.fullscreenElement, null)
 
-  // 浏览器自行退出（用户按 Esc / 系统手势）时应用层要跟着复位，
-  // 否则顶栏仍是隐藏的、浏览器工具栏却回来了，界面处于半屏错位。
+  // 浏览器自行退出（用户按 Esc / 系统手势）时应用层标记要跟着复位，
+  // 让按钮的 aria 状态与实际全屏状态一致。
   fullscreenToggle.emit('click')
   assert.equal(f.doc.documentElement.getAttribute('data-dsh-mobile-fullscreen'), 'true')
   f.doc.fullscreenElement = null

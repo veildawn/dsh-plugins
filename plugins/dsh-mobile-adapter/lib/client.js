@@ -33,22 +33,14 @@ window.__ModuleLoader__.load({
         .dsh-mobile-icon:hover,.dsh-mobile-icon:active,.dsh-mobile-view:hover,.dsh-mobile-view:active{background:var(--dsw-alias-interactive-bg-hover)}
         .dsh-mobile-view{box-sizing:border-box;min-width:72px;height:44px;flex:none;border:0;border-radius:12px;background:transparent;color:inherit;font:600 13px/1 var(--dsw-font-family);display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 10px;cursor:pointer;white-space:nowrap}
         .dsh-mobile-view[hidden]{display:none}
-        /* 全屏切换：两层同时生效。
-           1) 应用层：隐藏自绘顶栏、内容区收回 52px 上内边距；
-           2) 浏览器层：脚本调 requestFullscreen()，让浏览器自身的地址栏与底部
-              工具栏一起收起（这两条属于浏览器 chrome，CSS 动不了）。
-           浏览器进入全屏后视口高度会变化，这里让根容器跟随 100dvh 重新铺满。 */
+        /* 全屏切换：只收起浏览器自身的地址栏与底部工具栏，应用自己的导航
+           一律保留。手机上的「全屏」诉求是「别让浏览器 chrome 占地方」，
+           不是「把应用自己的顶栏也藏掉」——顶栏里的菜单按钮、会话标题、
+           轨迹切换是全屏后仍然需要操作的入口。
+           因此这里**不隐藏** .dsh-mobile-bar 与宿主的 .wSkVaW_header，
+           只让布局跟随浏览器全屏后的视口高度重新铺满。 */
         .dsh-mobile-fullscreen-toggle{box-sizing:border-box;width:40px;min-width:40px;height:36px;flex:none;border:0;border-radius:10px;background:transparent;color:inherit;display:inline-grid;place-items:center;cursor:pointer;padding:0}
         .dsh-mobile-fullscreen-toggle:hover,.dsh-mobile-fullscreen-toggle:active{background:var(--dsw-alias-interactive-bg-hover)}
-        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-bar{display:none!important}
-        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-fullscreen-toggle{position:fixed;z-index:940;top:calc(6px + var(--dsh-sat));right:max(6px,var(--dsh-sar));width:30px;min-width:30px;height:30px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-bg-base) 82%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:var(--dsw-shadow-lv2);opacity:.5;transition:opacity .18s var(--ds-ease-in-out)}
-        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-fullscreen-toggle:hover,
-        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-fullscreen-toggle:active,
-        html[data-dsh-mobile-fullscreen=true] .dsh-mobile-fullscreen-toggle:focus-visible{opacity:1}
-        html[data-dsh-mobile-fullscreen=true] .pI_x6G_centerCol,
-        html[data-dsh-mobile-fullscreen=true] [data-slot="root"]>div>div:has(>[data-slot="conversation"]),
-        html[data-dsh-mobile-fullscreen=true] [data-slot="root"]>div>div:has([data-slot*="main"]),
-        html[data-dsh-mobile-fullscreen=true] [data-slot="root"]>div>div:has([data-slot*="conversation"]){padding-top:var(--dsh-sat)!important}
         /* 浏览器全屏后视口变高：根容器与滚动区跟随重铺，避免底部留白或
            输入框被挤出屏幕。用 :fullscreen 伪类双保险——即使脚本没能改到
            data 属性（例如用户通过浏览器菜单进入全屏），布局也能自洽。 */
@@ -988,12 +980,9 @@ window.__ModuleLoader__.load({
       backdrop.addEventListener('click', () => close(true))
 
       // —— 全屏切换 ——
-      // 分两层：
-      //   1) 应用层：隐藏自绘顶栏、内容区收回 52px 上内边距（属性 + CSS）；
-      //   2) 浏览器层：调 Fullscreen API 让浏览器自身的地址栏与底部工具栏一起隐藏。
-      // 只做第 1 层时，手机上看到的仍是「应用顶栏没了，但浏览器导航栏和底部工具栏
-      // 都还在」，用户会认为全屏没生效——这两条栏属于浏览器 chrome，只能靠
-      // requestFullscreen() 收起。
+      // 只收起浏览器自身的地址栏与底部工具栏（这两条属于浏览器 chrome，
+      // CSS 动不了，只能靠 requestFullscreen()）。应用自己的顶栏、会话标题栏、
+      // 对话/轨迹 tabs 全部保留——全屏后仍然需要它们来导航。
       // 状态只活在内存里：全屏是即时浏览偏好，不该跨刷新持久化。
       let fullscreen = false
       const isFullscreen = () => fullscreen
@@ -1034,9 +1023,9 @@ window.__ModuleLoader__.load({
       /**
        * 应用全屏状态。
        *
-       * 顶栏在全屏时被 `display:none` 隐藏，所以退出按钮必须**移出**顶栏挂到
-       * body 上，由 CSS 的 fixed 定位把它变成右上角半透明浮层胶囊；退出全屏
-       * 时再搬回顶栏右侧，恢复成普通工具按钮。
+       * 应用层只改一个 `<html>` 上的标记属性（供 CSS 让布局跟随浏览器全屏后的
+       * 视口高度重铺），**不动顶栏**——顶栏与退出按钮都留在原位，全屏前后
+       * 位置完全一致，用户不会看到按钮跳变。
        *
        * @param {boolean} next 目标状态
        * @param {{ skipBrowser?: boolean }} [options] skipBrowser 为 true 时不动浏览器层，
@@ -1047,13 +1036,8 @@ window.__ModuleLoader__.load({
         fullscreen = target
         // 属性挂在 <html> 上：CSS 里所有全屏规则都以 html[data-dsh-mobile-fullscreen]
         // 为作用域，挂到 #root 会让这些规则一条都不命中。
-        if (target) {
-          docEl.setAttribute('data-dsh-mobile-fullscreen', 'true')
-          if (fullscreenToggle.parentElement !== doc.body) doc.body.append(fullscreenToggle)
-        } else {
-          docEl.removeAttribute('data-dsh-mobile-fullscreen')
-          if (fullscreenToggle.parentElement !== bar) bar.append(fullscreenToggle)
-        }
+        if (target) docEl.setAttribute('data-dsh-mobile-fullscreen', 'true')
+        else docEl.removeAttribute('data-dsh-mobile-fullscreen')
         if (!options.skipBrowser) {
           if (target) requestBrowserFullscreen()
           else exitBrowserFullscreen()
@@ -1070,8 +1054,8 @@ window.__ModuleLoader__.load({
         win.requestAnimationFrame(() => syncViewport())
       }
 
-      // 浏览器层退出（用户按 Esc、系统手势、切后台等）时同步应用层：
-      // 否则顶栏仍是隐藏状态，但浏览器工具栏回来了，界面处于半屏错位。
+      // 浏览器层退出（用户按 Esc、系统手势、切后台等）时同步应用层标记，
+      // 让按钮的 aria 状态与实际全屏状态一致。
       // 只处理我们自己发起过的情况，避免宿主/其它插件进入全屏时被我们误退。
       const onFullscreenChange = () => {
         if (fullscreenElementOf() !== null) return
