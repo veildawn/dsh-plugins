@@ -511,6 +511,33 @@ window.__ModuleLoader__.load({
           width: 14px;
           height: 14px;
         }
+        /* Composer 工具栏入口：几何与宿主原生「+」(.uV2eYG_add) 对齐 —— 28×28、
+           radius-sm、specific-selector 底色、label-primary 前景。此前完全继承
+           .dsh-ph-btn 的 24×24 / 6px 圆角 / 透明底，夹在原生按钮中间比旁边小一圈、
+           圆角也不一致。只作用于工具栏那一枚，不影响弹窗内的 .dsh-ph-btn。 */
+        .dsh-ph-btn.dsh-ph-toolbar-btn {
+          width: 28px;
+          height: 28px;
+          min-width: 28px;
+          padding: 0;
+          border-radius: var(--dsw-radius-sm, 8px);
+          background: var(--dsw-specific-selector);
+          color: var(--dsw-alias-label-primary, #111);
+          display: inline-grid;
+          place-items: center;
+          corner-shape: round;
+        }
+        .dsh-ph-btn.dsh-ph-toolbar-btn:hover {
+          background: var(--dsw-alias-interactive-bg-hover-solid, var(--dsw-alias-interactive-bg-hover));
+          color: var(--dsw-alias-label-primary, #111);
+        }
+        .dsh-ph-btn.dsh-ph-toolbar-btn:active {
+          transform: scale(0.95);
+        }
+        .dsh-ph-btn.dsh-ph-toolbar-btn svg {
+          width: 16px;
+          height: 16px;
+        }
         .dsh-ph-action-btn,
         button.dsh-ph-action-btn {
           width: calc(28px + var(--dsh-content-font-delta, 0px)) !important;

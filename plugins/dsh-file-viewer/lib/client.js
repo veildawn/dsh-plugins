@@ -604,11 +604,14 @@ window.__ModuleLoader__.load({
       @keyframes fv-toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
       /* Floating entry button is strictly disabled across both PC and mobile. */
       .fv-float-entry{display:none!important}
-      /* Composer toolbar entry (PC): seated in conversation.input.left beside the + command button */
-      .fv-composer-entry{box-sizing:border-box;display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:none;border-radius:999px;background:var(--dsw-specific-selector,transparent);color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none;line-height:1;transition:color .12s,background-color .12s,transform .1s}
+      /* Composer toolbar entry (PC): seated in conversation.input.left beside the + command button.
+         几何必须与宿主原生「+」(.uV2eYG_add) 对齐：28×28、radius-sm、specific-selector 底色、
+         label-primary 前景。此前用 999px 圆角 + label-secondary，夹在原生按钮中间显得是一枚
+         突兀的实心圆扣，尺寸与圆角都对不上。 */
+      .fv-composer-entry{box-sizing:border-box;display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:none;border-radius:var(--dsw-radius-sm);background:var(--dsw-specific-selector);color:var(--dsw-alias-label-primary);cursor:pointer;flex:none;line-height:1;corner-shape:round;transition:background-color .12s,color .12s,transform .1s}
       .fv-composer-entry:hover{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary)}
       .fv-composer-entry:active{transform:scale(.95)}
-      .fv-composer-entry svg{display:block;flex:none}
+      .fv-composer-entry svg{display:block;flex:none;width:16px;height:16px}
       @media(max-width:768px){.fv-composer-entry{display:none!important}}
       @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
       .fv-shell[data-mobile="true"]{width:100%!important;border-left:none!important}

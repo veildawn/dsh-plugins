@@ -218,6 +218,49 @@ html[data-theme-studio] .WqxjfG_trigger:hover:not(:disabled) {
   color: var(--color-foreground);
 }
 
+/* 社区插件的输入栏图标按钮：对齐宿主原生几何。
+   宿主原生「+」按钮与模型选择器在本主题下被统一成 28×28 / 圆角 8px / 透明底，
+   而插件自绘的入口各写各的：文件查看器用 28×28 但圆角 999px 且带
+   `--dsw-specific-selector` 底色（看起来是一枚实心圆扣），提示词历史用 24×24 /
+   圆角 6px（比旁边小一圈）。两者夹在原生按钮中间就是「尺寸、圆角、底色三处都
+   不齐」的观感。这里把它们的几何与配色收敛到与原生按钮一致。 */
+html[data-theme-studio] .fv-composer-entry,
+html[data-theme-studio] .dsh-ph-btn.dsh-ph-toolbar-btn {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-foreground-subtle);
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  line-height: 1;
+}
+
+html[data-theme-studio] .fv-composer-entry:hover:not(:disabled),
+html[data-theme-studio] .dsh-ph-btn.dsh-ph-toolbar-btn:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .fv-composer-entry:active,
+html[data-theme-studio] .dsh-ph-btn.dsh-ph-toolbar-btn:active {
+  transform: scale(0.95);
+}
+
+/* 图标本体统一 16×16：提示词历史原本写死 14×14，比文件查看器的 16 小一号。 */
+html[data-theme-studio] .fv-composer-entry svg,
+html[data-theme-studio] .dsh-ph-btn.dsh-ph-toolbar-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex: none;
+}
+
 html[data-theme-studio] ._7KE1Ra_triggerEffort,
 html[data-theme-studio] .WqxjfG_triggerEffort {
   color: var(--color-foreground-subtlest);

@@ -37,7 +37,7 @@ window.__dsh_prompt_history_diagnostics()
 ```bash
 cd plugins/dsh-prompt-history
 npm pack
-dsh plugin --profile desktop add ./weniatall-dsh-prompt-history-0.4.12.tgz
+dsh plugin --profile desktop add ./weniatall-dsh-prompt-history-0.4.13.tgz
 ```
 
 ### 2. 重启生效

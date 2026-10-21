@@ -400,9 +400,13 @@ test('floating button is strictly disabled and PC entry is seated on composer to
   assert.match(source, /const sessionStore = createStore\(undefined\)/)
   assert.match(source, /sessionStore\.set\(sessionId\)/)
 
-  // Composer button is styled with 28x28 circular button matching native input tools
+  // Composer button geometry must match the host's native "+" button (.uV2eYG_add):
+  // 28x28 with radius-sm, NOT a 999px pill — a pill reads as a foreign solid dot
+  // wedged between the native square-ish toolbar buttons.
   assert.match(source, /\.fv-composer-entry\{[^}]*width:28px;height:28px/)
-  assert.match(source, /\.fv-composer-entry\{[^}]*border-radius:999px/)
+  assert.match(source, /\.fv-composer-entry\{[^}]*border-radius:var\(--dsw-radius-sm\)/)
+  assert.match(source, /\.fv-composer-entry\{[^}]*background:var\(--dsw-specific-selector\)/)
+  assert.doesNotMatch(source, /\.fv-composer-entry\{[^}]*border-radius:999px/)
   assert.match(source, /@media\(max-width:768px\)\{\.fv-composer-entry\{display:none!important\}\}/)
 })
 
@@ -434,10 +438,10 @@ test('the entry reads clearly and renders a native folder icon in composer toolb
   // Floating button is permanently suppressed
   assert.match(source, /\.fv-float-entry\{display:none!important\}/)
 
-  // The composer entry follows native styling: 28x28 circular button,
-  // matching DSH input toolbar add button.
+  // The composer entry follows native styling: 28x28 with radius-sm and the
+  // same specific-selector fill as the host's own "+" button.
   assert.match(source, /\.fv-composer-entry\{[^}]*width:28px;height:28px/)
-  assert.match(source, /\.fv-composer-entry\{[^}]*border-radius:999px/)
+  assert.match(source, /\.fv-composer-entry\{[^}]*border-radius:var\(--dsw-radius-sm\)/)
   assert.match(source, /className: "fv-composer-entry"/)
   assert.match(source, /"aria-label": "查看项目文件"/)
 })
