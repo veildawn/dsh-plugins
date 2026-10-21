@@ -199,7 +199,7 @@ jobs:
           fi
 
           echo "Publishing $PACKAGE@$VERSION"
-          if ! npm publish --access public --provenance; then
+          if ! npm publish "${{ steps.pack.outputs.tgz_name }}" --access public --provenance; then
             # 探测与发布之间的竞态：另一个运行可能刚好发布了同一版本。
             if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
               echo "::notice title=SkipNpmPublish::$PACKAGE@$VERSION 已被并发发布，跳过"
