@@ -431,6 +431,19 @@ export const LOCAL_MONOREPO_PLUGINS = [
     path: 'plugins/dsh-task-models',
     isRepoPlugin: true,
   },
+  {
+    id: 'dsh-system-prompt-editor',
+    name: 'dsh-system-prompt-editor',
+    title: '系统提示词编辑器',
+    description: '可视化查看并调整系统提示词：默认展示当前真实提示词，按名称（下拉框列出真实段落）等方式定位，追加、替换或删除任意段落，支持按预设或会话限定生效范围。',
+    author: 'veildawn',
+    category: 'tools',
+    tags: ['system-prompt', 'prompt', 'persona', 'editor', 'tools'],
+    icon: 'edit',
+    repo: 'veildawn/dsh-plugins',
+    path: 'plugins/dsh-system-prompt-editor',
+    isRepoPlugin: true,
+  },
 ]
 
 /**
