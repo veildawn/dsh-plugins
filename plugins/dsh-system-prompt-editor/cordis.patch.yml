@@ -17,6 +17,7 @@
       name: './lib/index.js'
       inject:
         - systemPrompt
+        - connection
       config:
         # 总开关；关闭后系统提示词完全恢复官方默认，配置仍保留。
         enabled: true

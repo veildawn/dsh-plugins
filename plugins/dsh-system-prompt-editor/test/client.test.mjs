@@ -193,3 +193,51 @@ test('生效范围为空 id 时不写入 applyTo', () => {
   // reachMode 为 all 时不应产生 applyTo，否则后端会做无意义的范围判断。
   assert.equal(rule.applyTo, undefined)
 })
+
+/**
+ * 回归：宿主端注入声明必须包含 connection。
+ *
+ * 这个缺陷真实发生过一次——2026-10 发布 0.1.0 时 cordis.patch.yml 只声明了
+ * systemPrompt，前端设置页能正常渲染（client.js 加载成功），但所有 RPC 调用
+ * 返回 HTTP 405，因为宿主端从未拿到 connection.rpc，也就没 register 过通道。
+ * 症状是"UI 正常但数据全错"，只看 UI 完全发现不了。
+ *
+ * 因此这里同时断言三处：模块 inject、patch inject、以及代码确实用到 rpc。
+ */
+
+/** 读取 patch 里某个插件行的 inject 列表。 */
+function readPatchInject(source) {
+  const match = source.match(/inject:\n((?:\s*-\s*\S+\n)+)/)
+  assert.ok(match, '未能从 cordis.patch.yml 解析出 inject 列表')
+  return [...match[1].matchAll(/-\s*(\S+)/g)].map((item) => item[1])
+}
+
+test('模块 inject 与 cordis.patch.yml 的 inject 完全一致', () => {
+  const hostSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'index.js'), 'utf8')
+  const patchSource = fs.readFileSync(path.join(__dirname, '..', 'cordis.patch.yml'), 'utf8')
+
+  const moduleInject = hostSource.match(/export const inject = \[([^\]]*)\]/)
+  assert.ok(moduleInject, 'lib/index.js 必须导出 inject')
+  const moduleList = [...moduleInject[1].matchAll(/'([^']+)'/g)].map((item) => item[1])
+  const patchList = readPatchInject(patchSource)
+
+  // 顺序无关，集合必须相同：两处漂移会让"实际拿到的服务"与代码预期不符。
+  assert.deepEqual([...moduleList].sort(), [...patchList].sort())
+})
+
+test('inject 包含 connection——否则设置页 RPC 会 405', () => {
+  const hostSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'index.js'), 'utf8')
+  const patchSource = fs.readFileSync(path.join(__dirname, '..', 'cordis.patch.yml'), 'utf8')
+
+  assert.ok(readPatchInject(patchSource).includes('connection'),
+    'cordis.patch.yml 必须注入 connection，否则前端所有 RPC 调用返回 405')
+  assert.match(hostSource, /export const inject = \[[^\]]*'connection'/,
+    'lib/index.js 的 inject 必须包含 connection')
+})
+
+test('宿主端确实注册了 RPC 通道', () => {
+  const hostSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'index.js'), 'utf8')
+  // 仅声明 inject 不够，代码必须真的调用 rpc.handle。
+  assert.match(hostSource, /rpc\.handle\(/, '宿主端必须调用 connection.rpc.handle 注册通道')
+  assert.match(hostSource, /RPC_CHANNEL,/, 'rpc.handle 的第一个参数必须是 RPC_CHANNEL')
+})

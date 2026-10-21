@@ -68,8 +68,14 @@ export const Config = z.object({
 /** 插件名（Cordis 用于诊断与配置归属）。 */
 export const name = 'system-prompt-editor'
 
-/** 依赖的服务。 */
-export const inject = ['systemPrompt']
+/**
+ * 依赖的服务。
+ *
+ * 必须与 `cordis.patch.yml` 的 `inject` 保持一致：`connection` 提供设置页
+ * 所需的 RPC 通道，漏掉它则前端调用会得到 HTTP 405 —— UI 能正常渲染，
+ * 但宿主端从未 register 过该通道。
+ */
+export const inject = ['systemPrompt', 'connection']
 
 /**
  * 解析 dsh 主目录。
