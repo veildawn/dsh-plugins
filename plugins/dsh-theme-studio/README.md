@@ -174,7 +174,7 @@ dsh plugin --profile web add @weniatall/dsh-theme-studio
 
 ```bash
 cd plugins/dsh-theme-studio && npm pack
-dsh plugin --profile web add ./plugins/dsh-theme-studio/dsh-theme-studio-0.1.1.tgz
+dsh plugin --profile web add ./plugins/dsh-theme-studio/dsh-theme-studio-0.1.2.tgz
 ```
 
 ## 重启生效

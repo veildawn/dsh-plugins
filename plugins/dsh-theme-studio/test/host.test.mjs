@@ -283,3 +283,25 @@ test('未知方法返回错误而不是抛异常', async () => {
   assert.equal(result.ok, false)
   assert.match(result.error.message, /未知方法/)
 })
+
+test('模块 inject 与 cordis.patch.yml 的 inject 必须包含 connection 且保持一致', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { join, dirname } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+  const hostSource = readFileSync(join(root, 'lib', 'index.js'), 'utf8')
+  const patchSource = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
+
+  const moduleInject = hostSource.match(/export const inject = \[([^\]]*)\]/)
+  assert.ok(moduleInject, 'lib/index.js 必须导出 inject')
+  const moduleList = [...moduleInject[1].matchAll(/'([^']+)'/g)].map((item) => item[1])
+
+  const patchMatch = patchSource.match(/inject:\n((?:\s*-\s*\S+\n)+)/)
+  assert.ok(patchMatch, '未能从 cordis.patch.yml 解析出 inject 列表')
+  const patchList = [...patchMatch[1].matchAll(/-\s*(\S+)/g)].map((item) => item[1])
+
+  assert.ok(moduleList.includes('connection'), 'lib/index.js 的 inject 必须包含 connection，否则前端所有 RPC 调用报 HTTP 405')
+  assert.ok(patchList.includes('connection'), 'cordis.patch.yml 必须注入 connection，否则宿主不会注入 connection 服务')
+  assert.deepEqual([...moduleList].sort(), [...patchList].sort(), '模块 inject 与 cordis.patch.yml 声明的 inject 必须一致')
+})

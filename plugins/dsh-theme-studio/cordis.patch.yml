@@ -2,3 +2,6 @@
 - insert:
     - id: theme-studio
       name: '@weniatall/dsh-theme-studio'
+      inject:
+        - webServer
+        - connection

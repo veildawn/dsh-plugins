@@ -44,8 +44,8 @@ import {
 
 export const name = 'theme-studio'
 
-/** webServer 供 tapIndex / 路由使用；connection 供 rpc.handle 使用。 */
-export const inject = ['webServer']
+/** webServer 供 tapIndex / 路由使用；connection 供 rpc.handle 注册设置页 RPC 通道。必须注入 connection，否则前端调用报 HTTP 405。 */
+export const inject = ['webServer', 'connection']
 
 /** 设置面板的 RPC 通道。 */
 export const SETTINGS_RPC_CHANNEL = '/dsh-theme-studio-settings'
