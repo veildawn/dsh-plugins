@@ -38,16 +38,16 @@ export const GLASS_PALETTE = {
 
   // —— 表面层：半透明 + 由主题 CSS 叠 backdrop-filter ——
   // 亮色模式卡片比画布更亮（玻璃反光），暗色模式卡片比画布更亮一档（玻璃透光）。
-  panel: { light: 'rgba(255, 255, 255, 0.72)', dark: 'rgba(38, 40, 47, 0.72)' },
-  card: { light: 'rgba(255, 255, 255, 0.86)', dark: 'rgba(48, 51, 59, 0.82)' },
-  input: { light: 'rgba(255, 255, 255, 0.92)', dark: 'rgba(56, 59, 68, 0.88)' },
-  menu: { light: 'rgba(252, 253, 255, 0.88)', dark: 'rgba(44, 46, 54, 0.9)' },
+  panel: { light: 'rgba(255, 255, 255, 0.65)', dark: 'rgba(34, 36, 44, 0.65)' },
+  card: { light: 'rgba(255, 255, 255, 0.76)', dark: 'rgba(42, 45, 54, 0.74)' },
+  input: { light: 'rgba(255, 255, 255, 0.70)', dark: 'rgba(42, 45, 56, 0.72)' },
+  menu: { light: 'rgba(255, 255, 255, 0.72)', dark: 'rgba(32, 34, 42, 0.74)' },
   'menu-hover': { light: 'rgba(0, 0, 0, 0.06)', dark: 'rgba(255, 255, 255, 0.1)' },
-  popover: { light: 'rgba(255, 255, 255, 0.92)', dark: 'rgba(44, 46, 54, 0.94)' },
+  popover: { light: 'rgba(255, 255, 255, 0.75)', dark: 'rgba(36, 38, 48, 0.78)' },
   'popover-border': { light: 'rgba(0, 0, 0, 0.08)', dark: 'rgba(255, 255, 255, 0.12)' },
   'popover-foreground': '@foreground',
   'popover-header': { light: 'rgba(246, 248, 252, 0.9)', dark: 'rgba(38, 40, 47, 0.92)' },
-  sidebar: { light: 'rgba(240, 244, 250, 0.66)', dark: 'rgba(20, 21, 25, 0.62)' },
+  sidebar: { light: 'rgba(240, 244, 250, 0.58)', dark: 'rgba(18, 19, 23, 0.60)' },
   header: { light: 'rgba(255, 255, 255, 0.62)', dark: 'rgba(24, 25, 30, 0.6)' },
   tab: { light: 'rgba(0, 0, 0, 0.04)', dark: 'rgba(255, 255, 255, 0.06)' },
   'tab-active': { light: 'rgba(255, 255, 255, 0.9)', dark: 'rgba(62, 65, 74, 0.9)' },

@@ -101,6 +101,33 @@ html[data-theme-studio="glass-color"] ._LS25G_sidebarCol {
   border-right: 1px solid var(--color-border);
 }
 
+/* 侧边栏「+ 新会话」按钮：半透明微光药丸，消除突兀纯白长条 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(.hHd-Xa_newSession, .ixJ31a_newSession) {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--ts-glass-edge) !important;
+  box-shadow: inset 0 1px 0 var(--ts-glass-highlight);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.5)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.5)) saturate(var(--ts-saturate));
+  color: var(--color-foreground) !important;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(.hHd-Xa_newSession, .ixJ31a_newSession):hover {
+  background: var(--color-surface-hover) !important;
+  border-color: var(--color-border-hover) !important;
+}
+
+/* 侧边栏「归档箱」按钮：恢复侧栏条目的透明与悬停微光，杜绝纯白膏药 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) button.dam-btn:not([class~="dam-action-primary"]):not([class~="dam-action-danger"]) {
+  background: transparent !important;
+  border: none !important;
+  color: var(--color-foreground) !important;
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) button.dam-btn:not([class~="dam-action-primary"]):not([class~="dam-action-danger"]):hover {
+  background: var(--color-surface-hover) !important;
+}
+
 /* ---------------------------------------------------------------------------
    三、头部与工具栏：悬浮玻璃条
    ---------------------------------------------------------------------------
@@ -132,14 +159,9 @@ html[data-theme-studio="glass-color"] ._LS25G_sidebarCol {
    ---------------------------------------------------------------------------
    对话框、菜单、toast 用比面板更高的不透明度与更强阴影：它们离用户更「近」，
    在 z 轴上更高，Apple 的做法是让它们更实、阴影更远。 */
-html[data-theme-studio="glass"] [role="dialog"][aria-modal="true"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
-html[data-theme-studio="glass"] [role="menu"],
-html[data-theme-studio="glass"] [class*="toast"],
-html[data-theme-studio="glass"] [class*="Toast"],
-html[data-theme-studio="glass-color"] [role="dialog"][aria-modal="true"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
-html[data-theme-studio="glass-color"] [role="menu"],
-html[data-theme-studio="glass-color"] [class*="toast"],
-html[data-theme-studio="glass-color"] [class*="Toast"] {
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [role="dialog"][aria-modal="true"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [class*="toast"],
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [class*="Toast"] {
   background: var(--color-card);
   -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 1.2)) saturate(var(--ts-saturate));
   backdrop-filter: blur(calc(var(--ts-blur) * 1.2)) saturate(var(--ts-saturate));
@@ -147,6 +169,32 @@ html[data-theme-studio="glass-color"] [class*="Toast"] {
   box-shadow:
     inset 0 1px 0 var(--ts-glass-highlight),
     var(--dsw-shadow-lv3);
+}
+
+/* 弹出菜单（Menu）：Apple 风格的高级毛玻璃悬浮菜单，圆角、大阴影、菜单项悬停微光 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [role="menu"] {
+  background: var(--color-menu) !important;
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 1.3)) saturate(var(--ts-saturate)) !important;
+  backdrop-filter: blur(calc(var(--ts-blur) * 1.3)) saturate(var(--ts-saturate)) !important;
+  border: 1px solid var(--ts-glass-edge) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 16px 40px rgba(0, 0, 0, 0.14),
+    0 4px 12px rgba(0, 0, 0, 0.06) !important;
+  padding: 6px !important;
+  overflow: hidden;
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [role="menuitem"] {
+  border-radius: 8px !important;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [role="menuitem"]:hover,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [role="menuitem"]:focus-visible {
+  background: var(--color-surface-hover) !important;
+  color: var(--color-foreground) !important;
 }
 
 /* 社区插件的模态卡（dm-modal-card / dam-modal-card / fv-modal）同样处理：
@@ -199,6 +247,37 @@ html[data-theme-studio="glass-color"] .Qt4Hga_card:focus-within {
   box-shadow:
     inset 0 1px 0 var(--ts-glass-highlight),
     0 0 0 3px color-mix(in srgb, var(--color-input-border-focused) 22%, transparent);
+}
+
+/* 输入卡内部操作按钮（移动端上传、工具箱、终端与宿主权限/模型）：微光半透明 + 发丝光边，消除深灰厚重纽扣感 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
+  .dsh-mobile-upload-btn,
+  .dsh-mobile-tools-btn,
+  .term-composer-btn,
+  .iWlSmW_trigger,
+  .qVH09a_trigger,
+  ._7KE1Ra_trigger,
+  .WqxjfG_trigger
+) {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--ts-glass-edge) !important;
+  box-shadow: inset 0 1px 0 var(--ts-glass-highlight);
+  color: var(--color-foreground-subtle) !important;
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.3)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.3)) saturate(var(--ts-saturate));
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
+  .dsh-mobile-upload-btn,
+  .dsh-mobile-tools-btn,
+  .term-composer-btn,
+  .iWlSmW_trigger,
+  .qVH09a_trigger,
+  ._7KE1Ra_trigger,
+  .WqxjfG_trigger
+):hover {
+  background: var(--color-surface-hover) !important;
+  color: var(--color-foreground) !important;
 }
 
 /* ---------------------------------------------------------------------------
@@ -267,7 +346,137 @@ html[data-theme-studio="glass-color"] button[class*="_secondary_"] {
 }
 
 /* ---------------------------------------------------------------------------
-   八、滚动条：玻璃上的滚动条要更细、更淡
+   八、动态呼吸光效：思考求索中与停止生成按钮
+   ---------------------------------------------------------------------------
+   在玻璃主题下，呼吸光晕使用主题强调色（var(--color-primary)），模拟 Apple
+   Intelligence / Siri 的能量脉动质感。两套构建哈希成对书写：
+   - 深度求索中：Web 为 EvIC1a_runningContent / EvIC1a_runningIcon，
+     桌面端为 _6nxh1G_runningContent / _6nxh1G_runningIcon；
+   - 停止按钮：Web 为 uV2eYG_primary，桌面端为 Qt4Hga_primary。
+   --------------------------------------------------------------------------- */
+
+/* 1. 深度求索中（Reasoning Row / Running Status）呼吸光环胶囊 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
+  .EvIC1a_runningContent,
+  ._6nxh1G_runningContent
+) {
+  border-radius: 999px !important;
+  padding: 4px 14px !important;
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 0 12px 0 color-mix(in srgb, var(--color-primary) 18%, transparent) !important;
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate)) !important;
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate)) !important;
+  animation: ts-glass-running-breathe 2.4s ease-in-out infinite alternate !important;
+}
+
+@keyframes ts-glass-running-breathe {
+  0% {
+    border-color: color-mix(in srgb, var(--color-primary) 24%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--ts-glass-highlight),
+      0 0 4px 0 color-mix(in srgb, var(--color-primary) 12%, transparent);
+    opacity: 0.92;
+  }
+  50% {
+    border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--ts-glass-highlight),
+      0 0 16px 2px color-mix(in srgb, var(--color-primary) 36%, transparent);
+    opacity: 1;
+  }
+  100% {
+    border-color: color-mix(in srgb, var(--color-primary) 24%, transparent);
+    box-shadow:
+      inset 0 1px 0 var(--ts-glass-highlight),
+      0 0 4px 0 color-mix(in srgb, var(--color-primary) 12%, transparent);
+    opacity: 0.92;
+  }
+}
+
+/* 思考中图标微动 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
+  .EvIC1a_runningIcon,
+  ._6nxh1G_runningIcon
+) {
+  animation: ts-glass-icon-pulse 2.4s ease-in-out infinite !important;
+}
+
+@keyframes ts-glass-icon-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+/* 2. 停止生成按钮（Stop Button）：能量呼吸光圈脉冲 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
+  .uV2eYG_primary,
+  .Qt4Hga_primary,
+  button[data-variant="primary"],
+  button[class*="_primary_"]
+):is([aria-label*="停止"], [aria-label*="stop" i], :has(svg rect)) {
+  animation: ts-glass-stop-breathe 1.8s ease-in-out infinite !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 0 color-mix(in srgb, var(--color-primary) 45%, transparent),
+    0 2px 8px color-mix(in srgb, var(--color-primary) 35%, transparent) !important;
+}
+
+@keyframes ts-glass-stop-breathe {
+  0% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 0 0 0 color-mix(in srgb, var(--color-primary) 45%, transparent),
+      0 2px 8px color-mix(in srgb, var(--color-primary) 35%, transparent);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      0 0 0 6px color-mix(in srgb, var(--color-primary) 0%, transparent),
+      0 0 18px 4px color-mix(in srgb, var(--color-primary) 45%, transparent);
+    transform: scale(1.04);
+  }
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.35),
+      0 0 0 0 color-mix(in srgb, var(--color-primary) 45%, transparent),
+      0 2px 8px color-mix(in srgb, var(--color-primary) 35%, transparent);
+    transform: scale(1);
+  }
+}
+
+/* 停止按钮中间的白色方块微脉动 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
+  .uV2eYG_primary,
+  .Qt4Hga_primary,
+  button[data-variant="primary"],
+  button[class*="_primary_"]
+):is([aria-label*="停止"], [aria-label*="stop" i], :has(svg rect)) svg rect {
+  animation: ts-glass-stop-icon-pulse 1.8s ease-in-out infinite !important;
+  transform-origin: center;
+}
+
+@keyframes ts-glass-stop-icon-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(0.92);
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   九、滚动条：玻璃上的滚动条要更细、更淡
    ---------------------------------------------------------------------------
    宿主滚动条走 --dsh-scrollbar-thumb，这里只调细度，颜色仍由 Token 决定。 */
 html[data-theme-studio="glass"],
@@ -277,7 +486,7 @@ html[data-theme-studio="glass-color"] {
 }
 
 /* ---------------------------------------------------------------------------
-   九、无障碍：降低透明度偏好
+   十、无障碍：降低透明度偏好与减弱动效
    ---------------------------------------------------------------------------
    有用户会因为视力或晕动症关闭「减少透明度」（macOS 的 Reduce Transparency）。
    此时必须退化为实心表面——半透明 + 模糊在低对比显示器上会显著降低可读性，
@@ -294,6 +503,21 @@ html[data-theme-studio="glass-color"] {
   html[data-theme-studio="glass"] body,
   html[data-theme-studio="glass-color"] body {
     background-image: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
+    .EvIC1a_runningContent,
+    ._6nxh1G_runningContent,
+    .EvIC1a_runningIcon,
+    ._6nxh1G_runningIcon,
+    .uV2eYG_primary,
+    .Qt4Hga_primary,
+    button[data-variant="primary"],
+    button[class*="_primary_"]
+  ) {
+    animation: none !important;
   }
 }
 

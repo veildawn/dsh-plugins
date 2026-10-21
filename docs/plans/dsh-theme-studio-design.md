@@ -188,8 +188,9 @@ html[data-theme-studio] body[data-ds-dark-theme] { --color-foreground: #xxx; --d
 
 | 指标 | 结果 |
 | :--- | :--- |
-| 测试 | **113 / 113 通过**（theme-studio）+ **22 / 22**（zcode-theme 薄壳） |
+| 测试 | **114 / 114 通过**（theme-studio）+ **22 / 22**（zcode-theme 薄壳） |
 | 内置主题 | 系统默认（默认无主题，保持原生） + 4 款定制主题（ZCode 官方 / ZCode 单色极简 / 苹果玻璃 / 玻璃彩色） |
+| 动态光效 | 思考中胶囊微光呼吸 + 停止按钮能量呼吸光圈（两款玻璃主题专属，带 reduced-motion 降级） |
 | 宿主 Token 覆盖 | 145 项，全部明暗成对 |
 | 插件引用覆盖 | 仓库内插件引用的 `--dsw-*` **零缺口**（扫描式守护） |
 | 首屏产物体积 | 全 4 套主题约 217 KB（未压缩；gzip 后约 30 KB） |
