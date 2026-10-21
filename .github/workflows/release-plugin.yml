@@ -162,8 +162,8 @@ jobs:
         run: |
           set -euo pipefail
           cd ${{ steps.parse.outputs.plugin_dir }}
-          npm pack --json > /tmp/pack.json
-          PACKED=$(node -p "require('/tmp/pack.json')[0].filename")
+          pnpm pack --json > /tmp/pack.json
+          PACKED=$(node -p "const res = require('/tmp/pack.json'); (Array.isArray(res) ? res[0] : res).filename")
           TGZ_NAME="${{ steps.parse.outputs.plugin_name }}-${{ steps.parse.outputs.version }}.tgz"
           if [ "$PACKED" != "$TGZ_NAME" ]; then
             mv "$PACKED" "$TGZ_NAME"

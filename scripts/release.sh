@@ -69,15 +69,16 @@ echo "🧪 正在运行 $PLUGIN 自动化测试..."
 (cd "$PLUGIN_DIR" && NODE_PATH="$DSH_HOME/profiles/node_modules:$DSH_HOME/profiles/web/node_modules" npm test)
 
 # 2. 打包生成 tgz
-#    npm pack 会把 scope 展平进文件名（@weniatall/dsh-terminal@0.1.16 ->
-#    weniatall-dsh-terminal-0.1.16.tgz），但 dsh-plugin-manager 的
-#    isAllowedRepoUrl 白名单要求资产名是 "<短名>-<版本>.tgz"，所以显式重命名。
-#    这里必须按确定的名字取，不能用 `ls *.tgz | head -1`：插件目录里通常还留着
-#    几十个历史 tgz，那会取到错误的文件。
+#    pnpm pack 会自动解析并在发布产物中展开 workspace 依赖，
+#    同时把 scope 展平进文件名（@weniatall/dsh-terminal@0.1.16 ->
+#    weniatall-dsh-terminal-0.1.16.tgz）。
+#    但 dsh-plugin-manager 的 isAllowedRepoUrl 白名单要求资产名是 "<短名>-<版本>.tgz"，
+#    所以显式重命名。这里必须按确定的名字取，不能用 `ls *.tgz | head -1`：
+#    插件目录里通常还留着历史 tgz，那会取到错误的文件。
 echo "📦 打包 tgz..."
 TGZ_NAME="${PLUGIN}-${VERSION}.tgz"
 TGZ_FILE="$PLUGIN_DIR/$TGZ_NAME"
-(cd "$PLUGIN_DIR" && npm pack --silent >/dev/null)
+(cd "$PLUGIN_DIR" && pnpm pack --silent >/dev/null)
 PACKED_FILE=$(ls "$PLUGIN_DIR"/*.tgz -t | head -n 1)
 if [ "$(basename "$PACKED_FILE")" != "$TGZ_NAME" ]; then
   mv "$PACKED_FILE" "$TGZ_FILE"

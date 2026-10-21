@@ -3,3 +3,5 @@ packages:
 allowBuilds:
   esbuild: true
   node-pty: true
+minimumReleaseAgeExclude:
+  - '@weniatall/dsh-theme-studio@0.1.0'

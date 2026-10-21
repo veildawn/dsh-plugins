@@ -65,6 +65,6 @@
   },
   "deprecated": "Merged into @weniatall/dsh-theme-studio (built-in themes: zcode, zcode-mono). Install that package instead.",
   "dependencies": {
-    "@weniatall/dsh-theme-studio": "workspace:*"
+    "@weniatall/dsh-theme-studio": "workspace:^"
   }
 }
