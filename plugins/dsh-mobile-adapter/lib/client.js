@@ -28,17 +28,23 @@ window.__ModuleLoader__.load({
       @media (max-width:768px){
         html,body,#root,[data-slot="root"]{box-sizing:border-box;width:100%;height:100%;min-height:0;overflow:hidden;overscroll-behavior:none}
         #root{height:100dvh}
-        .dsh-mobile-bar{box-sizing:border-box;position:fixed;z-index:900;top:0;right:0;left:0;height:calc(52px + var(--dsh-sat));padding:var(--dsh-sat) max(8px,var(--dsh-sar)) 0 max(8px,var(--dsh-sal));border-bottom:1px solid var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-bg-base) 92%,transparent);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);align-items:center;gap:8px;color:var(--dsw-alias-label-primary);display:flex}
-        .dsh-mobile-icon{box-sizing:border-box;width:44px;height:44px;flex:none;border:0;border-radius:12px;background:transparent;color:inherit;font:600 23px/1 var(--dsw-font-family);display:grid;place-items:center;cursor:pointer}
-        .dsh-mobile-icon:hover,.dsh-mobile-icon:active,.dsh-mobile-view:hover,.dsh-mobile-view:active{background:var(--dsw-alias-interactive-bg-hover)}
-        .dsh-mobile-view{box-sizing:border-box;min-width:72px;height:44px;flex:none;border:0;border-radius:12px;background:transparent;color:inherit;font:600 13px/1 var(--dsw-font-family);display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 10px;cursor:pointer;white-space:nowrap}
+        .dsh-mobile-bar{box-sizing:border-box;position:fixed;z-index:900;top:0;right:0;left:0;height:calc(52px + var(--dsh-sat));padding:var(--dsh-sat) max(6px,var(--dsh-sar)) 0 max(6px,var(--dsh-sal));border-bottom:1px solid var(--dsw-alias-border-l2);background:color-mix(in srgb,var(--dsw-alias-bg-base) 92%,transparent);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);align-items:center;gap:4px;color:var(--dsw-alias-label-primary);display:flex}
+        .dsh-mobile-icon{box-sizing:border-box;width:40px;height:40px;flex:none;border:0;border-radius:10px;background:transparent;color:inherit;font:600 21px/1 var(--dsw-font-family);display:grid;place-items:center;cursor:pointer}
+        .dsh-mobile-icon:hover,.dsh-mobile-icon:active,.dsh-mobile-view:hover,.dsh-mobile-view:active,.dsh-mobile-btn:hover,.dsh-mobile-btn:active{background:var(--dsw-alias-interactive-bg-hover)}
+        .dsh-mobile-btn{box-sizing:border-box;width:34px;min-width:34px;height:34px;flex:none;border:0;border-radius:8px;background:transparent;color:inherit;display:inline-grid;place-items:center;cursor:pointer;padding:0}
+        .dsh-mobile-btn[hidden]{display:none}
+        .dsh-mobile-view{box-sizing:border-box;min-width:54px;height:32px;flex:none;border:0;border-radius:16px;background:var(--dsw-alias-interactive-bg-subtle,rgba(128,128,128,.12));color:inherit;font:600 12px/1 var(--dsw-font-family);display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:0 8px;cursor:pointer;white-space:nowrap}
         .dsh-mobile-view[hidden]{display:none}
+        /* 顶部 3 层融合成 1 层：
+           1. 彻底隐藏第 3 层原生的 Tabs（对话 / 轨迹标签栏），由顶栏药丸按钮承接双向切换；
+           2. 宿主原生的第 2 层 Header（wSkVaW_header / titleRow）移出普通流变为 0 占位，
+              所有功能（真实标题、下拉改名、··· 菜单、◫ 侧栏开关）由移动顶栏统揽并代理；
+           3. 释放原本占用的 76px+ 纵向高度，内容滚动区直接顶贴单层顶栏。 */
+        [data-slot="conversation"] :is(.wSkVaW_tabs,[data-conversation-tabs],[role="tablist"]),
+        [data-slot="conversation.session.header"] [role="tablist"]{display:none!important}
+        :is(.wSkVaW_header,header[class$="_header"]:has(>[class*="_titleRow"])){position:fixed!important;top:var(--dsh-sat,0px)!important;right:0!important;left:0!important;height:calc(52px + var(--dsh-sat))!important;min-height:0!important;padding:0!important;border-bottom:none!important;pointer-events:none!important;opacity:0!important;z-index:-1!important;overflow:hidden!important}
         /* 全屏切换：只收起浏览器自身的地址栏与底部工具栏，应用自己的导航
-           一律保留。手机上的「全屏」诉求是「别让浏览器 chrome 占地方」，
-           不是「把应用自己的顶栏也藏掉」——顶栏里的菜单按钮、会话标题、
-           轨迹切换是全屏后仍然需要操作的入口。
-           因此这里**不隐藏** .dsh-mobile-bar 与宿主的 .wSkVaW_header，
-           只让布局跟随浏览器全屏后的视口高度重新铺满。 */
+           一律保留。全屏后视口变高，根容器与滚动区跟随 100dvh 重铺。 */
         .dsh-mobile-fullscreen-toggle{box-sizing:border-box;width:40px;min-width:40px;height:36px;flex:none;border:0;border-radius:10px;background:transparent;color:inherit;display:inline-grid;place-items:center;cursor:pointer;padding:0}
         .dsh-mobile-fullscreen-toggle:hover,.dsh-mobile-fullscreen-toggle:active{background:var(--dsw-alias-interactive-bg-hover)}
         /* 浏览器全屏后视口变高：根容器与滚动区跟随重铺，避免底部留白或
@@ -505,6 +511,16 @@ window.__ModuleLoader__.load({
     }
 
     function titleOf(doc) {
+      const crumbCurrent = doc.querySelector('.wSkVaW_crumbCurrent, [class*="_crumbCurrent"]')
+      const currentText = crumbCurrent?.textContent?.trim()
+      if (currentText) return currentText
+
+      const crumbs = doc.querySelectorAll('.wSkVaW_crumb, [class*="_crumb"]')
+      if (crumbs.length > 0) {
+        const lastCrumbText = crumbs[crumbs.length - 1]?.textContent?.trim()
+        if (lastCrumbText) return lastCrumbText
+      }
+
       const current = doc.querySelector('[data-slot="conversation.session.header"] nav button:disabled')
       return current?.textContent?.trim() || '新会话'
     }
@@ -623,13 +639,71 @@ window.__ModuleLoader__.load({
       view.type = 'button'
       view.className = 'dsh-mobile-view'
 
-      // 全屏切换：进入后顶栏隐藏、会话区铺满整屏；退出按钮以浮层小胶囊停在右上角。
+      const actionsBtn = doc.createElement('button')
+      actionsBtn.type = 'button'
+      actionsBtn.className = 'dsh-mobile-btn dsh-mobile-actions-btn'
+      actionsBtn.setAttribute('aria-label', '会话操作')
+      actionsBtn.title = '更多会话操作'
+      actionsBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/></svg>'
+      actionsBtn.hidden = true
+
+      const cornerBtn = doc.createElement('button')
+      cornerBtn.type = 'button'
+      cornerBtn.className = 'dsh-mobile-btn dsh-mobile-corner-btn'
+      cornerBtn.setAttribute('aria-label', '切换右侧面板')
+      cornerBtn.title = '切换右侧面板（项目文件 / 终端）'
+      cornerBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M10 2v12"/></svg>'
+      cornerBtn.hidden = true
+
+      // 全屏切换：进入后收起浏览器 chrome；按钮停在顶栏右侧。
       const fullscreenToggle = doc.createElement('button')
       fullscreenToggle.type = 'button'
       fullscreenToggle.className = 'dsh-mobile-fullscreen-toggle'
       fullscreenToggle.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 5.6V2.6h3M14 5.6V2.6h-3M2 10.4v3h3M14 10.4v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 
-      bar.append(menu, titleBox, view, fullscreenToggle)
+      bar.append(menu, titleBox, view, actionsBtn, cornerBtn, fullscreenToggle)
+
+      titleBox.addEventListener('click', () => {
+        const target = doc.querySelector('.wSkVaW_crumbCurrent, [class*="_crumbCurrent"], [data-slot="conversation.session.header.lineage"] button, [class*="_crumb"]:last-of-type')
+        if (target && typeof target.click === 'function') target.click()
+      })
+
+      actionsBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const target = doc.querySelector('.wSkVaW_headerUtilities button, [class*="_headerUtilities"] button, .wSkVaW_headerActions button, [class*="_headerActions"] button')
+        if (!target) return
+        try {
+          const rect = actionsBtn.getBoundingClientRect()
+          const prevPos = target.style.position
+          const prevTop = target.style.top
+          const prevLeft = target.style.left
+          const prevZ = target.style.zIndex
+          target.style.position = 'fixed'
+          target.style.top = `${Math.round(rect.bottom + 4)}px`
+          target.style.left = `${Math.round(rect.left)}px`
+          target.style.zIndex = '9999'
+          target.click()
+          win.requestAnimationFrame(() => {
+            target.style.position = prevPos
+            target.style.top = prevTop
+            target.style.left = prevLeft
+            target.style.zIndex = prevZ
+          })
+        } catch (_) {
+          target.click()
+        }
+      })
+
+      cornerBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const target = doc.querySelector('.wSkVaW_headerCorner button, [class*="_headerCorner"] button, [data-conversation-header-corner] button')
+        if (target && typeof target.click === 'function') {
+          target.click()
+        } else if (typeof ctx?.layout?.openRightbar === 'function') {
+          if (isRightbarOpen()) ctx.layout.closeRightbar?.()
+          else ctx.layout.openRightbar?.(false, true)
+        }
+      })
 
       const backdrop = doc.createElement('button')
       backdrop.type = 'button'
@@ -871,6 +945,10 @@ window.__ModuleLoader__.load({
         if (view.textContent !== nextViewText) view.textContent = nextViewText
         const nextViewLabel = inRightbar ? '收起右侧面板，返回对话' : inTrajectory ? '关闭轨迹，返回对话' : '查看轨迹'
         if (view.getAttribute('aria-label') !== nextViewLabel) view.setAttribute('aria-label', nextViewLabel)
+        const nativeActions = doc.querySelector('.wSkVaW_headerUtilities button, [class*="_headerUtilities"] button, .wSkVaW_headerActions button, [class*="_headerActions"] button')
+        actionsBtn.hidden = !mobile || nativeActions == null
+        const nativeCorner = doc.querySelector('.wSkVaW_headerCorner button, [class*="_headerCorner"] button, [data-conversation-header-corner] button')
+        cornerBtn.hidden = !mobile || nativeCorner == null
         backdrop.hidden = !open
         menu.setAttribute('aria-expanded', String(open))
         const nextMenuLabel = open ? '关闭会话侧栏' : '打开会话侧栏'
@@ -1251,6 +1329,8 @@ window.__ModuleLoader__.load({
         toolsBtn.remove()
         toolsBackdrop.remove()
         toolsMenu.remove()
+        actionsBtn.remove()
+        cornerBtn.remove()
         fullscreenToggle.remove()
         infoEl.remove()
         const addBtn = doc.querySelector('[data-composer-card] .ccegLa_add, [data-composer-card] .uV2eYG_add, [data-composer-card] [class*="_add"], [data-composer-card] button[aria-haspopup="listbox"]')

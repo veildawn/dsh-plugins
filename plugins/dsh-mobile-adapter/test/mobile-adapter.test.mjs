@@ -759,7 +759,7 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   client.apply(f.ctx)
   const bar = f.doc.body.children.find((node) => node.className === 'dsh-mobile-bar')
   const backdrop = f.doc.body.children.find((node) => node.className === 'dsh-mobile-backdrop')
-  const [menu, titleBox, view, fullscreenToggle] = bar.children
+  const [menu, titleBox, view, actionsBtn, cornerBtn, fullscreenToggle] = bar.children
   const [title, status] = titleBox.children
   assert.equal(bar.hidden, false)
   assert.equal(title.textContent, '移动端适配会话')
@@ -768,6 +768,8 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   assert.equal(view.textContent, '⌁ 轨迹')
   assert.equal(view.getAttribute('aria-label'), '查看轨迹')
   assert.equal(view.hidden, false)
+  assert.equal(actionsBtn.getAttribute('aria-label'), '会话操作')
+  assert.equal(cornerBtn.getAttribute('aria-label'), '切换右侧面板')
   assert.equal(backdrop.hidden, true)
   assert.equal(f.doc.sidebarColumn.inert, true)
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '0px')
@@ -1279,4 +1281,50 @@ test('菜单容器保持 overflow:hidden，让宿主菜单内部的滚动区接�
   assert.match(groups[1], /min-height:0!important/, '滚动区需要 min-height:0 才能收缩')
   assert.match(groups[1], /overflow-y:auto!important/, '滚动区必须 overflow-y:auto')
   assert.match(groups[1], /-webkit-overflow-scrolling:touch!important/, 'iOS 需要惯性滚动')
+})
+
+test('移动端顶栏 3 层融合成 1 层：隐藏宿主冗余 Tabs 与 Header 占位，顶栏承接全部功能', (t) => {
+  const css = rawCss
+  // 1. 验证第 3 层原生 Tabs 被彻底隐藏（去重）
+  assert.match(css, /\[data-slot="conversation"\] :is\(\.wSkVaW_tabs,\[data-conversation-tabs\],\[role="tablist"\]\)[\s\S]*display:none!important/)
+
+  // 2. 验证宿主第 2 层 Header 移出普通流（0 高度占位）
+  assert.match(css, /:is\(\.wSkVaW_header,header\[class\$="_header"\]:has\(>\[class\*="_titleRow"\]\)\)\{[^}]*position:fixed!important;[^}]*pointer-events:none!important;[^}]*opacity:0!important/)
+
+  // 3. 验证真实标题提取优先读取 crumbCurrent，避免固定回退为「新会话」
+  const fakeDocWithTitle = {
+    querySelector: (sel) => {
+      if (sel.includes('_crumbCurrent')) return { textContent: '文件多标签页右键菜单' }
+      return null
+    },
+    querySelectorAll: () => [],
+  }
+  assert.equal(client.internals.titleOf(fakeDocWithTitle), '文件多标签页右键菜单')
+
+  // 4. 验证顶栏包含全部 6 项单行控件
+  const f = fixture()
+  const previous = {
+    document: globalThis.document,
+    window: globalThis.window,
+    MutationObserver: globalThis.MutationObserver,
+  }
+  globalThis.document = f.doc
+  globalThis.window = f.win
+  globalThis.MutationObserver = f.Observer
+  t.after(() => {
+    globalThis.document = previous.document
+    globalThis.window = previous.window
+    globalThis.MutationObserver = previous.MutationObserver
+  })
+
+  client.apply(f.ctx)
+  const bar = f.doc.body.children.find((node) => node.className === 'dsh-mobile-bar')
+  assert.ok(bar)
+  assert.equal(bar.children.length, 6, '单层顶栏容纳全部 6 项功能')
+  const [menu, titleBox, view, actionsBtn, cornerBtn, fullscreenToggle] = bar.children
+  assert.equal(menu.textContent, '☰')
+  assert.equal(view.textContent, '⌁ 轨迹')
+  assert.equal(actionsBtn.getAttribute('aria-label'), '会话操作')
+  assert.equal(cornerBtn.getAttribute('aria-label'), '切换右侧面板')
+  assert.equal(fullscreenToggle.className, 'dsh-mobile-fullscreen-toggle')
 })

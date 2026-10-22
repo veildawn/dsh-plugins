@@ -7,6 +7,7 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 ## 功能特性
 
 - 📱 **响应式布局与视口自适应**：自适应手机屏幕高度（100dvh / safe-area），彻底消除底部导航栏/工具栏遮挡与抖动。
+- 👑 **顶部 3 层极致融合成单层（释放近 100px 屏幕净高度）**：针对移动端原宿主「插件顶栏 + 会话标题栏 + 对话/轨迹 Tabs 栏」3 层臃肿堆叠的痛点，进行全面去重与功能深度整合。彻底隐藏重复占位的第 3 层原生 Tabs 栏（由顶栏「⌁ 轨迹 / ← 对话」药丸按钮单行双向切换），并将第 2 层 Header 移出普通流（0 占据纵向高度）；单层顶栏（48px）集成了：`☰` 侧栏汉堡、真实会话标题（带点击改名/查看层级）、运行状态小光标、`[⌁ 轨迹]` 视图切换、`[···]` 会话更多操作、`[◫]` 右侧栏开关以及 `[⛶]` 全屏按钮。去除了重复展示，保留了全部交互能力，聊天正文可视面积提升 25% 以上。
 - 📷 **移动端原生文件与图片上传**：输入框支持一键调用手机原生相册与文件选择器，自动注入为多模态图片附件。
 - 🧰 **工作区工具箱 (Mobile Toolbox)**：移动端在输入框右侧或底部集成统一折叠工具箱，无缝集合文件查看器、本地终端、提示词历史等插件入口。
 - 🔘 **全操作按钮规范化与去冗余**：对话框底部全操作按钮圆形统一设计，触控点击更舒适，防误触。权限模式选择器在移动端收成 32px 圆钮（隐藏文字与下拉箭头），选择器哈希同时覆盖 `dsh 0.1.x` 的 `Sh0Q9G_*` 与 `0.2.1-rc.2` 的 `iWlSmW_*`；移动端隐藏原生冗余的「+」快捷指令按钮（移动端直接键入 `/` 即可触发指令，省出单行空间避免挤压换行，多层覆盖 `.uV2eYG_add`、`.ccegLa_add` 与 `[class*="_add"]`、`button[aria-haspopup="listbox"]` 语义选择器）。
@@ -20,10 +21,10 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 
 ```bash
 # 1. 使用 GitHub Release 在线安装
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.58/dsh-mobile-adapter-0.1.58.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.59/dsh-mobile-adapter-0.1.59.tgz
 
 # 2. 或在本地打包安装
-dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.58.tgz
+dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.59.tgz
 ```
 
 ## 选择器契约
