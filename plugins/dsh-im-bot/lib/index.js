@@ -49,15 +49,22 @@ import {
   RPC_CHANNEL,
   SEND_ROUTE,
   checkAccess,
+  checkNotifyAccess,
   classifyTurnEnd,
   matchSessionPrefix,
   normalizeConfig,
   normalizeSendRequest,
   parseCommand,
+  parseModelArgument,
+  resolveModelChoice,
+  renderAgents,
   renderCompletionNotice,
   renderFailureNotice,
   renderHelp,
+  renderModels,
+  renderSkills,
   sessionLabel,
+  shortSessionId,
   str,
   truncate,
 } from './core.js';
@@ -184,6 +191,25 @@ export const Config = z.object({
   accessAllowFrom: liveField(z.array(z.string()).default([])),
   accessGroupAllowFrom: liveField(z.array(z.string()).default([])),
   accessGroupsEnabled: liveField(z.boolean().default(false)),
+
+  /*
+   * 新会话默认绑定：不填就跟随 DSH 的默认 preset / 默认模型。
+   * 企微侧 /new 会带上这两个值，这样手机上开出来的会话与你在电脑上用的
+   * 是同一套 agent 配置，而不是一个「裸」会话。
+   */
+  sessionAgentPreset: liveField(z.string().default('')),
+  /*
+   * 模型只从 dsh 已配置的提供商里选（不做手动 baseURL/key）。
+   *
+   * 原因：DSH 的模型路由由 llm-pi-ai 的 provider 行决定，会话发请求前
+   * `selectModel()` 会用 modelAvailable() 校验该 (provider, model) 是否可路由。
+   * 手写 baseURL/key 若不在那些行里，注册上去也会被这张校验表拒掉 —— 与其做
+   * 一个「填了也发不出去」的入口，不如只列真实可用的选项。
+   */
+  sessionProvider: liveField(z.string().default('')),
+  sessionModel: liveField(z.string().default('')),
+  // 推理强度：留空 = 跟随该模型的默认 effort。
+  sessionReasoningEffort: liveField(z.string().default('')),
 });
 
 /** Config 的扁平键名，设置面板与 normalizeConfig 共用一份。 */
@@ -193,6 +219,7 @@ export const CONFIG_KEYS = [
   'ilinkEnabled', 'ilinkAccountId', 'ilinkBaseUrl', 'ilinkLongPollTimeoutMs', 'ilinkSessionExpiredPauseMs', 'ilinkTyping',
   'notifyOnTurnComplete', 'notifyOnTurnFailure', 'notifyMaxNoticeChars', 'notifyFailureChars',
   'accessAllowFrom', 'accessGroupAllowFrom', 'accessGroupsEnabled',
+  'sessionAgentPreset', 'sessionProvider', 'sessionModel', 'sessionReasoningEffort',
 ];
 
 /**
@@ -230,6 +257,12 @@ export function flatToNested(flat) {
       groupAllowFrom: input.accessGroupAllowFrom,
       groupsEnabled: input.accessGroupsEnabled,
     },
+    session: {
+      agentPreset: input.sessionAgentPreset,
+      provider: input.sessionProvider,
+      model: input.sessionModel,
+      reasoningEffort: input.sessionReasoningEffort,
+    },
   });
 }
 
@@ -259,6 +292,10 @@ export function nestedToFlat(nested) {
     accessAllowFrom: nested.access.allowFrom,
     accessGroupAllowFrom: nested.access.groupAllowFrom,
     accessGroupsEnabled: nested.access.groupsEnabled,
+    sessionAgentPreset: nested.session.agentPreset,
+    sessionProvider: nested.session.provider,
+    sessionModel: nested.session.model,
+    sessionReasoningEffort: nested.session.reasoningEffort,
   };
 }
 
@@ -738,10 +775,41 @@ export function apply(ctx, config) {
     if (controller === undefined || typeof controller.create !== 'function') {
       return { ok: false, error: '当前 Profile 不支持新建会话' };
     }
+    const config = readConfig();
+    const preset = str(config.session.agentPreset);
+    const provider = str(config.session.provider);
+    const model = str(config.session.model);
+    const reasoningEffort = str(config.session.reasoningEffort);
+
     try {
-      const created = await controller.create({});
+      /*
+       * 带上 agentPreset，否则手机上新建的会话会用宿主的默认 preset，
+       * 可能与你平时用的（例如自定义「中文标准」）不一致 —— 表现为
+       * 「企微里开的会话不像同一个 agent」。留空则由宿主决定。
+       */
+      const created = await controller.create(preset === '' ? {} : { agentPreset: preset });
       const sessionId = str(created?.sessionId);
       if (sessionId === '') return { ok: false, error: '新建会话未返回 id' };
+
+      /*
+       * 模型选择是会话级的、且必须在会话可解析之后单独下发。
+       * 失败不阻断建会话（模型选择可能因凭据缺失而失败），但要写日志，
+       * 否则用户只会觉得「模型怎么没按我配的来」。
+       */
+      if (provider !== '' && model !== '' && typeof controller.selectModel === 'function') {
+        try {
+          await controller.selectModel({
+            sessionId,
+            provider,
+            model,
+            // 留空则不传，由该模型的默认 effort 生效。
+            ...(reasoningEffort === '' ? {} : { reasoningEffort }),
+          });
+        } catch (error) {
+          log('warn', `im-bot: 新会话 ${shortSessionId(sessionId)} 设置模型失败（${provider}/${model}）`, error);
+        }
+      }
+
       await ensureBindings();
       bindings.set({ channel: origin.channel, peer: origin.peer, chatType: origin.chatType, sessionId, notify: true });
       await persistBindings();
@@ -762,6 +830,14 @@ export function apply(ctx, config) {
 
   /**
    * 列出最近会话（命令 /sessions 用）。
+   *
+   * 两个易错点（都曾让 /sessions 返回空列表）：
+   *   1. `sessionController.list()` 返回的是 `{ items: [...] }`，**不是**
+   *      `{ sessions: [...] }`。字段名写错会静默得到空数组。
+   *   2. `SessionSummary` 里**没有 title 字段**——它只有 sessionId / updatedAt /
+   *      running / cwd 等。标题在 `session/title` 事件里，由 `sessionTitle`
+   *      服务按 live Session 读取；拿不到就退回 id 前 8 位。
+   *
    * @returns {Promise<Array<{ sessionId: string, title: string }>>}
    */
   async function listRecentSessions() {
@@ -769,10 +845,29 @@ export function apply(ctx, config) {
     if (controller === undefined || typeof controller.list !== 'function') return [];
     try {
       const result = await controller.list({}, new AbortController().signal);
-      const rows = Array.isArray(result?.sessions) ? result.sessions : [];
-      return rows.slice(0, 10).map((row) => ({
-        sessionId: str(row?.sessionId),
-        title: sessionLabel(row?.title, row?.sessionId),
+      const rows = Array.isArray(result?.items)
+        ? result.items
+        : (Array.isArray(result?.sessions) ? result.sessions : []);
+      /*
+       * 标题必须用 sessionQuery.readTitle(sessionId)：它会同时处理 live 与
+       * **冷会话**（从持久化日志折叠）。
+       *
+       * 早期实现用 `sessionTitle.get(liveSession)`，而那个 API 只接受 live
+       * Session 对象 —— 列表里绝大多数会话是冷的，于是标题全空，只剩 id。
+       */
+      const query = getService('sessionQuery');
+      const signal = new AbortController().signal;
+      const sliced = rows.slice(0, 10);
+      return await Promise.all(sliced.map(async (row) => {
+        const sessionId = str(row?.sessionId);
+        let title = '';
+        try {
+          const snapshot = await query?.readTitle?.(sessionId, signal);
+          title = str(snapshot?.title);
+        } catch {
+          /* 单个会话标题读失败不影响整张列表 */
+        }
+        return { sessionId, title: sessionLabel(title, sessionId) };
       }));
     } catch (error) {
       log('warn', 'im-bot: 列出会话失败', error);
@@ -817,7 +912,7 @@ export function apply(ctx, config) {
     if (command.name === 'new') {
       const created = await createSessionForPeer(origin, command.argument);
       if (created.ok !== true) return `❌ ${created.error}`;
-      return `✅ 已新建并绑定会话 ${created.sessionId.slice(0, 8)}${command.argument === '' ? '' : `（${command.argument}）`}`;
+      return `✅ 已新建并绑定会话 ${shortSessionId(created.sessionId)}${command.argument === '' ? '' : `（${command.argument}）`}`;
     }
 
     if (command.name === 'use') {
@@ -826,13 +921,13 @@ export function apply(ctx, config) {
       const matched = matchSessionPrefix(recent.map((row) => row.sessionId), command.argument);
       if ('error' in matched) {
         return matched.error === 'ambiguous'
-          ? `❌ 前缀有歧义，候选：${matched.candidates.map((id) => id.slice(0, 8)).join(', ')}`
+          ? `❌ 前缀有歧义，候选：${matched.candidates.map((id) => shortSessionId(id)).join(', ')}`
           : '❌ 没有找到匹配的会话，可先用 /sessions 查看';
       }
       bindings.set({ ...origin, sessionId: matched.sessionId, notify: binding?.notify ?? true });
       await persistBindings();
       replyTargets.set(matched.sessionId, { ...origin, at: Date.now() });
-      return `✅ 已绑定到会话 ${matched.sessionId.slice(0, 8)}`;
+      return `✅ 已绑定到会话 ${shortSessionId(matched.sessionId)}`;
     }
 
     if (command.name === 'sessions') {
@@ -841,9 +936,10 @@ export function apply(ctx, config) {
       const current = binding?.sessionId ?? '';
       const lines = recent.map((row) => {
         const mark = row.sessionId === current ? '▶ ' : '  ';
-        return `${mark}${row.sessionId.slice(0, 8)}  ${row.title}`;
+        // shortSessionId 会剥掉 `session-` 前缀；直接 slice(0,8) 只会得到 "session-"。
+        return `${mark}${shortSessionId(row.sessionId)}  ${row.title}`;
       });
-      return ['📋 最近会话', '', ...lines].join('\n');
+      return ['📋 最近会话', '', ...lines, '', '用 /use <短ID> 绑定，或 /new 新建。'].join('\n');
     }
 
     if (command.name === 'status') {
@@ -856,9 +952,21 @@ export function apply(ctx, config) {
         parts.push(`${label}：${status}${extra}`);
       }
       parts.push('');
-      parts.push(binding === undefined
-        ? '当前聊天：未绑定会话（发 /new 新建）'
-        : `当前会话：${binding.sessionId.slice(0, 8)}　通知：${binding.notify ? '开' : '关'}`);
+      if (binding === undefined) {
+        parts.push('当前聊天：未绑定会话（发 /new 新建）');
+      } else {
+        parts.push(`当前会话：${shortSessionId(binding.sessionId)}　通知：${binding.notify ? '开' : '关'}`);
+        // 报出该会话**实际**在用的模型，方便确认没有落到意料之外的默认值。
+        try {
+          const live = getService('sessions')?.get?.(binding.sessionId);
+          const header = live?.requestHeader?.();
+          if (header?.config?.provider !== undefined) {
+            parts.push(`模型：${header.config.provider} / ${header.config.model}`);
+          }
+        } catch {
+          /* 读不到就不显示这一行 */
+        }
+      }
       return parts.join('\n');
     }
 
@@ -885,6 +993,91 @@ export function apply(ctx, config) {
       return next === null
         ? '❌ 更新失败：绑定已失效'
         : `✅ 本聊天的完成通知已${argument === 'on' ? '开启' : '关闭'}`;
+    }
+
+    if (command.name === 'agents') {
+      const registry = getService('agentPresets');
+      if (registry === undefined || typeof registry.list !== 'function') {
+        return '❌ 当前 Profile 没有挂载 agent 预设注册表';
+      }
+      try {
+        const presets = await registry.list();
+        // defaultId 是「后续新建会话用的默认预设」，用来打 ▶ 标记。
+        const defaultId = typeof registry.defaultId === 'string' ? registry.defaultId : '';
+        return renderAgents(presets, defaultId);
+      } catch (error) {
+        return `❌ 读取 agent 预设失败：${describeError(error)}`;
+      }
+    }
+
+    if (command.name === 'skills') {
+      const catalog = getService('sessionSkillCatalog');
+      if (catalog === undefined || typeof catalog.list !== 'function') {
+        return '❌ 当前 Profile 没有挂载技能目录服务';
+      }
+      if (binding === undefined) {
+        return '技能列表是会话级的，先用 /new 或 /use 绑定一个会话。';
+      }
+      try {
+        // list 需要 sessionId：技能可见性取决于该会话的 cwd 与 preset。
+        const result = await catalog.list(
+          { sessionId: binding.sessionId },
+          new AbortController().signal,
+        );
+        return renderSkills(result?.skills ?? []);
+      } catch (error) {
+        return `❌ 读取技能列表失败：${describeError(error)}`;
+      }
+    }
+
+    if (command.name === 'models') {
+      const controller = sessionController();
+      if (controller === undefined || typeof controller.modelCatalog !== 'function') {
+        return '❌ 当前 Profile 不支持读取模型目录';
+      }
+      try {
+        const catalog = await controller.modelCatalog();
+        return renderModels(catalog);
+      } catch (error) {
+        return `❌ 读取模型目录失败：${describeError(error)}`;
+      }
+    }
+
+    if (command.name === 'model') {
+      const controller = sessionController();
+      if (controller === undefined || typeof controller.selectModel !== 'function') {
+        return '❌ 当前 Profile 不支持切换模型';
+      }
+      if (binding === undefined) {
+        return '模型是会话级的，先用 /new 或 /use 绑定一个会话。';
+      }
+      const parsed = parseModelArgument(command.argument);
+      if (parsed.ok !== true) return parsed.error;
+      try {
+        // 先按真实目录校验，避免把不存在的 (provider, model) 塞给宿主——
+        // 那样报的是笼统的 model-unavailable，用户看不出哪里写错了。
+        const catalog = typeof controller.modelCatalog === 'function'
+          ? await controller.modelCatalog()
+          : undefined;
+        const chosen = catalog === undefined
+          ? { ok: true, provider: parsed.provider, model: parsed.model }
+          : resolveModelChoice(catalog, parsed);
+        if (chosen.ok !== true) return `❌ ${chosen.error}`;
+
+        const effort = str(parsed.reasoningEffort);
+        await controller.selectModel({
+          sessionId: binding.sessionId,
+          provider: chosen.provider,
+          model: chosen.model,
+          // 不传则沿用该模型的默认 effort。
+          ...(effort === '' ? {} : { reasoningEffort: effort }),
+        });
+        return effort === ''
+          ? `✅ 已切换为 ${chosen.provider} / ${chosen.model}`
+          : `✅ 已切换为 ${chosen.provider} / ${chosen.model}（推理 ${effort}）`;
+      } catch (error) {
+        return `❌ 切换模型失败：${describeError(error)}`;
+      }
     }
 
     return renderHelp();
@@ -1004,27 +1197,85 @@ export function apply(ctx, config) {
     const verdict = classifyTurnEnd(event?.data?.reason);
     const durationMs = buffer === undefined ? 0 : Date.now() - buffer.startedAt;
 
+    /*
+     * 通知链路的可观测性：以前「任务跑完没收到通知」时日志里什么都没有，
+     * 完全无法判断是没触发、没目标、还是发送失败。这里在关键分叉各打一行，
+     * 且只在 DEBUG 语义下输出（info 级，不刷屏）。
+     */
+    log('info', `im-bot: turn/end ${shortSessionId(sessionId)} kind=${verdict.kind}`
+      + ` origin=${origin === undefined ? 'web' : `${origin.channel}/${origin.peer}`}`);
+
     void (async () => {
       await ensureBindings();
       // 如果本回合来自特定聊天，优先发回该聊天；
       // 否则（例如在 Web 端发起的任务）广播给所有绑定该会话且开启通知的聊天。
-      const sessionBindings = bindings.bySession(sessionId).filter((b) => b.notify === true);
-      let targets = [];
-      if (origin !== undefined) {
-        const bound = sessionBindings.find((b) => b.channel === origin.channel && b.peer === origin.peer);
-        if (bound !== undefined) targets = [bound];
-        else targets = [origin];
-      } else {
-        targets = sessionBindings;
+      /*
+       * 通知目标 = **所有开启了通知的绑定聊天**，而不是只有「本会话绑定的那个」。
+       *
+       * 这是产品语义：手机上只跟一个聊天说话（比如自己的企微），但电脑上可能开了
+       * 很多会话同时干活。任何一个会话跑完都该推到这个聊天，否则用户得为每个会话
+       * 单独建绑定才有通知，完全不可用。
+       *
+       * 去重：同一个 (channel, peer) 只推一次，即使它有多个会话绑定。
+       */
+      const seenTargets = new Set();
+      const targets = [];
+      for (const candidate of bindings.toJSON()) {
+        if (candidate.notify !== true) continue;
+        /*
+         * 出站同样受白名单管控：白名单是数据边界的唯一开关，出站漏检会让
+         * 「已从白名单移除的 peer 继续收到所有会话的标题与摘要」，泄露范围
+         * 比入站更大。被拒时记一行日志，便于排查「为什么收不到通知」。
+         */
+        const allowed = checkNotifyAccess(config.access, candidate);
+        if (allowed.allowed !== true) {
+          log('info', `im-bot: 通知跳过 ${candidate.channel}/${candidate.peer}（${allowed.reason}）`);
+          continue;
+        }
+        const key = `${candidate.channel}:${candidate.peer}`;
+        if (seenTargets.has(key)) continue;
+        seenTargets.add(key);
+        targets.push({ channel: candidate.channel, peer: candidate.peer });
       }
-      if (targets.length === 0) return;
+      /*
+       * 本回合若由某个聊天发起、而它恰好没在绑定表里（例如刚 /new 但绑定写入
+       * 失败），仍兜底推给它自己 —— 但同样要过白名单，否则等于绕过管控。
+       */
+      if (origin !== undefined && !seenTargets.has(`${origin.channel}:${origin.peer}`)) {
+        const originAllowed = checkNotifyAccess(config.access, {
+          channel: origin.channel,
+          peer: origin.peer,
+          chatType: origin.chatType,
+        });
+        if (originAllowed.allowed === true) {
+          targets.push({ channel: origin.channel, peer: origin.peer });
+        }
+      }
+      if (targets.length === 0) {
+        log('info', `im-bot: ${shortSessionId(sessionId)} 无可推送目标（没有任何开启通知的绑定）`);
+        return;
+      }
 
-      const label = sessionLabel(sessionTitles.get(sessionId), sessionId);
+      /*
+       * 标题优先级：本进程见过的事件缓存 → 现读 sessionQuery（覆盖冷会话）→ 短 id。
+       * 通知里标题和 id 都要有：标题帮人认，id 帮人定位。
+       */
+      let titleText = sessionTitles.get(sessionId) ?? '';
+      if (titleText === '') {
+        try {
+          const snapshot = await getService('sessionQuery')?.readTitle?.(sessionId, new AbortController().signal);
+          titleText = str(snapshot?.title);
+        } catch {
+          /* 读不到标题就退回短 id */
+        }
+      }
+      const label = sessionLabel(titleText, sessionId);
 
       if (verdict.failure === true) {
         if (config.notify.onTurnFailure !== true) return;
         const notice = renderFailureNotice({
           label,
+          sessionId,
           kind: verdict.kind,
           reason: verdict.detail,
           maxChars: config.notify.failureChars,
@@ -1043,6 +1294,7 @@ export function apply(ctx, config) {
       const summary = buffer === undefined ? '' : buffer.text;
       const notice = renderCompletionNotice({
         label,
+        sessionId,
         summary,
         durationMs,
         maxChars: config.notify.maxNoticeChars,
@@ -1287,6 +1539,96 @@ export function apply(ctx, config) {
   }
 
   /**
+   * 收集「新会话默认」可用选项，供设置面板做下拉。
+   *
+   * 只列**真实可路由**的项：模型来自 `sessionController.modelCatalog()`，它对
+   * 每个 provider 都做过可用性探测；agent 预设来自 `agentPresets.list()`。
+   * 拿不到的来源直接省略——面板会退化成手输框，而不是给出假选项。
+   *
+   * @returns {Promise<object>}
+   */
+  async function describeSessionOptions() {
+    const result = {
+      providers: [],
+      models: [],
+      presets: [],
+      defaultProvider: '',
+      defaultModel: '',
+      defaultReasoningEffort: '',
+      defaultPreset: '',
+      errors: [],
+    };
+
+    try {
+      const controller = sessionController();
+      if (controller !== undefined && typeof controller.modelCatalog === 'function') {
+        const catalog = await controller.modelCatalog();
+        const groups = Array.isArray(catalog?.groups) ? catalog.groups : [];
+        for (const group of groups) {
+          const providerId = str(group?.id);
+          if (providerId === '') continue;
+          const rawModels = Array.isArray(group?.models) ? group.models : [];
+          /** @type {Array<{ id: string, efforts: Array<{ id: string, name: string }>, defaultEffort: string }>} */
+          const modelDetails = [];
+          for (const model of rawModels) {
+            const modelId = str(model?.id);
+            if (modelId === '') continue;
+            /*
+             * 推理强度是**模型级**能力：每个模型自己声明可选的 efforts 与默认值。
+             * 不支持推理的模型（reasoning 为空或 efforts 为空）在面板里应隐藏
+             * 这个下拉，而不是给一个永远无效的选择框。
+             */
+            const efforts = (Array.isArray(model?.reasoning?.efforts) ? model.reasoning.efforts : [])
+              .map((effort) => ({ id: str(effort?.id), name: str(effort?.name) || str(effort?.id) }))
+              .filter((effort) => effort.id !== '');
+            modelDetails.push({
+              id: modelId,
+              efforts,
+              defaultEffort: str(model?.reasoning?.defaultEffort),
+            });
+          }
+          result.providers.push({
+            id: providerId,
+            name: str(group?.name) || providerId,
+            models: modelDetails.map((model) => model.id),
+            // 面板据此渲染推理强度下拉，不需要再猜哪个模型支持推理。
+            modelDetails,
+          });
+          for (const model of modelDetails) {
+            result.models.push({ provider: providerId, model: model.id, efforts: model.efforts });
+          }
+        }
+        result.defaultProvider = str(catalog?.default?.provider);
+        result.defaultModel = str(catalog?.default?.model);
+        result.defaultReasoningEffort = str(catalog?.default?.reasoningEffort);
+        for (const failure of Array.isArray(catalog?.failures) ? catalog.failures : []) {
+          result.errors.push(`${str(failure?.id)}：${truncate(str(failure?.message), 80)}`);
+        }
+      }
+    } catch (error) {
+      result.errors.push(`模型目录：${describeError(error)}`);
+    }
+
+    try {
+      const registry = getService('agentPresets');
+      if (registry !== undefined && typeof registry.list === 'function') {
+        const presets = await registry.list();
+        result.presets = (Array.isArray(presets) ? presets : []).map((preset) => ({
+          id: str(preset?.id),
+          name: str(preset?.name) || str(preset?.id),
+          description: truncate(str(preset?.description), 80),
+          broken: str(preset?.broken) === '' ? '' : truncate(str(preset.broken), 80),
+        })).filter((preset) => preset.id !== '');
+        result.defaultPreset = typeof registry.defaultId === 'string' ? registry.defaultId : '';
+      }
+    } catch (error) {
+      result.errors.push(`agent 预设：${describeError(error)}`);
+    }
+
+    return result;
+  }
+
+  /**
    * RPC 方法表。
    * @param {string} method
    * @param {Record<string, unknown>} payload
@@ -1320,6 +1662,9 @@ export function apply(ctx, config) {
         // 目录与 /help 文案都来自 core 的同一份 COMMAND_CATALOG，前端直接渲染，
         // 不在客户端硬编码命令表（否则迟早与服务端漂移）。
         return { commands: COMMANDS, catalog: COMMAND_CATALOG, help: renderHelp() };
+      case 'sessionOptions':
+        // 「新会话默认」的下拉候选：只给真实可路由的 provider/model 与可用的预设。
+        return describeSessionOptions();
       default:
         throw new Error(`未知方法：${method}`);
     }

@@ -342,3 +342,124 @@ test('命令列表 RPC 返回全部内置命令', { skip: skipReason }, async ()
   }
   assert.match(result.value.help, /\/new/);
 });
+
+test('/sessions 实现必须读取 items 字段并从 sessionTitle 取标题', { skip: skipReason }, async () => {
+  /*
+   * 这是 /sessions 空列表事故的回归护栏。
+   *
+   * 真实契约（已核对 @deepseek-ai/dsh-api-session-controller 的类型定义）：
+   *   - `sessionController.list()` 返回 `{ items: SessionSummary[] }`；
+   *   - `SessionSummary` 没有 title 字段，标题要从 `sessionTitle.get(liveSession)`
+   *     读，而且只对 live Session 有效。
+   *
+   * 单测里构造真实 controller 成本过高，这里直接锁源码契约：读到错字段名、
+   * 或者又回去读 `row.title`，断言立即失败。
+   */
+  const { readFileSync } = await import('node:fs');
+  const { join, dirname } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const source = readFileSync(join(root, 'lib', 'index.js'), 'utf8');
+
+  assert.ok(
+    source.includes('result?.items'),
+    'listRecentSessions 必须读取 result.items（不是 result.sessions）',
+  );
+  assert.ok(
+    source.includes('sessionTitle'),
+    '标题必须从 sessionTitle 服务读取（SessionSummary 没有 title 字段）',
+  );
+  // 不得再出现「从 summary 行里直接取 title」的旧写法
+  assert.ok(
+    !/sessionLabel\(row\?\.title/.test(source),
+    '不得从 list() 返回的 summary 行里取 title（该字段不存在）',
+  );
+});
+
+test('sessionOptions 只下发真实可路由的 provider/model 与可用预设', { skip: skipReason }, async () => {
+  /*
+   * 「新会话默认」的下拉候选全部来自宿主：
+   *   - 模型来自 sessionController.modelCatalog()，它已对每个 provider 做过
+   *     可用性探测，所以候选里不会出现「看起来能选、实际发不出去」的项；
+   *   - 预设来自 agentPresets.list()。
+   * 这里用一个已知目录驱动，断言 RPC 的输出形状与映射都正确。
+   */
+  const apply = applyFn;
+  const rpcHandlers = new Map();
+  const routes = [];
+
+  const connection = { rpc: { handle: (ch, h) => { rpcHandlers.set(ch, h); return () => {}; } } };
+  const webServer = { register: (r) => { routes.push(r); return () => {}; } };
+  const agentPresets = {
+    list: async () => [
+      { id: 'standard', name: '标准' },
+      { id: 'standard-zh', name: '中文标准' },
+      { id: 'broken', name: '坏预设', broken: '缺少 workflowEngine' },
+    ],
+    defaultId: 'standard-zh',
+  };
+
+  const ctx = {
+    connection,
+    webServer,
+    agentPresets,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    fiber: { entry: { options: { config: {} } } },
+    get: (name) => {
+      if (name === 'connection') return connection;
+      if (name === 'webServer') return webServer;
+      if (name === 'agentPresets') return agentPresets;
+      if (name === 'sessionController') {
+        return {
+          modelCatalog: async () => ({
+            default: { provider: 'ai-proxy', model: 'gemini-3.8-flash' },
+            groups: [
+              { id: 'ai-proxy', name: 'AI Proxy', models: [{ id: 'gemini-3.8-flash' }, { id: 'glm-5.3' }] },
+              { id: 'deepseek', models: [{ id: 'deepseek-chat' }] },
+            ],
+            failures: [{ id: 'broken-provider', message: 'API key 无效' }],
+          }),
+          resolveAgent: async () => ({ followup: () => {} }),
+          create: async () => ({ sessionId: 's1' }),
+          list: async () => ({ items: [] }),
+        };
+      }
+      return undefined;
+    },
+    inject: (_d, fn) => { fn(ctx); return ctx; },
+    effect: (fn) => fn(),
+    on: () => () => {},
+  };
+
+  apply(ctx, {});
+  await new Promise((r) => setTimeout(r, 30));
+  const handler = rpcHandlers.get('/dsh-im-bot');
+  assert.ok(handler !== undefined, 'RPC 通道应已注册');
+
+  const result = await handler('sessionOptions', {});
+  assert.equal(result.ok, true, JSON.stringify(result).slice(0, 200));
+  const value = result.value;
+
+  // 提供商与模型
+  assert.equal(value.providers.length, 2);
+  const aiProxy = value.providers.find((p) => p.id === 'ai-proxy');
+  assert.ok(aiProxy !== undefined);
+  assert.deepEqual(aiProxy.models, ['gemini-3.8-flash', 'glm-5.3']);
+  assert.equal(aiProxy.name, 'AI Proxy');
+  // 无 name 的回退到 id
+  assert.equal(value.providers.find((p) => p.id === 'deepseek').name, 'deepseek');
+
+  // 默认值
+  assert.equal(value.defaultProvider, 'ai-proxy');
+  assert.equal(value.defaultModel, 'gemini-3.8-flash');
+  assert.equal(value.defaultPreset, 'standard-zh');
+
+  // 预设（含 broken 标记）
+  assert.equal(value.presets.length, 3);
+  const broken = value.presets.find((p) => p.id === 'broken');
+  assert.ok(broken !== undefined);
+  assert.match(broken.broken, /workflowEngine/);
+
+  // 失败的 provider 要作为 error 暴露，而不是静默丢弃
+  assert.ok(value.errors.some((e) => e.includes('broken-provider')), '应报告加载失败的 provider');
+});

@@ -10,7 +10,10 @@ import {
   BindingTable,
   COMMAND_CATALOG,
   COMMANDS,
+  renderAgents,
   renderHelp,
+  renderModels,
+  renderSkills,
   Deduplicator,
   KeyedSerialLock,
   RateLimiter,
@@ -26,6 +29,9 @@ import {
   normalizeInbound,
   normalizeSendRequest,
   parseCommand,
+  parseModelArgument,
+  resolveModelChoice,
+  shortSessionId,
   parsePeerKey,
   peerKey,
   renderCompletionNotice,
@@ -519,4 +525,217 @@ test('/help 文案由目录生成，包含所有命令且对齐', () => {
     return item === undefined ? -1 : line.indexOf(item.summary);
   }));
   assert.equal(columns.size, 1, `说明列未对齐：${[...columns].join(',')}`);
+});
+
+// ---------------------------------------------------------------------------
+// /agents /skills /models 的渲染
+// ---------------------------------------------------------------------------
+
+test('renderAgents 标出默认预设与激活失败', () => {
+  const text = renderAgents([
+    { id: 'standard', name: '标准' },
+    { id: 'standard-zh', name: '中文标准', broken: '缺少服务 foo' },
+  ], 'standard-zh');
+
+  assert.ok(text.includes('🤖 Agent 预设'));
+  assert.ok(text.includes('标准（standard）'), '应显示名称与 id');
+  assert.ok(text.includes('▶'), '默认预设应有标记');
+  // 默认是 standard-zh，标记应在它那一行
+  const defaultLine = text.split('\n').find((l) => l.includes('standard-zh'));
+  assert.ok(defaultLine.startsWith('▶'), `默认行应带 ▶：${defaultLine}`);
+  assert.ok(text.includes('⚠️'), '激活失败必须显式标出');
+});
+
+test('renderAgents 空列表有明确提示', () => {
+  assert.match(renderAgents([]), /没有可用的 agent 预设/);
+  assert.match(renderAgents(null), /没有可用的/);
+});
+
+test('renderSkills 显示名称、说明与仅手动标记', () => {
+  const text = renderSkills([
+    { name: 'brandkit', description: '品牌视觉生成', modelInvocable: true },
+    { name: 'manual-only', description: '仅人工触发', modelInvocable: false },
+  ]);
+  assert.ok(text.includes('🧩 可用技能'));
+  assert.ok(text.includes('/brandkit'));
+  assert.ok(text.includes('品牌视觉生成'));
+  assert.ok(text.includes('[仅手动]'), 'modelInvocable=false 要标出来');
+});
+
+test('renderSkills 空列表有明确提示', () => {
+  assert.match(renderSkills([]), /没有可用技能/);
+});
+
+test('renderModels 按提供商分组并显示默认模型', () => {
+  const text = renderModels({
+    default: { provider: 'ai-proxy', model: 'gemini-3.8-flash' },
+    groups: [
+      { id: 'ai-proxy', name: 'AI Proxy', models: [{ id: 'gemini-3.8-flash' }, { id: 'glm-5.3' }] },
+      { id: 'other', models: [{ id: 'x' }] },
+    ],
+  });
+  assert.ok(text.includes('🧠 可用模型'));
+  assert.ok(text.includes('默认：ai-proxy / gemini-3.8-flash'));
+  assert.ok(text.includes('AI Proxy（ai-proxy）：2 个'));
+  assert.ok(text.includes('gemini-3.8-flash'));
+  assert.ok(text.includes('glm-5.3'));
+  assert.ok(text.includes('other：1 个'), '无 name 时用 id');
+});
+
+test('renderModels 超出上限时折叠并提示剩余数量', () => {
+  const models = Array.from({ length: 20 }, (_, i) => ({ id: `m${i}` }));
+  const text = renderModels({ groups: [{ id: 'p', models }] }, 5);
+  assert.ok(text.includes('m0'));
+  assert.ok(text.includes('m4'));
+  assert.ok(!text.includes('m5'), '超过上限的模型不应逐条列出');
+  assert.ok(text.includes('还有 15 个'), '应提示剩余数量');
+});
+
+test('renderModels 显示加载失败的提供商', () => {
+  const text = renderModels({
+    groups: [{ id: 'ok', models: [{ id: 'a' }] }],
+    failures: [{ id: 'broken-provider', message: '凭据缺失' }],
+  });
+  assert.ok(text.includes('加载失败'));
+  assert.ok(text.includes('broken-provider'));
+  assert.ok(text.includes('凭据缺失'));
+});
+
+test('renderModels 空目录有明确提示', () => {
+  assert.match(renderModels({}), /没有可用的模型/);
+});
+
+// ---------------------------------------------------------------------------
+// 短 ID（`session-` 前缀占满 8 字符的坑）
+// ---------------------------------------------------------------------------
+
+test('shortSessionId 剥掉 session- 前缀后再取 8 位', () => {
+  // 真实格式：session-<uuid>。直接 slice(0,8) 只会得到 "session-"。
+  const id = 'session-bf17eeb8-d6fc-4d34-8e1e-c817358094c6';
+  assert.equal(id.slice(0, 8), 'session-', '这正是旧实现的 bug');
+  assert.equal(shortSessionId(id), 'bf17eeb8');
+});
+
+test('shortSessionId 对无前缀 id 退化为直接截取', () => {
+  assert.equal(shortSessionId('abc123def456'), 'abc123de');
+  assert.equal(shortSessionId(''), '');
+  assert.equal(shortSessionId(null), '');
+});
+
+test('shortSessionId 对不同会话给出不同结果', () => {
+  const a = shortSessionId('session-73630388-9e18-412b');
+  const b = shortSessionId('session-bf17eeb8-d6fc-4d34');
+  assert.notEqual(a, b, '不同会话的短 ID 必须可区分');
+  assert.equal(a, '73630388');
+  assert.equal(b, 'bf17eeb8');
+});
+
+test('sessionLabel 无标题时用短 ID，而不是 session-', () => {
+  const label = sessionLabel('', 'session-73630388-9e18-412b');
+  assert.equal(label, '73630388');
+  assert.notEqual(label, 'session-');
+});
+
+// ---------------------------------------------------------------------------
+// /model 参数解析
+// ---------------------------------------------------------------------------
+
+test('parseModelArgument 按第一个斜杠切分（模型 ID 可含斜杠）', () => {
+  assert.deepEqual(
+    parseModelArgument('ai-proxy/glm-5.3'),
+    { ok: true, provider: 'ai-proxy', model: 'glm-5.3', reasoningEffort: '' },
+  );
+  // 模型 ID 自身带斜杠：provider 是第一个，其余整体归 model
+  assert.deepEqual(
+    parseModelArgument('deepseek/deepseek-flash'),
+    { ok: true, provider: 'deepseek', model: 'deepseek-flash', reasoningEffort: '' },
+  );
+});
+
+test('parseModelArgument 允许只给模型 ID', () => {
+  assert.deepEqual(
+    parseModelArgument('glm-5.3'),
+    { ok: true, provider: '', model: 'glm-5.3', reasoningEffort: '' },
+  );
+});
+
+test('parseModelArgument 拒绝空参数与空模型', () => {
+  assert.equal(parseModelArgument('').ok, false);
+  assert.equal(parseModelArgument('ai-proxy/').ok, false);
+});
+
+test('resolveModelChoice 命中已知 provider+model', () => {
+  const catalog = { groups: [{ id: 'ai-proxy', models: [{ id: 'glm-5.3' }] }] };
+  assert.deepEqual(
+    resolveModelChoice(catalog, { provider: 'ai-proxy', model: 'glm-5.3' }),
+    { ok: true, provider: 'ai-proxy', model: 'glm-5.3' },
+  );
+});
+
+test('resolveModelChoice 未知 provider 时列出可用项', () => {
+  const catalog = { groups: [{ id: 'ai-proxy', models: [{ id: 'glm-5.3' }] }] };
+  const result = resolveModelChoice(catalog, { provider: 'nope', model: 'x' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /ai-proxy/);
+});
+
+test('resolveModelChoice 未知模型时列出该提供商可用模型', () => {
+  const catalog = { groups: [{ id: 'ai-proxy', models: [{ id: 'glm-5.3' }, { id: 'kimi-k3' }] }] };
+  const result = resolveModelChoice(catalog, { provider: 'ai-proxy', model: 'nope' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /glm-5\.3/);
+});
+
+test('resolveModelChoice 只给模型 ID 时自动定位提供商', () => {
+  const catalog = { groups: [{ id: 'ai-proxy', models: [{ id: 'glm-5.3' }] }] };
+  assert.deepEqual(
+    resolveModelChoice(catalog, { provider: '', model: 'glm-5.3' }),
+    { ok: true, provider: 'ai-proxy', model: 'glm-5.3' },
+  );
+});
+
+test('resolveModelChoice 模型存在于多个提供商时要求指明', () => {
+  const catalog = {
+    groups: [
+      { id: 'a', models: [{ id: 'same' }] },
+      { id: 'b', models: [{ id: 'same' }] },
+    ],
+  };
+  const result = resolveModelChoice(catalog, { provider: '', model: 'same' });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /多个提供商/);
+});
+
+test('/model 出现在命令目录里', () => {
+  const item = COMMAND_CATALOG.find((c) => c.name === 'model');
+  assert.ok(item !== undefined, '/model 必须登记在目录中');
+  assert.ok(item.usage.startsWith('/model'));
+});
+
+test('parseModelArgument 支持可选的推理强度', () => {
+  assert.deepEqual(
+    parseModelArgument('ai-proxy/glm-5.3 high'),
+    { ok: true, provider: 'ai-proxy', model: 'glm-5.3', reasoningEffort: 'high' },
+  );
+  // 模型 ID 含斜杠时仍能正确分离强度
+  assert.deepEqual(
+    parseModelArgument('deepseek/deepseek-flash max'),
+    { ok: true, provider: 'deepseek', model: 'deepseek-flash', reasoningEffort: 'max' },
+  );
+});
+
+test('parseModelArgument 不把含斜杠的模型 ID 误判为推理强度', () => {
+  // 只有「最后一段不含斜杠」才算强度，避免把 deepseek-flash 当成强度
+  assert.deepEqual(
+    parseModelArgument('deepseek/deepseek-flash'),
+    { ok: true, provider: 'deepseek', model: 'deepseek-flash', reasoningEffort: '' },
+  );
+});
+
+test('session 配置含 reasoningEffort 且可留空', () => {
+  const withEffort = normalizeConfig({ session: { provider: 'p', model: 'm', reasoningEffort: 'high' } });
+  assert.equal(withEffort.session.reasoningEffort, 'high');
+
+  const empty = normalizeConfig({});
+  assert.equal(empty.session.reasoningEffort, '', '默认留空表示跟随模型默认');
 });

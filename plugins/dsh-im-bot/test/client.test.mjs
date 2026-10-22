@@ -42,7 +42,7 @@ function makeReactStub() {
  * @param {(name: string) => any} requireFn 模块解析函数
  * @returns {Promise<any>} 最终虚拟树
  */
-async function renderWithEffects(componentName, props, rpcCall) {
+async function renderWithEffects(componentName, props, rpcCall, options = {}) {
   /*
    * slots 必须**跨轮保留**（这就是 React 的 state 存储），每轮只把游标归零。
    * 早期写成每轮 slots.length = 0，等于每次渲染都丢掉所有 state，
@@ -150,18 +150,52 @@ async function renderWithEffects(componentName, props, rpcCall) {
   const Component = captured?.[componentName];
   if (typeof Component !== 'function') throw new Error(`未导出组件 ${componentName}`);
 
-  let tree = null;
-  // 反复「渲染 → 跑 effect → 等微任务」，直到没有新的 setState。
-  for (let round = 0; round < 20; round += 1) {
-    cursor = 0;
-    memoCursor = 0;
-    react.__effects = [];
-    pending = false;
-    tree = Component(props);
-    for (const effect of react.__effects) effect();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    if (pending === false) break;
+  /** 跑一轮渲染 + effect，直到状态收敛。 */
+  const settle = async () => {
+    let current = null;
+    for (let round = 0; round < 20; round += 1) {
+      cursor = 0;
+      memoCursor = 0;
+      react.__effects = [];
+      pending = false;
+      current = Component(props);
+      for (const effect of react.__effects) effect();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (pending === false) break;
+    }
+    return current;
+  };
+
+  let tree = await settle();
+
+  /*
+   * 可选：模拟一次用户点击。
+   *
+   * 折叠卡片默认收起，要验证明细就得先触发 onClick 再重新收敛。
+   * `options.click` 是一个匹配函数，收到虚拟树里的每个节点，返回 true 即点击它。
+   */
+  if (typeof options.click === 'function') {
+    let clicked = false;
+    const visit = (node) => {
+      if (clicked || node === null || node === undefined) return;
+      if (Array.isArray(node)) {
+        for (const child of node) visit(child);
+        return;
+      }
+      if (typeof node !== 'object') return;
+      const onClick = node.props?.onClick;
+      if (typeof onClick === 'function' && options.click(node)) {
+        onClick({ stopPropagation: () => {} });
+        clicked = true;
+        return;
+      }
+      for (const child of node.children ?? []) visit(child);
+    };
+    visit(tree);
+    if (!clicked) throw new Error('renderWithEffects: 没有找到可点击的节点');
+    tree = await settle();
   }
+
   return tree;
 }
 
@@ -355,7 +389,11 @@ test('设置面板渲染聊天命令卡片，且命令来自服务端目录而�
     return {};
   };
 
-  const tree = await renderWithEffects('ImBotSettings', { rpcCall }, rpcCall);
+  // 命令卡片现在默认折叠：先展开，再验证明细来自服务端目录。
+  const tree = await renderWithEffects('ImBotSettings', { rpcCall }, rpcCall, {
+    // 展开聊天命令（折叠按钮的 onClick）
+    click: (node) => node?.props?.['aria-expanded'] !== undefined,
+  });
 
   const texts = [];
   walkTree(tree, texts);
@@ -379,10 +417,240 @@ test('命令目录为空时面板显示占位而不是崩溃', async () => {
     if (method === 'commands') throw new Error('命令目录不可用');
     return {};
   };
-  const tree = await renderWithEffects('ImBotSettings', { rpcCall }, rpcCall);
+  // 命令卡片默认折叠，需要先展开才能看到占位文案。
+  const tree = await renderWithEffects('ImBotSettings', { rpcCall }, rpcCall, {
+    click: (node) => node?.props?.['aria-expanded'] !== undefined,
+  });
   const texts = [];
   walkTree(tree, texts);
   // commands 调用失败不应让面板崩溃，只显示占位
   assert.ok(texts.some((t) => t.includes('聊天命令')), '面板仍应渲染');
   assert.ok(texts.some((t) => t.includes('加载中')), '应显示加载占位');
+});
+
+test('新会话默认：预设/提供商/模型均为下拉，选项来自服务端', async () => {
+  const sessionOptions = {
+    providers: [
+      { id: 'ai-proxy', name: 'AI Proxy', models: ['gemini-3.8-flash', 'glm-5.3'] },
+      { id: 'other', name: 'other', models: ['x-model'] },
+    ],
+    models: [],
+    presets: [
+      { id: 'standard', name: '标准', description: '', broken: '' },
+      { id: 'standard-zh', name: '中文标准', description: '', broken: '' },
+    ],
+    defaultProvider: 'ai-proxy',
+    defaultModel: 'gemini-3.8-flash',
+    defaultPreset: 'standard-zh',
+    errors: [],
+  };
+  const rpcCall = async (method) => {
+    if (method === 'status') {
+      return { enabled: true, config: {}, channels: {}, bindings: [], credentials: {} };
+    }
+    if (method === 'commands') return { catalog: [], help: '' };
+    if (method === 'sessionOptions') return sessionOptions;
+    return {};
+  };
+
+  const tree = await renderWithEffects('ImBotSettings', { rpcCall });
+  const texts = [];
+  walkTree(tree, texts);
+
+  assert.ok(texts.some((t) => t.includes('新会话默认')), '应有「新会话默认」卡片');
+  // 预设与提供商都要以下拉项形式出现（名称 + id）
+  assert.ok(texts.some((t) => t.includes('中文标准（standard-zh）')), '预设选项缺失');
+  assert.ok(texts.some((t) => t.includes('AI Proxy（ai-proxy）')), '提供商选项缺失');
+  // 默认值要提示出来
+  assert.ok(texts.some((t) => t.includes('跟随 DSH 默认')), '应有「跟随默认」选项');
+  assert.ok(texts.some((t) => t.includes('standard-zh')), '默认预设应体现在选项文案里');
+});
+
+test('新会话默认：激活失败的预设要标注不可用', async () => {
+  const rpcCall = async (method) => {
+    if (method === 'status') {
+      return { enabled: true, config: {}, channels: {}, bindings: [], credentials: {} };
+    }
+    if (method === 'commands') return { catalog: [], help: '' };
+    if (method === 'sessionOptions') {
+      return {
+        providers: [], models: [], defaultProvider: '', defaultModel: '', defaultPreset: '',
+        presets: [{ id: 'broken', name: '坏预设', description: '', broken: '缺少服务' }],
+        errors: [],
+      };
+    }
+    return {};
+  };
+  const tree = await renderWithEffects('ImBotSettings', { rpcCall });
+  const texts = [];
+  walkTree(tree, texts);
+  assert.ok(texts.some((t) => t.includes('不可用')), '激活失败的预设必须标注不可用');
+});
+
+test('新会话默认：选项读取失败时显示原因而不是静默', async () => {
+  const rpcCall = async (method) => {
+    if (method === 'status') {
+      return { enabled: true, config: {}, channels: {}, bindings: [], credentials: {} };
+    }
+    if (method === 'commands') return { catalog: [], help: '' };
+    if (method === 'sessionOptions') {
+      return {
+        providers: [], models: [], presets: [],
+        defaultProvider: '', defaultModel: '', defaultPreset: '',
+        errors: ['模型目录：凭据缺失'],
+      };
+    }
+    return {};
+  };
+  const tree = await renderWithEffects('ImBotSettings', { rpcCall });
+  const texts = [];
+  walkTree(tree, texts);
+  assert.ok(texts.some((t) => t.includes('凭据缺失')), '应把读取失败原因显示出来');
+});
+
+test('新会话默认：不得再出现手动填 baseURL / key 的输入框', () => {
+  // 用户明确要求只从 DSH 已配置项里选，不做手动 baseURL/key 入口。
+  assert.ok(!CLIENT_CODE.includes('sessionManual'), '不得残留手动模式字段');
+  assert.ok(!/sessionManualBaseURL|sessionManualApiKeyEnv/.test(CLIENT_CODE), '不得残留 baseURL/key 输入');
+});
+
+test('推理强度下拉只在模型支持推理时出现', async () => {
+  const baseOptions = {
+    models: [],
+    presets: [],
+    defaultProvider: 'ai-proxy',
+    defaultModel: 'glm-5.3',
+    defaultPreset: '',
+    errors: [],
+  };
+
+  // 情况 1：模型声明了 efforts → 应渲染推理强度下拉
+  const withEfforts = async (method) => {
+    if (method === 'status') {
+      return {
+        enabled: true,
+        config: { session: { provider: 'ai-proxy', model: 'glm-5.3' } },
+        channels: {}, bindings: [], credentials: {},
+      };
+    }
+    if (method === 'commands') return { catalog: [], help: '' };
+    if (method === 'sessionOptions') {
+      return {
+        ...baseOptions,
+        providers: [{
+          id: 'ai-proxy',
+          name: 'AI Proxy',
+          models: ['glm-5.3'],
+          modelDetails: [{
+            id: 'glm-5.3',
+            efforts: [{ id: 'low', name: 'low' }, { id: 'high', name: 'high' }],
+            defaultEffort: 'high',
+          }],
+        }],
+      };
+    }
+    return {};
+  };
+  const tree1 = await renderWithEffects('ImBotSettings', { rpcCall: withEfforts });
+  const texts1 = [];
+  walkTree(tree1, texts1);
+  assert.ok(texts1.some((t) => t.includes('推理强度')), '支持推理的模型应显示推理强度下拉');
+  assert.ok(texts1.some((t) => t.includes('high')), '应列出可选强度');
+
+  // 情况 2：模型没有 efforts → 不应出现该下拉
+  const withoutEfforts = async (method) => {
+    if (method === 'status') {
+      return {
+        enabled: true,
+        config: { session: { provider: 'ai-proxy', model: 'no-reasoning' } },
+        channels: {}, bindings: [], credentials: {},
+      };
+    }
+    if (method === 'commands') return { catalog: [], help: '' };
+    if (method === 'sessionOptions') {
+      return {
+        ...baseOptions,
+        providers: [{
+          id: 'ai-proxy',
+          name: 'AI Proxy',
+          models: ['no-reasoning'],
+          modelDetails: [{ id: 'no-reasoning', efforts: [], defaultEffort: '' }],
+        }],
+      };
+    }
+    return {};
+  };
+  const tree2 = await renderWithEffects('ImBotSettings', { rpcCall: withoutEfforts });
+  const texts2 = [];
+  walkTree(tree2, texts2);
+  assert.ok(!texts2.some((t) => t === '推理强度'), '不支持推理的模型不应显示该下拉');
+});
+
+test('聊天命令卡片默认折叠，展开后才渲染命令列表', async () => {
+  const catalog = [
+    { name: 'new', usage: '/new [标题]', summary: '新建会话并绑定到当前聊天' },
+    { name: 'status', usage: '/status', summary: '查看当前绑定与运行状态' },
+  ];
+  const rpcCall = async (method) => {
+    if (method === 'status') {
+      return { enabled: true, config: {}, channels: {}, bindings: [], credentials: {} };
+    }
+    if (method === 'commands') return { catalog, help: '' };
+    if (method === 'sessionOptions') {
+      return { providers: [], models: [], presets: [], defaultProvider: '', defaultModel: '', defaultPreset: '', errors: [] };
+    }
+    return {};
+  };
+
+  // 默认状态（折叠）：标题与命令数量可见，命令明细不可见
+  const collapsed = await renderWithEffects('ImBotSettings', { rpcCall });
+  const collapsedTexts = [];
+  walkTree(collapsed, collapsedTexts);
+  assert.ok(collapsedTexts.some((t) => t.includes('聊天命令')), '折叠时仍应显示卡片标题');
+  assert.ok(collapsedTexts.some((t) => t.includes('展开')), '折叠时应提示「展开」');
+  assert.ok(!collapsedTexts.some((t) => t.includes('/new [标题]')), '折叠时不应渲染命令明细');
+  assert.ok(!collapsedTexts.some((t) => t.includes('不会进入模型上下文')), '折叠时不应渲染说明段落');
+});
+
+test('折叠控件具备无障碍属性与箭头图标', () => {
+  assert.ok(CLIENT_CODE.includes("'aria-expanded'"), '折叠按钮必须声明 aria-expanded');
+  assert.ok(CLIENT_CODE.includes('imb-chevron'), '应渲染箭头图标');
+  assert.ok(CLIENT_CODE.includes('imb-collapse-body'), '应有折叠内容容器');
+});
+
+test('所有 SVG 图标必须带显式 width/height 属性', () => {
+  /*
+   * 回归：箭头图标只写了 viewBox 与 CSS 宽高，漏了 width/height 属性。
+   * SVG 没有固有尺寸时，在 flex 容器里会撑满可用空间 —— 线上表现就是
+   * 一个占满整张卡片的大箭头。CSS 的 width/height 对这类 SVG 不足以约束，
+   * 必须同时给属性。
+   */
+  /*
+   * 按行抓：每个 `createElement('svg', {` 之后到 `})` 之间的属性块。
+   * 不用跨行非贪婪正则 —— 属性里有模板字符串（className），`}` 会提前截断。
+   */
+  const lines = CLIENT_CODE.split('\n');
+  const blocks = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!lines[i].includes("createElement('svg'")) continue;
+    // 收集到出现 viewBox 的那一行为止（viewBox 是每个 svg 都有的稳定锚点）
+    const block = [];
+    for (let j = i; j < Math.min(i + 12, lines.length); j += 1) {
+      block.push(lines[j]);
+      if (lines[j].includes('viewBox')) break;
+    }
+    blocks.push(block.join('\n'));
+  }
+
+  assert.ok(blocks.length >= 4, `应至少找到 4 个 svg，实际 ${blocks.length}`);
+  for (const [index, attrs] of blocks.entries()) {
+    assert.match(attrs, /width:\s*\d+/, `第 ${index + 1} 个 svg 缺少 width 属性`);
+    assert.match(attrs, /height:\s*\d+/, `第 ${index + 1} 个 svg 缺少 height 属性`);
+  }
+});
+
+test('箭头图标的 CSS 不得被 flex 拉伸', () => {
+  const rule = CLIENT_CODE.match(/\.imb-chevron\{([^}]*)\}/)?.[1] ?? '';
+  assert.match(rule, /flex:\s*0 0 auto/, '必须禁止 flex 拉伸');
+  assert.match(rule, /max-width:\s*16px/, '应有 max-width 兜底');
 });

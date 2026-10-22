@@ -76,6 +76,12 @@ export const DEFAULTS = {
     groupAllowFrom: [],
     groupsEnabled: false,
   },
+  session: {
+    agentPreset: '',
+    provider: '',
+    model: '',
+    reasoningEffort: '',
+  },
 };
 
 /** 对外出站文本的通道长度上限（按字符计，字节由通道自己再核一次）。 */
@@ -380,6 +386,42 @@ export function checkAccess(access, event) {
   return { allowed: true, reason: 'ok' };
 }
 
+
+/**
+ * 判断一条**已有绑定**是否仍有权接收通知。
+ *
+ * 与 {@link checkAccess} 的区别：那个函数校验「入站消息能否驱动会话」，
+ * 输入是 InboundEvent（带 from/chatType）；这里校验「出站通知能否发给这个
+ * 聊天」，输入是绑定记录（只有 channel/peer/chatType）。
+ *
+ * 为什么通知也要过白名单：白名单是**数据边界的唯一开关**。若广播只看 notify
+ * 标记，那么一旦用户把某个 peer 从白名单移除（或清空白名单想彻底停用），
+ * 历史绑定仍然会把**所有会话的标题与内容摘要**持续推给那个聊天 —— 等于
+ * 白名单对出站失效，泄露范围比入站更大。
+ *
+ * @param {object} access 配置里的 access 段
+ * @param {{ channel?: string, peer?: string, chatType?: string }} binding
+ * @returns {{ allowed: boolean, reason: string }}
+ */
+export function checkNotifyAccess(access, binding) {
+  const allowFrom = normalizeAllowList(access?.allowFrom);
+  const groupAllowFrom = normalizeAllowList(access?.groupAllowFrom);
+  const groupsEnabled = access?.groupsEnabled === true;
+  const peer = str(binding?.peer);
+
+  if (str(binding?.chatType) === 'group') {
+    if (!groupsEnabled) return { allowed: false, reason: 'groups-disabled' };
+    if (groupAllowFrom.length === 0) return { allowed: false, reason: 'no-group-allowlist' };
+    if (!groupAllowFrom.includes(peer)) return { allowed: false, reason: 'group-not-allowed' };
+    return { allowed: true, reason: 'ok' };
+  }
+
+  if (allowFrom.length === 0) return { allowed: false, reason: 'no-allowlist' };
+  // 单聊的 peer 就是对方 userid，直接比对即可。
+  if (!allowFrom.includes(peer)) return { allowed: false, reason: 'peer-not-allowed' };
+  return { allowed: true, reason: 'ok' };
+}
+
 // ---------------------------------------------------------------------------
 // 去重
 // ---------------------------------------------------------------------------
@@ -577,6 +619,10 @@ export const COMMAND_CATALOG = Object.freeze([
   { name: 'status', usage: '/status', summary: '查看当前绑定与运行状态' },
   { name: 'stop', usage: '/stop', summary: '中止当前正在生成的回合' },
   { name: 'notify', usage: '/notify on|off', summary: '开关本聊天的任务完成通知' },
+  { name: 'agents', usage: '/agents', summary: '列出可用的 agent 预设' },
+  { name: 'skills', usage: '/skills', summary: '列出当前会话可用的技能' },
+  { name: 'models', usage: '/models', summary: '列出可用的模型提供商与模型' },
+  { name: 'model', usage: '/model <提供商/模型ID>', summary: '切换当前会话的模型' },
   { name: 'help', usage: '/help', summary: '显示命令帮助' },
 ]);
 
@@ -607,6 +653,175 @@ export function parseCommand(text) {
  * `/help` 的固定文案。
  * @returns {string}
  */
+
+/**
+ * 渲染 agent 预设列表。
+ * @param {Array<{ id: string, name?: string, description?: string, broken?: string }>} presets
+ * @param {string} [defaultId] 当前默认预设 id
+ * @returns {string}
+ */
+export function renderAgents(presets, defaultId = '') {
+  const list = Array.isArray(presets) ? presets : [];
+  if (list.length === 0) return '（没有可用的 agent 预设）';
+  const lines = list.map((preset) => {
+    const id = str(preset?.id);
+    const mark = id !== '' && id === str(defaultId) ? '▶ ' : '  ';
+    const name = str(preset?.name);
+    const label = name !== '' && name !== id ? `${name}（${id}）` : id;
+    // broken 是激活失败诊断：显式标出来，否则用户只会觉得「选了没反应」。
+    const broken = str(preset?.broken);
+    const suffix = broken === '' ? '' : `　⚠️ ${truncate(broken, 60)}`;
+    return `${mark}${label}${suffix}`;
+  });
+  return ['🤖 Agent 预设', '', ...lines, '', '用 /new 新建会话时会使用设置里的默认预设。'].join('\n');
+}
+
+/**
+ * 渲染技能列表。
+ * @param {Array<{ name: string, description?: string, modelInvocable?: boolean }>} skills
+ * @returns {string}
+ */
+export function renderSkills(skills) {
+  const list = Array.isArray(skills) ? skills : [];
+  if (list.length === 0) return '（当前会话没有可用技能）';
+  const lines = list.map((skill) => {
+    const name = str(skill?.name);
+    const desc = truncate(str(skill?.description), 60);
+    const modelTag = skill?.modelInvocable === true ? '' : '　[仅手动]';
+    return `/${name}${modelTag}${desc === '' ? '' : `\n    ${desc}`}`;
+  });
+  return ['🧩 可用技能', '', ...lines].join('\n');
+}
+
+/**
+ * 渲染模型列表（按提供商分组）。
+ * @param {{ default?: { provider?: string, model?: string }, groups?: Array<{ id: string, name?: string, models?: Array<{ id: string, name?: string }> }>, failures?: Array<{ id: string, message?: string }> }} catalog
+ * @param {number} [maxPerProvider] 每个提供商最多列几个模型，避免刷屏
+ * @returns {string}
+ */
+export function renderModels(catalog, maxPerProvider = 12) {
+  const groups = Array.isArray(catalog?.groups) ? catalog.groups : [];
+  const failures = Array.isArray(catalog?.failures) ? catalog.failures : [];
+  if (groups.length === 0 && failures.length === 0) return '（没有可用的模型）';
+
+  const lines = [];
+  const def = catalog?.default;
+  if (str(def?.provider) !== '') {
+    lines.push(`默认：${str(def.provider)} / ${str(def.model)}`, '');
+  }
+  const limit = Number.isFinite(maxPerProvider) && maxPerProvider > 0 ? Math.floor(maxPerProvider) : 12;
+  for (const group of groups) {
+    const models = Array.isArray(group?.models) ? group.models : [];
+    const label = str(group?.name) !== '' && str(group.name) !== str(group.id)
+      ? `${str(group.name)}（${str(group.id)}）`
+      : str(group?.id);
+    lines.push(`${label}：${models.length} 个`);
+    for (const model of models.slice(0, limit)) {
+      lines.push(`  · ${str(model?.id)}`);
+    }
+    if (models.length > limit) lines.push(`  …还有 ${models.length - limit} 个`);
+  }
+  if (failures.length > 0) {
+    lines.push('', '⚠️ 以下提供商加载失败：');
+    for (const failure of failures) {
+      lines.push(`  ${str(failure?.id)}：${truncate(str(failure?.message), 60)}`);
+    }
+  }
+  return ['🧠 可用模型', '', ...lines].join('\n');
+}
+
+
+/**
+ * 解析 `/model <提供商>/<模型ID>` 的参数。
+ *
+ * 模型 ID 本身常含 `/`（如 `deepseek/deepseek-flash`），所以按**第一个**斜杠
+ * 切分：前者是提供商，后者整体是模型 ID。也接受纯模型 ID（提供商留空），
+ * 由调用方在当前提供商的候选里匹配。
+ *
+ * @param {string} argument 命令参数
+ * @returns {{ ok: true, provider: string, model: string } | { ok: false, error: string }}
+ */
+export function parseModelArgument(argument) {
+  const raw = str(argument);
+  if (raw === '') {
+    return {
+      ok: false,
+      error: '用法：/model <提供商/模型ID> [推理强度]，例如 /model ai-proxy/glm-5.3 high',
+    };
+  }
+  /*
+   * 可选的第三个字段是推理强度：以「空格分隔的最后一段」识别。
+   * 只按空格切一次而不是任取尾部，避免模型 ID 里含空格时误判
+   * （模型 ID 实际不含空格，这个约束足够稳）。
+   */
+  const parts = raw.split(/\s+/);
+  const hasEffort = parts.length >= 2 && parts[parts.length - 1].indexOf('/') === -1;
+  const effort = hasEffort ? parts[parts.length - 1] : '';
+  const target = hasEffort ? parts.slice(0, -1).join(' ') : raw;
+
+  const slash = target.indexOf('/');
+  if (slash === -1) {
+    // 只给了模型 ID：允许，交由调用方按当前/默认提供商解析。
+    return { ok: true, provider: '', model: target, reasoningEffort: effort };
+  }
+  const provider = target.slice(0, slash).trim();
+  const model = target.slice(slash + 1).trim();
+  if (model === '') {
+    return { ok: false, error: '模型 ID 不能为空，格式：/model <提供商/模型ID> [推理强度]' };
+  }
+  return { ok: true, provider, model, reasoningEffort: effort };
+}
+
+/**
+ * 从模型目录里找出可切换的候选，用于解析 `/model` 的输入。
+ *
+ * @param {{ groups?: Array<{ id: string, models?: Array<{ id: string }> }> }} catalog
+ * @param {{ provider: string, model: string }} request
+ * @returns {{ ok: true, provider: string, model: string } | { ok: false, error: string }}
+ */
+export function resolveModelChoice(catalog, request) {
+  const groups = Array.isArray(catalog?.groups) ? catalog.groups : [];
+  const wantedProvider = str(request?.provider);
+  const wantedModel = str(request?.model);
+
+  const providerIds = groups.map((group) => str(group?.id)).filter((id) => id !== '');
+  const modelsOf = (providerId) => {
+    const group = groups.find((item) => str(item?.id) === providerId);
+    return (Array.isArray(group?.models) ? group.models : []).map((model) => str(model?.id));
+  };
+
+  if (wantedProvider !== '') {
+    if (!providerIds.includes(wantedProvider)) {
+      return {
+        ok: false,
+        error: `没有提供商 "${wantedProvider}"。可用：${providerIds.join(', ') || '（无）'}`,
+      };
+    }
+    const models = modelsOf(wantedProvider);
+    if (!models.includes(wantedModel)) {
+      return {
+        ok: false,
+        error: `提供商 "${wantedProvider}" 下没有模型 "${wantedModel}"。可用：${models.slice(0, 8).join(', ')}${models.length > 8 ? ' …' : ''}`,
+      };
+    }
+    return { ok: true, provider: wantedProvider, model: wantedModel };
+  }
+
+  // 只给了模型 ID：在所有提供商里找；命中多个要求指明提供商。
+  const hits = [];
+  for (const providerId of providerIds) {
+    if (modelsOf(providerId).includes(wantedModel)) hits.push(providerId);
+  }
+  if (hits.length === 0) return { ok: false, error: `没有模型 "${wantedModel}"。用 /models 查看可用模型。` };
+  if (hits.length > 1) {
+    return {
+      ok: false,
+      error: `模型 "${wantedModel}" 在多个提供商下都有（${hits.join(', ')}），请写成 /model <提供商>/${wantedModel}`,
+    };
+  }
+  return { ok: true, provider: hits[0], model: wantedModel };
+}
+
 export function renderHelp() {
   // 由 COMMAND_CATALOG 生成，宽度按最长 usage 对齐；新增命令只改目录一处。
   const width = COMMAND_CATALOG.reduce((max, item) => Math.max(max, item.usage.length), 0);
@@ -810,8 +1025,28 @@ export function matchSessionPrefix(sessionIds, prefix) {
 export function sessionLabel(title, sessionId) {
   const text = str(title);
   if (text !== '') return truncate(text, 40);
+  return shortSessionId(sessionId) || '（未知会话）';
+}
+
+/**
+ * 把完整的 sessionId 压成可展示的短 ID。
+ *
+ * 坑：宿主 mint 的 id 形如 `session-bf17eeb8-d6fc-4d34-...`，
+ * **`session-` 这个前缀正好占 8 个字符**。早期实现直接 `slice(0, 8)`，
+ * 结果每个会话都显示成 `session-`，既无区分度又看不到标题以外的信息。
+ *
+ * 这里先剥掉已知前缀，再取 8 位；对不带前缀的 id 退化为直接截取。
+ *
+ * @param {string} sessionId
+ * @returns {string} 短 ID，空输入返回空串
+ */
+export function shortSessionId(sessionId) {
   const id = str(sessionId);
-  return id === '' ? '（未知会话）' : id.slice(0, 8);
+  if (id === '') return '';
+  // 宿主用 `session-<uuid>`；也兼容未来可能出现的其它命名前缀。
+  const stripped = id.startsWith('session-') ? id.slice('session-'.length) : id;
+  const body = stripped === '' ? id : stripped;
+  return body.slice(0, 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -831,6 +1066,12 @@ export function renderCompletionNotice(input) {
   const maxChars = clampNoticeChars(input?.maxChars);
   const summary = truncate(str(input?.summary), maxChars);
   const lines = [`✅ 任务完成 · ${str(input?.label) || '会话'}`];
+  /*
+   * 通知要能「认领」是哪个会话跑完的：标题可能重名，光看标题无法区分。
+   * 这里固定带一行短 id，用户可以直接拿它去 /use 绑定或在 Web 端定位。
+   */
+  const sid = str(input?.sessionId);
+  if (sid !== '') lines.push(`　会话 ${shortSessionId(sid)}`);
   if (summary !== '') lines.push('', summary);
   const duration = Number.isFinite(input?.durationMs) ? Math.max(0, Number(input.durationMs)) : 0;
   if (duration > 0) lines.push('', `—— 用时 ${formatDuration(duration)}`);
@@ -851,6 +1092,8 @@ export function renderFailureNotice(input) {
   const reason = truncate(str(input?.reason), maxChars);
   const kind = str(input?.kind) || 'unknown';
   const lines = [`⚠️ 回合结束（${kind}）· ${str(input?.label) || '会话'}`];
+  const sid = str(input?.sessionId);
+  if (sid !== '') lines.push(`　会话 ${shortSessionId(sid)}`);
   if (reason !== '') lines.push('', reason);
   return lines.join('\n');
 }
@@ -962,6 +1205,7 @@ export function normalizeConfig(raw) {
   const ilink = input.ilink !== null && typeof input.ilink === 'object' ? input.ilink : {};
   const notify = input.notify !== null && typeof input.notify === 'object' ? input.notify : {};
   const access = input.access !== null && typeof input.access === 'object' ? input.access : {};
+  const session = input.session !== null && typeof input.session === 'object' ? input.session : {};
 
   return {
     enabled: input.enabled === true,
@@ -1000,6 +1244,18 @@ export function normalizeConfig(raw) {
       allowFrom: normalizeAllowList(access.allowFrom),
       groupAllowFrom: normalizeAllowList(access.groupAllowFrom),
       groupsEnabled: access.groupsEnabled === true,
+    },
+    /*
+     * 新会话默认绑定。三项都允许留空：
+     *   - agentPreset 空 = 用 DSH 的默认 preset；
+     *   - provider/model 空 = 用该 preset / 部署的默认模型。
+     * 留空不是「配置错误」，而是「跟随宿主默认」，所以这里不做非空校验。
+     */
+    session: {
+      agentPreset: str(session.agentPreset),
+      provider: str(session.provider),
+      model: str(session.model),
+      reasoningEffort: str(session.reasoningEffort),
     },
   };
 }
