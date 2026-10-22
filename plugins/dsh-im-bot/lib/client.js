@@ -76,22 +76,25 @@ window.__ModuleLoader__.load({
       .imb-empty{padding:14px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
       .imb-divider{height:1px;background:var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));margin:2px 0}
       button:has([data-settings-nav-label="im-bot"]) > svg:first-child{display:none}
-      .imb-channel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;width:100%}
-      .imb-channel-card{display:flex;flex-direction:column;gap:10px;padding:14px;border:1.5px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-l,12px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));cursor:pointer;user-select:none;transition:border-color .15s ease,box-shadow .15s ease}
-      .imb-channel-card:hover{border-color:var(--dsw-alias-brand-primary,#4d6bfe);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 3%,var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform)))}
-      .imb-channel-card.selected{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary,#4d6bfe),0 2px 8px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 15%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 5%,var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform)))}
-      .imb-channel-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
-      .imb-channel-card-header{display:flex;align-items:center;gap:10px;min-width:0}
-      .imb-channel-icon{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 6%,transparent);flex-shrink:0}
+      /* 渠道单选小卡片：一行固定两个（含窄屏），紧凑排列 */
+      .imb-channel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
+      .imb-channel-card{display:flex;flex-direction:column;gap:6px;padding:9px 10px;border:1.5px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:10px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));cursor:pointer;user-select:none;transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;min-width:0}
+      .imb-channel-card:hover{border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .imb-channel-card.selected{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary,#4d6bfe);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 5%,var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform)))}
+      .imb-channel-card-header{display:flex;align-items:center;gap:7px;min-width:0}
+      .imb-channel-icon{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 6%,transparent);flex-shrink:0}
+      .imb-channel-icon svg{width:15px;height:15px}
       .imb-channel-icon.wecom{color:#267ef0;background:color-mix(in srgb,#267ef0 12%,transparent)}
       .imb-channel-icon.ilink{color:#07c160;background:color-mix(in srgb,#07c160 12%,transparent)}
-      .imb-channel-meta{display:flex;flex-direction:column;gap:2px;min-width:0}
-      .imb-channel-name{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
-      .imb-channel-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:16px}
-      .imb-channel-card-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;border-top:1px dashed var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1))}
-      .imb-channel-selection-indicator{font-size:11px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:6px}
-      .imb-channel-selection-indicator.active{color:var(--dsw-alias-brand-primary,#4d6bfe);font-weight:500}
-      .imb-channel-selection-indicator input{cursor:pointer;accent-color:var(--dsw-alias-brand-primary,#4d6bfe);width:14px;height:14px}
+      .imb-channel-meta{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+      .imb-channel-name{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .imb-channel-desc{font-size:10.5px;color:var(--dsw-alias-label-tertiary);line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .imb-channel-radio{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+      .imb-channel-radio.active{color:var(--dsw-alias-brand-primary,#4d6bfe);font-weight:500}
+      .imb-channel-radio input{width:12px;height:12px;cursor:pointer;accent-color:var(--dsw-alias-brand-primary,#4d6bfe);margin:0}
+      .imb-channel-footer{display:flex;align-items:center;justify-content:space-between;gap:6px;padding-top:5px;border-top:1px dashed var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));flex-wrap:wrap}
+      .imb-channel-footer .imb-switch{font-size:11px;gap:5px}
+      .imb-channel-footer .imb-switch input{width:13px;height:13px}
     `;
 
     /** 注入样式（幂等）。 */
@@ -260,7 +263,8 @@ window.__ModuleLoader__.load({
         accessGroupAllowFrom: '',
         accessGroupsEnabled: false,
       });
-      const [selectedChannels, setSelectedChannels] = react.useState(['wecom']);
+      // 渠道为单选：同一时刻只展开一个渠道的配置。
+      const [selectedChannel, setSelectedChannel] = react.useState('wecom');
       const [secrets, setSecrets] = react.useState({ wecomSecret: '', ilinkToken: '', httpSecret: '' });
 
       const reload = react.useCallback(async () => {
@@ -288,11 +292,11 @@ window.__ModuleLoader__.load({
             accessGroupAllowFrom: joinList(config.access?.groupAllowFrom),
             accessGroupsEnabled: config.access?.groupsEnabled === true,
           });
-          const active = [];
-          if (nextWecomEnabled) active.push('wecom');
-          if (nextIlinkEnabled) active.push('ilink');
-          if (active.length > 0) {
-            setSelectedChannels(active);
+          // 单选：优先展示已启用的渠道，都启用则保持企业微信。
+          if (nextWecomEnabled !== nextIlinkEnabled) {
+            setSelectedChannel(nextWecomEnabled ? 'wecom' : 'ilink');
+          } else if (nextWecomEnabled) {
+            setSelectedChannel('wecom');
           }
         } catch (err) {
           setMessage({ kind: 'err', text: err instanceof Error ? err.message : String(err) });
@@ -311,8 +315,9 @@ window.__ModuleLoader__.load({
         setForm((prev) => ({ ...prev, [key]: value }));
       };
 
-      const toggleSelectChannel = (id) => {
-        setSelectedChannels((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+      /** 单选：点已选中的卡片不会取消，保证始终有一个渠道配置可见。 */
+      const selectChannel = (id) => {
+        setSelectedChannel(id);
       };
 
       const toggleWecom = (checked) => {
@@ -321,9 +326,7 @@ window.__ModuleLoader__.load({
           wecomEnabled: checked,
           enabled: checked ? true : prev.enabled,
         }));
-        if (checked) {
-          setSelectedChannels((prev) => (prev.includes('wecom') ? prev : [...prev, 'wecom']));
-        }
+        if (checked) setSelectedChannel('wecom');
       };
 
       const toggleIlink = (checked) => {
@@ -332,9 +335,7 @@ window.__ModuleLoader__.load({
           ilinkEnabled: checked,
           enabled: checked ? true : prev.enabled,
         }));
-        if (checked) {
-          setSelectedChannels((prev) => (prev.includes('ilink') ? prev : [...prev, 'ilink']));
-        }
+        if (checked) setSelectedChannel('ilink');
       };
 
       const save = async () => {
@@ -428,40 +429,40 @@ window.__ModuleLoader__.load({
           ),
         ),
 
-        // 渠道多选小卡片组
+        // 渠道单选小卡片组（一行两个）
         react.createElement('div', { className: 'imb-card' },
           react.createElement('div', { className: 'imb-card-head' },
             react.createElement('div', { className: 'imb-card-title' }, '集成渠道'),
-            react.createElement('span', { className: 'imb-hint' }, '可多选卡片以展开对应配置，每个渠道可单独启用'),
+            react.createElement('span', { className: 'imb-hint' }, '选择一个渠道展开配置，每个渠道可单独启用'),
           ),
           react.createElement('div', { className: 'imb-channel-grid' },
             react.createElement(ChannelCard, {
               id: 'wecom',
-              title: '企业微信智能机器人',
-              subtitle: '长连接 API 模式 · 无需公网',
+              title: '企业微信',
+              subtitle: '长连接 API · 无需公网',
               icon: react.createElement(IconWecom, null),
               tag: wecomTag,
               enabled: form.wecomEnabled,
               onToggleEnabled: toggleWecom,
-              selected: selectedChannels.includes('wecom'),
-              onToggleSelected: toggleSelectChannel,
+              selected: selectedChannel === 'wecom',
+              onSelect: selectChannel,
             }),
             react.createElement(ChannelCard, {
               id: 'ilink',
               title: '个人微信',
-              subtitle: '腾讯 iLink Bot 官方接口 · 扫码登录',
+              subtitle: 'iLink Bot · 扫码登录',
               icon: react.createElement(IconWechat, null),
               tag: ilinkTag,
               enabled: form.ilinkEnabled,
               onToggleEnabled: toggleIlink,
-              selected: selectedChannels.includes('ilink'),
-              onToggleSelected: toggleSelectChannel,
+              selected: selectedChannel === 'ilink',
+              onSelect: selectChannel,
             }),
           ),
         ),
 
         // 条件展开企业微信配置
-        selectedChannels.includes('wecom')
+        selectedChannel === 'wecom'
           ? react.createElement('div', { className: 'imb-card' },
               react.createElement('div', { className: 'imb-card-head' },
                 react.createElement('div', { className: 'imb-card-title' },
@@ -522,7 +523,7 @@ window.__ModuleLoader__.load({
           : null,
 
         // 条件展开个人微信配置
-        selectedChannels.includes('ilink')
+        selectedChannel === 'ilink'
           ? react.createElement(react.Fragment, null,
               react.createElement('div', { className: 'imb-card' },
                 react.createElement('div', { className: 'imb-card-head' },
@@ -571,12 +572,6 @@ window.__ModuleLoader__.load({
                 onLoggedIn: () => { void reload(); },
               }),
             )
-          : null,
-
-        // 两个都没选时的友好提示
-        selectedChannels.length === 0
-          ? react.createElement('div', { className: 'imb-empty' },
-              '💡 点击上方渠道小卡片可展开对应渠道的详细参数配置与登录信息。')
           : null,
 
         // 白名单
@@ -725,36 +720,36 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** 渠道多选小卡片。 */
+    /**
+     * 渠道单选小卡片（紧凑：图标 + 名称 + 状态徽标，底部为选中态与独立启用开关）。
+     * 一行两个，移动端也保持两列。
+     */
     function ChannelCard(props) {
-      const { id, title, subtitle, icon, tag, enabled, onToggleEnabled, selected, onToggleSelected } = props;
+      const { id, title, subtitle, icon, tag, enabled, onToggleEnabled, selected, onSelect } = props;
       return react.createElement('div', {
         className: `imb-channel-card ${selected ? 'selected' : ''}`,
-        onClick: () => onToggleSelected?.(id),
+        onClick: () => onSelect?.(id),
+        title: subtitle,
       },
-        react.createElement('div', { className: 'imb-channel-card-top' },
-          react.createElement('div', { className: 'imb-channel-card-header' },
-            react.createElement('div', { className: `imb-channel-icon ${id}` }, icon),
-            react.createElement('div', { className: 'imb-channel-meta' },
-              react.createElement('span', { className: 'imb-channel-name' }, title),
-              react.createElement('span', { className: 'imb-channel-desc' }, subtitle),
-            ),
+        react.createElement('div', { className: 'imb-channel-card-header' },
+          react.createElement('div', { className: `imb-channel-icon ${id}` }, icon),
+          react.createElement('div', { className: 'imb-channel-meta' },
+            react.createElement('span', { className: 'imb-channel-name' }, title),
+            react.createElement('span', { className: 'imb-channel-desc' }, subtitle),
           ),
-          react.createElement('span', { className: `imb-tag ${tag.cls}` }, tag.text),
         ),
-        react.createElement('div', { className: 'imb-channel-card-bottom' },
-          react.createElement('span', {
-            className: `imb-channel-selection-indicator ${selected ? 'active' : ''}`,
+        react.createElement('div', { className: 'imb-channel-footer' },
+          react.createElement('label', {
+            className: `imb-channel-radio ${selected ? 'active' : ''}`,
+            onClick: (e) => e.stopPropagation(),
           },
             react.createElement('input', {
-              type: 'checkbox',
+              type: 'radio',
+              name: 'imb-channel-select',
               checked: selected,
-              onChange: (e) => {
-                e.stopPropagation();
-                onToggleSelected?.(id);
-              },
+              onChange: () => onSelect?.(id),
             }),
-            selected ? '已选择（配置展开）' : '点击选择（展开配置）',
+            react.createElement('span', { className: `imb-tag ${tag.cls}` }, tag.text),
           ),
           react.createElement('label', {
             className: 'imb-switch',
@@ -765,7 +760,7 @@ window.__ModuleLoader__.load({
               checked: enabled,
               onChange: (e) => onToggleEnabled?.(e.target.checked),
             }),
-            enabled ? '已启用' : '未启用',
+            enabled ? '启用' : '停用',
           ),
         ),
       );

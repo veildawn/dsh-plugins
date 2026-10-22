@@ -170,7 +170,15 @@ test('cordis.patch.yml 必须注入 connection 与 webServer，防止 HTTP 405',
   assert.ok(patchContent.includes('- connection'), 'patch 必须注入 connection');
 });
 
-test('客户端样式包含渠道多选卡片网格与卡片选中样式', () => {
-  assert.ok(CLIENT_CODE.includes('.imb-channel-grid'), '必须包含 .imb-channel-grid 样式');
-  assert.ok(CLIENT_CODE.includes('.imb-channel-card.selected'), '必须包含 .imb-channel-card.selected 选中高亮样式');
+test('渠道卡片为单选（radio）且一行两列、紧凑样式', () => {
+  // 一行固定两列，窄屏也保持两个
+  assert.ok(CLIENT_CODE.includes('grid-template-columns:repeat(2,minmax(0,1fr))'),
+    '渠道网格必须固定两列');
+  // 单选而非多选
+  assert.ok(CLIENT_CODE.includes("type: 'radio'"), '渠道卡片必须使用 radio（单选）');
+  assert.ok(!CLIENT_CODE.includes('selectedChannels'), '不得残留多选数组状态');
+  assert.ok(CLIENT_CODE.includes('name: \'imb-channel-select\''), '单选组必须有统一 name');
+  // 选中高亮与独立启用开关
+  assert.ok(CLIENT_CODE.includes('.imb-channel-card.selected'), '必须包含选中高亮样式');
+  assert.ok(CLIENT_CODE.includes('.imb-channel-footer'), '必须包含底部独立开关区');
 });
