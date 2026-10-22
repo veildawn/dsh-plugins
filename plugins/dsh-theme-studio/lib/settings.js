@@ -446,6 +446,27 @@ export function readBackgroundImage(settingsPath, file) {
 }
 
 /**
+ * 判断用户设置的背景**实际会不会产生一条 CSS 声明**。
+ *
+ * 与 `customCss()` 里生成 `backgroundLines` 的条件必须逐字一致——这里多算一种
+ * 情况，骨架层就会在「没有任何背景可画」时让位，界面露出宿主默认的透明底
+ * （表现为整片发白/发黑，比背景不生效更糟）。
+ *
+ * 两个入口用它决定 `html[data-ts-bg]` 挂不挂：
+ *   - 服务端 `themeScopeScript()` / `withThemeAttribute()`；
+ *   - 客户端 `applyToDocument()`。
+ *
+ * @param {object} [background] 已规范化的 background
+ * @returns {'color' | 'image' | 'none'} 有效背景类型
+ */
+export function activeBackgroundMode(background) {
+  if (!background || typeof background !== 'object') return 'none'
+  if (background.mode === 'color') return background.value ? 'color' : 'none'
+  if (background.mode === 'image') return background.file ? 'image' : 'none'
+  return 'none'
+}
+
+/**
  * 把设置编译成注入 CSS。
  *
  * 输出两层：
@@ -477,11 +498,37 @@ export function customCss(settings, options = {}) {
     const fit = background.fit === 'contain' ? 'contain' : background.fit === 'repeat' ? 'auto' : 'cover'
     const repeat = background.fit === 'repeat' ? 'repeat' : 'no-repeat'
     if (background.value) backgroundLines.push(`  background-color: ${background.value};`)
-    backgroundLines.push(`  background-image: url("${options.backgroundUrl}");`)
-    backgroundLines.push(`  background-size: ${fit};`)
-    backgroundLines.push(`  background-repeat: ${repeat};`)
-    backgroundLines.push('  background-position: center center;')
-    backgroundLines.push('  background-attachment: fixed;')
+
+    // 不透明度用**多层背景的盖层**实现，不用 `opacity` 也不用 `::before` 蒙版：
+    //
+    // - `opacity` 会把整个应用一起变透明（body 是全部内容的祖先）；
+    // - `::before` + `z-index:-1` 依赖「body 自己建立了层叠上下文」这个隐含前提。
+    //   宿主当前确实在 body 上写了 `isolation:isolate`，所以它在**今天的**宿主里
+    //   碰巧能用；但那是宿主的实现细节，不是插件契约——一旦宿主调整 body 样式，
+    //   蒙版就会跑到背景图**后面**，不透明度看起来完全没生效，而且不报错。
+    //
+    // 盖层与图片同属 body 的背景，绘制顺序由声明顺序决定，不依赖任何宿主前提。
+    // 盖层色用 `color-mix()` 把主题画布色调到目标不透明度：opacity=40 时盖 60%。
+    const fade = Math.round(100 - Math.min(100, Math.max(0, background.opacity ?? 100)))
+    if (fade > 0) {
+      // `--color-background` 必须有 fallback：`scope` 里的 `html:root` 分支在不选主题时
+      // 也命中，而那时主题变量一个都没定义。变量未定义会让整条 `background-image`
+      // 在 computed-value 阶段失效（不是这条变量失效，是**整条声明**），背景图会
+      // 直接消失——比不透明度不准严重得多。
+      const veil = `color-mix(in srgb, var(--color-background, var(--dsw-alias-bg-base, #808080)) ${fade}%, transparent)`
+      backgroundLines.push(`  background-image: linear-gradient(${veil}, ${veil}), url("${options.backgroundUrl}");`)
+      // 两层背景要各自给值，否则第二层（图片）会继承盖层的尺寸与重复方式。
+      backgroundLines.push(`  background-size: 100% 100%, ${fit};`)
+      backgroundLines.push(`  background-repeat: no-repeat, ${repeat};`)
+      backgroundLines.push('  background-position: center center, center center;')
+      backgroundLines.push('  background-attachment: fixed, fixed;')
+    } else {
+      backgroundLines.push(`  background-image: url("${options.backgroundUrl}");`)
+      backgroundLines.push(`  background-size: ${fit};`)
+      backgroundLines.push(`  background-repeat: ${repeat};`)
+      backgroundLines.push('  background-position: center center;')
+      backgroundLines.push('  background-attachment: fixed;')
+    }
   }
   const hasBackgroundImage = backgroundLines.length > 0 && background.mode === 'image'
 
@@ -538,19 +585,9 @@ export function customCss(settings, options = {}) {
     css += `${scope} body[data-ds-dark-theme] {\n${fieldLines.join('\n')}\n}\n`
   }
   if (hasBackgroundImage && background.opacity < 100) {
-    // 图片透明度：只用 ::before 叠一层半透明白/黑，而不是改元素本身的 opacity
-    // ——改元素 opacity 会连带把子元素（整个应用）一起变透明。
-    const fade = ((100 - background.opacity) / 100).toFixed(2)
-    css +=
-      `${scope} body::before {\n` +
-      `  content: "";\n` +
-      `  position: fixed;\n` +
-      `  inset: 0;\n` +
-      `  pointer-events: none;\n` +
-      `  z-index: -1;\n` +
-      `  background: var(--color-background, var(--dsw-alias-bg-base));\n` +
-      `  opacity: ${fade};\n` +
-      `}\n`
+    // 图片不透明度已经并进 background-image 的多层声明（见上方），这里不再生成
+    // `::before` 蒙版。旧实现依赖宿主给 body 加 `isolation:isolate` 才成立，
+    // 而那不属于插件契约——详见上方 backgroundLines 的注释。
   }
 
   return css

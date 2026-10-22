@@ -9,6 +9,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  BACKGROUND_ROUTE_PATH,
   BACKGROUND_ROUTE_PREFIX,
   FONT_SIZE_RANGES,
   SETTINGS_RPC_CHANNEL,
@@ -19,6 +20,7 @@ import {
   buildSettingsView,
   decodeBackgroundUpload,
   patchIndex,
+  saveBackgroundImage,
   themeInjections,
   themeScopeScript,
   themeStyleTag,
@@ -285,15 +287,71 @@ test('桌面注入行与 Web 端 patchIndex 产出同一份样式表', async () 
   }
 })
 
-test('apply 注册背景图路由', () => {
+/**
+ * 背景图路由：必须走宿主真实存在的 `connection.fetch.register`。
+ *
+ * 这里守护的是一次真实事故：旧实现用 `ctx.webServer.get(path, handler)` 注册，
+ * 而宿主的 `WebServer` **只有** `register` / `tapIndex` / `registerFallback` /
+ * `registerUpgrade`，根本没有 `get`。于是 `typeof ctx.webServer.get === 'function'`
+ * 恒为 false，整段路由被静默跳过，浏览器请求背景图永远 404 ——
+ * 用户看到的现象是「背景图上传成功，界面一点没变」。
+ *
+ * 所以这条测试**不能再给 ctx.webServer 塞一个假的 `get`**（那正是让 bug 通过的原因）。
+ * 它必须断言：注册发生在 `connection.fetch` 上，路径是宿主要的精确路径。
+ */
+test('apply 用 connection.fetch 注册背景图路由（webServer 没有 get 方法）', () => {
   const routes = []
+  let rpcRegistered
   const ctx = {
     effect: (fn) => fn(),
-    webServer: { get: (path, handler) => routes.push({ path, handler }) },
+    // 真实宿主形态：webServer 没有 get，connection.fetch.register 才是入口。
+    webServer: { tapIndex: () => {}, register: () => {} },
+    connection: {
+      fetch: { register: (route) => routes.push(route) },
+      rpc: { handle: (channel) => { rpcRegistered = channel } },
+    },
   }
   apply(ctx, {})
-  assert.equal(routes.length, 1)
-  assert.match(routes[0].path, /background/)
+  assert.equal(routes.length, 1, '背景图 HTTP 路由必须注册且只注册一次')
+  const route = routes[0]
+  assert.equal(route.path, BACKGROUND_ROUTE_PATH)
+  // 精确路径 + 显式方法：宿主的 assertFetchRoute 要求二者都合法。
+  assert.deepEqual([...route.methods].sort(), ['GET', 'HEAD'])
+  assert.equal(typeof route.fetch, 'function')
+  assert.equal(rpcRegistered, SETTINGS_RPC_CHANNEL, '设置 RPC 不受影响')
+})
+
+test('背景图路由回传图片字节，未知文件返回 404', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'theme-studio-bg-'))
+  try {
+    const settingsFile = join(dir, 'settings.json')
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const saved = saveBackgroundImage(settingsFile, { mime: 'image/png', data: png }, '1700000000000')
+    assert.equal(saved.ok, true)
+
+    let route
+    apply({
+      effect: (fn) => fn(),
+      connection: { fetch: { register: (r) => { route = r } }, rpc: { handle: () => {} } },
+    }, { settingsFile })
+
+    const ok = await route.fetch(new Request(`http://x${BACKGROUND_ROUTE_PATH}?file=${saved.file}`))
+    assert.equal(ok.status, 200)
+    assert.equal(ok.headers.get('content-type'), 'image/png')
+    assert.deepEqual([...new Uint8Array(await ok.arrayBuffer())], [...png])
+
+    const missing = await route.fetch(new Request(`http://x${BACKGROUND_ROUTE_PATH}?file=nope.png`))
+    assert.equal(missing.status, 404)
+
+    // 路径穿越必须被拒：路由层是外部输入入口，不能只依赖 normalizeBackground。
+    const traversal = await route.fetch(new Request(`http://x${BACKGROUND_ROUTE_PATH}?file=../settings.json`))
+    assert.equal(traversal.status, 404)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('apply 注册设置 RPC 并响应 describe', async () => {

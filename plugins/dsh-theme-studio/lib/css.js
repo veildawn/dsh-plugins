@@ -29,6 +29,10 @@ import { HOST_CLASS_SLOTS } from './host-class-slots.js'
  *
  * 顺序有意义：`reset` 先铺底，`surfaces`/`frame` 定层级，`typography` 在
  * 组件之前（否则组件里的字号会被正文规则覆盖），`motion` 最后覆盖一切。
+ *
+ * `background.css` 必须排在 `glass.css` **之后**：它要在玻璃材质定好之后
+ * 才有资格调整 `.centerCol` 的填充（否则会被玻璃规则反向压掉），
+ * 见该文件头部注释。
  */
 export const STYLE_FILES = [
   'reset.css',
@@ -50,6 +54,26 @@ export const STYLE_FILES = [
 
 /** 玻璃材质层单独一份：它只在玻璃主题下命中，不该混进组件层。 */
 export const GLASS_STYLE_FILE = 'glass.css'
+
+/**
+ * 用户自定义背景的让位层。
+ *
+ * 单独一份而不是塞进 `STYLE_FILES`：它必须排在玻璃材质层**之后**，而
+ * `STYLE_FILES` 整体排在玻璃层之前。装配顺序见 `composeThemeCss()`。
+ */
+export const BACKGROUND_STYLE_FILE = 'background.css'
+
+/**
+ * 磁盘上全部样式表，**按装配顺序**排列。
+ *
+ * 测试用它遍历 `lib/styles/`，保证「目录里有的都在清单里，清单里有的都在目录里」
+ * 这条不变式不会因为新增一份样式表而悄悄失效。
+ */
+export const ALL_STYLE_FILES = Object.freeze([
+  ...STYLE_FILES,
+  GLASS_STYLE_FILE,
+  BACKGROUND_STYLE_FILE,
+])
 
 /** 样式目录的绝对路径。 */
 export function stylesDir() {
@@ -168,6 +192,7 @@ function adaptedStyleLayers() {
     styleFilesCache = {
       files: STYLE_FILES.map((name) => adaptStyleCss(readStyleFile(name), index)),
       glass: adaptStyleCss(readStyleFile(GLASS_STYLE_FILE), index),
+      background: adaptStyleCss(readStyleFile(BACKGROUND_STYLE_FILE), index),
     }
   }
   return styleFilesCache
@@ -208,6 +233,7 @@ export function composeThemeCss(themeId, options = {}) {
       vars,
       files.join('\n'),
       glass,
+      layers.background,
       options.custom ?? '',
     ].join('\n')
   }
@@ -219,6 +245,8 @@ export function composeThemeCss(themeId, options = {}) {
     // 玻璃材质层始终包含：它在选择器里自带主题限定，非玻璃主题下不命中任何元素。
     // 这样避免「先选 ZCode 再切玻璃」时需要重新注入整份样式表。
     glass,
+    // 让位层同样始终包含：它由 `html[data-ts-bg]` 开关，没设背景时不命中。
+    layers.background,
     options.custom ?? '',
   ].join('\n')
 }

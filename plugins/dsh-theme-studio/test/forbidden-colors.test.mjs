@@ -23,7 +23,7 @@ import {
   FORBIDDEN_HOST_TOKENS,
   HOST_TOKEN_MAP,
 } from '../lib/tokens.js'
-import { GLASS_STYLE_FILE, STYLE_FILES, fullThemeCss } from '../lib/css.js'
+import { ALL_STYLE_FILES, fullThemeCss } from '../lib/css.js'
 import { BUILTIN_THEMES } from '../lib/themes/index.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -41,7 +41,7 @@ async function collectSources() {
     'lib/themes/glass-color-palette.js',
     'lib/themes/zcode-mono-palette.js',
     'lib/themes/inherit.js',
-    ...[...STYLE_FILES, GLASS_STYLE_FILE].map((name) => `lib/styles/${name}`),
+    ...[...ALL_STYLE_FILES].map((name) => `lib/styles/${name}`),
   ]
   const texts = []
   for (const file of files) texts.push(await readFile(join(root, file), 'utf8'))
@@ -92,8 +92,8 @@ test('四款主题的色板都不含废弃暖橙红', () => {
 
 test('styles 目录与清单严格一致', async () => {
   const names = (await readdir(join(root, 'lib/styles'))).filter((name) => name.endsWith('.css')).sort()
-  const expected = [...STYLE_FILES, GLASS_STYLE_FILE].sort()
-  assert.deepEqual(names, expected, 'styles 目录与 STYLE_FILES / GLASS_STYLE_FILE 不一致')
+  const expected = [...ALL_STYLE_FILES].sort()
+  assert.deepEqual(names, expected, 'styles 目录与 ALL_STYLE_FILES 不一致')
 })
 
 test('不把移动端 / 桌面端样式拆成独立文件（由 dsh-mobile-adapter 承担）', async () => {

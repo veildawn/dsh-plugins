@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { GLASS_STYLE_FILE, STYLE_FILES } from '../lib/css.js'
+import { ALL_STYLE_FILES } from '../lib/css.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -32,7 +32,7 @@ for (const [bundle, files] of Object.entries(fixture.modules ?? {})) {
 
 async function themeCssSources() {
   const names = (await readdir(join(root, 'lib/styles'))).filter((name) => name.endsWith('.css'))
-  assert.deepEqual(names.sort(), [...STYLE_FILES, GLASS_STYLE_FILE].sort(), 'styles 目录与清单不一致')
+  assert.deepEqual(names.sort(), [...ALL_STYLE_FILES].sort(), 'styles 目录与清单不一致')
   const texts = []
   for (const name of names) texts.push(await readFile(join(root, 'lib/styles', name), 'utf8'))
   return texts
@@ -169,7 +169,7 @@ test('三栏框架使用官方两层底色与圆角内容卡', async () => {
   assert.match(frame, /\.[A-Za-z0-9_-]+_centerCol\s*\{[^}]*background:\s*var\(--color-background\)/)
   assert.match(frame, /\.[A-Za-z0-9_-]+_centerCol\s*\{[^}]*border-radius:\s*6px/)
   assert.match(frame, /\.[A-Za-z0-9_-]+_sidebarCol\s*\{[^}]*border-right:\s*none/)
-  assert.equal(STYLE_FILES.includes('frame.css'), true, 'frame.css 必须进入 STYLE_FILES')
+  assert.equal(ALL_STYLE_FILES.includes('frame.css'), true, 'frame.css 必须进入样式清单')
 })
 
 /**

@@ -11,9 +11,17 @@
  * 2. **设置 RPC**：设置面板通过 `ctx.connection.rpc` 读写设置、上传背景图、
  *    预览主题。设置落盘到 `~/.dsh/theme-studio/settings.json`。
  *
- * 3. **背景图路由**：`GET /api/dsh-theme-studio/background/<file>` 回传图片字节。
+ * 3. **背景图路由**：`GET /api/dsh-theme-studio/background?file=<name>` 回传图片字节。
  *    不把图片塞进 CSS 的 data URI：8MB 的图 base64 后是 11MB 的内联样式，
  *    每次首屏都要重新传输，还会卡住解析。
+ *
+ *    路由挂在 `connection.fetch` 而不是 `webServer.get`：宿主的 `webServer`
+ *    只暴露 `register` / `tapIndex` / `registerFallback`，**没有** `get(path, handler)`
+ *    这个方法（早期实现照着 Express 的习惯写，`typeof ctx.webServer.get === 'function'`
+ *    恒为 false，路由从未注册成功，表现为「背景图上传成功但界面没变化」——
+ *    图片请求 404，CSS 里的 `url()` 解析失败）。
+ *    走 `connection.fetch` 还顺带拿到 `/api` 通道的浏览器鉴权：`<img>` 与
+ *    CSS 背景请求都会自动带上同源 cookie，不需要额外的 token 机制。
  *
  * ## 与 dsh-zcode-theme 的关系
  *
@@ -25,7 +33,7 @@
  * @module dsh-theme-studio
  */
 
-import { THEME_ATTR, STYLE_ID, themeVarsCss } from './tokens.js'
+import { BACKGROUND_ATTR, LEGACY_THEME_ATTR, THEME_ATTR, STYLE_ID, themeVarsCss } from './tokens.js'
 import { BUILTIN_THEMES, DEFAULT_THEME_ID, THEME_IDS, getTheme, normalizeThemeId } from './themes/index.js'
 import { fullThemeCss } from './css.js'
 import {
@@ -34,6 +42,7 @@ import {
   FIELD_COLOR_ROLES,
   MAX_BACKGROUND_BYTES,
   TEXT_FONT_OPTIONS,
+  activeBackgroundMode,
   backgroundDir,
   customCss,
   loadSettings,
@@ -52,8 +61,22 @@ export const inject = ['webServer', 'connection']
 /** 设置面板的 RPC 通道。 */
 export const SETTINGS_RPC_CHANNEL = '/dsh-theme-studio-settings'
 
-/** 背景图 HTTP 前缀。 */
-export const BACKGROUND_ROUTE_PREFIX = '/api/dsh-theme-studio/background/'
+/**
+ * 背景图 HTTP 路由（精确路径，文件名走 `?file=` 查询参数）。
+ *
+ * 为什么不是 `/api/.../background/<file>` 这种路径参数形式：宿主的
+ * `connection.fetch.register()` 只接受**精确路径**，不支持 `:param` 占位符
+ * （见 `assertFetchRoute`：路径必须能被 `endpointFromPath('/api', path)` 解析，
+ * 也就是固定的 `/api/<段>/<段>`，不含通配）。查询参数是这里唯一能传文件名的方式。
+ */
+export const BACKGROUND_ROUTE_PATH = '/api/dsh-theme-studio/background'
+
+/**
+ * 背景图 URL 前缀（含 `?file=`，用于拼接完整 URL）。
+ *
+ * 保留 `BACKGROUND_ROUTE_PREFIX` 这个名字给下游/测试，语义已改为「带查询串的前缀」。
+ */
+export const BACKGROUND_ROUTE_PREFIX = `${BACKGROUND_ROUTE_PATH}?file=`
 
 /** 字体号的取值范围（与宿主 ui-theme 的 FONT_SIZE_SPECS 对齐）。 */
 export const FONT_SIZE_RANGES = Object.freeze({
@@ -62,7 +85,16 @@ export const FONT_SIZE_RANGES = Object.freeze({
   terminal: { min: 10, max: 20 },
 })
 
-export { THEME_ATTR, STYLE_ID, THEME_IDS, BUILTIN_THEMES, DEFAULT_THEME_ID, getTheme, normalizeThemeId }
+export {
+  BACKGROUND_ATTR,
+  THEME_ATTR,
+  STYLE_ID,
+  THEME_IDS,
+  BUILTIN_THEMES,
+  DEFAULT_THEME_ID,
+  getTheme,
+  normalizeThemeId,
+}
 export { FIELD_COLOR_ROLES, FONT_SIZE_RANGES as FONT_SIZES, TEXT_FONT_OPTIONS, CODE_FONT_OPTIONS }
 export { loadSettings, normalizeSettings, customCss, resolveSettingsPath }
 // 供兼容薄壳（dsh-zcode-theme）及下游复用同一份变量与色板定义。
@@ -78,8 +110,10 @@ export {
   resolveKey,
 } from './tokens.js'
 export { ZAI_PALETTE, GLASS_PALETTE } from './themes/index.js'
-export { composeThemeCss, fullThemeCss, readStyleFile, STYLE_FILES, GLASS_STYLE_FILE } from './css.js'
-export { customCss as buildCustomCss } from './settings.js'
+export { composeThemeCss, fullThemeCss, readStyleFile, STYLE_FILES, GLASS_STYLE_FILE, BACKGROUND_STYLE_FILE } from './css.js'
+export { customCss as buildCustomCss, activeBackgroundMode } from './settings.js'
+// 供测试与下游直接构造/校验背景图落盘行为（与 RPC 走同一条实现）。
+export { saveBackgroundImage, readBackgroundImage, backgroundDir } from './settings.js'
 
 const STYLE_RE = new RegExp(
   `<style\\b[^>]*\\bid\\s*=\\s*(?:"${STYLE_ID}"|'${STYLE_ID}'|${STYLE_ID})[^>]*>[\\s\\S]*?<\\/style>`,
@@ -94,6 +128,9 @@ const ATTR_RE = new RegExp(
 
 /**
  * 背景图的公开 URL。
+ *
+ * 文件名走查询参数：`connection.fetch` 的精确路由不支持路径占位符，
+ * 而文件名可能含 `.` `-` `_`，放进查询串最省事且不会被路径解析改写。
  *
  * @param {string | null} file
  * @returns {string | null}
@@ -121,23 +158,47 @@ export function themeStyleTag(options = {}) {
  * 当用户未选择主题或选择「系统默认」时，移除主题属性，让宿主完全保持官方原生样式；
  * 当选择具体主题时，同时写新旧两套属性（旧属性用于兼容读 data-dsh-theme 的插件）。
  *
+ * `data-ts-bg` 是「用户设了背景」的开关：主题样式表靠它决定是否把
+ * `#root` / 框架层 / 内容卡的填充让位给 body 上的背景图。没有它，三个不透明
+ * 表面会把 body 背景整层盖住（详见 `setBackgroundFlagScript`）。
+ *
  * @param {string} [themeId]
+ * @param {{ background?: object }} [settings] 已规范化的设置（决定 data-ts-bg）
  * @returns {string}
  */
-export function themeScopeScript(themeId) {
+export function themeScopeScript(themeId, settings = {}) {
   const id = normalizeThemeId(themeId, DEFAULT_THEME_ID)
-  if (id === 'none') {
-    return (
-      `document.documentElement.removeAttribute('${THEME_ATTR}');` +
-      `document.documentElement.removeAttribute('data-dsh-theme');`
-    )
-  }
-  const theme = getTheme(id)
-  const legacy = theme?.legacyId ?? id
-  return (
-    `document.documentElement.setAttribute('${THEME_ATTR}', ${JSON.stringify(id)});` +
-    `document.documentElement.setAttribute('data-dsh-theme', ${JSON.stringify(legacy)});`
-  )
+  const attrPart =
+    id === 'none'
+      ? `document.documentElement.removeAttribute('${THEME_ATTR}');` +
+        `document.documentElement.removeAttribute('data-dsh-theme');`
+      : `document.documentElement.setAttribute('${THEME_ATTR}', ${JSON.stringify(id)});` +
+        `document.documentElement.setAttribute('data-dsh-theme', ${JSON.stringify(
+          getTheme(id)?.legacyId ?? id,
+        )});`
+  return attrPart + setBackgroundFlagScript(settings.background)
+}
+
+/**
+ * 生成「用户是否设了背景」的开关脚本。
+ *
+ * 为什么需要这个属性：背景写在 `body` 上，而主题骨架里**有三层不透明填充**
+ * 压在 body 之上——`#root`（surfaces.css）、框架层 `.frame`（frame.css）、
+ * 主区 `.centerCol`（frame.css）。三层任意一层不透明，body 的背景图就完全
+ * 看不见，表现是「设置保存成功、界面一点没变」。所以只要用户设了背景，
+ * 就把这三层改成 `background: none` 让位——但**仅在这一条件下**，
+ * 否则正常主题会因为失去骨架底色而透出宿主默认白底。
+ *
+ * `mode` 为 `none` 时移除属性，主题骨架恢复原样。
+ *
+ * @param {object} [background] 已规范化的 background
+ * @returns {string}
+ */
+export function setBackgroundFlagScript(background) {
+  const mode = activeBackgroundMode(background)
+  return mode === 'none'
+    ? `document.documentElement.removeAttribute('${BACKGROUND_ATTR}');`
+    : `document.documentElement.setAttribute('${BACKGROUND_ATTR}', ${JSON.stringify(mode)});`
 }
 
 /**
@@ -164,7 +225,7 @@ export function themeScopeScript(themeId) {
  */
 export function themeInjections(themeId, settings = {}) {
   return [
-    { kind: 'script', placement: 'head', text: themeScopeScript(themeId) },
+    { kind: 'script', placement: 'head', text: themeScopeScript(themeId, settings) },
     { kind: 'html', placement: 'head', html: themeStyleTag({ themeId, settings }) },
   ]
 }
@@ -175,21 +236,31 @@ export function themeInjections(themeId, settings = {}) {
  * 默认「系统默认」（none）时不给 html 打任何主题属性，保持干净原生；
  * 仅当选择了具体主题时才打上 data-theme-studio 与兼容属性。
  *
+ * `data-ts-bg` 与主题属性独立：用户可以在「系统默认」主题下设背景图
+ * （此时主题骨架规则一条都不命中，背景直接铺在宿主原生画布上），
+ * 所以这个属性不看 themeId，只看 background.mode。
+ *
  * @param {string} tag
  * @param {string} [themeId]
+ * @param {object} [settings] 已规范化的设置（决定 data-ts-bg）
  * @returns {string}
  */
-export function withThemeAttribute(tag, themeId) {
+export function withThemeAttribute(tag, themeId, settings = {}) {
   const id = normalizeThemeId(themeId, DEFAULT_THEME_ID)
-  const stripped = tag.replace(ATTR_RE, '')
+  // 两个根属性都由本插件独占，重写前统一剥掉，避免重复或残留旧值。
+  const stripped = tag
+    .replace(ATTR_RE, '')
+    .replace(new RegExp(`\\s*${BACKGROUND_ATTR}\\s*=\\s*(['"]).*?\\1`, 'gi'), '')
+  const mode = activeBackgroundMode(settings.background)
+  const bgAttr = mode === 'none' ? '' : ` ${BACKGROUND_ATTR}="${mode}"`
   if (id === 'none') {
-    return stripped
+    return bgAttr === '' ? stripped : stripped.replace(/<html/i, `<html${bgAttr}`)
   }
   const theme = getTheme(id)
   const legacy = theme?.legacyId ?? id
   return stripped.replace(
     /<html/i,
-    `<html ${THEME_ATTR}="${id}" data-dsh-theme="${legacy}"`,
+    `<html ${THEME_ATTR}="${id}" data-dsh-theme="${legacy}"${bgAttr}`,
   )
 }
 
@@ -203,7 +274,7 @@ export function withThemeAttribute(tag, themeId) {
 export function patchIndex(html, options = {}) {
   const style = themeStyleTag(options)
   let output = HTML_TAG_RE.test(html)
-    ? html.replace(HTML_TAG_RE, (tag) => withThemeAttribute(tag, options.themeId))
+    ? html.replace(HTML_TAG_RE, (tag) => withThemeAttribute(tag, options.themeId, options.settings ?? {}))
     : html
   if (STYLE_RE.test(output)) return output.replace(STYLE_RE, style)
   if (/<\/head\s*>/i.test(output)) return output.replace(/<\/head\s*>/i, `${style}</head>`)
@@ -341,21 +412,43 @@ export function apply(ctx, config = {}) {
   }
 
   // —— 3. 背景图路由 ——
-  if (ctx.webServer && typeof ctx.webServer.get === 'function') {
-    ctx.webServer.get(`${BACKGROUND_ROUTE_PREFIX}:file`, (req, res) => {
-      const file = String(req?.params?.file ?? '')
-      const result = readBackgroundImage(settingsPath, decodeURIComponent(file))
-      if (!result.ok) {
-        res.statusCode = 404
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-        res.end(result.error)
-        return
-      }
-      res.statusCode = 200
-      res.setHeader('Content-Type', result.mime)
-      res.setHeader('Cache-Control', 'public, max-age=3600')
-      res.end(result.data)
-    })
+  //
+  // 走 `connection.fetch.register()`：这是宿主唯一支持「带鉴权的自定义 HTTP 路由」
+  // 的公开入口（`webServer` 没有 `get`，见文件头注释）。它要求精确路径 + 显式
+  // 方法列表，并且只在 owner 身份下应答——浏览器用同源 cookie 访问，天然通过。
+  //
+  // 注册失败必须降级而不是抛错：重复路径会在宿主里 throw，而背景图缺失只是
+  // 「背景不显示」，不该连带把主题、设置面板一起拖垮。
+  if (ctx.connection?.fetch?.register) {
+    try {
+      ctx.connection.fetch.register({
+        path: BACKGROUND_ROUTE_PATH,
+        methods: ['GET', 'HEAD'],
+        requestBody: 'buffered',
+        fetch: (request) => {
+          const file = new URL(request.url, 'http://dsh.local').searchParams.get('file') ?? ''
+          const result = readBackgroundImage(settingsPath, file)
+          if (!result.ok) {
+            return new Response(result.error, {
+              status: 404,
+              headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+            })
+          }
+          return new Response(request.method === 'HEAD' ? null : result.data, {
+            status: 200,
+            headers: {
+              'Content-Type': result.mime,
+              // 文件名带时间戳（`bg-<stamp>.<ext>`），内容永不原地变化，可以长缓存；
+              // 换图必然换文件名，不会看到旧图。
+              'Cache-Control': 'private, max-age=31536000, immutable',
+              'X-Content-Type-Options': 'nosniff',
+            },
+          })
+        },
+      })
+    } catch (error) {
+      ctx.logger?.warn?.(`theme-studio: 背景图路由注册失败，背景图将不可用（${error?.message ?? error}）`)
+    }
   }
 
   // —— 4. 设置 RPC ——

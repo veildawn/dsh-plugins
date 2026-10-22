@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { HOST_TOKEN_MAP, MATERIAL_DEFAULTS, MATERIAL_KEYS } from '../lib/tokens.js'
-import { STYLE_FILES, GLASS_STYLE_FILE, readStyleFile } from '../lib/css.js'
+import { ALL_STYLE_FILES, GLASS_STYLE_FILE, readStyleFile } from '../lib/css.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pluginsDir = join(root, '..')
@@ -90,7 +90,7 @@ test('插件引用的变量不会落到禁止名单里', () => {
 })
 
 test('主题 CSS 只引用已定义的宿主变量与材质变量', () => {
-  const sources = [...STYLE_FILES, GLASS_STYLE_FILE].map((name) => ({
+  const sources = ALL_STYLE_FILES.map((name) => ({
     name,
     text: readStyleFile(name),
   }))
@@ -111,7 +111,7 @@ test('主题 CSS 只引用已定义的宿主变量与材质变量', () => {
 
 test('主题 CSS 引用的 --color-* 键在每款主题色板中都存在', async () => {
   const { BUILTIN_THEMES } = await import('../lib/themes/index.js')
-  const sources = [...STYLE_FILES, GLASS_STYLE_FILE].map(readStyleFile)
+  const sources = ALL_STYLE_FILES.map(readStyleFile)
   const referenced = new Set()
   for (const text of sources) {
     for (const match of text.matchAll(/var\(--color-([a-z0-9-]+)/g)) referenced.add(match[1])

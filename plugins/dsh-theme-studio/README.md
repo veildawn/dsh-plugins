@@ -93,6 +93,38 @@ lib/host-class-slots.js   旧类名 → 模块槽位（自动生成，勿手改�
 `body` 与 `body[data-ds-dark-theme]`——只改语义层的话，宿主组件读的是
 `--dsw-*`（它自己那份映射），看不到变化。
 
+### 背景图为什么需要「让位」
+
+背景画在 `body` 上，但主题骨架里有一串**不透明填充**压在 body 之上，会把背景
+整层盖住：
+
+| 层 | 原填充 |
+| :--- | :--- |
+| `#root` | `--color-background-win-alt`（实色） |
+| `.frame` / `.sidebarCol` / `.rightbarCol` / `.bottomRow` | `--color-background-win-alt`（实色） |
+| `.centerCol` | `--color-background`（ZCode 实色 / 玻璃半透明） |
+
+所以只要用户设了背景，`html` 上就会挂 `data-ts-bg="color|image"`，`lib/styles/background.css`
+随即让前三类层彻底透明、把 `.centerCol` 降到 72% 底色并保留毛玻璃——既有背景透出的
+观感，又不牺牲正文可读性。
+
+这个开关是**属性驱动**而不是靠 CSS 反推：CSS 没有父选择器能表达「body 有没有背景」，
+`:has()` 在这里也不可行（`body:has(> #root)` 恒真）。服务端 `themeScopeScript()` 与
+客户端 `applyToDocument()` 共同维护它，判定条件统一走 `activeBackgroundMode()`，
+两端不一致时 `test/client-parity.test.mjs` 会失败。
+
+背景图的 HTTP 路由走 `connection.fetch.register()`：
+
+```
+GET /api/dsh-theme-studio/background?file=bg-<stamp>.<ext>
+```
+
+> ⚠️ 不要改用 `ctx.webServer.get(path, handler)`。宿主的 `WebServer` **没有** `get`
+> 方法（只有 `register` / `tapIndex` / `registerFallback` / `registerUpgrade`），
+> 早期实现照着 Express 习惯写，导致 `typeof ctx.webServer.get === 'function'` 恒为
+> false、整段路由被静默跳过，图片永远 404——现象就是「背景图上传成功，界面一点没变」。
+> `test/background.test.mjs` 用**真实宿主 API 形状**（没有 `get`）构造 ctx 来锁死这一点。
+
 ### 安全校验
 
 设置来自两个入口（前端表单、手改 JSON），两者都可能传来非法值，而设置最终会被
@@ -252,7 +284,7 @@ dsh plugin --profile web add @weniatall/dsh-theme-studio
 
 ```bash
 cd plugins/dsh-theme-studio && npm pack
-dsh plugin --profile web add ./dsh-theme-studio-0.2.2.tgz
+dsh plugin --profile web add ./dsh-theme-studio-0.2.3.tgz
 ```
 
 桌面版请用 `--profile desktop` 安装同一份包。

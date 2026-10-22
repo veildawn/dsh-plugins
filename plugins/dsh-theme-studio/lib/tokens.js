@@ -27,6 +27,18 @@
 /** 主题切换作用的根属性。`html[data-theme-studio="<id>"]`。 */
 export const THEME_ATTR = 'data-theme-studio'
 
+/**
+ * 「用户设了背景」的根属性，值为 `color` 或 `image`。
+ *
+ * 存在的唯一理由：背景画在 `body` 上，而主题骨架里 `#root`、`.frame`、
+ * `.centerCol` 三层都是不透明填充，把 body 的背景整层盖住。CSS 没法从
+ * 「body 有没有 background-image」反推选择器，只能靠这个显式开关让骨架让位。
+ *
+ * 取值区分 `color` / `image` 是为了将来能按类型给不同让位策略（例如纯色
+ * 背景不需要关掉主区卡片的圆角语义），目前两者走同一套规则。
+ */
+export const BACKGROUND_ATTR = 'data-ts-bg'
+
 /** 主题 CSS 与客户端脚本共用的稳定 id。 */
 export const STYLE_ID = 'dsh-theme-studio'
 

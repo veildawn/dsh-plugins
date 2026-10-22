@@ -228,15 +228,51 @@ test('customCss：图片背景含 URL 与铺满方式，且写在 body 上', () 
   assert.match(css, /:is\(html\[data-theme-studio\], html:root\) body \{\s*background-image: url\("\/api\/x\/bg\.png"\)/)
 })
 
-test('customCss：不透明度生成遮罩层而不是改元素 opacity', () => {
+/**
+ * 不透明度必须用**背景盖层**实现，不能用 `::before` 蒙版。
+ *
+ * 旧实现生成 `body::before { z-index:-1; opacity:… }`，它只有在「body 自己建立了
+ * 层叠上下文」时才画在背景图前面。宿主当前碰巧在 body 上写了 `isolation:isolate`，
+ * 但那是实现细节而非插件契约：一旦宿主改掉，蒙版就跑到背景图**后面**，
+ * 不透明度看起来完全没生效，而且不报错、不告警，只能靠肉眼发现。
+ *
+ * 盖层与图片同属 body 的多层背景，绘制顺序由声明顺序决定，不依赖任何宿主前提。
+ */
+test('customCss：不透明度用背景盖层，不用 body::before 蒙版', () => {
   const css = customCss(
     { background: { mode: 'image', file: 'bg.png', fit: 'cover', opacity: 60 } },
     { backgroundUrl: '/api/x/bg.png' },
   )
-  // 40% 的遮罩
-  assert.match(css, /opacity: 0\.40;/)
-  // 不能出现 body { opacity } —— 那会把整个应用变透明
-  assert.equal(/body\s*\{[^}]*\bopacity:/.test(css), false)
+  // 盖层：把主题画布色调到 40% 不透明，叠在图片之上（声明在前 = 绘制在上）。
+  assert.match(css, /background-image: linear-gradient\(color-mix\(in srgb, var\(--color-background[^;]*40%, transparent\)/)
+  assert.match(css, /url\("\/api\/x\/bg\.png"\)/)
+  // 两层背景必须各自给出尺寸/重复/位置，否则图片层会继承盖层的取值。
+  assert.match(css, /background-size: 100% 100%, cover;/)
+  assert.match(css, /background-repeat: no-repeat, no-repeat;/)
+  assert.match(css, /background-position: center center, center center;/)
+  // 不能有蒙版伪元素，也不能给 body 加 opacity（后者会把整个应用变透明）。
+  assert.equal(css.includes('body::before'), false, '不应再生成 ::before 蒙版')
+  assert.equal(/body\s*\{[^}]*\bopacity:/.test(css), false, '不应给 body 加 opacity')
+})
+
+test('customCss：不透明度 100 时不生成盖层（保持单层背景）', () => {
+  const css = customCss(
+    { background: { mode: 'image', file: 'bg.png', fit: 'cover', opacity: 100 } },
+    { backgroundUrl: '/api/x/bg.png' },
+  )
+  assert.match(css, /background-image: url\("\/api\/x\/bg\.png"\);/)
+  assert.equal(css.includes('linear-gradient'), false, '不透明度 100 不该有盖层')
+  assert.equal(css.includes('color-mix'), false, '不透明度 100 不该有色混合')
+})
+
+test('customCss：盖层变量必须有 fallback（不选主题时 --color-background 未定义）', () => {
+  const css = customCss(
+    { background: { mode: 'image', file: 'bg.png', opacity: 50 } },
+    { backgroundUrl: '/api/x/bg.png' },
+  )
+  // 变量未定义会让整条 background-image 在 computed-value 阶段失效，
+  // 背景图直接消失——比不透明度不准严重得多，所以 fallback 是硬要求。
+  assert.match(css, /var\(--color-background, var\(--dsw-alias-bg-base, #808080\)\)/)
 })
 
 test('customCss：字体同时覆盖四个别名', () => {

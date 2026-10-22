@@ -34,6 +34,8 @@ window.__ModuleLoader__.load({
     const RPC_CHANNEL = '/dsh-theme-studio-settings'
     const THEME_ATTR = 'data-theme-studio'
     const LEGACY_ATTR = 'data-dsh-theme'
+    // 与服务端 tokens.js 的 BACKGROUND_ATTR 一致：设了背景时用它让骨架层让位。
+    const BACKGROUND_ATTR = 'data-ts-bg'
     const STYLE_ID = 'dsh-theme-studio'
     const CUSTOM_STYLE_ID = 'dsh-theme-studio-custom'
     const PANEL_CSS_ID = 'dsh-theme-studio-panel-css'
@@ -244,11 +246,26 @@ window.__ModuleLoader__.load({
         const fit = background.fit === 'contain' ? 'contain' : background.fit === 'repeat' ? 'auto' : 'cover'
         const repeat = background.fit === 'repeat' ? 'repeat' : 'no-repeat'
         if (background.value) backgroundLines.push(`  background-color: ${background.value};`)
-        backgroundLines.push(`  background-image: url("${backgroundUrl}");`)
-        backgroundLines.push(`  background-size: ${fit};`)
-        backgroundLines.push(`  background-repeat: ${repeat};`)
-        backgroundLines.push('  background-position: center center;')
-        backgroundLines.push('  background-attachment: fixed;')
+
+        // 不透明度用多层背景的盖层实现，不用 `opacity` 也不用 `::before` 蒙版。
+        // 原因见服务端 settings.js 的同一段注释：`::before` + `z-index:-1` 依赖
+        // 宿主给 body 加 `isolation:isolate`，那是实现细节而非契约，不能依赖。
+        // 两端必须逐字节一致，由 test/client-parity.test.mjs 守护。
+        const fade = Math.round(100 - Math.min(100, Math.max(0, background.opacity ?? 100)))
+        if (fade > 0) {
+          const veil = `color-mix(in srgb, var(--color-background, var(--dsw-alias-bg-base, #808080)) ${fade}%, transparent)`
+          backgroundLines.push(`  background-image: linear-gradient(${veil}, ${veil}), url("${backgroundUrl}");`)
+          backgroundLines.push(`  background-size: 100% 100%, ${fit};`)
+          backgroundLines.push(`  background-repeat: no-repeat, ${repeat};`)
+          backgroundLines.push('  background-position: center center, center center;')
+          backgroundLines.push('  background-attachment: fixed, fixed;')
+        } else {
+          backgroundLines.push(`  background-image: url("${backgroundUrl}");`)
+          backgroundLines.push(`  background-size: ${fit};`)
+          backgroundLines.push(`  background-repeat: ${repeat};`)
+          backgroundLines.push('  background-position: center center;')
+          backgroundLines.push('  background-attachment: fixed;')
+        }
       }
 
       if (fonts.text) lines.push(`  --dsw-font-family: ${fonts.text};`)
@@ -290,19 +307,6 @@ window.__ModuleLoader__.load({
         css += `${scope} body {\n${fieldLines.join('\n')}\n}\n`
         css += `${scope} body[data-ds-dark-theme] {\n${fieldLines.join('\n')}\n}\n`
       }
-      if (background.mode === 'image' && backgroundUrl && background.opacity < 100) {
-        const fade = ((100 - background.opacity) / 100).toFixed(2)
-        css +=
-          `${scope} body::before {\n` +
-          '  content: "";\n' +
-          '  position: fixed;\n' +
-          '  inset: 0;\n' +
-          '  pointer-events: none;\n' +
-          '  z-index: -1;\n' +
-          '  background: var(--color-background, var(--dsw-alias-bg-base));\n' +
-          `  opacity: ${fade};\n` +
-          '}\n'
-      }
       return css
     }
 
@@ -324,6 +328,21 @@ window.__ModuleLoader__.load({
         if (legacy) root.setAttribute(LEGACY_ATTR, legacy)
         else root.removeAttribute(LEGACY_ATTR)
       }
+
+      // 背景让位开关：与服务端 `activeBackgroundMode()` 同语义。
+      //
+      // 判据必须与下面 `customLayerCss()` 生成 backgroundLines 的条件**逐字一致**：
+      // 只有真能画出一条背景声明时才让位。用户点了「图片」但还没上传文件时，
+      // mode 是 image 而 file 为 null —— 此时若挂上 data-ts-bg，骨架层会白让位，
+      // 界面直接露出宿主默认底（比「背景不生效」更糟）。
+      const background = input?.settings?.background ?? {}
+      let mode = 'none'
+      if (background.mode === 'color' && background.value) mode = 'color'
+      // 判据用 file 而不是 backgroundUrl：服务端 `activeBackgroundMode()` 看的也是
+      // file，两端必须同源。backgroundUrl 只是 file 的派生结果（有 file 才非 null）。
+      else if (background.mode === 'image' && background.file) mode = 'image'
+      if (mode === 'none') root.removeAttribute(BACKGROUND_ATTR)
+      else root.setAttribute(BACKGROUND_ATTR, mode)
 
       const css = customLayerCss(input?.settings ?? {}, input?.backgroundUrl)
       let style = document.getElementById(CUSTOM_STYLE_ID)
@@ -609,7 +628,7 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
           const dataUrl = await readFileAsDataUrl(file)
           const next = await rpcCall('uploadBackground', { dataUrl })
           adopt(next)
-          setStatus({ ok: true, msg: `背景图已上传（${(file.size / 1024).toFixed(0)}KB）。` })
+          setStatus({ ok: true, msg: `背景图已上传（${(file.size / 1024).toFixed(0)}KB），已立即生效。` })
         } catch (error) {
           fail(error)
         } finally {
@@ -903,6 +922,7 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
     exports.internals = {
       THEME_ATTR,
       LEGACY_ATTR,
+      BACKGROUND_ATTR,
       STYLE_ID,
       CUSTOM_STYLE_ID,
       FIELD_COLOR_ROLES,

@@ -1,0 +1,104 @@
+/* ============================================================================
+   用户自定义背景的「让位」层
+   ============================================================================
+
+   用户设了背景（`html[data-ts-bg]`）后，背景画在 `body` 上，但主题骨架里有一串
+   **不透明填充**压在 body 之上，会把背景整层盖住：
+
+   | 层 | 谁画的 | 原填充 |
+   | :--- | :--- | :--- |
+   | `#root` | 本插件 surfaces.css | `--color-background-win-alt`（实色） |
+   | `.frame` | frame.css / 宿主 layout | `--color-background-win-alt`（实色） |
+   | `.sidebarCol` | frame.css | `--color-background-win-alt`（实色） |
+   | `.rightbarCol` / `.bottomRow` | frame.css | `--color-background-win-alt`（实色） |
+   | `.centerCol` | frame.css | `--color-background`（ZCode 实色 / 玻璃半透明） |
+
+   任意一层不透明，用户就看到「上传成功但界面没变」。这是本插件发布以来最典型的
+   一次「设置保存了却不生效」，根因不在保存链路，而在这层视觉遮挡。
+
+   ## 为什么必须用属性开关，而不是「body 有 background-image 就让位」
+
+   CSS 没有父选择器能表达「body 有没有背景」，而 `:has()` 在这里也不可行——
+   `#root` / `.frame` 是 body 的后代，`body:has(> #root)` 恒真，无法区分。
+   所以由服务端直出与客户端运行时共同维护 `html[data-ts-bg]`（见 index.js 的
+   `themeScopeScript` / client.js 的 `applyToDocument`）。
+
+   ## 为什么 `#root` 一定要透明
+
+   宿主 `#root{height:100%}` 铺满视口，本插件 surfaces.css 又给它刷了实色
+   `--color-background-win-alt`。它是最外层的实色块，不透明就等于「背景图永远
+   看不见」——这是玻璃主题下唯一挡住背景的层（玻璃主题的 `.frame` 早已是 `none`）。
+
+   ## 为什么 `.centerCol` 只降到 72% 而不是全透明
+
+   主内容区承载长文本。全透明会让正文直接压在照片的高频细节上，暗色照片配深色
+   文字基本不可读。保留 72% 的主题底色 + 主题原有的 `backdrop-filter`（玻璃主题），
+   既有「背景图透上来」的观感，也守住可读性。侧栏与底部行不承载长文本，直接全透明。
+
+   ============================================================================ */
+
+/* ---------------------------------------------------------------------------
+   一、窗口层：让 body 的背景图完整透出
+   --------------------------------------------------------------------------- */
+html[data-ts-bg] #root,
+html[data-ts-bg] .pI_x6G_frame,
+html[data-ts-bg] ._LS25G_frame,
+html[data-ts-bg] .pI_x6G_sidebarCol,
+html[data-ts-bg] ._LS25G_sidebarCol,
+html[data-ts-bg] .pI_x6G_rightbarCol,
+html[data-ts-bg] ._LS25G_rightbarCol,
+html[data-ts-bg] .pI_x6G_bottomRow,
+html[data-ts-bg] ._LS25G_bottomRow {
+  /* 用 `background: none` 而不是 `transparent`：后者只清 background-color，
+     会把主题可能叠加的渐变/描边图一起留在身上，出现「图片上又浮一层色带」。 */
+  background: none;
+}
+
+/* Windows 桌面版的拖拽条画在 `.frame::before` 上，也是实色窗口底。
+   不清掉的话，标题栏那 40px 会是唯一没透出背景的横条，看起来像渲染错位。 */
+html[data-ts-bg] .pI_x6G_frame::before,
+html[data-ts-bg] ._LS25G_frame::before {
+  background: none;
+}
+
+/* ---------------------------------------------------------------------------
+   二、主内容卡：保留主题底色但放低不透明度
+   --------------------------------------------------------------------------- */
+html[data-ts-bg] .pI_x6G_centerCol,
+html[data-ts-bg] ._LS25G_centerCol {
+  background: color-mix(in oklab, var(--color-background) 72%, transparent);
+}
+
+/* 玻璃主题的毛玻璃必须保留：它让背景图在卡片后面被模糊，正是「真玻璃」的来源。
+   我们的规则排在 glass.css 之后，若不做这条显式声明，上面那条 `background`
+   会顶掉玻璃的填充，卡片退化成一块 72% 的纯色膜。
+   同理，`-webkit-backdrop-filter` 与不带前缀的必须成对出现。 */
+html[data-ts-bg][data-theme-studio="glass"] .pI_x6G_centerCol,
+html[data-ts-bg][data-theme-studio="glass"] ._LS25G_centerCol,
+html[data-ts-bg][data-theme-studio="glass-color"] .pI_x6G_centerCol,
+html[data-ts-bg][data-theme-studio="glass-color"] ._LS25G_centerCol {
+  -webkit-backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+}
+
+/* ---------------------------------------------------------------------------
+   三、无障碍：用户要求降低透明度时，背景图整体让位，恢复实色骨架
+   --------------------------------------------------------------------------- */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-ts-bg] .pI_x6G_centerCol,
+  html[data-ts-bg] ._LS25G_centerCol {
+    background: var(--color-background);
+  }
+
+  html[data-ts-bg] .pI_x6G_sidebarCol,
+  html[data-ts-bg] ._LS25G_sidebarCol,
+  html[data-ts-bg] .pI_x6G_rightbarCol,
+  html[data-ts-bg] ._LS25G_rightbarCol,
+  html[data-ts-bg] .pI_x6G_bottomRow,
+  html[data-ts-bg] ._LS25G_bottomRow,
+  html[data-ts-bg] .pI_x6G_frame,
+  html[data-ts-bg] ._LS25G_frame,
+  html[data-ts-bg] #root {
+    background: var(--color-background-win-alt);
+  }
+}

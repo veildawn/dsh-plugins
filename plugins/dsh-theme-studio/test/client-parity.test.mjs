@@ -119,6 +119,59 @@ test('客户端暴露的属性名与服务端一致', async () => {
   const server = await import('../lib/index.js')
   assert.equal(client.internals.THEME_ATTR, server.THEME_ATTR)
   assert.equal(client.internals.STYLE_ID, server.STYLE_ID)
+  // 背景让位开关：两端属性名必须一致，否则会出现「设置页里能看见背景、
+  // 保存后回到主界面就没了」这类只在某一条路径上复现的问题。
+  assert.equal(client.internals.BACKGROUND_ATTR, server.BACKGROUND_ATTR)
+})
+
+/**
+ * 让位开关的判定条件必须与 CSS 生成条件同源。
+ *
+ * 这是「背景不生效」的第三个潜在根因：属性挂了但 CSS 没画背景（界面露出裸底），
+ * 或者 CSS 画了背景但属性没挂（背景被骨架层盖住）。两者都只在特定组合下出现
+ * （例如刚点「图片」但还没上传文件），手工点测很难覆盖。
+ *
+ * 这里用 `activeBackgroundMode()`（服务端唯一判据）逐组合比对，
+ * 客户端在同样输入下必须得出相同的 mode。
+ */
+test('客户端背景让位判定与服务端 activeBackgroundMode 完全一致', async () => {
+  const { activeBackgroundMode } = await import('../lib/settings.js')
+  const cases = [
+    {},
+    { background: { mode: 'none' } },
+    { background: { mode: 'color', value: '#123456' } },
+    { background: { mode: 'color', value: '' } },
+    { background: { mode: 'image', file: 'bg.png' } },
+    { background: { mode: 'image', file: null } },
+    { background: { mode: 'image', file: 'bg.png', fit: 'contain', opacity: 40 } },
+  ]
+
+  // 复刻客户端 applyToDocument 里的判定（与服务端同一份逻辑）。
+  const clientMode = (settings) => {
+    const background = settings?.background ?? {}
+    if (background.mode === 'color' && background.value) return 'color'
+    if (background.mode === 'image' && background.file) return 'image'
+    return 'none'
+  }
+
+  for (const input of cases) {
+    assert.equal(
+      clientMode(input),
+      activeBackgroundMode(input.background),
+      `让位判定不一致：${JSON.stringify(input)}`,
+    )
+  }
+
+  // 反向：判定为 none 时 CSS 确实不产出背景声明（否则白让位，露出裸底）。
+  for (const input of cases) {
+    if (clientMode(input) !== 'none') continue
+    const css = customLayerCss(input, null)
+    assert.equal(
+      /^\s*background-(image|color):/m.test(css),
+      false,
+      `判定为 none 却产出了背景声明：${JSON.stringify(input)}\n${css}`,
+    )
+  }
 })
 
 test('正文与代码字体下拉预设选项两端一致', async () => {

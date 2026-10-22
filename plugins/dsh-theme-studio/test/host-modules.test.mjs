@@ -32,7 +32,7 @@ import {
   uniqueOwnerClass,
 } from '../lib/host-modules.js'
 import { HOST_CLASS_SLOTS } from '../lib/host-class-slots.js'
-import { GLASS_STYLE_FILE, STYLE_FILES, readStyleFile } from '../lib/css.js'
+import { ALL_STYLE_FILES, readStyleFile } from '../lib/css.js'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const fixturePath = join(root, '../../test/fixtures/host-classes.json')
@@ -329,7 +329,7 @@ test('主题引用的宿主部件名全部存在于 fixture 的模块映射里',
   assert.ok(hostParts.size > 1000, `fixture 的部件名数量异常：${hostParts.size}`)
 
   const missing = new Set()
-  for (const name of [...STYLE_FILES, GLASS_STYLE_FILE]) {
+  for (const name of ALL_STYLE_FILES) {
     const css = readStyleFile(name)
     for (const match of css.matchAll(/\._?[A-Za-z0-9][A-Za-z0-9_-]*?_([A-Za-z][A-Za-z0-9]*)\b/g)) {
       if (!hostParts.has(match[1])) missing.add(`${match[1]}（${name}）`)
@@ -388,7 +388,7 @@ test('接入后：主题 CSS 里每个宿主类名都补全为包含当前构建
   }
   const failures = []
   let patched = 0
-  for (const name of [...STYLE_FILES, GLASS_STYLE_FILE]) {
+  for (const name of ALL_STYLE_FILES) {
     const css = readStyleFile(name)
     const result = adaptCssToHost(css, index, HOST_CLASS_SLOTS)
     patched += result.patched
@@ -510,7 +510,7 @@ test('isElectronRuntime 在纯 Node 下为 false', () => {
  */
 test('静态对照表覆盖主题引用的每一个宿主类名', async () => {
   const missing = new Map()
-  for (const name of [...STYLE_FILES, GLASS_STYLE_FILE]) {
+  for (const name of ALL_STYLE_FILES) {
     // 只扫选择器：注释里提到的类名是说明文字，不是「主题引用了它」。
     const css = stripCssComments(readStyleFile(name))
     // 与生成器同一条判据：前导 `.` 可选，下划线属于 token 本身。
