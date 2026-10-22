@@ -1556,7 +1556,12 @@ test('client bundle contains SafePathsModal and toolbar safepaths button for web
 test('preview source and diff tabs stay pinned outside the scrolling content pane', () => {
   const source = read('lib/client.js')
   assert.match(source, /const tabs = showTabs/)
-  assert.match(source, /tabs,\s*\n\s*react\.createElement\("div", \{ className: "fv-content"/)
+  // The tabs sit outside the scrolling pane, and the pane now sits inside a
+  // positioning wrapper so the Markdown outline can float over the reading
+  // area without scrolling away with it.
+  assert.match(source, /tabs,\s*\n\s*react\.createElement\("div", \{ className: "fv-content-wrap"/)
+  assert.match(source, /className: "fv-content",\s*\n\s*"data-wrap": wrapping/)
+  assert.match(source, /\.fv-content-wrap\{position:relative;flex:1 1 auto;min-height:0/)
   assert.match(source, /\.fv-content \.fv-sheet-tabs\{[^}]*position:sticky/)
 })
 
@@ -2373,6 +2378,114 @@ test('the commit pane renders changed files and disables ones outside the root',
   // Loading and failed states never read a half-populated detail.
   assert.doesNotThrow(() => internals.CommitDetail({ state: { ...base, detail: null, detailStatus: 'loading' }, selectedPath: '', onSelectFile() {} }))
   assert.doesNotThrow(() => internals.CommitDetail({ state: { ...base, detail: null, detailStatus: 'error', detailError: new Error('x') }, selectedPath: '', onSelectFile() {} }))
+})
+
+/* -------------------------------------------------------------------------- *
+ * The viewer must not be treated as a centred modal card
+ *
+ * The overlay seat is mounted inside a plain div[role="presentation"], and
+ * dsh-mobile-adapter turns any such container holding a
+ * [role="dialog"][aria-modal="true"] into a full-screen rgba(0,0,0,.5) scrim
+ * with blur(4px), while shrinking the dialog to a 420px centred card. The
+ * viewer is a full-height drawer pinned to the right edge, so that treatment
+ * blacked out the whole app behind it — reported as "the right-click menu has
+ * an opaque mask" — and fought the drawer's own width. These assertions pin the
+ * opt-out, which is what actually removes the mask.
+ * -------------------------------------------------------------------------- */
+
+test('the viewer opts out of the host modal-card treatment', () => {
+  const source = read('lib/client.js')
+
+  // The container that holds this drawer loses the dark scrim and the blur.
+  assert.match(
+    source,
+    /body>div\[role="presentation"\]:has\(\.fv-scrim\)\{background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important/,
+  )
+  // The adapter's own sibling scrim is not rendered either.
+  assert.match(source, /body>div\[role="presentation"\]:has\(\.fv-scrim\)>\[aria-hidden="true"\]\{display:none!important\}/)
+  // And the drawer keeps its full-bleed, right-aligned shape instead of
+  // becoming a 420px rounded card.
+  const drawer = /\.fv-scrim\[role="dialog"\]\{([^}]*)\}/.exec(source)
+  assert(drawer, 'the drawer override must exist')
+  for (const undo of ['position:absolute!important', 'inset:0!important', 'max-width:none!important',
+    'max-height:none!important', 'border-radius:0!important', 'backdrop-filter:none!important']) {
+    assert(drawer[1].includes(undo), `the drawer must restore ${undo}`)
+  }
+
+  // Every opt-out is scoped to THIS drawer, so no other dialog on the page
+  // changes behaviour because the file viewer is installed.
+  const scoped = [...source.matchAll(/body>div\[role="presentation"\][^{]*\{/g)].map((m) => m[0])
+  assert(scoped.length >= 2, 'the opt-out rules must be present')
+  for (const selector of scoped) {
+    assert(
+      /:has\(\.fv-scrim\)|^\.fv-scrim\[role="dialog"\]/.test(selector),
+      `an opt-out escaped its scope: ${selector}`,
+    )
+  }
+})
+
+test('the context menu refuses the glass theme treatment', () => {
+  const source = read('lib/client.js')
+
+  // The glass theme paints `[role="menu"]` with a translucent background and a
+  // large backdrop blur. This menu carries role="menu", so the blur smeared the
+  // full-screen backdrop behind it — the whole app went hazy and only the menu
+  // outline stayed readable.
+  //
+  // Measured in Chromium: the theme's selector
+  //   :is(html[data-theme-studio=...]) [role="menu"]:not(:is(...))
+  // outranks every class-based override, and its sheet loads after this bundle,
+  // so class-level !important lost. An id wins regardless of order.
+  assert.match(source, /const CONTEXT_MENU_ID = "dsh-fv-context-menu"/)
+  const menus = source.match(/id: CONTEXT_MENU_ID,/g) || []
+  assert.equal(menus.length, 2, 'both menus (tree and tabs) must carry the id')
+
+  const rule = /#dsh-fv-context-menu\{([^}]*)\}/.exec(source)
+  assert(rule, 'the id-scoped override must exist')
+  const body = rule[1]
+  assert.match(body, /-webkit-backdrop-filter:none!important/)
+  assert.match(body, /backdrop-filter:none!important/)
+  assert.match(body, /isolation:isolate/)
+})
+
+test('the context menu uses an opaque surface, not the host translucent one', () => {
+  const source = read('lib/client.js')
+
+  // The host's menu token is --dsw-specific-menu -> --dsw-menu-surface-fill,
+  // measured as #f8f9fa94 (58% opaque) in light and #43454a73 (45%) in dark.
+  // Those values assume the host's own backdrop blur sits behind them. This
+  // menu deliberately has no blur (see the glass-theme test), so reusing the
+  // token painted a translucent panel with the page's text showing through —
+  // the "still glassy under the default theme" report.
+  assert.doesNotMatch(source, /--dsw-specific-menu/, 'the translucent host token must not be used')
+
+  // Every menu background instead resolves to an opaque layer colour, with the
+  // base colour as the final fallback.
+  const rules = [...source.matchAll(/\.fv-context-menu\{([^}]*)\}/g)].map((m) => m[1])
+    .concat([...(/\.fv-context-menu\{background-color:([^}]*)\}/.exec(source) || [])[1] || '']
+      ? [/\.fv-context-menu\{background-color:([^}]*)\}/.exec(source)[1]]
+      : [])
+    .concat([...(/#dsh-fv-context-menu\{([^}]*)\}/.exec(source) || [])[1] || '']
+      ? [/#dsh-fv-context-menu\{([^}]*)\}/.exec(source)[1]]
+      : [])
+  assert(rules.length >= 2, 'the menu background rules must be present')
+  for (const rule of rules) {
+    if (!/background/.test(rule)) continue
+    assert.match(rule, /var\(--dsw-alias-bg-layer-2,var\(--dsw-alias-bg-base/, `menu background must use an opaque layer colour: ${rule}`)
+  }
+})
+
+test('the context menu backdrop itself stays transparent', () => {
+  const source = read('lib/client.js')
+  const rules = [...source.matchAll(/\.fv-context-backdrop\{([^}]*)\}/g)].map((m) => m[1])
+  assert(rules.length >= 2, 'the base rule and the mobile override must both exist')
+  for (const body of rules) {
+    assert.match(body, /background:transparent/, `every backdrop rule must stay transparent: ${body}`)
+    assert.doesNotMatch(body, /backdrop-filter:(?!none)/, `no blur may be reintroduced: ${body}`)
+  }
+  // The mobile menu keeps its own bottom-sheet styling; that is what gives it
+  // focus now that no scrim does.
+  assert.match(source, /\.fv-context-menu\{position:fixed!important;bottom:max\(16px,var\(--dsh-sab,0px\)\)!important/)
 })
 
 test('the bundle wires the Git panel to the host RPC methods and its own styles', () => {
@@ -3312,6 +3425,130 @@ test('the content area holds tabs instead of a single preview', () => {
   assert.match(source, /const id = "file:" \+ blobPath \+ "\\u0000" \+ readSha/)
   assert.match(source, /id: "change:" \+ row\.path/)
   assert.match(source, /const id = "commit:" \+ sha/)
+})
+
+/* -------------------------------------------------------------------------- *
+ * The Markdown outline
+ *
+ * Headings are read from the SOURCE, not from the rendered DOM: the renderer's
+ * node shapes belong to the host and can change, while ATX syntax is fixed by
+ * CommonMark. These cases pin the parsing rules that decide what a reader sees
+ * in the outline.
+ * -------------------------------------------------------------------------- */
+
+test('headings are read from the markdown source with their levels', () => {
+  const { parseHeadings } = loadClient().internals
+  const md = [
+    '# Title',
+    '',
+    'Intro paragraph.',
+    '',
+    '## Section A',
+    '### Nested under A',
+    '## Section B',
+  ].join('\n')
+  const rows = parseHeadings(md)
+  assert.deepEqual(rows.map((r) => [r.level, r.text]), [
+    [1, 'Title'],
+    [2, 'Section A'],
+    [3, 'Nested under A'],
+    [2, 'Section B'],
+  ])
+  // The source line is carried so a jump can be mapped back to the document.
+  assert.deepEqual(rows.map((r) => r.line), [0, 4, 5, 6])
+  // Keys are unique even when two sections share a label.
+  const dup = parseHeadings('# A\n# A')
+  assert.equal(new Set(dup.map((r) => r.key)).size, 2)
+})
+
+test('a heading needs a space, and fenced code is not a section', () => {
+  const { parseHeadings } = loadClient().internals
+
+  // `#nospace` is not a heading (CommonMark), nor is `#######` (7 hashes).
+  assert.deepEqual(parseHeadings('#nospace').map((r) => r.text), [])
+  assert.deepEqual(parseHeadings('####### too deep').map((r) => r.text), [])
+
+  // A shell comment inside a fenced block must not appear in the outline.
+  const fenced = [
+    '# Real',
+    '```bash',
+    '# not a heading',
+    'echo hi',
+    '```',
+    '## Also real',
+  ].join('\n')
+  assert.deepEqual(parseHeadings(fenced).map((r) => r.text), ['Real', 'Also real'])
+
+  // An unterminated fence swallows the rest, which is what the renderer does.
+  assert.deepEqual(parseHeadings('# A\n```\n# B').map((r) => r.text), ['A'])
+  // Tilde fences work the same way.
+  assert.deepEqual(parseHeadings('~~~\n# x\n~~~\n# y').map((r) => r.text), ['y'])
+})
+
+test('heading labels drop markup that adds nothing to navigation', () => {
+  const { parseHeadings } = loadClient().internals
+  const md = [
+    '## **Bold** title',
+    '## `code` and [link](https://example.com)',
+    '## Closing hashes ##',
+    '## _emphasised_',
+  ].join('\n')
+  assert.deepEqual(parseHeadings(md).map((r) => r.text), [
+    'Bold title',
+    'code and link',
+    'Closing hashes',
+    'emphasised',
+  ])
+  // A heading with no text left is skipped rather than rendered as an empty row.
+  assert.deepEqual(parseHeadings('##  ').map((r) => r.text), [])
+})
+
+test('no hook is declared after an early return in TextView', () => {
+  const source = read('lib/client.js')
+
+  // React matches hooks by call order, so a hook that only runs once a document
+  // has loaded changes the order between the loading render and the loaded one.
+  // That shipped once as "Minified React error #310" the moment a Markdown file
+  // was opened — the outline hooks had been placed below TextView's early
+  // returns. This walks the function and fails if it happens again.
+  const start = source.indexOf('function TextView(')
+  assert(start > 0, 'TextView must exist')
+  const end = source.indexOf('\n      /** Render JSON as a tree', start)
+  assert(end > start, 'TextView body must be delimited')
+  const lines = source.slice(start, end).split('\n')
+
+  const earlyReturn = /^\s*if \(state\.status === "error"\)|^\s*if \(data === null\) return|^\s*if \(state\.status === "loading"\) return/
+  const hookCall = /react\.(useState|useEffect|useMemo|useCallback|useRef|useContext|useReducer)\(/
+  let afterReturn = false
+  const violations = []
+  lines.forEach((line, index) => {
+    if (earlyReturn.test(line)) afterReturn = true
+    if (afterReturn && hookCall.test(line)) violations.push(`${index + 1}: ${line.trim()}`)
+  })
+  assert.deepEqual(violations, [], `hooks must all be declared before any early return, found: ${violations.join(' | ')}`)
+
+  // The outline's own hooks are part of that invariant, and they read the
+  // pre-return snapshot rather than the post-return binding.
+  assert.match(source, /const loaded = state\.data;/)
+  assert.match(source, /const outlineText = outlineVisible \? loaded\.text : "";/)
+})
+
+test('the outline is only offered for a rendered markdown preview', () => {
+  const source = read('lib/client.js')
+
+  // Source mode and the JSON tree have no headings, and an oversized document
+  // never reaches the preview, so the rail must not appear in those states.
+  // The gate reads the loaded snapshot directly, because the hooks that use it
+  // run above TextView's early returns (see the hooks-order test below).
+  assert.match(source, /const outlineVisible = loaded !== null && loaded !== undefined/)
+  assert.match(source, /&& loaded\.kind === "markdown" && typeof loaded\.text === "string"/)
+  assert.match(source, /const headings = react\.useMemo\(/)
+  // The rail is rendered beside the content, inside the positioning wrapper.
+  assert.match(source, /outlineVisible\s*\n\s*\? react\.createElement\(MarkdownOutline, \{/)
+  // It drives the drawer's own scroller instead of the window.
+  assert.match(source, /host\.scrollTo\(\{ top: host\.scrollTop \+ offset - 8/)
+  // And the current section is measured on scroll, not guessed.
+  assert.match(source, /if \(elements\[index\]\.getBoundingClientRect\(\)\.top - top <= 24\) current = row\.key;/)
 })
 
 test('the tab strip renders and marks the active tab', () => {

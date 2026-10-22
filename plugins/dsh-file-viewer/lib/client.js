@@ -52,6 +52,19 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** Outline / table-of-contents glyph: short bars stepping in by level. */
+    function SvgIconOutline({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        react.createElement("path", { d: "M2.5 3.5h11" }),
+        react.createElement("path", { d: "M2.5 7h7.5" }),
+        react.createElement("path", { d: "M2.5 10.5h9" }),
+        react.createElement("path", { d: "M2.5 14h5.5" })
+      );
+    }
+
     function SvgIconRefresh({ size = 15 }) {
       return react.createElement("svg", {
         width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -305,6 +318,18 @@ window.__ModuleLoader__.load({
     // nothing itself.
     const COMPOSER_SLOT = "conversation.input.left";
     const STYLE_ID = "dsh-file-viewer-styles";
+    /**
+     * The id both context menus carry.
+     *
+     * It exists purely so the stylesheet can win against a theme's glass rule.
+     * The glass theme paints `[role="menu"]` with a translucent background and
+     * a large backdrop blur; its selector is long enough (a :is() chain plus
+     * :not()) that no class-based override beats it, and it loads after this
+     * bundle. An id selector outranks any combination of classes and
+     * attributes, so the fix does not depend on sheet order. Only one menu is
+     * mounted at a time, so sharing the id is safe.
+     */
+    const CONTEXT_MENU_ID = "dsh-fv-context-menu";
     // Per-browser UI state, so it lives in localStorage rather than plugin
     // settings; the key follows the `<plugin>.<setting>` form used elsewhere.
     const ENTRY_POSITION_KEY = "dsh-file-viewer.entry-position";
@@ -338,6 +363,29 @@ window.__ModuleLoader__.load({
     const inject = ["slots", "connection", "workspaces"];
 
     const css = `
+      /* ---------------------------------------------------------------------
+         Opt out of the "every modal becomes a centred card" treatment.
+
+         The host mounts overlay seats inside a plain div[role="presentation"],
+         and dsh-mobile-adapter turns that container into a full-screen
+         rgba(0,0,0,.5) + blur(4px) scrim whenever it CONTAINS a
+         [role="dialog"][aria-modal="true"] — and shrinks the dialog itself to a
+         420px centred card. That is right for a small confirm dialog and wrong
+         for this drawer: the viewer is a full-height panel pinned to the right
+         edge, and being treated as a card blacked out the app behind it (read
+         by the user as "the right-click menu has an opaque mask") and fought
+         the drawer's own width.
+
+         The adapter keys on containment (:has(...)), not on being the parent,
+         so these overrides use the descendant form too: wherever the host nests
+         this viewer, the same container is neutralised. Every rule is scoped to
+         a container that actually holds .fv-scrim, so no other dialog on the
+         page is affected. !important is required because the adapter's own
+         declarations use it.
+         --------------------------------------------------------------------- */
+      body>div[role="presentation"]:has(.fv-scrim){background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;padding:0!important;display:block!important;align-items:stretch!important;justify-content:flex-start!important}
+      body>div[role="presentation"]:has(.fv-scrim)>[aria-hidden="true"]{display:none!important}
+      .fv-scrim[role="dialog"]{position:absolute!important;inset:0!important;width:auto!important;max-width:none!important;max-height:none!important;min-height:0!important;margin:0!important;border:none!important;border-radius:0!important;box-shadow:none!important;background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;overflow:visible!important}
       .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:transparent;pointer-events:auto;animation:fv-fade .16s ease-out}
       .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1);transition:width .2s cubic-bezier(.2,.8,.2,1)}
       .fv-shell[data-fullscreen="true"]{width:100vw;border-left:none}
@@ -437,6 +485,33 @@ window.__ModuleLoader__.load({
       .fv-lang-select:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
       .fv-content{flex:1 1 auto;min-height:0;overflow:auto;padding:12px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
       .fv-content>*{max-width:100%}
+      /* The Markdown outline: a rail pinned to the reading area's trailing edge.
+         The wrapper is the positioning context, so the rail stays put while the
+         text inside .fv-content scrolls. */
+      .fv-content-wrap{position:relative;flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+      .fv-content-wrap>.fv-content{flex:1 1 auto}
+      .fv-outline{position:absolute;top:8px;right:8px;z-index:5;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-height:calc(100% - 16px);pointer-events:none}
+      .fv-outline>*{pointer-events:auto}
+      .fv-outline-toggle{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv2,0 2px 8px rgba(0,0,0,.08));color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none;transition:color .12s,background-color .12s}
+      .fv-outline-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
+      .fv-outline[data-open="true"] .fv-outline-toggle{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary)}
+      .fv-outline-toggle:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
+      /* The panel scrolls on its own: a long document can have fifty headings,
+         and the rail must never push past the reading area. */
+      .fv-outline-panel{display:flex;flex-direction:column;min-height:0;max-height:min(60vh,420px);width:min(280px,52vw);padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);animation:fv-menu-in .12s cubic-bezier(.2,.8,.2,1)}
+      .fv-outline-head{flex:none;padding:4px 8px 6px;border-bottom:1px solid var(--dsw-alias-border-l1);margin-bottom:4px;color:var(--dsw-alias-label-caption);font-size:11px;font-weight:600;letter-spacing:.02em}
+      .fv-outline-list{display:flex;flex-direction:column;gap:1px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+      .fv-outline-item{display:block;width:100%;padding:5px 8px;border:none;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1.4;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+      .fv-outline-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-outline-item[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary);font-weight:600}
+      .fv-outline-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:-2px}
+      /* Indentation comes from the DOM order and the level, so a document that
+         starts at level two is not silently pushed one level in. */
+      .fv-outline-item[data-level="1"]{padding-left:20px}
+      .fv-outline-item[data-level="2"]{padding-left:32px}
+      .fv-outline-item[data-level="3"]{padding-left:44px}
+      .fv-outline-item[data-level="4"]{padding-left:56px}
+      .fv-outline-item[data-level="5"]{padding-left:68px}
       .fv-doc-article{max-width:880px;margin:0 auto;padding:12px 16px;line-height:1.8;font-size:14px;word-break:break-word}
       .fv-doc-article h1{font-size:22px;font-weight:700;margin:28px 0 16px;line-height:1.35;border-bottom:1px solid var(--dsw-alias-border-l1);padding-bottom:8px}
       .fv-doc-article h2{font-size:18px;font-weight:600;margin:24px 0 12px;line-height:1.4;border-bottom:1px dashed var(--dsw-alias-border-l1);padding-bottom:6px}
@@ -603,7 +678,29 @@ window.__ModuleLoader__.load({
       .fv-content[data-wrap="on"] span[class*="_gutter_"]{flex:none;white-space:pre}
       .fv-content[data-wrap="on"] span[class*="_content_"]{min-width:0;flex:1 1 auto;white-space:pre-wrap;overflow-wrap:anywhere}
       .fv-context-backdrop{position:fixed;inset:0;z-index:99;background:transparent;touch-action:none}
-      .fv-context-menu{position:fixed;z-index:100;min-width:190px;padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base)));box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:13px;display:flex;flex-direction:column;gap:3px;animation:fv-menu-in .12s cubic-bezier(.2,.8,.2,1);touch-action:manipulation}
+      /* 菜单是实底卡片，不吃主题的毛玻璃。
+         玻璃主题（glass.css）里有一条规则，给 [role="menu"] 套上
+         background:var(--color-menu) 和 backdrop-filter:blur(...)；我们的菜单正好
+         带 role="menu"，于是被套上半透明底 + 几十 px 的模糊。backdrop-filter 会把
+         **它背后的一切**糊掉，而背后正是铺满全屏的遮罩层，所以整屏发虚、只剩菜单
+         轮廓；系统默认主题没有这条规则，因此只有玻璃主题下才看得到。
+         这里把三样都钉死：清掉模糊、底色用宿主菜单底（不透明），确保菜单里的文字
+         永远落在实色上、背后也不会被糊。 */
+      .fv-context-menu{position:fixed;z-index:100;min-width:190px;padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:13px;display:flex;flex-direction:column;gap:3px;animation:fv-menu-in .12s cubic-bezier(.2,.8,.2,1);touch-action:manipulation;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;isolation:isolate}
+      /* 底色单独一条，且带 !important：玻璃主题用 background:var(--color-menu)
+         !important 把菜单底改成 rgba(248,249,255,.72)，不压住它菜单会透出背后的
+         正文，读起来像半透明脏块。这条把菜单底钉回宿主的实色值，主题换色也不影响
+         可读性。 */
+      .fv-context-menu{background-color:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff))!important}
+      /* 上面两条还不够。玻璃主题的样式表在插件之后注入，两条 !important 规则
+         特异性相同时「后加载者胜」，实测菜单仍拿到 blur(41.6px) 与
+         rgba(248,249,255,.72)。这条把选择器抬到 html + 重复类 + 属性同时命中，
+         特异性稳稳高过主题的 :is(html[data-...]) [role="menu"]，与加载顺序无关。 */
+      /* 用 id 选择器（特异性 1-0-0）压过主题：玻璃主题的选择器是
+         :is(html[data-theme-studio=...]) [role="menu"]:not(...)，叠加后仍属类/
+         属性级别，且它的样式表在本插件之后注入；实测类级 !important 会输给它，
+         id 级则与加载顺序无关地胜出。 */
+      #dsh-fv-context-menu{-webkit-backdrop-filter:none!important;backdrop-filter:none!important;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff))!important;background-color:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff))!important;isolation:isolate!important}
       @keyframes fv-menu-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
       .fv-context-item{display:flex;align-items:center;gap:10px;width:100%;height:34px;padding:0 10px;border:none;border-radius:8px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
       .fv-context-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
@@ -686,7 +783,11 @@ window.__ModuleLoader__.load({
         .fv-body[data-pane="content"] .fv-tree,.fv-body[data-pane="tree"] .fv-main{display:none!important}
         .fv-crumbs{font-size:11px}
         .fv-file-path{display:none!important}
-        .fv-context-backdrop{background:rgba(0,0,0,.45);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);animation:fv-fade .16s ease-out}
+        /* 遮罩只用来接住「点菜单外面关闭」，不该遮住内容。
+           它曾经在这里被涂成 rgba(0,0,0,.45) 并加了模糊，等于把整个抽屉
+           盖黑。手机上菜单本身已经是贴底的独立面板，靠自身圆角与阴影就能
+           立住，不需要再压一层遮罩。 */
+        .fv-context-backdrop{background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
         .fv-context-menu{position:fixed!important;bottom:max(16px,var(--dsh-sab,0px))!important;left:max(16px,var(--dsh-sal,0px))!important;right:max(16px,var(--dsh-sar,0px))!important;top:auto!important;width:auto!important;max-width:none!important;border-radius:18px!important;padding:8px!important;box-shadow:var(--dsw-shadow-lv3)!important;animation:fv-menu-slide-up .2s cubic-bezier(.2,.8,.2,1)!important}
         .fv-context-head{padding:4px 8px 8px;border-bottom:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:2px;margin-bottom:4px}
         .fv-context-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);word-break:break-all;line-height:1.3}
@@ -701,6 +802,17 @@ window.__ModuleLoader__.load({
         .fv-tab-dir{display:none!important}
         .fv-tab-close{width:24px!important;height:24px!important;font-size:16px!important}
         .fv-main-head{padding:6px 8px!important;gap:6px!important}
+        /* 手机上的目录：按钮放大到可点面积，面板几乎占满宽度，
+           并让正文在目录展开时仍能读到。 */
+        .fv-outline{top:6px!important;right:6px!important;max-height:calc(100% - 12px)!important}
+        .fv-outline-toggle{width:34px!important;height:34px!important;border-radius:10px!important}
+        .fv-outline-panel{width:min(78vw,320px)!important;max-height:min(56vh,380px)!important;border-radius:12px!important}
+        .fv-outline-item{padding:9px 10px!important;font-size:13px!important;border-radius:8px!important}
+        .fv-outline-item[data-level="1"]{padding-left:22px!important}
+        .fv-outline-item[data-level="2"]{padding-left:34px!important}
+        .fv-outline-item[data-level="3"]{padding-left:46px!important}
+        .fv-outline-item[data-level="4"]{padding-left:58px!important}
+        .fv-outline-item[data-level="5"]{padding-left:70px!important}
         /* SafePathsModal 移动端自适应优化：输入框与添加按钮纵向铺满，防溢出 */
         .fv-modal-scrim{padding:10px!important}
         .fv-modal{width:min(96vw,560px)!important;max-height:min(90dvh,90vh,680px)!important;border-radius:16px!important}
@@ -729,6 +841,79 @@ window.__ModuleLoader__.load({
         .fv-commit-diff-file .fv-diff-table{font-size:12px!important}
       }
     `;
+
+    /**
+     * Strip any full-screen blur / darkening that other layers put over the app
+     * while this drawer is open.
+     *
+     * The drawer is a right-hand panel, not a modal dialog: content behind it
+     * stays visible and interactive. Other layers disagree — dsh-mobile-adapter
+     * turns the host's role="presentation" wrapper into a blurred
+     * rgba(0,0,0,.5) scrim, and glass themes paint backdrop-filter on anything
+     * they consider a floating surface. Both are keyed on selectors this plugin
+     * does not own (role attributes, sibling scrims), so overriding them from
+     * CSS depends on winning a specificity fight against third-party sheets that
+     * load after ours.
+     *
+     * Walking up from the drawer and neutralising those properties in place is
+     * source-agnostic: it removes whatever a theme or adapter applied, no matter
+     * which rule did it, and it is re-applied on every open because those layers
+     * can re-render. The original inline values are restored on close so no
+     * other feature inherits our override.
+     *
+     * @param {Element | null} scrim - this drawer's root element.
+     * @param {boolean} active - true while the drawer is open.
+     * @returns {() => void} a function that restores what was changed.
+     */
+    function suppressBackdropEffects(scrim, active) {
+      if (!scrim || typeof window === "undefined") return () => {};
+      const view = scrim.ownerDocument?.defaultView || window;
+      const touched = [];
+      const clear = (element) => {
+        if (!element || element.nodeType !== 1) return;
+        const style = view.getComputedStyle(element);
+        const backdrop = style.backdropFilter || style.webkitBackdropFilter || "";
+        const background = style.backgroundColor || "";
+        // Only touch what actually has an effect: a transparent background and a
+        // `none` filter mean there is nothing to undo, and writing to them would
+        // burn a style recalculation for no visible reason.
+        const hasBlur = backdrop !== "" && backdrop !== "none";
+        const isDark = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/.test(background)
+          && !/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)/.test(background)
+          && parseFloat(/rgba?\([^)]*?([\d.]+)\)$/.exec(background)?.[1] ?? "1") > 0.05;
+        if (!hasBlur && !isDark) return;
+        touched.push({
+          element,
+          backdrop: element.style.backdropFilter,
+          webkitBackdrop: element.style.webkitBackdropFilter,
+          background: element.style.backgroundColor,
+        });
+        if (hasBlur) {
+          element.style.setProperty("backdrop-filter", "none", "important");
+          element.style.setProperty("-webkit-backdrop-filter", "none", "important");
+        }
+        if (isDark) element.style.setProperty("background-color", "transparent", "important");
+      };
+      if (active) {
+        // The wrapper the host mounts this seat into, plus its own sibling
+        // scrims, are the two places a modal treatment shows up.
+        let node = scrim.parentElement;
+        for (let depth = 0; node && depth < 4; depth += 1) {
+          clear(node);
+          for (const sibling of node.children) {
+            if (sibling !== scrim && sibling.getAttribute("aria-hidden") === "true") clear(sibling);
+          }
+          node = node.parentElement;
+        }
+      }
+      return () => {
+        for (const entry of touched) {
+          entry.element.style.backdropFilter = entry.backdrop;
+          entry.element.style.webkitBackdropFilter = entry.webkitBackdrop;
+          entry.element.style.backgroundColor = entry.background;
+        }
+      };
+    }
 
     /**
      * Inject the stylesheet, refreshing it when the content has changed.
@@ -1518,6 +1703,63 @@ window.__ModuleLoader__.load({
       const trimmed = String(path || "").replace(/[\\/]+$/, "");
       const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
       return cut <= 0 ? "" : trimmed.slice(0, cut);
+    }
+
+    /**
+     * The headings a Markdown document declares, in document order.
+     *
+     * Read from the SOURCE rather than from the rendered DOM: the renderer's
+     * node shapes are the host's business and can change, while the ATX heading
+     * syntax is fixed by CommonMark. The outline therefore stays correct even if
+     * the primitives package swaps its renderer.
+     *
+     * ATX headings only (`# Title`). Setext headings (`Title` underlined with
+     * `===` / `---`) are not recognised, which mirrors what the outline can
+     * usefully show — a document using them mixes styles and the extra rules
+     * would risk mis-reading a table separator as a heading.
+     *
+     * Fenced code blocks are skipped: a `# comment` inside a shell snippet is
+     * not a section, and listing it would scroll the reader into a code block.
+     *
+     * @param {string} text - the Markdown source.
+     * @returns {Array<{level: number, text: string, line: number, key: string}>}
+     *   headings from `level` 1..6, in order, with their 0-based source line.
+     */
+    function parseHeadings(text) {
+      const source = typeof text === "string" ? text : "";
+      if (source === "") return [];
+      const headings = [];
+      const lines = source.split(/\r?\n/);
+      // Fence tracking: ``` or ~~~ toggles; a closing fence must use the same
+      // character and be at least as long as the opener (CommonMark).
+      let fence = null;
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const fenceMatch = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+        if (fenceMatch !== null) {
+          const marker = fenceMatch[1];
+          if (fence === null) fence = marker;
+          else if (marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+          continue;
+        }
+        if (fence !== null) continue;
+        // A heading is at most three leading spaces, then 1..6 #, then a space
+        // or end of line. `#nospace` is not a heading.
+        const match = /^\s{0,3}(#{1,6})(?:\s+|$)(.*)$/.exec(line);
+        if (match === null) continue;
+        const level = match[1].length;
+        // Strip the optional closing sequence (`## Title ##`) and inline
+        // markers that add nothing to a navigation label.
+        let label = match[2].replace(/\s+#+\s*$/, "").trim();
+        label = label
+          .replace(/`([^`]*)`/g, "$1")
+          .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+          .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, "$1")
+          .trim();
+        if (label === "") continue;
+        headings.push({ level, text: label, line: index, key: index + "\u0000" + label });
+      }
+      return headings;
     }
 
     /**
@@ -3115,6 +3357,10 @@ window.__ModuleLoader__.load({
         }),
         react.createElement("div", {
           ref,
+          // The id exists so the stylesheet can outrank a theme's glass rule
+          // (an id beats any class/attribute selector, so it does not matter
+          // which sheet loads last). Only one menu is ever mounted at a time.
+          id: CONTEXT_MENU_ID,
           className: "fv-context-menu",
           style: { top, left },
           role: "menu",
@@ -3140,6 +3386,61 @@ window.__ModuleLoader__.load({
           },
             react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, item.icon),
             react.createElement("span", { className: "fv-context-item-label" }, item.label)))));
+    }
+
+    /**
+     * The outline of a rendered Markdown document.
+     *
+     * Modelled on the session's turn navigator: a compact rail on the right
+     * edge that stays out of the reading column, expands into a labelled list
+     * on demand, marks the section currently on screen, and jumps on click.
+     *
+     * The headings come from the source (see `parseHeadings`), while the
+     * scroll target is the Nth rendered heading element. Matching by position
+     * rather than by text keeps it working when the renderer rewrites labels
+     * (smart quotes, inline code, links) — the two lists are built from the
+     * same document in the same order, so index N in one is index N in the
+     * other.
+     *
+     * @param {{headings: Array<object>, scrollerRef: object, activeKey: string,
+     *   open: boolean, onToggle: Function, onPick: Function}} props
+     */
+    function MarkdownOutline({ headings, open, activeKey, onToggle, onPick }) {
+      const rows = Array.isArray(headings) ? headings : [];
+      if (rows.length === 0) return null;
+      // One indent step per nesting level, measured from the shallowest
+      // heading present: a document starting at `##` should not indent every
+      // row by one level of nothing.
+      const baseLevel = rows.reduce((min, row) => Math.min(min, row.level), 6);
+      return react.createElement("div", {
+        className: "fv-outline",
+        "data-open": open ? "true" : "false",
+      },
+        react.createElement("button", {
+          type: "button",
+          className: "fv-outline-toggle",
+          "aria-expanded": open ? "true" : "false",
+          "aria-label": open ? "收起目录" : "展开目录",
+          title: open ? "收起目录" : "目录",
+          onClick: onToggle,
+        }, react.createElement(SvgIconOutline, { size: 15 })),
+        open
+          ? react.createElement("nav", {
+            className: "fv-outline-panel",
+            "aria-label": "文档目录",
+          },
+            react.createElement("div", { className: "fv-outline-head" }, "目录"),
+            react.createElement("div", { className: "fv-outline-list" },
+              ...rows.map((row) => react.createElement("button", {
+                key: row.key,
+                type: "button",
+                className: "fv-outline-item",
+                "data-level": row.level - baseLevel,
+                "aria-current": activeKey === row.key ? "true" : undefined,
+                title: row.text,
+                onClick: () => onPick(row),
+              }, row.text))))
+          : null);
     }
 
     function apply(ctx) {
@@ -3646,6 +3947,13 @@ window.__ModuleLoader__.load({
         const [raw, setRaw] = react.useState(false);
         const [diffMode, setDiffMode] = react.useState(false);
         const [diffData, setDiffData] = react.useState(null);
+        // The Markdown outline: whether it is expanded, which section is on
+        // screen, and the scroll container it drives. The container is owned
+        // here rather than by the outline so the outline never has to reach
+        // across the tree to find it.
+        const [outlineOpen, setOutlineOpen] = react.useState(false);
+        const [activeHeading, setActiveHeading] = react.useState("");
+        const contentRef = react.useRef(null);
         // A file opened from a commit is read from that commit's blob, never
         // from the working tree: the two differ exactly when the history is
         // interesting, and a deleted file has no working-tree copy at all.
@@ -3715,6 +4023,81 @@ window.__ModuleLoader__.load({
           });
           return () => { live = false; };
         }, [root, meta.path, offset, lang, fromCommit, commit, repo, meta.diffSha, meta.rowPath, meta.oldPath]);
+
+        // ------------------------------------------------------------------
+        // Markdown outline
+        //
+        // These hooks sit ABOVE the early returns below. React matches hooks by
+        // call order, so a hook that only runs once a document has loaded would
+        // change the order between the loading render and the loaded one — the
+        // exact shape of "Minified React error #310" (too many/few hooks).
+        // Everything here therefore reads `state.data` defensively instead of
+        // the post-return `data` binding.
+        // ------------------------------------------------------------------
+        const loaded = state.data;
+        // The outline only exists for a rendered Markdown preview. In source
+        // mode the text is a code block, and a JSON tree has no headings.
+        const outlineVisible = loaded !== null && loaded !== undefined
+          && loaded.kind === "markdown" && typeof loaded.text === "string"
+          && !raw && !diffMode;
+        const outlineText = outlineVisible ? loaded.text : "";
+        const headings = react.useMemo(
+          () => (outlineText === "" ? [] : parseHeadings(outlineText)),
+          [outlineText],
+        );
+
+        /**
+         * The rendered heading elements, in document order.
+         *
+         * Kept as a plain lookup instead of state: the elements are owned by
+         * the renderer and re-created on every render, so caching them would
+         * hand out detached nodes.
+         */
+        const headingElements = () => {
+          const host = contentRef.current;
+          if (!host) return [];
+          return [...host.querySelectorAll("h1,h2,h3,h4,h5,h6")];
+        };
+
+        // Mark the section currently at the top of the reading area. Measured
+        // on scroll rather than with an IntersectionObserver because the
+        // "current" section is the last heading above the fold, which is a
+        // comparison between two positions, not a visibility test.
+        react.useEffect(() => {
+          if (!outlineVisible || headings.length === 0) {
+            setActiveHeading("");
+            return undefined;
+          }
+          const host = contentRef.current;
+          if (!host) return undefined;
+          let frame = 0;
+          const measure = () => {
+            frame = 0;
+            const elements = host.querySelectorAll("h1,h2,h3,h4,h5,h6");
+            if (elements.length === 0) return;
+            const top = host.getBoundingClientRect().top;
+            let current = "";
+            for (let index = 0; index < elements.length; index += 1) {
+              const row = headings[index];
+              if (row === undefined) continue;
+              // 24px of slack keeps a heading that is exactly at the edge from
+              // flickering between two rows while the reader scrolls past it.
+              if (elements[index].getBoundingClientRect().top - top <= 24) current = row.key;
+              else break;
+            }
+            setActiveHeading(current);
+          };
+          const onScroll = () => {
+            if (frame !== 0) return;
+            frame = requestAnimationFrame(measure);
+          };
+          measure();
+          host.addEventListener("scroll", onScroll, { passive: true });
+          return () => {
+            if (frame !== 0) cancelAnimationFrame(frame);
+            host.removeEventListener("scroll", onScroll);
+          };
+        }, [outlineVisible, headings]);
 
         if (state.status === "error") {
           return react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error));
@@ -3841,14 +4224,50 @@ window.__ModuleLoader__.load({
               ? [diffTab, contentTab, sourceTab]
               : [contentTab, sourceTab, diffTab]).filter((tab) => tab !== null))
           : null;
+
+
+        /** Scroll the section for one outline row into view. */
+        const pickHeading = (row) => {
+          const index = headings.findIndex((candidate) => candidate.key === row.key);
+          const element = headingElements()[index];
+          if (!element) return;
+          const host = contentRef.current;
+          // Scroll the container, not the window: the drawer is its own
+          // scroller and scrollIntoView would also move the page behind it.
+          if (host) {
+            const offset = element.getBoundingClientRect().top - host.getBoundingClientRect().top;
+            const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+            host.scrollTo({ top: host.scrollTop + offset - 8, behavior: reduce ? "auto" : "smooth" });
+          } else {
+            element.scrollIntoView({ block: "start" });
+          }
+          setActiveHeading(row.key);
+          // On a phone the panel would cover the text it just jumped to.
+          if (typeof window !== "undefined" && window.innerWidth <= 768) setOutlineOpen(false);
+        };
+
         return react.createElement(react.Fragment, null,
           tabs,
-          react.createElement("div", { className: "fv-content", "data-wrap": wrapping ? "on" : "off" },
-            previewUnavailable
-              ? react.createElement("div", { className: "fv-note" },
-                data.kind === "markdown" ? "文档过大，仅显示源码。" : "文件过大，仅显示源码。")
-              : null,
-            body),
+          react.createElement("div", { className: "fv-content-wrap" },
+            react.createElement("div", {
+              className: "fv-content",
+              "data-wrap": wrapping ? "on" : "off",
+              ref: contentRef,
+            },
+              previewUnavailable
+                ? react.createElement("div", { className: "fv-note" },
+                  data.kind === "markdown" ? "文档过大，仅显示源码。" : "文件过大，仅显示源码。")
+                : null,
+              body),
+            outlineVisible
+              ? react.createElement(MarkdownOutline, {
+                headings,
+                open: outlineOpen,
+                activeKey: activeHeading,
+                onToggle: () => setOutlineOpen((current) => !current),
+                onPick: pickHeading,
+              })
+              : null),
           pager);
       }
 
@@ -4016,6 +4435,7 @@ window.__ModuleLoader__.load({
           }),
           react.createElement("div", {
             ref,
+            id: CONTEXT_MENU_ID,
             className: "fv-context-menu",
             style: { top, left },
             role: "menu",
@@ -4069,6 +4489,7 @@ window.__ModuleLoader__.load({
         if (!toast) return null;
         return react.createElement("div", { className: "fv-toast", role: "status" }, toast);
       }
+
 
 
       /** Safe Access Paths Configuration Dialog */
@@ -4227,6 +4648,17 @@ window.__ModuleLoader__.load({
         }, [open]);
         const [roots, setRoots] = react.useState([]);
         const [root, setRoot] = react.useState("");
+        // The drawer is a panel, not a modal: whatever layer wraps it must not
+        // dim or blur the app behind it. The CSS in this bundle opts out of the
+        // known cases, and this walks the real DOM for the rest — a theme or
+        // adapter may paint those properties from a rule this plugin cannot name
+        // in advance. Re-applied on every open because those layers re-render.
+        react.useEffect(() => {
+          if (!open) return undefined;
+          const scrim = typeof document === "undefined" ? null : document.querySelector(".fv-scrim");
+          const restore = suppressBackdropEffects(scrim, true);
+          return () => { restore(); };
+        }, [open]);
         // The tree is an expansion set plus a per-directory listing cache; a
         // directory is fetched the first time it opens and then remembered, so
         // collapsing and reopening costs nothing.
@@ -5979,7 +6411,7 @@ window.__ModuleLoader__.load({
       formatCommitDate, formatCommitTimestamp,
       // Content-area tabs: the strip, its four-item menu and the path helper
       // that gives a tab its secondary directory line.
-      directoryOf, TabStrip, TabContextMenu,
+      directoryOf, TabStrip, TabContextMenu, parseHeadings, MarkdownOutline, SvgIconOutline,
       TAB_MENU_ITEMS, tabsAfterClose, tabsAfterUpsert,
     };
     return module.exports;
