@@ -32,8 +32,33 @@
  * @module dsh-im-bot/channels/wecom
  */
 
+import { createRequire } from 'node:module';
+
 import { BaseChannel, ReconnectLoop, STATUS, describeError } from './base.js';
 import { CHANNEL_WECOM, normalizeInbound, requestId, str, truncate } from '../core.js';
+
+/**
+ * 解析一个可用的 WebSocket 实现，优先 `ws`。
+ *
+ * 用 `createRequire` 而不是静态 `import 'ws'`：`ws` 是**可选**依赖（DSH 宿主
+ * 自己的 node_modules 里就有，插件不必重复安装）。静态 import 会让整个模块在
+ * `ws` 缺失时加载失败，进而拖垮 apply —— 那就又回到「插件加载失败 → RPC 405」
+ * 的老路上了。这里失败即降级，绝不影响插件其余部分。
+ *
+ * @returns {typeof WebSocket | undefined}
+ */
+export function resolveWebSocketImpl() {
+  try {
+    const require = createRequire(import.meta.url);
+    const mod = require('ws');
+    // ws 的默认导出就是构造函数；兼容 ESM 互操作时的 .default 包装。
+    const Ctor = typeof mod === 'function' ? mod : mod?.default;
+    if (typeof Ctor === 'function') return Ctor;
+  } catch {
+    /* ws 不可用，退回内置实现 */
+  }
+  return typeof globalThis.WebSocket === 'function' ? globalThis.WebSocket : undefined;
+}
 
 /** 官方长连接地址。 */
 export const DEFAULT_WECOM_WS_URL = 'wss://openws.work.weixin.qq.com';
@@ -182,7 +207,21 @@ export class WecomChannel extends BaseChannel {
     this.baseUrl = str(options.baseUrl) || DEFAULT_WECOM_WS_URL;
     this.heartbeatMs = (Number(options.heartbeatSeconds) || DEFAULT_HEARTBEAT_SECONDS) * 1000;
     this.heartbeatTimeoutCount = Math.max(1, Number(options.heartbeatTimeoutCount) || 3);
-    this.WebSocketImpl = typeof options.WebSocketImpl === 'function' ? options.WebSocketImpl : globalThis.WebSocket;
+    /*
+     * WebSocket 实现的选择（线上踩过的坑，别改回 globalThis.WebSocket）：
+     *
+     * Node 22 内置的 WebSocket 连企微 `wss://openws.work.weixin.qq.com` 时握手
+     * 直接被拒，抛 `Received network error or non-101 status code.`；同一个地址
+     * 用 `ws` 包 130ms 就能连上，`aibot_subscribe` 也能收到服务端应答
+     * （错凭据会返回 errcode 853000，说明链路完全正常）。
+     *
+     * 内置实现不接受自定义握手头、也没有 `unexpected-response` 事件，出错时只剩
+     * 一句笼统的 network error，无法排查。因此优先用 `ws`，仅当它不可用时才
+     * 退回内置实现。测试可注入任意实现。
+     */
+    this.WebSocketImpl = typeof options.WebSocketImpl === 'function'
+      ? options.WebSocketImpl
+      : resolveWebSocketImpl();
 
     /** @type {WebSocket | null} */
     this.socket = null;
@@ -195,6 +234,12 @@ export class WecomChannel extends BaseChannel {
     this._lastReplyToken = '';
     /** @type {Map<string, number>} 见过的 peer → chat_type，主动推送时据此选对寻址方式。 */
     this._peerTypes = new Map();
+    /**
+     * 等待服务端应答的帧：req_id → 兑现回调。
+     * 企微的发送应答是异步的，必须按 req_id 关联，否则业务错误会被静默吞掉。
+     * @type {Map<string, (frame: Record<string, any>) => void>}
+     */
+    this._pendingAcks = new Map();
 
     this.reconnect = new ReconnectLoop({
       task: () => this._openSocket(),
@@ -262,16 +307,42 @@ export class WecomChannel extends BaseChannel {
       this._subscribed = false;
       this._missedPongs = 0;
 
-      const timeout = setTimeout(() => {
-        finishErr(new Error('订阅超时（30s 内未收到 aibot_subscribe 响应）'));
+      /*
+       * 事件 API 适配：`ws` 用 EventEmitter（`on(event, ...args)`，message 回调
+       * 直接给 data；error 给 Error），浏览器/Node 内置实现用 EventTarget
+       * （`addEventListener(event, ev)`，message 取 `ev.data`）。两种都支持，
+       * 这样测试可以注入假实现、生产用 ws，代码只有一份。
+       */
+      const on = (event, handler) => {
+        if (typeof socket.addEventListener === 'function') {
+          socket.addEventListener(event, handler);
+        } else if (typeof socket.on === 'function') {
+          socket.on(event, handler);
+        }
+      };
+      /** 优雅关闭；ws 的 close() 在 CONNECTING 态会抛，用 terminate 兜底。 */
+      /*
+       * 关闭连接。
+       *
+       * `ws` 在 CONNECTING 态调用 `close()` 是安全的（会中止握手），但
+       * `terminate()` 在握手未完成时会**抛出未捕获的 error 事件**（
+       * `WebSocket was closed before the connection was established`），
+       * 那会把进程搞挂。所以 terminate 只在 open 之后用，且必须吞掉异常。
+       */
+      const hardClose = () => {
         try {
           socket.close();
         } catch {
-          /* 已经关了 */
+          /* close 在极端状态下会抛，忽略 */
         }
+      };
+
+      const timeout = setTimeout(() => {
+        finishErr(new Error('订阅超时（30s 内未收到 aibot_subscribe 响应）'));
+        hardClose();
       }, 30000);
 
-      socket.addEventListener('open', () => {
+      on('open', () => {
         this._writeFrame({
           cmd: CMD.subscribe,
           headers: { req_id: requestId() },
@@ -279,9 +350,22 @@ export class WecomChannel extends BaseChannel {
         });
       });
 
-      socket.addEventListener('message', (event) => {
-        const frame = parseFrame(event?.data);
+      on('message', (eventOrData) => {
+        // EventTarget 给事件对象，ws 直接给 Buffer/string。
+        const raw = eventOrData?.data !== undefined && typeof eventOrData.addEventListener !== 'function'
+          ? eventOrData.data
+          : (eventOrData?.data ?? eventOrData);
+        const frame = parseFrame(raw);
         if (frame === null) return;
+
+        /*
+         * 应答优先：带 req_id 且命中挂起表的帧是某次操作的应答，必须最先兑现。
+         *
+         * 顺序很关键 —— 成功应答的 `errcode` 是 0、`cmd` 为空，与「心跳回包」
+         * 的形状**完全一样**。若先走心跳分支，ack 会被当成 pong 吞掉并 return，
+         * 调用方永远等不到结果、只能挂到超时。
+         */
+        if (this._settleAck(frame)) return;
 
         // 订阅响应：errcode 0 才算成功。
         if (this._subscribed === false && str(frame.cmd) === '' && frame.errcode !== undefined) {
@@ -308,18 +392,25 @@ export class WecomChannel extends BaseChannel {
         this._handleFrame(frame);
       });
 
-      socket.addEventListener('error', (event) => {
-        const message = describeError(event?.error ?? event?.message ?? 'websocket error');
+      // ws 的 error 回调直接给 Error；EventTarget 给事件对象。
+      on('error', (eventOrError) => {
+        const message = describeError(
+          eventOrError?.error ?? eventOrError?.message ?? eventOrError ?? 'websocket error',
+        );
         this.setStatus(STATUS.error, message);
         finishErr(new Error(message));
       });
 
-      socket.addEventListener('close', () => {
+      on('close', (eventOrCode) => {
         clearTimeout(timeout);
         this._stopHeartbeat();
         this.socket = null;
         if (this._subscribed === false) {
-          finishErr(new Error('连接在订阅完成前关闭'));
+          // 把服务端的关闭码带出来，否则只剩一句「连接在订阅完成前关闭」。
+          const code = typeof eventOrCode === 'number' ? eventOrCode : eventOrCode?.code;
+          finishErr(new Error(code === undefined
+            ? '连接在订阅完成前关闭'
+            : `连接在订阅完成前关闭（code=${code}）`));
           return;
         }
         this._subscribed = false;
@@ -436,6 +527,65 @@ export class WecomChannel extends BaseChannel {
   }
 
   /**
+   * 发一帧并等待服务端应答。
+   *
+   * 企微对 `aibot_send_msg` 的应答是**异步**的：帧写出去只是进了 socket 缓冲区，
+   * 服务端随后才回 `{ headers: { req_id }, errcode, errmsg }`。原来的
+   * `_writeFrame` 只要 `send()` 没抛异常就报成功，于是 `errcode=40008
+   * invalid message type` 这类业务错误被完全吞掉，用户只看到「发了但对方没收到」。
+   *
+   * 这里按 `req_id` 挂起一个等待槽，收到同 req_id 的应答后兑现：
+   *   - errcode 0 → resolve；
+   *   - 非 0 → reject，并带上 errcode/errmsg，让设置页与日志都能看到真实原因；
+   *   - 超时（默认 10s）→ reject，明确说明「未收到服务端应答」。
+   *
+   * @param {Record<string, any>} frame 必须自带 headers.req_id
+   * @param {number} [timeoutMs]
+   * @returns {Promise<void>}
+   */
+  _writeFrameAwaitAck(frame, timeoutMs = 10000) {
+    const reqId = str(frame?.headers?.req_id);
+    if (reqId === '') return Promise.reject(new Error('内部错误：帧缺少 req_id'));
+
+    if (!this._writeFrame(frame)) {
+      return Promise.reject(new Error('长连接未就绪，消息未发出'));
+    }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this._pendingAcks.delete(reqId);
+        reject(new Error(`未收到服务端应答（req_id=${reqId}，超时 ${Math.round(timeoutMs / 1000)}s）`));
+      }, timeoutMs);
+      timer?.unref?.();
+
+      this._pendingAcks.set(reqId, (frame_) => {
+        clearTimeout(timer);
+        const errcode = Number(frame_?.errcode ?? 0);
+        if (errcode === 0) {
+          resolve(undefined);
+          return;
+        }
+        reject(new Error(`企微响应错误：errcode=${errcode} ${str(frame_?.errmsg)}`));
+      });
+    });
+  }
+
+  /**
+   * 兑现一个挂起的应答等待（收到带 req_id 的响应帧时调用）。
+   * @param {Record<string, any>} frame
+   * @returns {boolean} 是否命中了挂起项
+   */
+  _settleAck(frame) {
+    const reqId = str(frame?.headers?.req_id);
+    if (reqId === '') return false;
+    const settle = this._pendingAcks.get(reqId);
+    if (settle === undefined) return false;
+    this._pendingAcks.delete(reqId);
+    settle(frame);
+    return true;
+  }
+
+  /**
    * 断开连接并停止重连。
    * @returns {Promise<void>}
    */
@@ -443,16 +593,28 @@ export class WecomChannel extends BaseChannel {
     this.reconnect.stop();
     this._stopHeartbeat();
     this._subscribed = false;
+    // 断开时把所有挂起的应答等待清掉，避免调用方一直等到超时。
+    for (const settle of this._pendingAcks.values()) {
+      settle({ errcode: -1, errmsg: '连接已断开' });
+    }
+    this._pendingAcks.clear();
     const socket = this.socket;
     this.socket = null;
     if (socket === null) return;
     await new Promise((resolve) => {
       const done = () => resolve(undefined);
       try {
-        socket.addEventListener('close', done, { once: true });
+        // 同时兼容 EventTarget（addEventListener）与 ws（EventEmitter 的 once）。
+        if (typeof socket.addEventListener === 'function') {
+          socket.addEventListener('close', done, { once: true });
+        } else if (typeof socket.once === 'function') {
+          socket.once('close', done);
+        } else if (typeof socket.on === 'function') {
+          socket.on('close', done);
+        }
         socket.close();
       } catch {
-        resolve(undefined);
+        done();
         return;
       }
       // 兜底：某些实现不会触发 close。
@@ -461,32 +623,33 @@ export class WecomChannel extends BaseChannel {
   }
 
   /**
-   * 发一条纯文本。优先 `aibot_send_msg`（不依赖 req_id），这样通知也能发。
+   * 发一条纯文本。
+   *
+   * **企微智能机器人没有 text 消息类型**：`aibot_send_msg` 的 `body.msgtype`
+   * 官方只接受 `markdown` 与 `template_card`（见「主动推送消息」一节的字段
+   * 说明）。早期实现发 `msgtype: "text"`，服务端直接回
+   * `errcode=40008 invalid message type`，消息一条都发不出去。
+   *
+   * 因此纯文本一律走 markdown 通道，把原文放进 `markdown.content`。不额外
+   * 转义反斜杠——企微的 markdown 是常见子集，转义未必被识别，反而会把 `\*`
+   * 原样显示给用户。
+   *
    * @param {string} peer
    * @param {string} text
    * @param {{ signal?: AbortSignal }} [_options]
    * @returns {Promise<string>}
    */
   async _sendText(peer, text, _options) {
-    const target = str(peer);
-    if (target === '') throw new Error('peer 不能为空');
-    const chatType = this._chatTypeFor(target);
-    const ok = this._writeFrame({
-      cmd: CMD.sendMsg,
-      headers: { req_id: requestId() },
-      body: {
-        chatid: target,
-        chat_type: chatType,
-        msgtype: 'text',
-        text: { content: text },
-      },
-    });
-    if (!ok) throw new Error('长连接未就绪，消息未发出');
-    return '';
+    return this._sendMarkdown(peer, text, _options);
   }
 
   /**
-   * 发一条 markdown。markdown 在企微里渲染更好，通知优先用它。
+   * 发一条 markdown。企微智能机器人**只有 markdown 与 template_card 两种
+   * 消息类型**，所以文本与通知最终都走这里。
+   *
+   * 用 `_writeFrameAwaitAck`：服务端的 errcode（如 40008 invalid message type、
+   * 30 条/分钟限流等）会作为 reject 冒泡出去，而不是写完 socket 就当成功。
+   *
    * @param {string} peer
    * @param {string} markdown
    * @param {{ signal?: AbortSignal }} [_options]
@@ -496,7 +659,7 @@ export class WecomChannel extends BaseChannel {
     const target = str(peer);
     if (target === '') throw new Error('peer 不能为空');
     const chatType = this._chatTypeFor(target);
-    const ok = this._writeFrame({
+    await this._writeFrameAwaitAck({
       cmd: CMD.sendMsg,
       headers: { req_id: requestId() },
       body: {
@@ -506,12 +669,16 @@ export class WecomChannel extends BaseChannel {
         markdown: { content: markdown },
       },
     });
-    if (!ok) throw new Error('长连接未就绪，消息未发出');
     return '';
   }
 
   /**
    * 用 `aibot_respond_msg` 回应某次回调（保留给需要「引用原消息」的场景）。
+   *
+   * 注意：`aibot_respond_msg` 的 msgtype 同样没有 `text`，只支持
+   * stream / template_card / markdown / file / image / voice / video，
+   * 所以这里也用 markdown。
+   *
    * @param {string} replyToken 回调里的 req_id
    * @param {string} text
    * @returns {boolean}
@@ -522,7 +689,7 @@ export class WecomChannel extends BaseChannel {
     return this._writeFrame({
       cmd: CMD.respondMsg,
       headers: { req_id: token },
-      body: { msgtype: 'text', text: { content: text } },
+      body: { msgtype: 'markdown', markdown: { content: text } },
     });
   }
 

@@ -8,6 +8,9 @@ import assert from 'node:assert/strict';
 
 import {
   BindingTable,
+  COMMAND_CATALOG,
+  COMMANDS,
+  renderHelp,
   Deduplicator,
   KeyedSerialLock,
   RateLimiter,
@@ -471,4 +474,49 @@ test('normalizeSendRequest 校验正文与通道', () => {
   assert.equal(parsed.ok, true);
   assert.equal(parsed.value.format, 'markdown');
   assert.equal(parsed.value.channel, 'wecom');
+});
+
+// ---------------------------------------------------------------------------
+// 命令目录（设置面板与 /help 的唯一事实来源）
+// ---------------------------------------------------------------------------
+
+test('COMMAND_CATALOG 与 COMMANDS 完全一致（顺序也一致）', () => {
+  assert.deepEqual(
+    COMMANDS,
+    COMMAND_CATALOG.map((item) => item.name),
+    'COMMANDS 必须由目录派生，不能各写一份',
+  );
+});
+
+test('命令目录每项都有 usage 与一句话说明', () => {
+  assert.ok(COMMAND_CATALOG.length >= 7, '至少包含 7 个命令');
+  for (const item of COMMAND_CATALOG) {
+    assert.ok(item.name.length > 0, 'name 不能为空');
+    assert.ok(item.usage.startsWith(`/${item.name}`), `usage 必须以 /${item.name} 开头：${item.usage}`);
+    assert.ok(item.summary.length > 0, `${item.name} 缺少说明`);
+    // 说明要短，面板里一行放得下
+    assert.ok(item.summary.length <= 30, `${item.name} 的说明太长（${item.summary.length} 字）`);
+  }
+});
+
+test('命令目录覆盖解析器认识的全部命令', () => {
+  for (const name of COMMANDS) {
+    const parsed = parseCommand(`/${name}`);
+    assert.equal(parsed.isCommand, true, `目录里的 ${name} 必须能被解析器识别`);
+  }
+});
+
+test('/help 文案由目录生成，包含所有命令且对齐', () => {
+  const help = renderHelp();
+  for (const item of COMMAND_CATALOG) {
+    assert.ok(help.includes(item.usage), `/help 缺少 ${item.usage}`);
+    assert.ok(help.includes(item.summary), `/help 缺少 ${item.name} 的说明`);
+  }
+  // 所有 usage 行的起始列必须一致（按最长 usage 对齐）
+  const usageLines = help.split('\n').filter((line) => line.startsWith('/'));
+  const columns = new Set(usageLines.map((line) => {
+    const item = COMMAND_CATALOG.find((c) => line.startsWith(c.usage));
+    return item === undefined ? -1 : line.indexOf(item.summary);
+  }));
+  assert.equal(columns.size, 1, `说明列未对齐：${[...columns].join(',')}`);
 });

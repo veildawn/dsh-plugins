@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-im-bot",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "IM bot integration for DeepSeek Harness: personal WeChat (Tencent iLink Bot) and WeCom intelligent robot (long-connection API) with bidirectional chat and turn-completion notifications",
   "type": "module",
   "main": "lib/index.js",
@@ -36,6 +36,9 @@
   ],
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

@@ -561,8 +561,27 @@ export class KeyedSerialLock {
 // 命令解析
 // ---------------------------------------------------------------------------
 
-/** 支持的斜杠命令。 */
-export const COMMANDS = ['help', 'new', 'use', 'sessions', 'status', 'stop', 'notify'];
+/**
+ * 命令目录：唯一事实来源。
+ *
+ * 设置面板、`/help` 文案、解析器三处都从这里取，避免「帮助里有一套、面板里
+ * 写另一套、解析器只认第三套」的漂移。`usage` 是给人看的完整写法，
+ * `summary` 是一句话说明。
+ *
+ * @type {ReadonlyArray<{ name: string, usage: string, summary: string }>}
+ */
+export const COMMAND_CATALOG = Object.freeze([
+  { name: 'new', usage: '/new [标题]', summary: '新建会话并绑定到当前聊天' },
+  { name: 'use', usage: '/use <会话ID>', summary: '绑定到已有会话（可用前 8 位前缀）' },
+  { name: 'sessions', usage: '/sessions', summary: '列出最近会话' },
+  { name: 'status', usage: '/status', summary: '查看当前绑定与运行状态' },
+  { name: 'stop', usage: '/stop', summary: '中止当前正在生成的回合' },
+  { name: 'notify', usage: '/notify on|off', summary: '开关本聊天的任务完成通知' },
+  { name: 'help', usage: '/help', summary: '显示命令帮助' },
+]);
+
+/** 支持的斜杠命令（由 {@link COMMAND_CATALOG} 派生，顺序即展示顺序）。 */
+export const COMMANDS = COMMAND_CATALOG.map((item) => item.name);
 
 /**
  * 解析一条入站文本是否为命令。
@@ -589,16 +608,15 @@ export function parseCommand(text) {
  * @returns {string}
  */
 export function renderHelp() {
+  // 由 COMMAND_CATALOG 生成，宽度按最长 usage 对齐；新增命令只改目录一处。
+  const width = COMMAND_CATALOG.reduce((max, item) => Math.max(max, item.usage.length), 0);
+  const lines = COMMAND_CATALOG.map(
+    (item) => `${item.usage.padEnd(width)}  ${item.summary}`,
+  );
   return [
     '🤖 DSH 集成机器人 · 命令',
     '',
-    '/new [标题]     新建会话并绑定到当前聊天',
-    '/use <会话ID>   绑定到已有会话（可用前 8 位前缀）',
-    '/sessions       列出最近会话',
-    '/status         查看当前绑定与运行状态',
-    '/stop           中止当前正在生成的回合',
-    '/notify on|off  开关本聊天的任务完成通知',
-    '/help           显示本帮助',
+    ...lines,
     '',
     '直接发送其它文本，即作为该会话的下一条消息。',
   ].join('\n');

@@ -75,6 +75,13 @@ window.__ModuleLoader__.load({
       .imb-item-sub{font-size:11px;color:var(--dsw-alias-label-tertiary);word-break:break-all}
       .imb-empty{padding:14px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
       .imb-divider{height:1px;background:var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));margin:2px 0}
+      /* 命令清单：等宽命令 + 一句话说明，窄屏自动改为上下两行 */
+      .imb-cmds{display:flex;flex-direction:column;gap:2px}
+      .imb-cmd{display:flex;align-items:baseline;gap:10px;padding:7px 8px;border-radius:7px;font-size:12px;line-height:18px}
+      .imb-cmd:nth-child(odd){background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 3%,transparent)}
+      .imb-cmd code{flex:0 0 auto;padding:1px 6px;border-radius:5px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 12%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe);font-family:var(--dsw-font-mono,monospace);font-size:11.5px;white-space:nowrap}
+      .imb-cmd span{color:var(--dsw-alias-label-secondary);min-width:0}
+      @media (max-width:420px){.imb-cmd{flex-direction:column;align-items:flex-start;gap:3px}}
       button:has([data-settings-nav-label="im-bot"]) > svg:first-child{display:none}
       /* 渠道单选小卡片：一行固定两个（含窄屏），紧凑排列 */
       .imb-channel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
@@ -266,12 +273,24 @@ window.__ModuleLoader__.load({
       // 渠道为单选：同一时刻只展开一个渠道的配置。
       const [selectedChannel, setSelectedChannel] = react.useState('wecom');
       const [secrets, setSecrets] = react.useState({ wecomSecret: '', ilinkToken: '', httpSecret: '' });
+      /*
+       * 命令目录由服务端下发（core 的 COMMAND_CATALOG），不在客户端硬编码。
+       * 拿不到时空数组即可——面板会退化成只显示一句说明，不影响其它功能。
+       */
+      const [commandCatalog, setCommandCatalog] = react.useState([]);
 
       const reload = react.useCallback(async () => {
         if (!rpcCall) return;
         try {
           const data = await rpcCall('status', {});
           setState(data);
+          // 命令目录与状态一起取；失败不影响主流程。
+          try {
+            const cmdInfo = await rpcCall('commands', {});
+            if (Array.isArray(cmdInfo?.catalog)) setCommandCatalog(cmdInfo.catalog);
+          } catch {
+            /* 命令目录拿不到就留空，不阻塞设置页 */
+          }
           const config = data?.config ?? {};
           const nextWecomEnabled = config.wecom?.enabled === true;
           const nextIlinkEnabled = config.ilink?.enabled === true;
@@ -643,6 +662,28 @@ window.__ModuleLoader__.load({
               spellCheck: false,
             }),
           ),
+        ),
+
+        // 聊天命令（目录由服务端 COMMAND_CATALOG 下发）
+        react.createElement('div', { className: 'imb-card' },
+          react.createElement('div', { className: 'imb-card-head' },
+            react.createElement('div', { className: 'imb-card-title' }, '聊天命令'),
+            react.createElement('span', { className: 'imb-tag off' }, '在微信里直接发送'),
+          ),
+          react.createElement('p', { className: 'imb-hint' },
+            '在微信聊天窗口发送下列命令即可操作，命令只在本地执行，不会进入模型上下文、不消耗额度。'),
+          commandCatalog.length === 0
+            ? react.createElement('div', { className: 'imb-empty' }, '（命令列表加载中…）')
+            : react.createElement('div', { className: 'imb-cmds' },
+                commandCatalog.map((item) => react.createElement('div', {
+                  className: 'imb-cmd', key: item.name,
+                },
+                  react.createElement('code', null, item.usage),
+                  react.createElement('span', null, item.summary),
+                )),
+              ),
+          react.createElement('p', { className: 'imb-hint' },
+            '其它任意文本会直接作为当前绑定会话的下一条消息。'),
         ),
 
         // 绑定列表

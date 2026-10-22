@@ -40,6 +40,7 @@ import {
   CHANNEL_KINDS,
   CHANNEL_LABELS,
   CHANNEL_WECOM,
+  COMMAND_CATALOG,
   COMMANDS,
   CREDENTIAL_REFS,
   DEFAULTS,
@@ -1316,7 +1317,9 @@ export function apply(ctx, config) {
       case 'send':
         return sendMessage(payload);
       case 'commands':
-        return { commands: COMMANDS, help: renderHelp() };
+        // 目录与 /help 文案都来自 core 的同一份 COMMAND_CATALOG，前端直接渲染，
+        // 不在客户端硬编码命令表（否则迟早与服务端漂移）。
+        return { commands: COMMANDS, catalog: COMMAND_CATALOG, help: renderHelp() };
       default:
         throw new Error(`未知方法：${method}`);
     }
