@@ -82,6 +82,27 @@ window.__ModuleLoader__.load({
         .YDXeBa_projectRow .YDXeBa_rowActions .YDXeBa_iconButton,
         .YDXeBa_sessionRow .YDXeBa_rowActions .YDXeBa_iconButton{width:28px!important;height:28px!important;min-width:28px!important;min-height:28px!important;border-radius:50%!important;padding:0!important}
         .YDXeBa_sessionRow .YDXeBa_time{display:none!important}
+        /* 工作区行的展开/收起三角在宿主里只在 :hover 时露出
+           （.YDXeBa_projectRow .YDXeBa_chevron{display:none}，
+           :hover 时才 display:inline-flex），触屏设备既没有 hover 也没有指针，
+           于是「点一下展开/收起」在手机上看起来完全没反应——文件夹图标与
+           箭头之间还会互相顶替。这里让三角常显、独占自己的槽位，并把
+           文件夹图标固定成「开/合」两种状态（由 aria-expanded 驱动），
+           点击行任意位置都命中宿主自己的 onToggle。
+           注意不能只改箭头显隐：宿主同时写了
+           .YDXeBa_projectRow:hover .YDXeBa_folder{display:none}，
+           触屏上一旦按下就会把文件夹换成箭头，视觉上像图标在乱跳。 */
+        .YDXeBa_projectRow .YDXeBa_chevron{display:inline-flex!important;opacity:.85}
+        .YDXeBa_projectRow .YDXeBa_folder{display:inline-flex!important}
+        .YDXeBa_projectRow:hover .YDXeBa_folder{display:inline-flex!important}
+        /* 三角原本 16px 宽，与文件夹图标挤在一起；触屏给行留出明确的点击区。 */
+        .YDXeBa_projectRow{min-height:40px!important;gap:4px!important}
+        .YDXeBa_projectRow .YDXeBa_arrow{transition:transform .15s var(--ds-ease-in-out)}
+        .YDXeBa_projectRow[aria-expanded="true"] .YDXeBa_arrow{transform:rotate(90deg)}
+        .YDXeBa_projectRow[aria-expanded="false"] .YDXeBa_arrow{transform:rotate(0deg)}
+        /* 会话行在触屏上也要有可点的行高，且右侧按钮常显后不再挤压标题。 */
+        .YDXeBa_sessionRow{min-height:40px!important}
+        .YDXeBa_sessionRow .YDXeBa_title{min-width:0!important;flex:1 1 auto!important}
         .pI_x6G_centerCol,
         [data-slot="root"]>div>div:has(>[data-slot="conversation"]),
         [data-slot="root"]>div>div:has([data-slot*="main"]),
@@ -1183,11 +1204,36 @@ window.__ModuleLoader__.load({
         }
         return toolsMenu.contains(target) || toolsBtn.contains(target)
       }
+      /**
+       * Whether a click inside the drawer should dismiss it.
+       *
+       * Only a session row does: it opens that session, so the drawer has done
+       * its job. A workspace (project) row is a *disclosure* control — the host
+       * toggles its subtree on click — and closing the drawer there hid the
+       * very list the user just asked to see, which read as "tapping a folder
+       * does nothing".
+       *
+       * The host marks project rows with `aria-expanded` (session rows have
+       * none), which is the only stable way to tell the two `role="treeitem"`
+       * siblings apart. Rows also carry their own buttons (⋯ menu, ＋ new
+       * session) that already stop propagation, so this only sees row taps.
+       *
+       * @param {Element | null | undefined} target - the click target.
+       * @returns {boolean} true when the drawer should close.
+       */
+      const dismissesDrawer = (target) => {
+        const row = target?.closest?.('[data-slot="sidebar"] [role="treeitem"]')
+        if (!row) return false
+        // Test doubles and pre-0.2 hosts have no attribute API; treat them as
+        // session rows so the original dismiss behaviour is preserved.
+        if (typeof row.hasAttribute !== 'function') return true
+        return !row.hasAttribute('aria-expanded')
+      }
       const onClick = (event) => {
         if (!toolsMenu.hidden && !insideTools(event.target)) {
           closeToolsMenu()
         }
-        if (media.matches && event.target?.closest?.('[data-slot="sidebar"] [role="treeitem"]')) close()
+        if (media.matches && dismissesDrawer(event.target)) close()
       }
       const onKeyDown = (event) => {
         if (event.key !== 'Escape') return

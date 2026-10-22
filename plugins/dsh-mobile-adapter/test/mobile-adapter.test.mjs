@@ -817,6 +817,26 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   f.doc.emit('click', { target: treeItem })
   assert.equal(menu.getAttribute('aria-expanded'), 'false', 'choosing a session closes the drawer')
 
+  // 工作区（项目）行是展开/收起控件，不是会话选择：点它必须把抽屉留着，
+  // 否则宿主刚展开的会话列表立刻被我们关掉，表现为「点文件夹毫无反应」。
+  // 宿主用 aria-expanded 标记项目行，会话行没有该属性。
+  menu.emit('click')
+  assert.equal(menu.getAttribute('aria-expanded'), 'true')
+  const projectRow = {
+    hasAttribute: (name) => name === 'aria-expanded',
+    closest: (selector) => selector.includes('treeitem') ? projectRow : null,
+  }
+  f.doc.emit('click', { target: projectRow })
+  assert.equal(menu.getAttribute('aria-expanded'), 'true', 'tapping a workspace row keeps the drawer open')
+
+  // 而同一容器里的会话行仍然要关闭抽屉。
+  const sessionRow = {
+    hasAttribute: () => false,
+    closest: (selector) => selector.includes('treeitem') ? sessionRow : null,
+  }
+  f.doc.emit('click', { target: sessionRow })
+  assert.equal(menu.getAttribute('aria-expanded'), 'false', 'a session row still dismisses the drawer')
+
   view.emit('click')
   assert.equal(f.doc.trajectoryTab.getAttribute('aria-selected'), 'true')
   view.emit('click')
@@ -1190,8 +1210,20 @@ test('mobile view permanently hides the add button via CSS and JS fallback', asy
  * 不存在的类名 = 死规则，静默失效：手机上的适配凭空消失，没有报错、没有日志。
  *
  * 登记项一旦重新出现在宿主里，说明多版本兼容已经没必要，应当删掉——2026-10 的
- * `p-xYUq_actions` / `osXY9a_actions` 就是这样被清掉的。
+ * `p-xYUq_actions` / `XY9a_actions` 就是这样被清掉的。
  */
+test('工作区行在触屏上常显展开箭头，不依赖 hover', () => {
+  const css = rawCss
+  // 宿主把三角藏在 :hover 里（.YDXeBa_projectRow .YDXeBa_chevron{display:none}），
+  // 触屏没有 hover，展开状态就完全不可见、也点不到。
+  assert.match(css, /\.YDXeBa_projectRow \.YDXeBa_chevron\{display:inline-flex!important/, '展开三角必须常显')
+  // 宿主同时写了 :hover 时隐藏文件夹，触屏按下会让图标互相顶替；这里钉死常显。
+  assert.match(css, /\.YDXeBa_projectRow:hover \.YDXeBa_folder\{display:inline-flex!important/, '文件夹图标不能被 hover 顶掉')
+  // 展开状态由宿主的 aria-expanded 驱动旋转，避免只有图标换向而状态不明。
+  assert.match(css, /\.YDXeBa_projectRow\[aria-expanded="true"\] \.YDXeBa_arrow\{transform:rotate\(90deg\)\}/)
+  assert.match(css, /\.YDXeBa_projectRow\[aria-expanded="false"\] \.YDXeBa_arrow\{transform:rotate\(0deg\)\}/)
+})
+
 test('宿主类名要么当前存在，要么是登记在案的历史版本兼容', () => {
   // 宿主 0.1.x / 0.2.0 时代的旧哈希：当前版本的同一组件另有语义选择器或
   // [class$=…] 兜底，保留原类名只是为了在旧宿主上仍然生效。
@@ -1283,8 +1315,7 @@ test('菜单容器保持 overflow:hidden，让宿主菜单内部的滚动区接�
   assert.match(groups[1], /-webkit-overflow-scrolling:touch!important/, 'iOS 需要惯性滚动')
 })
 
-test('移动端顶栏 3 层融合成 1 层：隐藏宿主冗余 Tabs 与 Header 占位，顶栏承接全部功能', (t) => {
-  const css = rawCss
+test('移动端顶栏 3 层融合成 1 层：隐藏宿主冗余 Tabs 与 Header 占位，顶栏承接全部功能', (t) => {  const css = rawCss
   // 1. 验证第 3 层原生 Tabs 被彻底隐藏（去重）
   assert.match(css, /\[data-slot="conversation"\] :is\(\.wSkVaW_tabs,\[data-conversation-tabs\],\[role="tablist"\]\)[\s\S]*display:none!important/)
 
