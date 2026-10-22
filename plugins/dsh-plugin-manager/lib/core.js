@@ -259,6 +259,66 @@ export function monorepoNpmNames() {
 }
 
 /**
+ * 已废弃（deprecated）的自有插件清单。
+ *
+ * 语义是「只允许卸载，不允许安装与更新」：插件管理器必须在三个层面同时执行，
+ * 任何一层漏掉都会让用户装回一个已停止维护的包：
+ *   1. catalog：条目带 `deprecated: true`，UI 据此渲染废弃徽章并隐藏安装/更新；
+ *   2. 更新检测：mergeInstalledVersions / checkPluginUpdates 强制 hasUpdate=false，
+ *      否则「一键更新全部」会把它们重新拉起来；
+ *   3. 服务端：resolveInstallSource 拒绝解析，即使前端被绕过也装不上。
+ *
+ * 键是插件短名（与 LOCAL_MONOREPO_PLUGINS 的 name 一致）；判定时同时接受
+ * 短名与 `@weniatall/...` scope 包名，见 isDeprecatedRepoPlugin。
+ */
+export const DEPRECATED_REPO_PLUGINS = Object.freeze({
+  'dsh-terminal': Object.freeze({
+    reason: '该插件已停止维护，不再发布新版本。',
+    replacement: '',
+  }),
+  'dsh-zcode-theme': Object.freeze({
+    reason: 'ZCode 主题已并入主题工作室（内置 zcode / zcode-mono 两款主题），本包仅作兼容薄壳保留。',
+    replacement: 'dsh-theme-studio',
+  }),
+})
+
+/**
+ * 判断某个插件是否已废弃。同时接受短名（`dsh-terminal`）与 scope 包名
+ * （`@weniatall/dsh-terminal`），因为 catalog、UI 与 profile 依赖三处使用的
+ * 名称形态并不统一。
+ *
+ * @param name 插件短名、scope 包名或 catalog 条目。
+ * @returns 是否已废弃。
+ */
+export function isDeprecatedRepoPlugin(name) {
+  const raw = typeof name === 'string' ? name : name?.name || name?.id
+  if (typeof raw !== 'string') return false
+  const trimmed = raw.trim()
+  if (trimmed === '') return false
+  const bare = trimmed.startsWith('@') ? trimmed.slice(trimmed.indexOf('/') + 1) : trimmed
+  return Object.hasOwn(DEPRECATED_REPO_PLUGINS, bare.toLowerCase()) ||
+    Object.hasOwn(DEPRECATED_REPO_PLUGINS, bare)
+}
+
+/**
+ * 取废弃插件的废弃说明（含替代方案提示）；未废弃时返回空串。
+ *
+ * @param name 插件短名、scope 包名或 catalog 条目。
+ * @returns 面向用户的中文说明。
+ */
+export function deprecatedRepoPluginReason(name) {
+  const raw = typeof name === 'string' ? name : name?.name || name?.id
+  if (typeof raw !== 'string') return ''
+  const trimmed = raw.trim()
+  if (trimmed === '') return ''
+  const bare = trimmed.startsWith('@') ? trimmed.slice(trimmed.indexOf('/') + 1) : trimmed
+  const entry = DEPRECATED_REPO_PLUGINS[bare] || DEPRECATED_REPO_PLUGINS[bare.toLowerCase()]
+  if (!entry) return ''
+  const replacement = entry.replacement ? `建议改用 ${entry.replacement}。` : ''
+  return `${entry.reason}${replacement}已废弃插件仅支持卸载。`
+}
+
+/**
  * Static metadata definition for plugins hosted directly in this monorepo
  */
 export const LOCAL_MONOREPO_PLUGINS = [
@@ -343,7 +403,7 @@ export const LOCAL_MONOREPO_PLUGINS = [
   {
     id: 'dsh-terminal',
     name: 'dsh-terminal',
-    title: '跨平台交互式终端',
+    title: '跨平台交互式终端（已废弃）',
     description: '本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。',
     author: 'veildawn',
     category: 'tools',
@@ -352,6 +412,7 @@ export const LOCAL_MONOREPO_PLUGINS = [
     repo: 'veildawn/dsh-plugins',
     path: 'plugins/dsh-terminal',
     isRepoPlugin: true,
+    deprecated: true,
   },
   {
     id: 'dsh-archive-manager',
@@ -382,8 +443,8 @@ export const LOCAL_MONOREPO_PLUGINS = [
   {
     id: 'dsh-im-bot',
     name: 'dsh-im-bot',
-    title: '集成机器人',
-    description: '企业微信智能机器人与个人微信双通道接入，微信发消息驱动会话、回合完成自动回推结果。',
+    title: '集成机器人（企业微信 / 个人微信）',
+    description: '把企业微信智能机器人与个人微信接入 DSH：微信发消息即可驱动会话，回合完成或失败时自动把结果推回发起聊天，并支持 /new、/use、/sessions、/stop 等内置命令与扫码登录。',
     author: 'veildawn',
     category: 'tools',
     tags: ['im', 'bot', 'wechat', 'weixin', 'wecom', 'notification'],
@@ -408,7 +469,7 @@ export const LOCAL_MONOREPO_PLUGINS = [
   {
     id: 'dsh-zcode-theme',
     name: 'dsh-zcode-theme',
-    title: 'ZCode 视觉主题（已并入主题工作室）',
+    title: 'ZCode 视觉主题（已废弃，兼容薄壳）',
     description: '兼容薄壳：ZCode 主题已并入 dsh-theme-studio 的 zcode / zcode-mono 内置主题，本包仅保留旧属性与样式标签 id 以保证平滑升级。',
     author: 'veildawn',
     category: 'ui',
@@ -417,6 +478,7 @@ export const LOCAL_MONOREPO_PLUGINS = [
     repo: 'veildawn/dsh-plugins',
     path: 'plugins/dsh-zcode-theme',
     isRepoPlugin: true,
+    deprecated: true,
   },
   {
     id: 'dsh-jev',
@@ -530,8 +592,13 @@ export function resolveRepoCatalog(releasesMap = new Map(), repoOrigin = DEFAULT
     const releaseInfo = releasesMap.get(name)
     const latestVersion = releaseInfo?.version || '0.1.0'
     const downloadUrl = releaseInfo?.downloadUrl || buildReleaseDownloadUrl(repoOrigin, name, latestVersion)
+    /* 废弃状态以 DEPRECATED_REPO_PLUGINS 为唯一权威：静态条目上的 deprecated
+       字段只用于可读性，两者不一致时以废弃表为准，避免漏标一个已下线插件。 */
+    const deprecated = isDeprecatedRepoPlugin(name) || plugin.deprecated === true
     results.push({
       ...plugin,
+      deprecated,
+      deprecatedReason: deprecated ? deprecatedRepoPluginReason(name) : '',
       version: latestVersion,
       latestVersion,
       downloadUrl,
@@ -576,6 +643,8 @@ export function resolveRepoCatalog(releasesMap = new Map(), repoOrigin = DEFAULT
         releaseNotes: releaseInfo.releaseNotes || '',
         publishedAt: releaseInfo.publishedAt || null,
         updateAvailable: false,
+        deprecated: isDeprecatedRepoPlugin(name),
+        deprecatedReason: deprecatedRepoPluginReason(name),
       })
     }
   }
@@ -1140,10 +1209,17 @@ export function mergeInstalledVersions(catalog, { home = findDshHome(), profile 
       bundles: profileBundles,
       installedMap,
     })
+    /* 废弃插件只允许卸载：即使远端版本更高也必须压住 hasUpdate，否则
+       「一键更新全部」会把它重新装回来，与「只能卸载」的语义冲突。 */
+    const deprecated = p.deprecated === true || isDeprecatedRepoPlugin(p)
     return {
       ...p,
+      deprecated,
+      deprecatedReason: deprecated ? (p.deprecatedReason || deprecatedRepoPluginReason(p)) : '',
       installedVersion,
-      hasUpdate: installedVersion ? isUpgrade(installedVersion, p.version || p.latestVersion) : false,
+      hasUpdate: (!deprecated && installedVersion)
+        ? isUpgrade(installedVersion, p.version || p.latestVersion)
+        : false,
       hasDuplicate: duplicateConflict.hasConflict,
       duplicateConflict,
     }
@@ -1176,6 +1252,10 @@ export function checkPluginUpdates(installedList, catalogList) {
   return installedList.map((inst) => {
     const remote = catalogMap.get(inst.name || inst.id)
     if (!remote) return { ...inst, hasUpdate: false }
+    // 废弃插件不参与更新检测，见 DEPRECATED_REPO_PLUGINS。
+    if (isDeprecatedRepoPlugin(inst.name || inst.id) || remote.deprecated === true) {
+      return { ...inst, hasUpdate: false, deprecated: true, latestVersion: remote.version || remote.latestVersion }
+    }
     const hasUpdate = isUpgrade(inst.version, remote.version || remote.latestVersion)
     return {
       ...inst,

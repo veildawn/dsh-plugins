@@ -21,6 +21,9 @@ import {
   safePackageName,
   isAllowedRepoUrl,
   LOCAL_MONOREPO_PLUGINS,
+  DEPRECATED_REPO_PLUGINS,
+  isDeprecatedRepoPlugin,
+  deprecatedRepoPluginReason,
   npmNameOf,
   installChannelOf,
   isNpmRegistrySpec,
@@ -338,8 +341,39 @@ describe('dsh-market releases formatting and updates detection', () => {
     }
   })
 
-  it('dynamically discovers newly added repo plugins not in hardcoded base list', () => {
-    const releaseMap = new Map([
+  it('marks dsh-terminal and dsh-zcode-theme as deprecated in the catalog', () => {
+    const catalog = resolveRepoCatalog(new Map())
+    for (const name of ['dsh-terminal', 'dsh-zcode-theme']) {
+      const plugin = catalog.find((p) => p.name === name)
+      assert.ok(plugin, `${name} 必须仍出现在自有插件目录里（以便已装用户看到卸载入口）`)
+      assert.equal(plugin.deprecated, true, `${name} 必须标记为废弃`)
+      assert.match(plugin.title, /已废弃/, `${name} 的标题应提示已废弃: ${plugin.title}`)
+      assert.match(plugin.deprecatedReason, /已废弃插件仅支持卸载/, `${name} 应给出只可卸载的说明`)
+    }
+    // 未废弃的插件不能被误标
+    for (const name of ['dsh-im-bot', 'dsh-plugin-manager', 'dsh-theme-studio']) {
+      const plugin = catalog.find((p) => p.name === name)
+      assert.equal(plugin.deprecated, false, `${name} 不应被标记为废弃`)
+      assert.equal(plugin.deprecatedReason, '', `${name} 不应带废弃说明`)
+    }
+  })
+
+  it('isDeprecatedRepoPlugin accepts both short and scoped names', () => {
+    for (const name of ['dsh-terminal', 'dsh-zcode-theme', '@weniatall/dsh-terminal', '@weniatall/dsh-zcode-theme']) {
+      assert.equal(isDeprecatedRepoPlugin(name), true, `${name} 应判定为废弃`)
+    }
+    for (const name of ['dsh-im-bot', '@weniatall/dsh-im-bot', 'dsh-plugin-manager', '', null, undefined, 42]) {
+      assert.equal(isDeprecatedRepoPlugin(name), false, `${String(name)} 不应判定为废弃`)
+    }
+    // 废弃表与静态清单必须一致，避免「表里有、清单里没有」的幽灵条目
+    for (const name of Object.keys(DEPRECATED_REPO_PLUGINS)) {
+      assert.ok(LOCAL_MONOREPO_PLUGINS.some((p) => p.name === name), `${name} 必须在静态清单中登记`)
+    }
+    assert.equal(deprecatedRepoPluginReason('dsh-im-bot'), '')
+    assert.match(deprecatedRepoPluginReason('dsh-zcode-theme'), /dsh-theme-studio/)
+  })
+
+  it('dynamically discovers newly added repo plugins not in hardcoded base list', () => {    const releaseMap = new Map([
       [
         'dsh-brand-new-plugin',
         {
@@ -449,6 +483,32 @@ describe('dsh-market profile installed-version inspection', () => {
     const fresh = merged.plugins.find((p) => p.name === 'dsh-plugin-manager')
     assert.equal(fresh.installedVersion, '0.1.0')
     assert.equal(fresh.hasUpdate, false)
+  })
+
+  it('never flags updates for deprecated plugins even when a newer version exists', () => {
+    // 废弃插件只允许卸载：远端版本更高也不许提示更新，否则「一键更新全部」
+    // 会把它们重新装回来。
+    const catalog = resolveRepoCatalog(new Map())
+    const terminal = catalog.find((p) => p.name === 'dsh-terminal')
+    terminal.version = '9.9.9'
+    terminal.latestVersion = '9.9.9'
+    const merged = mergeInstalledVersions(catalog, { home, profile: 'web' })
+    const entry = merged.plugins.find((p) => p.name === 'dsh-terminal')
+    assert.equal(entry.installedVersion, '0.1.9')
+    assert.equal(entry.hasUpdate, false, '废弃插件不得提示更新')
+    assert.equal(entry.deprecated, true)
+    assert.match(entry.deprecatedReason, /仅支持卸载/)
+
+    // checkPluginUpdates 这条独立路径也必须压住
+    const checked = checkPluginUpdates(
+      [{ name: 'dsh-terminal', version: '0.1.9' }, { name: 'dsh-model-roles', version: '0.4.7' }],
+      [
+        { name: 'dsh-terminal', version: '9.9.9' },
+        { name: 'dsh-model-roles', version: '0.4.8' },
+      ],
+    )
+    assert.equal(checked[0].hasUpdate, false)
+    assert.equal(checked[1].hasUpdate, true)
   })
 
   it('enriches community catalog with local installed versions while isolating repo plugins', () => {
@@ -1046,14 +1106,32 @@ describe('dsh-market lockfile RPC (getLockfileHealth / repairLockfile)', () => {
  */
 let capturedPluginDefinition = null
 
+/**
+ * 取回 client bundle 的定义（每个进程只会真正执行一次 load）。
+ *
+ * `import()` 会缓存已求值的模块：第二次调用不会再触发
+ * `window.__ModuleLoader__.load`，于是局部 `definition` 永远是 undefined，
+ * 且会把共享的 capturedPluginDefinition 覆盖成 undefined，连带后面所有
+ * 客户端用例一起挂掉。因此这里必须复用第一次捕获的结果。
+ */
+async function loadClientDefinition() {
+  if (capturedPluginDefinition) return capturedPluginDefinition
+  let definition;
+  const prevWindow = globalThis.window;
+  globalThis.window = { __ModuleLoader__: { load(value) { definition = value; } } };
+  try {
+    await import("../lib/client.js");
+  } finally {
+    globalThis.window = prevWindow;
+  }
+  capturedPluginDefinition = definition;
+  return definition;
+}
+
 describe('dsh-plugin-manager client bundle verification', () => {
   it("renders PluginManagerSection under all tab and update states without crashing", async () => {
-    let definition;
-    const prevWindow = globalThis.window;
-    globalThis.window = { __ModuleLoader__: { load(value) { definition = value; } } };
-    try {
-      await import("../lib/client.js");
-      capturedPluginDefinition = definition;
+    const definition = await loadClientDefinition();
+    {
       const fakeReact = {
         useEffect: () => {},
         useRef: (init) => ({ current: init }),
@@ -1093,8 +1171,125 @@ describe('dsh-plugin-manager client bundle verification', () => {
           });
         }
       }
-    } finally {
-      globalThis.window = prevWindow;
+    }
+  });
+
+  it('renders deprecated plugins with a 已废弃 badge and only an uninstall action', async () => {
+    const definition = await loadClientDefinition();
+    {
+      const fakeReact = {
+        useEffect: () => {},
+        useRef: (init) => ({ current: init }),
+        useMemo: (fn) => fn(),
+        useCallback: (fn) => fn,
+        createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+        Fragment: "Fragment",
+      };
+      const plugin = definition.factory((id) => {
+        if (id === "react") return fakeReact;
+        if (id === "react-dom") return { createPortal: (node) => node };
+        if (id === "@deepseek-ai/dsh-ui-primitives") return new Proxy({}, { get: () => () => ({ type: "icon" }) });
+        if (id === "@deepseek-ai/dsh-client-ui-primitives") return new Proxy({}, { get: () => () => ({ type: "icon" }) });
+        return {};
+      });
+      const slots = [];
+      const ctx = {
+        slots: { inject(slot, fn) { fn(); }, register(entry, comp) { slots.push({ entry, comp }); } },
+        connection: { rpc: { call: async () => ({}) } },
+        remote: { $on: () => () => {} },
+      };
+      plugin.apply(ctx);
+      const Comp = slots[0].comp;
+
+      // 已安装 + 远端版本更高：若不压制，就会渲染出「更新」按钮。
+      const deprecatedInstalled = {
+        id: "dsh-terminal",
+        name: "dsh-terminal",
+        title: "跨平台交互式终端（已废弃）",
+        description: "本地终端调用。",
+        installedVersion: "0.1.9",
+        latestVersion: "9.9.9",
+        version: "9.9.9",
+        hasUpdate: true,
+        deprecated: true,
+        deprecatedReason: "该插件已停止维护，不再发布新版本。已废弃插件仅支持卸载。",
+      };
+      // 未安装的废弃插件：连「安装」都不该出现。
+      const deprecatedMissing = {
+        id: "dsh-zcode-theme",
+        name: "dsh-zcode-theme",
+        title: "ZCode 视觉主题（已废弃，兼容薄壳）",
+        description: "兼容薄壳。",
+        installedVersion: null,
+        latestVersion: "0.3.0",
+        version: "0.3.0",
+        deprecated: true,
+      };
+      const normal = {
+        id: "dsh-im-bot",
+        name: "dsh-im-bot",
+        title: "集成机器人（企业微信 / 个人微信）",
+        description: "微信接入。",
+        installedVersion: "0.1.3",
+        latestVersion: "0.1.4",
+        version: "0.1.4",
+        hasUpdate: true,
+      };
+
+      let idx = 0;
+      fakeReact.useState = (init) => {
+        const curIdx = idx++;
+        // slot 0 = tab, slot 5 = repoPlugins
+        if (curIdx === 0) return ["repo", () => {}];
+        if (curIdx === 5) return [[deprecatedInstalled, deprecatedMissing, normal], () => {}];
+        return [typeof init === "function" ? init() : init, () => {}];
+      };
+      idx = 0;
+      const tree = Comp({});
+
+      const collect = (node, out = []) => {
+        if (!node || typeof node !== "object") return out;
+        out.push(node);
+        const children = node.props ? node.props.children : null;
+        const list = Array.isArray(children) ? children : (children == null ? [] : [children]);
+        for (const child of list) collect(child, out);
+        return out;
+      };
+      const labelOf = (node) => {
+        const children = node.props ? node.props.children : null;
+        const list = Array.isArray(children) ? children : [children];
+        return list.filter((child) => typeof child === "string").join("");
+      };
+      const nodes = collect(tree);
+      // 只取卡片根节点：`.dm-card-body` 等子元素也以 dm-card 开头。
+      const cards = nodes.filter((n) => typeof n.props?.className === "string" &&
+        (n.props.className === "dm-card" || n.props.className.startsWith("dm-card ")));
+      assert.equal(cards.length, 3, "three repo cards should render");
+
+      const buttonsOf = (card) => collect(card).filter((n) => n.type === "button").map(labelOf);
+      const textOf = (card) => collect(card).filter((n) => typeof n === "object").map(labelOf).join(" ");
+
+      const terminalCard = cards.find((c) => textOf(c).includes("dsh-terminal") || textOf(c).includes("跨平台交互式终端"));
+      assert.ok(terminalCard, "deprecated terminal card must render");
+      assert.match(terminalCard.props.className, /is-deprecated/);
+      const terminalButtons = buttonsOf(terminalCard);
+      assert.ok(terminalButtons.includes("卸载"), "已安装的废弃插件必须保留卸载入口");
+      assert.equal(terminalButtons.includes("更新"), false, "废弃插件不得出现「更新」按钮");
+      assert.equal(terminalButtons.includes("安装"), false, "废弃插件不得出现「安装」按钮");
+      assert.equal(terminalButtons.includes("复制指令"), false, "废弃插件不得出现「复制指令」");
+      assert.match(textOf(terminalCard), /已废弃/);
+      assert.match(textOf(terminalCard), /仅支持卸载/);
+
+      const zcodeCard = cards.find((c) => textOf(c).includes("ZCode"));
+      assert.ok(zcodeCard, "deprecated zcode card must render");
+      const zcodeButtons = buttonsOf(zcodeCard);
+      assert.equal(zcodeButtons.includes("安装"), false, "未安装的废弃插件也不得出现「安装」");
+      assert.equal(zcodeButtons.includes("卸载"), false, "未安装时没有可卸载的对象");
+
+      const normalCard = cards.find((c) => textOf(c).includes("集成机器人"));
+      assert.ok(normalCard, "normal card must render");
+      assert.equal(normalCard.props.className.includes("is-deprecated"), false);
+      assert.ok(buttonsOf(normalCard).includes("更新"), "未废弃插件仍应可更新");
     }
   });
 
@@ -1542,7 +1737,7 @@ describe('dsh-market install tasks (fake spawn)', () => {
     const first = handleInstallPlugin({}, { name: 'dsh-model-roles', kind: 'repo' }, { spawnFn: stuckSpawn })
     assert.equal(first.ok, true)
     // The second request must be refused while the first is running.
-    const second = handleInstallPlugin({}, { name: 'dsh-terminal', kind: 'repo' }, { spawnFn: fakeSpawn })
+    const second = handleInstallPlugin({}, { name: 'dsh-archive-manager', kind: 'repo' }, { spawnFn: fakeSpawn })
     assert.equal(second.ok, false)
     assert.match(second.error.message, /已有.*任务正在进行/)
     // The async task reaches the spawn after resolveInstallSource resolves.
@@ -1551,10 +1746,23 @@ describe('dsh-market install tasks (fake spawn)', () => {
     // Release the first task and let it finish, then a new task is allowed.
     stuckChild.emit('close', 0)
     await sleep(150)
-    const third = handleInstallPlugin({}, { name: 'dsh-terminal', kind: 'repo' }, { spawnFn: fakeSpawn })
+    const third = handleInstallPlugin({}, { name: 'dsh-archive-manager', kind: 'repo' }, { spawnFn: fakeSpawn })
     assert.equal(third.ok, true)
     const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, third.value.taskId)
     assert.equal(task.status, 'success')
+  })
+
+  it('refuses to install or update a deprecated plugin and never spawns', async () => {
+    await sleep(100)
+    for (const name of ['dsh-terminal', 'dsh-zcode-theme', '@weniatall/dsh-terminal']) {
+      captured.calls.length = 0
+      const res = handleInstallPlugin({}, { name, kind: 'repo' }, { spawnFn: fakeSpawn })
+      assert.equal(res.ok, true, `${name} 的安装请求应被接受为任务，但在任务内被拒绝`)
+      const task = await waitForTask(async (m, p) => (await handleMarketRpc({}, {}, m, p)).value, res.value.taskId)
+      assert.equal(task.status, 'error', `${name} 必须安装失败`)
+      assert.match(task.error, /已废弃/, `${name} 的错误信息应说明已废弃`)
+      assert.equal(captured.calls.length, 0, `${name} 不应触发任何 CLI 调用`)
+    }
   })
 
   it('runDshPluginCommand passes shell: true on Windows and captures exit code', async () => {
@@ -2096,7 +2304,7 @@ describe('dsh-plugin-manager DSH update banner copy command', () => {
         },
       }
 
-      const plugin = capturedPluginDefinition.factory((id) => {
+      const plugin = (await loadClientDefinition()).factory((id) => {
         if (id === 'react') return fakeReact
         if (id === 'react-dom') return { createPortal: (node) => node }
         if (id === '@deepseek-ai/dsh-client-ui-primitives') {

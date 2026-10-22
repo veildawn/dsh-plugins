@@ -561,16 +561,19 @@ test('Mobile dialogs and in-place menus stay usable without overwriting portal c
   assert.match(css, /\.ZuhsRW_millerRow\{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important\}/)
   assert.match(css, /\[role="dialog"\]\[aria-modal="true"\] label:has\(input\[type="checkbox"\]\)\{min-height:44px\}/)
   assert.match(css, /\[role="dialog"\] button\{min-width:44px;min-height:44px\}/)
-  assert.match(css, /\[role="menu"\],\._7KE1Ra_menu,\._3e4SsG_menu\{[^}]*max-width:calc\(100vw - 24px\)!important;max-height:min\(360px,calc\(var\(--dsh-vvh,100dvh\) - 120px\)\)!important;[^}]*border-radius:14px!important;[^}]*background:[^;]+!important;border:1px solid var\(--dsw-alias-border-l2\)!important;overflow-y:auto!important;overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important\}/)
+  // 菜单容器保持 overflow:hidden（内部滚动区自己滚，见文件末尾的专项测试），
+  // 这里只校验移动端的尺寸与层级约束。
+  assert.match(css, /\[role="menu"\],\._7KE1Ra_menu,\._3e4SsG_menu\{[^}]*max-width:calc\(100vw - 24px\)!important;max-height:min\(360px,calc\(var\(--dsh-vvh,100dvh\) - 120px\)\)!important;[^}]*border-radius:14px!important;[^}]*background:[^;]+!important;border:1px solid var\(--dsw-alias-border-l2\)!important;overflow:hidden!important;overscroll-behavior:contain!important\}/)
   assert.match(css, /span>\[role="menu"\]\{position:absolute!important;bottom:calc\(100% \+ 4px\)!important;left:0!important;min-width:140px!important\}/)
   const portalMenu = css.match(/body>\[role="menu"\]\{([^}]*)\}/)?.[1]
   assert(portalMenu)
   assert.match(portalMenu, /min-width:180px!important/)
   assert.doesNotMatch(portalMenu, /(?:position|top|right|bottom|left):/)
-  const globalMenuRules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-    .filter(([, selectors]) => selectors.split(',').some((selector) => selector.trim() === '[role="menu"]'))
-  assert.equal(globalMenuRules.length, 1)
-  assert.doesNotMatch(globalMenuRules[0][2], /(?:position|top|right|bottom|left|display|visibility):/)
+  // 全局菜单规则只允许一条。按索引切取，避免注释里的花括号干扰正则。
+  const menuRuleStart = css.indexOf('[role="menu"],._7KE1Ra_menu')
+  assert.ok(menuRuleStart !== -1, '缺少全局 [role="menu"] 规则')
+  const menuRuleBody = css.slice(css.indexOf('{', menuRuleStart) + 1, css.indexOf('}', menuRuleStart))
+  assert.doesNotMatch(menuRuleBody, /(?:position|top|right|bottom|left|display|visibility):/)
   assert.match(css, /body>\[role="menu"\]:has\(\.cubgiG_item\)\{width:min\(300px,calc\(100vw - 24px\)\)!important\}/)
   assert.match(css, /body>\[role="menu"\]:has\(\.cubgiG_item\) \[role="menuitem"\]\{[^}]*min-height:56px;padding:8px 12px\}/)
   assert.match(css, /body>\[role="menu"\] \.cubgiG_item\{max-width:none;min-width:0\}/)
@@ -1255,4 +1258,25 @@ test('关键宿主组件保留去哈希兜底', () => {
   for (const local of ['newSession', 'regionArea', 'settingsArea', 'footerActions', 'overlayLayer', 'details', 'seat']) {
     assert.match(rawCss, new RegExp(`\\[class\\$="_${local}"\\]`), `缺少 ${local} 的去哈希兜底`)
   }
+})
+
+test('菜单容器保持 overflow:hidden，让宿主菜单内部的滚动区接手滚动', () => {
+  // 这里必须读 rawCss：cssForAssertions 会把 :is(.X,[class$="_x"]) 展开成 .X，
+  // 菜单规则的多选择器结构会被改写，按原文匹配就找不到了。
+  const css = rawCss
+  // 宿主模型选择菜单是 display:flex + overflow:hidden，内部 ._7KE1Ra_groups
+  // 才是真正的滚动区。若给容器加 overflow-y:auto，flex 布局下会重置子项的
+  // min-height:auto 契约，内部滚动区被撑开，列表既不能滚也被裁切。
+  const menuStart = css.indexOf('[role="menu"],:is(._7KE1Ra_menu')
+  assert.ok(menuStart !== -1, '缺少菜单容器规则')
+  const menuBody = css.slice(css.indexOf('{', menuStart) + 1, css.indexOf('}', menuStart))
+  assert.match(menuBody, /overflow:hidden!important/, '菜单容器必须 overflow:hidden')
+  assert.doesNotMatch(menuBody, /overflow-y:auto!important/, '不得给容器加 overflow-y:auto')
+
+  // 内部滚动区必须显式保活
+  const groups = css.match(/\._7KE1Ra_groups\{([^}]*)\}/)
+  assert.ok(groups, '缺少 _7KE1Ra_groups 滚动区规则')
+  assert.match(groups[1], /min-height:0!important/, '滚动区需要 min-height:0 才能收缩')
+  assert.match(groups[1], /overflow-y:auto!important/, '滚动区必须 overflow-y:auto')
+  assert.match(groups[1], /-webkit-overflow-scrolling:touch!important/, 'iOS 需要惯性滚动')
 })

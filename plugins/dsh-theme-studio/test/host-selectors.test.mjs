@@ -285,3 +285,22 @@ test('头部工具区不得压过宿主应用级浮层', async () => {
   )
   assert.match(rule[2], /overflow:\s*visible/, '仍需 overflow:visible，否则工具栏下拉菜单会被父级裁剪')
 })
+
+test('玻璃主题的输入卡按钮必须无背景框，与相邻的 + 号按钮视觉一致', async () => {
+  const css = await readFile(join(root, 'lib/styles/glass.css'), 'utf8')
+  // 定位「输入卡内部操作按钮」那条规则（包含权限与模型选择器的触发器）
+  const rule = css.match(/:is\([^)]*\)\s*:is\([^{]*\.iWlSmW_trigger[^{]*\)\s*\{([^}]*)\}/)
+  assert.ok(rule, '缺少输入卡内部操作按钮规则')
+  const body = rule[1]
+
+  // 这三条是「实心方框」的成因：只要有一条回来，按钮就会在深色玻璃上显出一块底。
+  assert.match(body, /background:\s*transparent\s*!important/, '底色必须透明，否则会显出一块方框')
+  assert.match(body, /border:\s*0\s*!important/, '描边必须移除，否则方框轮廓仍在')
+  assert.match(body, /box-shadow:\s*none\s*!important/, '内顶高光必须移除，否则仍有浮雕感')
+  assert.doesNotMatch(body, /var\(--color-surface\)/, '不得再引用 surface 作为底色')
+
+  // hover 时才允许出现轻量反馈，这是与 + 号按钮一致的行为
+  const hover = css.match(/:is\([^)]*\)\s*:is\([^{]*\.iWlSmW_trigger[^{]*\):hover\s*\{([^}]*)\}/)
+  assert.ok(hover, '缺少 hover 规则')
+  assert.match(hover[1], /background:\s*var\(--color-surface\)/, 'hover 时应给出轻量底色反馈')
+})

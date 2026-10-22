@@ -255,7 +255,11 @@ html[data-theme-studio="glass-color"] .Qt4Hga_card:focus-within {
     0 0 0 3px color-mix(in srgb, var(--color-input-border-focused) 22%, transparent);
 }
 
-/* 输入卡内部操作按钮（移动端上传、工具箱、终端与宿主权限/模型）：微光半透明 + 发丝光边，消除深灰厚重纽扣感 */
+/* 输入卡内部操作按钮（移动端上传、工具箱、终端与宿主权限/模型）。
+   视觉上必须与相邻的「+」按钮一致：**无背景框、无描边**，只有图标/文字本身。
+   之前这里给它们套了一层 var(--color-surface) 半透明底 + 1px 发丝光边 + 内顶高光，
+   于是「完全权限」与「deepseek-v4.1-flash Max」在深色玻璃上成了两块明显的方框，
+   而旁边的「+」「📁」「🕐」都是干净的透明按钮，一眼就能看出不齐。 */
 :is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
   .dsh-mobile-upload-btn,
   .dsh-mobile-tools-btn,
@@ -265,12 +269,12 @@ html[data-theme-studio="glass-color"] .Qt4Hga_card:focus-within {
   ._7KE1Ra_trigger,
   .WqxjfG_trigger
 ) {
-  background: var(--color-surface) !important;
-  border: 1px solid var(--ts-glass-edge) !important;
-  box-shadow: inset 0 1px 0 var(--ts-glass-highlight);
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
   color: var(--color-foreground-subtle) !important;
-  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.3)) saturate(var(--ts-saturate));
-  backdrop-filter: blur(calc(var(--ts-blur) * 0.3)) saturate(var(--ts-saturate));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 :is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
@@ -282,7 +286,7 @@ html[data-theme-studio="glass-color"] .Qt4Hga_card:focus-within {
   ._7KE1Ra_trigger,
   .WqxjfG_trigger
 ):hover {
-  background: var(--color-surface-hover) !important;
+  background: var(--color-surface) !important;
   color: var(--color-foreground) !important;
 }
 

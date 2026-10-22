@@ -329,7 +329,16 @@ window.__ModuleLoader__.load({
         .ZuhsRW_content,.ZuhsRW_millerRow{flex:1 1 0!important}
         .ZuhsRW_millerRow{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important}
         [role="dialog"][aria-modal="true"] label:has(input[type="checkbox"]){min-height:44px}
-        [role="menu"],:is(._7KE1Ra_menu,[class$="_menu"]),:is(._3e4SsG_menu,[class$="_menu"]){box-sizing:border-box!important;z-index:1300!important;max-width:calc(100vw - 24px)!important;max-height:min(360px,calc(var(--dsh-vvh,100dvh) - 120px))!important;border-radius:14px!important;box-shadow:var(--dsw-shadow-lv3)!important;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-3))!important;border:1px solid var(--dsw-alias-border-l2)!important;overflow-y:auto!important;overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important}
+        /* 菜单容器：宿主的模型选择菜单是 display:flex + overflow:hidden，内部
+           ._7KE1Ra_groups 才是真正的滚动区（min-height:0;overflow-y:auto）。
+           这里若给容器也加 overflow-y:auto，容器自身在 max-height 内并不产生
+           滚动（内容被 flex 子项撑满、子项自己滚），而 flex 布局下 overflow
+           从 hidden 改成 auto 会重置 flex 子项的 min-height:auto 契约，导致
+           内部滚动区被撑开、列表既不能滚动也被裁切——这正是「模型选择无法滚动」。
+           正确做法是：容器保持 overflow:hidden，只让它内部的滚动区接手滚动。 */
+        [role="menu"],:is(._7KE1Ra_menu,[class$="_menu"]),:is(._3e4SsG_menu,[class$="_menu"]){box-sizing:border-box!important;z-index:1300!important;max-width:calc(100vw - 24px)!important;max-height:min(360px,calc(var(--dsh-vvh,100dvh) - 120px))!important;border-radius:14px!important;box-shadow:var(--dsw-shadow-lv3)!important;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-3))!important;border:1px solid var(--dsw-alias-border-l2)!important;overflow:hidden!important;overscroll-behavior:contain!important}
+        /* 宿主模型菜单的内部滚动区：显式保活，避免被上面容器的 overflow 规则连带削弱 */
+        ._7KE1Ra_groups{min-height:0!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important;overscroll-behavior:contain!important}
         span>[role="menu"]{position:absolute!important;bottom:calc(100% + 4px)!important;left:0!important;min-width:140px!important}
         body>[role="menu"]{min-width:180px!important}
         body>[role="menu"]:has(:is(.cubgiG_item,[class$="_item"])){width:min(300px,calc(100vw - 24px))!important}

@@ -14,6 +14,7 @@ DeepSeek Harness (DSH) 可视化**插件管理**与本仓库专属更新管理�
 - **自有插件专属管理**：专为 `veildawn/dsh-plugins` 独立多插件仓库设计，实时拉取 GitHub Releases（如 `dsh-model-roles@v0.4.9`、`dsh-remote-control@v0.1.6` 等），并自动读取当前 DSH profile 中已安装插件的版本，逐项标记「已安装 → 最新 / 可更新 / 卸载」。
 - **一键批量更新 (N)**：在「自有插件」与「社区插件」栏目中均提供「🚀 一键更新全部 (N)」按钮，自动统计可更新数量并批量执行更新（更新后绝不自动重启）。
 - **一键安装 / 更新 / 卸载**：真实执行 `dsh plugin add` 和 `dsh plugin remove`（服务端白名单校验来源后运行），带实时流式进度日志；支持一键卸载已装插件并自动刷新状态；自有插件支持「安装 / 更新到最新 / 已是最新 / 卸载」，社区插件按 npm 包一键安装与卸载。
+- **废弃插件只允许卸载**：`dsh-terminal`、`dsh-zcode-theme` 已在目录中标记为废弃，卡片显示「已废弃」徽章与废弃原因，只保留「卸载」按钮——不显示「安装」「更新」「复制指令」，不参与「一键更新全部」的统计与执行。三层同时生效：界面隐藏入口、更新检测强制 `hasUpdate=false`、服务端 `installPlugin` 直接拒绝（即使绕过 UI 手工调 RPC 也装不上）。废弃清单集中在 `core.js` 的 `DEPRECATED_REPO_PLUGINS`，新增下线插件只需改这一处。
 - **Scoped 别名安装与冲突彻底清理**：使用 GitHub Release tarball 安装时一律采用 pnpm alias 语法（`@weniatall/dsh-xxx@url`），确保无论历史 tarball 内 package.json 是否有 scope 前缀，统一在 profile 中以 scoped 规范包名安装，消除磁盘双份共存；自动检测 dependencies、bundles 及物理目录中的历史无 scope 旧短名冲突，并在安装/批量更新/卸载时自动清理残留，同时在界面提供「⚠️ 存在旧版冲突」徽章与「一键清理冲突」操作。
 - **更新按界面提示的版本精确安装**：更新时把界面已知的 `latestVersion` 一并传给宿主（`pnpm add <pkg>@<version>`），而不是让 pnpm 再解析一次 `@latest`。安装目标因此与「可更新到 vX」的提示完全一致，不受 dist-tag 漂移与 pnpm 元数据缓存过期影响。
 - **更新结果校验**：`pnpm` 退出码 0 不代表版本真的变了（它可能判定 `Already up to date` 后原样退出）。安装完成后回读 `node_modules` 中的实际版本，与目标不一致时明确报「更新未生效」，而不是显示成功后仍一直提示可更新；装完会把 `dependencies` 的精确版本恢复为 `^<version>`，保持后续可更新。
@@ -104,9 +105,12 @@ dsh plugin --profile web add ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3
 | **`dsh-ai-proxy`** | `ai-proxy` | AI Proxy 网关对接与 LLM Provider |
 | **`dsh-mobile-adapter`** | `mobile-adapter` | 移动端全量体验适配与优化 |
 | **`dsh-file-viewer`** | `file-viewer` | 会话工作区文件查看器与富文本预览 |
-| **`dsh-terminal`** | `terminal` | 跨平台本地交互式终端与触控辅助键盘 |
+| **`dsh-terminal`** | `terminal` | 跨平台本地交互式终端与触控辅助键盘 —— **（已废弃，只能卸载）** |
 | **`dsh-archive-manager`** | `archive-manager` | 会话归档管理、一键恢复与彻底删除磁盘清理 |
 | **`dsh-prompt-history`** | `prompt-history` | 提示词历史导航、修改重发与跨端漫游 |
+| **`dsh-im-bot`** | `im-bot` | 集成机器人：企业微信智能机器人与个人微信双通道接入，微信发消息驱动会话、回合完成自动回推 |
+| **`dsh-theme-studio`** | `theme-studio` | 主题工作室：多内置主题、统一 Token 契约与视觉自定义 |
+| **`dsh-zcode-theme`** | `zcode-theme` | ZCode 主题兼容薄壳 —— **（已废弃，只能卸载，请改用 `dsh-theme-studio`）** |
 
 ---
 
@@ -117,7 +121,7 @@ cd plugins/dsh-plugin-manager
 npm test
 ```
 
-测试覆盖：语义化版本比对、Monorepo Release 标签解析与下载地址生成、社区目录归一化与分类提取、安装/卸载来源白名单校验、profile 已安装版本全量扫描与更新标记、lockfile 条目扫描/健康检测/剥离与 RPC 修复、批量更新与卸载任务执行（fake spawn 验证 CLI 参数与并发限制）、异步平滑重启调度（Linux systemd、macOS launchd gui/user 域、未配置则拒绝、仅 DSH_PLUGINS_REPO 维护者脚本回退）、RPC 请求处理（网络已打桩）、专属图标与客户端 Bundle 完整性校验，以及**复制命令全路径回归**（真实渲染更新横幅并在 fake DOM 中点击按钮：Clipboard API 成功、API 缺失回退 `execCommand`、`writeText` 被拒回退、全部失败时输出手动复制提示、按钮「✓ 已复制」即时反馈与 2 秒复位、无未处理的 Promise 拒绝）。
+测试覆盖：语义化版本比对、Monorepo Release 标签解析与下载地址生成、社区目录归一化与分类提取、安装/卸载来源白名单校验、profile 已安装版本全量扫描与更新标记、lockfile 条目扫描/健康检测/剥离与 RPC 修复、批量更新与卸载任务执行（fake spawn 验证 CLI 参数与并发限制）、异步平滑重启调度（Linux systemd、macOS launchd gui/user 域、未配置则拒绝、仅 DSH_PLUGINS_REPO 维护者脚本回退）、RPC 请求处理（网络已打桩）、专属图标与客户端 Bundle 完整性校验、**废弃插件三层拦截回归**（目录标记与中文标题、短名/scope 名双向判定、远端版本更高也不提示更新、`installPlugin` 任务直接失败且不触发任何 CLI 调用、卡片只渲染「卸载」且不出现「安装 / 更新 / 复制指令」），以及**复制命令全路径回归**（真实渲染更新横幅并在 fake DOM 中点击按钮：Clipboard API 成功、API 缺失回退 `execCommand`、`writeText` 被拒回退、全部失败时输出手动复制提示、按钮「✓ 已复制」即时反馈与 2 秒复位、无未处理的 Promise 拒绝）。
 
 ---
 

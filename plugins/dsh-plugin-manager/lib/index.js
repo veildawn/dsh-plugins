@@ -65,6 +65,8 @@ import {
   monorepoNpmNames,
   NPM_PLUGIN_SCOPE,
   readInstalledVersion,
+  isDeprecatedRepoPlugin,
+  deprecatedRepoPluginReason,
   detectPluginConflict,
   cleanupPluginConflict,
   profilePluginDir,
@@ -961,6 +963,13 @@ async function resolveInstallSource(name, kind, resolved, targetVersion) {
     const pkgName = safePackageName(plugin.npmName || npmNameOf(plugin.name))
     if (!pkgName) return { error: `插件 ${name} 的 npm 包名不合法: ${plugin.npmName}` }
 
+    /* 废弃插件只能卸载：在解析安装源这一步就拒绝，UI 被绕过、或有人手工
+       调 RPC 也装不上。错误信息带上废弃原因与替代方案，便于用户自救。 */
+    if (plugin.deprecated === true || isDeprecatedRepoPlugin(plugin.name)) {
+      const reason = plugin.deprecatedReason || deprecatedRepoPluginReason(plugin.name)
+      return { error: `${plugin.name} 已废弃，只能卸载、不能安装或更新。${reason}`, code: 'plugin-deprecated' }
+    }
+
     // allowTarball：离线或内网镜像场景下显式回落到 GitHub Release tarball。
     // 回落时仍走既有的来源白名单校验，避免装上任意 URL。
     if (resolved.allowTarball && plugin.downloadUrl) {
@@ -1375,7 +1384,13 @@ export function handleBatchUpdatePlugins(options, payload, deps = {}) {
       if (kind === 'repo') {
         const catalog = await buildRepoCatalog(resolved, { force: true })
         const merged = mergeInstalledVersions(catalog)
-        targets = merged.plugins.filter((p) => p.installedVersion && p.hasUpdate)
+        /* mergeInstalledVersions 已经把废弃插件的 hasUpdate 压成 false；这里再
+           显式过滤一次并留下日志，避免将来上游改动悄悄让废弃插件被批量更新装回。 */
+        const deprecatedInstalled = merged.plugins.filter((p) => p.installedVersion && (p.deprecated || isDeprecatedRepoPlugin(p)))
+        for (const p of deprecatedInstalled) {
+          task.log.push(`⏭ 跳过已废弃插件 ${p.name}（只能卸载，不参与批量更新）`)
+        }
+        targets = merged.plugins.filter((p) => p.installedVersion && p.hasUpdate && !p.deprecated && !isDeprecatedRepoPlugin(p))
       } else {
         const raw = await fetchCommunityCatalog(resolved.communityCatalogUrl)
         const plugins = normalizeCommunityPlugins(raw, 'zh')

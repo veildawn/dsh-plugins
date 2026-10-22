@@ -287,6 +287,9 @@ window.__ModuleLoader__.load({
       .dm-badge.update{color:#b45309;background:color-mix(in srgb,#f59e0b 16%,transparent);font-weight:500}
       .dm-badge.conflict{color:#b45309;background:color-mix(in srgb,#f59e0b 20%,transparent);font-weight:600}
       .dm-badge.uninstalled{color:var(--dsw-alias-label-tertiary,#656d76)}
+      .dm-badge.deprecated{color:#b91c1c;background:color-mix(in srgb,#ef4444 14%,transparent);font-weight:600}
+      .dm-card.is-deprecated{opacity:.86;border-style:dashed}
+      .dm-card-deprecated-note{font-size:11.5px;line-height:16px;color:var(--dsw-alias-state-error-primary,#d84848);margin:0}
       .dm-version-row{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#656d76);line-height:16px}
       .dm-ver-installed{color:var(--dsw-alias-label-primary,#1f2328);font-weight:500}
       .dm-ver-latest{color:var(--dsw-alias-label-primary,#1f2328);font-weight:500}
@@ -365,11 +368,12 @@ window.__ModuleLoader__.load({
       { id: "dsh-ai-proxy", name: "dsh-ai-proxy", title: "AI Proxy 网关与 Provider", description: "AI Proxy Service 统一网关对接，支持 Chat/Anthropic/Responses 多协议智能适配与 OAuth 2.0 PKCE 认证。", author: "veildawn", category: "ai", version: "0.2.5", latestVersion: "0.2.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-ai-proxy@v0.2.5/dsh-ai-proxy-0.2.5.tgz", isRepoPlugin: true },
       { id: "dsh-mobile-adapter", name: "dsh-mobile-adapter", title: "移动端全量体验优化", description: "原生图片上传、底部操作栏圆形统一规范、视口高度自适应、Segmented Control Tabs。", author: "veildawn", category: "ui", version: "0.1.28", latestVersion: "0.1.28", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.28/dsh-mobile-adapter-0.1.28.tgz", isRepoPlugin: true },
       { id: "dsh-file-viewer", name: "dsh-file-viewer", title: "工作区文件查看器", description: "会话头部抽屉式文件浏览器，支持全屏切换、语法高亮、Markdown/JSON、图片、PDF、Excel、Word 预览。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-file-viewer@v0.1.8/dsh-file-viewer-0.1.8.tgz", isRepoPlugin: true },
-      { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true },
+      { id: "dsh-terminal", name: "dsh-terminal", title: "跨平台交互式终端（已废弃）", description: "本地终端调用、移动端专属对话框底部工具箱二合一入口、多标签并发与触控辅助键盘。", author: "veildawn", category: "tools", version: "0.2.0", latestVersion: "0.2.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-terminal@v0.1.9/dsh-terminal-0.1.9.tgz", isRepoPlugin: true, deprecated: true, deprecatedReason: "该插件已停止维护，不再发布新版本。已废弃插件仅支持卸载。" },
       { id: "dsh-archive-manager", name: "dsh-archive-manager", title: "会话归档管理器", description: "会话归档管理：侧边栏实时归档计数徽章、一键恢复会话与彻底删除清理磁盘空间。", author: "veildawn", category: "tools", version: "0.2.1", latestVersion: "0.2.1", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-archive-manager@v0.2.1/dsh-archive-manager-0.2.1.tgz", isRepoPlugin: true },
       { id: "dsh-prompt-history", name: "dsh-prompt-history", title: "提示词历史与修改重发", description: "提示词历史导航、气泡悬浮修改重发、自适应底部抽屉与跨端持久化漫游。", author: "veildawn", category: "tools", version: "0.4.3", latestVersion: "0.4.3", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-prompt-history@v0.4.3/dsh-prompt-history-0.4.3.tgz", isRepoPlugin: true },
-      { id: "dsh-theme-studio", name: "dsh-theme-studio", title: "主题工作室", description: "DSH 官方多主题与视觉定制中心：默认保持原生界面风格，内置 ZCode 官方、ZCode 单色极简、苹果玻璃、玻璃彩色 4 款主题，支持自定义背景图/背景色、字体、字号与字段颜色，统一 Token 契约兼容所有插件。", author: "veildawn", category: "ui", version: "0.1.9", latestVersion: "0.1.9", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-theme-studio@v0.1.9/dsh-theme-studio-0.1.9.tgz", isRepoPlugin: true },
-      { id: "dsh-zcode-theme", name: "dsh-zcode-theme", title: "ZCode 视觉主题（兼容薄壳）", description: "ZCode 全平台主题已并入主题工作室（内置为 zcode 与 zcode-mono），本包保留为兼容薄壳以供平滑升级。", author: "veildawn", category: "ui", version: "0.3.0", latestVersion: "0.3.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.3.0/dsh-zcode-theme-0.3.0.tgz", isRepoPlugin: true },
+      { id: "dsh-im-bot", name: "dsh-im-bot", title: "集成机器人（企业微信 / 个人微信）", description: "把企业微信智能机器人与个人微信接入 DSH：微信发消息即可驱动会话，回合完成或失败时自动把结果推回发起聊天，并支持 /new、/use、/sessions、/stop 等内置命令与扫码登录。", author: "veildawn", category: "tools", version: "0.1.4", latestVersion: "0.1.4", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-im-bot@v0.1.4/dsh-im-bot-0.1.4.tgz", isRepoPlugin: true },
+      { id: "dsh-theme-studio", name: "dsh-theme-studio", title: "主题工作室", description: "DSH 官方多主题与视觉定制中心：默认保持原生界面风格，内置 ZCode 官方、ZCode 单色极简、苹果玻璃、玻璃彩色 4 款主题，支持自定义背景图/背景色、字体、字号与字段颜色，统一 Token 契约兼容所有插件。", author: "veildawn", category: "ui", version: "0.2.1", latestVersion: "0.2.1", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-theme-studio@v0.2.1/dsh-theme-studio-0.2.1.tgz", isRepoPlugin: true },
+      { id: "dsh-zcode-theme", name: "dsh-zcode-theme", title: "ZCode 视觉主题（已废弃，兼容薄壳）", description: "ZCode 全平台主题已并入主题工作室（内置为 zcode 与 zcode-mono），本包保留为兼容薄壳以供平滑升级。", author: "veildawn", category: "ui", version: "0.3.0", latestVersion: "0.3.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-zcode-theme@v0.3.0/dsh-zcode-theme-0.3.0.tgz", isRepoPlugin: true, deprecated: true, deprecatedReason: "ZCode 主题已并入主题工作室（内置 zcode / zcode-mono 两款主题），本包仅作兼容薄壳保留。建议改用 dsh-theme-studio。已废弃插件仅支持卸载。" },
       { id: "dsh-jev", name: "dsh-jev", title: "TypeSafe Jev 决策模型", description: "TypeSafe Jev (System One 决策模型) 原生工具插件：70ms 极速结构化决策、意图分流与状态打分，支持前端设置 API Key。", author: "veildawn", category: "ai", version: "0.1.5", latestVersion: "0.1.5", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-jev@v0.1.5/dsh-jev-0.1.5.tgz", isRepoPlugin: true },
       { id: "dsh-image-gen", name: "dsh-image-gen", title: "文生图与图像生成", description: "DSH 原生文生图插件，支持配置/下拉提供商与模型、尺寸与画质选择，内置 HTTP/HTTPS/SOCKS5 代理。", author: "veildawn", category: "ai", version: "0.1.0", latestVersion: "0.1.0", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-image-gen@v0.1.0/dsh-image-gen-0.1.0.tgz", isRepoPlugin: true },
       { id: "dsh-task-models", name: "dsh-task-models", title: "子任务模型路由", description: "按任务类型为子代理选择模型：规则命中零额外调用，可选 TypeSafe Jev 决策与轻量分类回退，并标注 workflow 成员实际模型。", author: "veildawn", category: "ai", version: "0.2.2", latestVersion: "0.2.2", downloadUrl: "https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.2.2/dsh-task-models-0.2.2.tgz", isRepoPlugin: true },
@@ -421,6 +425,24 @@ window.__ModuleLoader__.load({
       if (plugin.npmName) return plugin.npmName;
       if (plugin.installSource) return plugin.installSource;
       return npmNameOf(plugin.name);
+    }
+
+    /**
+     * 已废弃插件的短名清单，与宿主 core.js 的 DEPRECATED_REPO_PLUGINS 保持一致。
+     *
+     * 前端必须自带这份清单：catalog 走的是网络请求，请求失败时会退回
+     * FALLBACK_REPO_PLUGINS，而兜底条目可能来自更早的构建、没有 deprecated 字段。
+     * 两处都判一次才能保证「只能卸载」在任何加载路径下都成立。
+     */
+    const DEPRECATED_REPO_PLUGIN_NAMES = ["dsh-terminal", "dsh-zcode-theme"];
+
+    /** 该插件是否已废弃（只允许卸载，不允许安装与更新）。 */
+    function isDeprecatedPlugin(plugin) {
+      if (!plugin) return false;
+      if (plugin.deprecated === true) return true;
+      const raw = typeof plugin.name === "string" ? plugin.name : "";
+      const bare = raw.startsWith("@") ? raw.slice(raw.indexOf("/") + 1) : raw;
+      return DEPRECATED_REPO_PLUGIN_NAMES.includes(bare.toLowerCase());
     }
 
     function apply(ctx) {
@@ -742,6 +764,11 @@ window.__ModuleLoader__.load({
             notify(`已有任务进行中（${taskState.name}），请等待完成`, "error");
             return;
           }
+          // 废弃插件只能卸载：即使按钮被绕过（例如旧 bundle 缓存）也不放行。
+          if (isDeprecatedPlugin({ name })) {
+            notify(`${name} 已废弃，只能卸载、不能安装或更新`, "error");
+            return;
+          }
           try {
             /* 把界面已知的目标版本一并传给宿主：让 pnpm 装确定的版本，
                而不是自己再解析一次 @latest（可能命中过期缓存或 dist-tag 漂移）。 */
@@ -761,7 +788,7 @@ window.__ModuleLoader__.load({
             return;
           }
           const targetList = kind === "repo"
-            ? repoPlugins.filter((p) => p.installedVersion && p.hasUpdate)
+            ? repoPlugins.filter((p) => p.installedVersion && p.hasUpdate && !isDeprecatedPlugin(p))
             : communityPlugins.filter((p) => p.installedVersion && p.hasUpdate && p.npm);
 
           if (targetList.length === 0) {
@@ -1017,13 +1044,18 @@ window.__ModuleLoader__.load({
           const installed = plugin.installedVersion || null;
           const isInstalled = Boolean(installed);
           const remoteVer = plugin.version || plugin.latestVersion || null;
-          const update = isInstalled && Boolean(plugin.hasUpdate);
+          /* 废弃插件只保留卸载能力：不显示安装/更新/复制指令，批量更新也不统计它。 */
+          const deprecated = isDeprecatedPlugin(plugin);
+          const update = isInstalled && Boolean(plugin.hasUpdate) && !deprecated;
           const busy = busyFor(plugin.name, plugin.npm);
 
           // Status badge: only show when meaningful (has update or community category tag)
           let badgeClass = null;
           let badgeText = null;
-          if (update) {
+          if (deprecated) {
+            badgeClass = "dm-badge deprecated";
+            badgeText = "已废弃";
+          } else if (update) {
             badgeClass = "dm-badge update";
             badgeText = "可更新";
           } else if (!isInstalled && kind === "community" && plugin.category) {
@@ -1051,7 +1083,10 @@ window.__ModuleLoader__.load({
           let btnClass = "dm-action-btn primary";
           let btnDisabled = busy;
 
-          if (busy) {
+          if (deprecated) {
+            // 废弃插件没有任何「装上/升级」入口，只能卸载。
+            btnLabel = null;
+          } else if (busy) {
             btnLabel = "处理中…";
             btnDisabled = true;
           } else if (update) {
@@ -1067,9 +1102,9 @@ window.__ModuleLoader__.load({
             btnDisabled = false;
           }
 
-          const canInstall = kind === "repo" || Boolean(plugin.npm || plugin.name);
+          const canInstall = !deprecated && (kind === "repo" || Boolean(plugin.npm || plugin.name));
 
-          return react.createElement("div", { className: "dm-card", key: plugin.id },
+          return react.createElement("div", { className: deprecated ? "dm-card is-deprecated" : "dm-card", key: plugin.id },
             react.createElement("div", { className: "dm-card-icon" }, getPluginIcon(plugin)),
             react.createElement("div", { className: "dm-card-body" },
               react.createElement("div", { className: "dm-card-head" },
@@ -1088,6 +1123,8 @@ window.__ModuleLoader__.load({
                 )
               ),
               react.createElement("p", { className: "dm-card-desc" }, plugin.description || "暂无描述"),
+              deprecated ? react.createElement("p", { className: "dm-card-deprecated-note" },
+                plugin.deprecatedReason || "该插件已废弃，仅支持卸载。") : null,
               react.createElement("div", { className: "dm-card-footer" },
                 react.createElement("span", { className: "dm-card-meta-text" },
                   plugin.author ? `作者: ${plugin.author}` : (plugin.added ? `收录于 ${plugin.added}` : "")
@@ -1100,7 +1137,8 @@ window.__ModuleLoader__.load({
                     rel: "noreferrer",
                     title: "查看源码"
                   }, "源码") : null,
-                  (() => {
+                  // 复制指令复制的是 `dsh plugin add`，对废弃插件同样应隐藏。
+                  deprecated ? null : (() => {
                     const isCopied = Boolean(copiedMap[plugin.name]);
                     return react.createElement("button", {
                       className: `dm-action-btn ${isCopied ? "success" : ""}`,
@@ -1174,8 +1212,9 @@ window.__ModuleLoader__.load({
           return [p.name, p.title, p.description, p.npm, (p.tags || []).join(" ")].join(" ").toLowerCase().includes(q);
         });
 
-        const repoUpdateCount = repoPlugins.filter((p) => p.installedVersion && p.hasUpdate).length;
+        const repoUpdateCount = repoPlugins.filter((p) => p.installedVersion && p.hasUpdate && !isDeprecatedPlugin(p)).length;
         const repoConflictCount = repoPlugins.filter((p) => p.hasDuplicate).length;
+        const repoDeprecatedCount = repoPlugins.filter((p) => isDeprecatedPlugin(p)).length;
         const communityUpdateCount = communityPlugins.filter((p) => p.installedVersion && p.hasUpdate && p.npm).length;
 
         const taskStatusText = taskState
@@ -1325,7 +1364,11 @@ window.__ModuleLoader__.load({
                   disabled: Boolean(taskState && taskState.status === "running"),
                   onClick: () => void startBatchUpdate("repo")
                 }, "一键更新全部")
-              ) : null
+              ) : null,
+              repoDeprecatedCount > 0 ? react.createElement("div", {
+                style: { fontSize: "11.5px", color: "var(--dsw-alias-label-tertiary,#656d76)" },
+                title: "已废弃插件不再发布新版本，只能卸载"
+              }, `其中 ${repoDeprecatedCount} 款已废弃，仅支持卸载`) : null
             )
           ),
           taskState ? react.createElement("div", { className: "dm-install-box" },
