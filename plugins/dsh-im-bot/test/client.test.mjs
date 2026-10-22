@@ -154,3 +154,18 @@ test('设置面板能渲染出标题与关键分区（不触达真实网络）',
   walk(tree);
   assert.ok(texts.some((text) => text.includes('集成机器人')), '应出现标题「集成机器人」');
 });
+
+test('客户端样式包含隐藏宿主默认导航齿轮的规则（消除双图标）', () => {
+  assert.ok(CLIENT_CODE.includes('button:has([data-settings-nav-label="im-bot"]) > svg:first-child{display:none}'),
+    '必须包含隐藏宿主默认 svg 齿轮的规则');
+});
+
+test('cordis.patch.yml 必须注入 connection 与 webServer，防止 HTTP 405', () => {
+  const patchPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'cordis.patch.yml');
+  const patchContent = readFileSync(patchPath, 'utf8');
+
+  // 1. insert 必须包含 inject: [webServer, connection]
+  assert.ok(patchContent.includes('name: \'@weniatall/dsh-im-bot\''), 'patch 必须包含插件名称');
+  assert.ok(patchContent.includes('- webServer'), 'patch 必须注入 webServer');
+  assert.ok(patchContent.includes('- connection'), 'patch 必须注入 connection');
+});

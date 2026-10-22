@@ -22,5 +22,8 @@
 - insert:
     - id: im-bot
       name: '@weniatall/dsh-im-bot'
+      inject:
+        - webServer
+        - connection
       config:
         enabled: false

@@ -75,6 +75,7 @@ window.__ModuleLoader__.load({
       .imb-item-sub{font-size:11px;color:var(--dsw-alias-label-tertiary);word-break:break-all}
       .imb-empty{padding:14px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
       .imb-divider{height:1px;background:var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));margin:2px 0}
+      button:has([data-settings-nav-label="im-bot"]) > svg:first-child{display:none}
     `;
 
     /** 注入样式（幂等）。 */

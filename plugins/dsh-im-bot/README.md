@@ -79,7 +79,7 @@ dsh plugin --profile web add @weniatall/dsh-im-bot
 
 # 或从本仓库本地打包安装
 cd plugins/dsh-im-bot && npm pack
-dsh plugin --profile web add ./weniatall-dsh-im-bot-0.1.1.tgz
+dsh plugin --profile web add ./weniatall-dsh-im-bot-0.1.2.tgz
 ```
 
 ### 重启生效
