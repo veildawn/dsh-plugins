@@ -76,6 +76,22 @@ window.__ModuleLoader__.load({
       .imb-empty{padding:14px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
       .imb-divider{height:1px;background:var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));margin:2px 0}
       button:has([data-settings-nav-label="im-bot"]) > svg:first-child{display:none}
+      .imb-channel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;width:100%}
+      .imb-channel-card{display:flex;flex-direction:column;gap:10px;padding:14px;border:1.5px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-l,12px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));cursor:pointer;user-select:none;transition:border-color .15s ease,box-shadow .15s ease}
+      .imb-channel-card:hover{border-color:var(--dsw-alias-brand-primary,#4d6bfe);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 3%,var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform)))}
+      .imb-channel-card.selected{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary,#4d6bfe),0 2px 8px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 15%,transparent);background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 5%,var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform)))}
+      .imb-channel-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+      .imb-channel-card-header{display:flex;align-items:center;gap:10px;min-width:0}
+      .imb-channel-icon{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-label-primary,#000) 6%,transparent);flex-shrink:0}
+      .imb-channel-icon.wecom{color:#267ef0;background:color-mix(in srgb,#267ef0 12%,transparent)}
+      .imb-channel-icon.ilink{color:#07c160;background:color-mix(in srgb,#07c160 12%,transparent)}
+      .imb-channel-meta{display:flex;flex-direction:column;gap:2px;min-width:0}
+      .imb-channel-name{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
+      .imb-channel-desc{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:16px}
+      .imb-channel-card-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;border-top:1px dashed var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1))}
+      .imb-channel-selection-indicator{font-size:11px;color:var(--dsw-alias-label-tertiary);display:flex;align-items:center;gap:6px}
+      .imb-channel-selection-indicator.active{color:var(--dsw-alias-brand-primary,#4d6bfe);font-weight:500}
+      .imb-channel-selection-indicator input{cursor:pointer;accent-color:var(--dsw-alias-brand-primary,#4d6bfe);width:14px;height:14px}
     `;
 
     /** 注入样式（幂等）。 */
@@ -244,6 +260,7 @@ window.__ModuleLoader__.load({
         accessGroupAllowFrom: '',
         accessGroupsEnabled: false,
       });
+      const [selectedChannels, setSelectedChannels] = react.useState(['wecom']);
       const [secrets, setSecrets] = react.useState({ wecomSecret: '', ilinkToken: '', httpSecret: '' });
 
       const reload = react.useCallback(async () => {
@@ -252,13 +269,15 @@ window.__ModuleLoader__.load({
           const data = await rpcCall('status', {});
           setState(data);
           const config = data?.config ?? {};
+          const nextWecomEnabled = config.wecom?.enabled === true;
+          const nextIlinkEnabled = config.ilink?.enabled === true;
           setForm({
             enabled: config.enabled === true,
-            wecomEnabled: config.wecom?.enabled === true,
+            wecomEnabled: nextWecomEnabled,
             wecomBotId: config.wecom?.botId ?? '',
             wecomBaseUrl: config.wecom?.baseUrl ?? 'wss://openws.work.weixin.qq.com',
             wecomHeartbeatSeconds: config.wecom?.heartbeatSeconds ?? 30,
-            ilinkEnabled: config.ilink?.enabled === true,
+            ilinkEnabled: nextIlinkEnabled,
             ilinkAccountId: config.ilink?.accountId ?? '',
             ilinkBaseUrl: config.ilink?.baseUrl ?? 'https://ilinkai.weixin.qq.com',
             ilinkTyping: config.ilink?.typing !== false,
@@ -269,6 +288,12 @@ window.__ModuleLoader__.load({
             accessGroupAllowFrom: joinList(config.access?.groupAllowFrom),
             accessGroupsEnabled: config.access?.groupsEnabled === true,
           });
+          const active = [];
+          if (nextWecomEnabled) active.push('wecom');
+          if (nextIlinkEnabled) active.push('ilink');
+          if (active.length > 0) {
+            setSelectedChannels(active);
+          }
         } catch (err) {
           setMessage({ kind: 'err', text: err instanceof Error ? err.message : String(err) });
         } finally {
@@ -284,6 +309,32 @@ window.__ModuleLoader__.load({
       const update = (key) => (event) => {
         const value = event?.target?.type === 'checkbox' ? event.target.checked : event.target.value;
         setForm((prev) => ({ ...prev, [key]: value }));
+      };
+
+      const toggleSelectChannel = (id) => {
+        setSelectedChannels((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+      };
+
+      const toggleWecom = (checked) => {
+        setForm((prev) => ({
+          ...prev,
+          wecomEnabled: checked,
+          enabled: checked ? true : prev.enabled,
+        }));
+        if (checked) {
+          setSelectedChannels((prev) => (prev.includes('wecom') ? prev : [...prev, 'wecom']));
+        }
+      };
+
+      const toggleIlink = (checked) => {
+        setForm((prev) => ({
+          ...prev,
+          ilinkEnabled: checked,
+          enabled: checked ? true : prev.enabled,
+        }));
+        if (checked) {
+          setSelectedChannels((prev) => (prev.includes('ilink') ? prev : [...prev, 'ilink']));
+        }
       };
 
       const save = async () => {
@@ -377,107 +428,156 @@ window.__ModuleLoader__.load({
           ),
         ),
 
-        // 企业微信
+        // 渠道多选小卡片组
         react.createElement('div', { className: 'imb-card' },
           react.createElement('div', { className: 'imb-card-head' },
-            react.createElement('div', { className: 'imb-card-title' }, '企业微信智能机器人'),
-            react.createElement('span', { className: `imb-tag ${wecomTag.cls}` }, wecomTag.text),
+            react.createElement('div', { className: 'imb-card-title' }, '集成渠道'),
+            react.createElement('span', { className: 'imb-hint' }, '可多选卡片以展开对应配置，每个渠道可单独启用'),
           ),
-          react.createElement('p', { className: 'imb-hint' },
-            '在企业微信管理后台 → 智能机器人 → 开启「API 模式」并选择「长连接」，取得 BotID 与 Secret。长连接无需公网地址。'),
-          wecomState?.lastError
-            ? react.createElement('div', { className: 'imb-status err' }, wecomState.lastError)
-            : null,
-          react.createElement('label', { className: 'imb-switch' },
-            react.createElement('input', { type: 'checkbox', checked: form.wecomEnabled, onChange: update('wecomEnabled') }),
-            '启用企业微信通道',
-          ),
-          react.createElement('div', { className: 'imb-row' },
-            react.createElement('div', { className: 'imb-field' },
-              react.createElement('span', { className: 'imb-label' }, 'BotID'),
-              react.createElement('input', {
-                className: 'imb-input', value: form.wecomBotId, onChange: update('wecomBotId'),
-                placeholder: '智能机器人的 BotID', spellCheck: false,
-              }),
-            ),
-            react.createElement('div', { className: 'imb-field' },
-              react.createElement('span', { className: 'imb-label' },
-                'Secret',
-                state?.credentials?.wecomSecret
-                  ? react.createElement('span', { className: 'imb-tag on' }, '已保存')
-                  : react.createElement('span', { className: 'imb-tag off' }, '未配置'),
-              ),
-              react.createElement('input', {
-                className: 'imb-input', type: 'password', value: secrets.wecomSecret,
-                onChange: (event) => setSecrets((prev) => ({ ...prev, wecomSecret: event.target.value })),
-                placeholder: state?.credentials?.wecomSecret ? '留空表示不修改' : '长连接专用 Secret',
-                spellCheck: false,
-              }),
-            ),
-          ),
-          react.createElement('div', { className: 'imb-row' },
-            react.createElement('div', { className: 'imb-field' },
-              react.createElement('span', { className: 'imb-label' }, '长连接地址'),
-              react.createElement('input', {
-                className: 'imb-input', value: form.wecomBaseUrl, onChange: update('wecomBaseUrl'),
-                spellCheck: false,
-              }),
-            ),
-            react.createElement('div', { className: 'imb-field' },
-              react.createElement('span', { className: 'imb-label' }, '心跳间隔（秒）'),
-              react.createElement('input', {
-                className: 'imb-input', type: 'number', min: 5, max: 300,
-                value: form.wecomHeartbeatSeconds, onChange: update('wecomHeartbeatSeconds'),
-              }),
-            ),
+          react.createElement('div', { className: 'imb-channel-grid' },
+            react.createElement(ChannelCard, {
+              id: 'wecom',
+              title: '企业微信智能机器人',
+              subtitle: '长连接 API 模式 · 无需公网',
+              icon: react.createElement(IconWecom, null),
+              tag: wecomTag,
+              enabled: form.wecomEnabled,
+              onToggleEnabled: toggleWecom,
+              selected: selectedChannels.includes('wecom'),
+              onToggleSelected: toggleSelectChannel,
+            }),
+            react.createElement(ChannelCard, {
+              id: 'ilink',
+              title: '个人微信',
+              subtitle: '腾讯 iLink Bot 官方接口 · 扫码登录',
+              icon: react.createElement(IconWechat, null),
+              tag: ilinkTag,
+              enabled: form.ilinkEnabled,
+              onToggleEnabled: toggleIlink,
+              selected: selectedChannels.includes('ilink'),
+              onToggleSelected: toggleSelectChannel,
+            }),
           ),
         ),
 
-        // 个人微信
-        react.createElement('div', { className: 'imb-card' },
-          react.createElement('div', { className: 'imb-card-head' },
-            react.createElement('div', { className: 'imb-card-title' }, '个人微信'),
-            react.createElement('span', { className: `imb-tag ${ilinkTag.cls}` }, ilinkTag.text),
-          ),
-          react.createElement('p', { className: 'imb-hint' },
-            '通过腾讯 iLink Bot 官方接口接入，需要扫码登录。登录后该账号即可收发消息。'),
-          ilinkState?.lastError
-            ? react.createElement('div', { className: 'imb-status err' }, ilinkState.lastError)
-            : null,
-          react.createElement('div', { className: 'imb-row' },
-            react.createElement('div', { className: 'imb-field' },
-              react.createElement('span', { className: 'imb-label' }, '账号 ID'),
-              react.createElement('input', {
-                className: 'imb-input', value: form.ilinkAccountId, onChange: update('ilinkAccountId'),
-                placeholder: '扫码登录后自动填入', spellCheck: false,
-              }),
-            ),
-            react.createElement('div', { className: 'imb-field' },
-              react.createElement('span', { className: 'imb-label' },
-                'Token',
-                state?.credentials?.ilinkToken
-                  ? react.createElement('span', { className: 'imb-tag on' }, '已保存')
-                  : react.createElement('span', { className: 'imb-tag off' }, '未配置'),
+        // 条件展开企业微信配置
+        selectedChannels.includes('wecom')
+          ? react.createElement('div', { className: 'imb-card' },
+              react.createElement('div', { className: 'imb-card-head' },
+                react.createElement('div', { className: 'imb-card-title' },
+                  react.createElement(IconWecom, null),
+                  '企业微信配置',
+                ),
+                react.createElement('span', { className: `imb-tag ${wecomTag.cls}` }, wecomTag.text),
               ),
-              react.createElement('input', {
-                className: 'imb-input', type: 'password', value: secrets.ilinkToken,
-                onChange: (event) => setSecrets((prev) => ({ ...prev, ilinkToken: event.target.value })),
-                placeholder: state?.credentials?.ilinkToken ? '留空表示不修改' : '扫码登录后自动保存',
-                spellCheck: false,
-              }),
-            ),
-          ),
-          react.createElement('label', { className: 'imb-switch' },
-            react.createElement('input', { type: 'checkbox', checked: form.ilinkEnabled, onChange: update('ilinkEnabled') }),
-            '启用个人微信通道',
-          ),
-        ),
+              react.createElement('p', { className: 'imb-hint' },
+                '在企业微信管理后台 → 智能机器人 → 开启「API 模式」并选择「长连接」，取得 BotID 与 Secret。长连接无需公网地址。'),
+              wecomState?.lastError
+                ? react.createElement('div', { className: 'imb-status err' }, wecomState.lastError)
+                : null,
+              react.createElement('label', { className: 'imb-switch' },
+                react.createElement('input', { type: 'checkbox', checked: form.wecomEnabled, onChange: (e) => toggleWecom(e.target.checked) }),
+                '启用企业微信通道（长连接）',
+              ),
+              react.createElement('div', { className: 'imb-row' },
+                react.createElement('div', { className: 'imb-field' },
+                  react.createElement('span', { className: 'imb-label' }, 'BotID'),
+                  react.createElement('input', {
+                    className: 'imb-input', value: form.wecomBotId, onChange: update('wecomBotId'),
+                    placeholder: '智能机器人的 BotID', spellCheck: false,
+                  }),
+                ),
+                react.createElement('div', { className: 'imb-field' },
+                  react.createElement('span', { className: 'imb-label' },
+                    'Secret',
+                    state?.credentials?.wecomSecret
+                      ? react.createElement('span', { className: 'imb-tag on' }, '已保存')
+                      : react.createElement('span', { className: 'imb-tag off' }, '未配置'),
+                  ),
+                  react.createElement('input', {
+                    className: 'imb-input', type: 'password', value: secrets.wecomSecret,
+                    onChange: (event) => setSecrets((prev) => ({ ...prev, wecomSecret: event.target.value })),
+                    placeholder: state?.credentials?.wecomSecret ? '留空表示不修改' : '长连接专用 Secret',
+                    spellCheck: false,
+                  }),
+                ),
+              ),
+              react.createElement('div', { className: 'imb-row' },
+                react.createElement('div', { className: 'imb-field' },
+                  react.createElement('span', { className: 'imb-label' }, '长连接地址'),
+                  react.createElement('input', {
+                    className: 'imb-input', value: form.wecomBaseUrl, onChange: update('wecomBaseUrl'),
+                    spellCheck: false,
+                  }),
+                ),
+                react.createElement('div', { className: 'imb-field' },
+                  react.createElement('span', { className: 'imb-label' }, '心跳间隔（秒）'),
+                  react.createElement('input', {
+                    className: 'imb-input', type: 'number', min: 5, max: 300,
+                    value: form.wecomHeartbeatSeconds, onChange: update('wecomHeartbeatSeconds'),
+                  }),
+                ),
+              ),
+            )
+          : null,
 
-        react.createElement(LoginPanel, {
-          rpcCall,
-          initial: state?.login ?? null,
-          onLoggedIn: () => { void reload(); },
-        }),
+        // 条件展开个人微信配置
+        selectedChannels.includes('ilink')
+          ? react.createElement(react.Fragment, null,
+              react.createElement('div', { className: 'imb-card' },
+                react.createElement('div', { className: 'imb-card-head' },
+                  react.createElement('div', { className: 'imb-card-title' },
+                    react.createElement(IconWechat, null),
+                    '个人微信配置',
+                  ),
+                  react.createElement('span', { className: `imb-tag ${ilinkTag.cls}` }, ilinkTag.text),
+                ),
+                react.createElement('p', { className: 'imb-hint' },
+                  '通过腾讯 iLink Bot 官方接口接入，需要扫码登录。登录后该账号即可收发消息。'),
+                ilinkState?.lastError
+                  ? react.createElement('div', { className: 'imb-status err' }, ilinkState.lastError)
+                  : null,
+                react.createElement('div', { className: 'imb-row' },
+                  react.createElement('div', { className: 'imb-field' },
+                    react.createElement('span', { className: 'imb-label' }, '账号 ID'),
+                    react.createElement('input', {
+                      className: 'imb-input', value: form.ilinkAccountId, onChange: update('ilinkAccountId'),
+                      placeholder: '扫码登录后自动填入', spellCheck: false,
+                    }),
+                  ),
+                  react.createElement('div', { className: 'imb-field' },
+                    react.createElement('span', { className: 'imb-label' },
+                      'Token',
+                      state?.credentials?.ilinkToken
+                        ? react.createElement('span', { className: 'imb-tag on' }, '已保存')
+                        : react.createElement('span', { className: 'imb-tag off' }, '未配置'),
+                    ),
+                    react.createElement('input', {
+                      className: 'imb-input', type: 'password', value: secrets.ilinkToken,
+                      onChange: (event) => setSecrets((prev) => ({ ...prev, ilinkToken: event.target.value })),
+                      placeholder: state?.credentials?.ilinkToken ? '留空表示不修改' : '扫码登录后自动保存',
+                      spellCheck: false,
+                    }),
+                  ),
+                ),
+                react.createElement('label', { className: 'imb-switch' },
+                  react.createElement('input', { type: 'checkbox', checked: form.ilinkEnabled, onChange: (e) => toggleIlink(e.target.checked) }),
+                  '启用个人微信通道（iLink Bot）',
+                ),
+              ),
+              react.createElement(LoginPanel, {
+                rpcCall,
+                initial: state?.login ?? null,
+                onLoggedIn: () => { void reload(); },
+              }),
+            )
+          : null,
+
+        // 两个都没选时的友好提示
+        selectedChannels.length === 0
+          ? react.createElement('div', { className: 'imb-empty' },
+              '💡 点击上方渠道小卡片可展开对应渠道的详细参数配置与登录信息。')
+          : null,
 
         // 白名单
         react.createElement('div', { className: 'imb-card' },
@@ -593,6 +693,80 @@ window.__ModuleLoader__.load({
           react.createElement('button', {
             type: 'button', className: 'imb-btn imb-btn-primary', onClick: save, disabled: saving,
           }, saving ? '保存中…' : '保存设置'),
+        ),
+      );
+    }
+
+    /** 企业微信图标。 */
+    function IconWecom() {
+      return react.createElement('svg', {
+        width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none',
+        stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round',
+      },
+        react.createElement('path', { d: 'M17 11V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2v3l3.5-3H15' }),
+        react.createElement('path', { d: 'M19 13.5A2.5 2.5 0 0 0 21.5 11v-1a2.5 2.5 0 0 0-2.5-2.5h-1' }),
+        react.createElement('path', { d: 'M13.5 18H17a2 2 0 0 0 2-2v-4.5' }),
+      );
+    }
+
+    /** 个人微信图标。 */
+    function IconWechat() {
+      return react.createElement('svg', {
+        width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none',
+        stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round',
+      },
+        react.createElement('circle', { cx: '9', cy: '9', r: '6.5' }),
+        react.createElement('circle', { cx: '7.5', cy: '8.5', r: '1', fill: 'currentColor' }),
+        react.createElement('circle', { cx: '11.5', cy: '8.5', r: '1', fill: 'currentColor' }),
+        react.createElement('path', { d: 'M14.5 11.5a5 5 0 0 1-5 5c-.7 0-1.4-.2-2-.4L4.5 17.5l.6-2c-.6-.7-1.1-1.7-1.1-2.8' }),
+        react.createElement('circle', { cx: '15.5', cy: '14.5', r: '4.8' }),
+        react.createElement('circle', { cx: '14.2', cy: '14', r: '0.8', fill: 'currentColor' }),
+        react.createElement('circle', { cx: '17', cy: '14', r: '0.8', fill: 'currentColor' }),
+      );
+    }
+
+    /** 渠道多选小卡片。 */
+    function ChannelCard(props) {
+      const { id, title, subtitle, icon, tag, enabled, onToggleEnabled, selected, onToggleSelected } = props;
+      return react.createElement('div', {
+        className: `imb-channel-card ${selected ? 'selected' : ''}`,
+        onClick: () => onToggleSelected?.(id),
+      },
+        react.createElement('div', { className: 'imb-channel-card-top' },
+          react.createElement('div', { className: 'imb-channel-card-header' },
+            react.createElement('div', { className: `imb-channel-icon ${id}` }, icon),
+            react.createElement('div', { className: 'imb-channel-meta' },
+              react.createElement('span', { className: 'imb-channel-name' }, title),
+              react.createElement('span', { className: 'imb-channel-desc' }, subtitle),
+            ),
+          ),
+          react.createElement('span', { className: `imb-tag ${tag.cls}` }, tag.text),
+        ),
+        react.createElement('div', { className: 'imb-channel-card-bottom' },
+          react.createElement('span', {
+            className: `imb-channel-selection-indicator ${selected ? 'active' : ''}`,
+          },
+            react.createElement('input', {
+              type: 'checkbox',
+              checked: selected,
+              onChange: (e) => {
+                e.stopPropagation();
+                onToggleSelected?.(id);
+              },
+            }),
+            selected ? '已选择（配置展开）' : '点击选择（展开配置）',
+          ),
+          react.createElement('label', {
+            className: 'imb-switch',
+            onClick: (e) => e.stopPropagation(),
+          },
+            react.createElement('input', {
+              type: 'checkbox',
+              checked: enabled,
+              onChange: (e) => onToggleEnabled?.(e.target.checked),
+            }),
+            enabled ? '已启用' : '未启用',
+          ),
         ),
       );
     }

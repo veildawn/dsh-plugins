@@ -169,3 +169,8 @@ test('cordis.patch.yml 必须注入 connection 与 webServer，防止 HTTP 405',
   assert.ok(patchContent.includes('- webServer'), 'patch 必须注入 webServer');
   assert.ok(patchContent.includes('- connection'), 'patch 必须注入 connection');
 });
+
+test('客户端样式包含渠道多选卡片网格与卡片选中样式', () => {
+  assert.ok(CLIENT_CODE.includes('.imb-channel-grid'), '必须包含 .imb-channel-grid 样式');
+  assert.ok(CLIENT_CODE.includes('.imb-channel-card.selected'), '必须包含 .imb-channel-card.selected 选中高亮样式');
+});
