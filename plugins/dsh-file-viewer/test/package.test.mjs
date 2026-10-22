@@ -286,7 +286,10 @@ test('viewers remount per file and never render a partial preview', () => {
   assert.match(source, /仅显示源码/)
 
   // Regression: a slower in-flight meta response could overwrite a newer one.
-  assert.match(source, /metaTicket\.current !== ticket/)
+  // With tabs the guard is per tab, because two files are read in parallel and
+  // one shared counter would cancel the other file's read.
+  assert.match(source, /const metaTickets = react\.useRef\(new Map\(\)\)/)
+  assert.match(source, /if \(tickets\.get\(id\) !== ticket\) return/)
 })
 
 test('the viewer opens as a right-hand drawer with no sidebar entry', () => {
@@ -374,9 +377,10 @@ test('the viewer entry is seated exclusively on the composer toolbar (conversati
   assert.doesNotMatch(source, /openStore\.set\(false\)/)
   assert.doesNotMatch(source, /openStore\.set\(true\)/)
 
-  // The revealed directory's whole ancestor chain opens on arrival.
-  assert.match(source, /const chain = reveal === "" \? \[\] : \[\.\.\.ancestorsOf\(reveal\), reveal\]/)
-  assert.match(source, /for \(const dirPath of \["", \.\.\.chain\]\) loadDirectory\(dirPath\)/)
+  // The revealed directory's whole ancestor chain opens on arrival, on top of
+  // whatever the reader had already expanded.
+  assert.match(source, /const chain = revealChanged && reveal !== "" \? \[\.\.\.ancestorsOf\(reveal\), reveal\] : \[\]/)
+  assert.match(source, /for \(const dirPath of listings\) loadDirectory\(dirPath\)/)
 })
 
 test('registering in a conversation slot is declared in the manifest', () => {
@@ -909,7 +913,6 @@ test('the language picker offers auto plus the host catalog', () => {
   assert.match(source, /request\("languages", \{\}\)/)
   assert.match(source, /setLanguageCatalog\(value\?\.languages\)/)
   // "auto" is always first and is the default state.
-  assert.match(source, /const \[langChoice, setLangChoice\] = react\.useState\("auto"\)/)
   assert.match(source, /react\.createElement\("option", \{ value: "auto" \}, "自动"\)/)
   // A native select keeps keyboard and screen-reader support for free.
   assert.match(source, /className: "fv-lang-select"/)
@@ -922,12 +925,12 @@ test('the language picker offers auto plus the host catalog', () => {
   assert.match(source, /const readPayload = fromCommit/)
   assert.match(source, /request\(readMethod, readPayload\)/)
   // Choosing persists per file and re-reads immediately.
-  assert.match(source, /writeLangOverride\(root, meta\.path, next\)/)
-  assert.match(source, /setLangChoice\(readLangOverride\(root, entry\.path\)\)/)
-  // Switching root or filter clears the selection, which belonged to a file in
-  // the previous root: the picker is not even rendered while no file is
-  // selected, so a lingering value would silently apply to the next file.
-  assert.match(source, /setLangChoice\("auto"\);/)
+  assert.match(source, /writeLangOverride\(root, current\.meta\.path, next\)/)
+  assert.match(source, /lang: readLangOverride\(chosenRoot, path\)/)
+  // The choice lives on the tab, so switching tabs switches the pin with it
+  // instead of applying one file's grammar to the next file opened.
+  assert.match(source, /const localeTagOfActive = activeTab === null \? "auto" : \(activeTab\.lang \|\| "auto"\)/)
+  assert.match(source, /lang: localeTagOfActive/)
   // The picker is contextual to a source view; an image or sheet has no grammar.
   assert.match(source, /meta\.kind === "text" \|\| meta\.kind === "markdown" \|\| meta\.kind === "json"\)/)
 })
@@ -2618,9 +2621,11 @@ test('a commit preview reads the commit blob and says so', () => {
   // The pane states its provenance rather than looking like the current file.
   assert.match(source, /className: "fv-history-banner"/)
   assert.match(source, /这是历史版本，不是工作区当前内容/)
-  // Clicking a changed file opens that commit, not the working tree.
-  assert.match(source, /setPreviewCommit\(readSha\)/)
+  // Clicking a changed file opens that commit, not the working tree. The tab
+  // that row opens carries the hash the viewer later reads its blob from.
   assert.match(source, /const sha = commitSha/)
+  assert.match(source, /commit: readSha/)
+  assert.match(source, /const readMethod = fromCommit \? "gitCommitFile" : "read"/)
   // A deletion (and a rename's old path) has no blob in this commit, so the
   // parent is read instead; the row's own letter decides which.
   assert.match(source, /const fromParent = \(letter === "D" \|\| letter === "R"\) && parentSha !== ""/)
@@ -3046,10 +3051,12 @@ test('the drawer renders a leading-edge handle and applies the dragged width', (
 test('the back control records where a file preview came from', () => {
   const source = read('lib/client.js')
 
-  // The origin is recorded when a commit's file row is opened...
-  assert.match(source, /setPreviewOrigin\("commit"\)/)
+  // The origin is recorded when a commit's file row is opened, on the tab that
+  // row becomes: a tab knows what it came from, not the drawer.
+  assert.match(source, /origin: \{ kind: "commit", sha: sha \}/)
   // ...and the button names the step it will undo.
-  assert.match(source, /const backTarget = previewOrigin === "commit"/)
+  assert.match(source, /const originKind = previewOrigin === null \|\| previewOrigin === undefined \? null : previewOrigin\.kind/)
+  assert.match(source, /const backTarget = originKind === "commit"/)
   assert.match(source, /返回变更文件列表/)
   assert.match(source, /返回工作区改动列表/)
   // A button that silently does nothing reads as broken, so it is disabled
@@ -3057,8 +3064,8 @@ test('the back control records where a file preview came from', () => {
   assert.match(source, /disabled: !canGoBack/)
   // And it no longer jumps straight to the tree.
   assert.match(source, /const goBack = \(\) => \{/)
-  assert.match(source, /if \(previewOrigin === "commit"\) \{/)
-  assert.match(source, /if \(previewOrigin === "changes"\) \{/)
+  assert.match(source, /if \(origin !== null && origin !== undefined && origin\.kind === "commit"\) \{/)
+  assert.match(source, /if \(origin !== null && origin !== undefined && origin\.kind === "changes"\) \{/)
 })
 
 test('a disabled control is visibly unavailable', () => {
@@ -3071,25 +3078,26 @@ test('a disabled control is visibly unavailable', () => {
 
 test('returning from a commit file restores the changed-file list', () => {
   const source = read('lib/client.js')
-  // The commit branch re-opens the commit in its files view instead of leaving
-  // the pane; the hash is already loaded, so nothing is re-fetched.
-  const commitBranch = /if \(previewOrigin === "commit"\) \{([\s\S]*?)\n\s*return;/.exec(source)
+  // The commit branch re-opens the commit's file list instead of leaving the
+  // pane; the hash is already loaded, so nothing is re-fetched for the list.
+  const commitBranch = /if \(origin !== null && origin !== undefined && origin\.kind === "commit"\) \{([\s\S]*?)\n\s*return;/.exec(source)
   assert(commitBranch, 'the commit branch must exist')
   const body = commitBranch[1]
-  assert.match(body, /setShowCommit\(true\)/)
-  assert.match(body, /setCommitView\("files"\)/)
+  assert.match(body, /commitView: "files"/)
   assert.match(body, /setPane\("content"\)/)
-  // The stale blob path is cleared so the next preview cannot inherit it.
-  assert.match(body, /setPreviewCommit\(""\)/)
+  assert.match(body, /openCommit\(\{ sha: origin\.sha \}\)/)
+  // The stale blob hash is cleared so the next preview cannot inherit it.
+  assert.match(body, /commit: ""/)
 })
 
 test('leaving the preview entirely clears the selection', () => {
   const source = read('lib/client.js')
   // The final fallback must not merely switch panes: on desktop that had no
-  // visible effect, which is exactly the reported bug.
+  // visible effect, which is exactly the reported bug. With tabs it closes the
+  // tab, which leaves the pane showing "nothing is open" — the same place.
   const tail = source.slice(source.indexOf('const goBack = () => {'))
   const fallback = tail.slice(0, tail.indexOf('\n        };'))
-  assert.match(fallback, /setMeta\(null\)/)
+  assert.match(fallback, /closeTab\(activeTabId\)/)
   assert.match(fallback, /setError\(null\)/)
   assert.match(fallback, /setPane\("tree"\)/)
 })
@@ -3099,7 +3107,10 @@ test('a working-tree change is diffed for the row that was clicked', () => {
   // The row used to be discarded (`void row`), so the pane diffed whichever
   // file had been selected before.
   assert.doesNotMatch(source, /void row;/)
-  assert.match(source, /setPreviewChangePath\(row\.path\)/)
+  assert.match(source, /changePath: row\.path/)
+  // The tab's id is the path too, so clicking the same change twice focuses
+  // its tab instead of opening a second pane on the same file.
+  assert.match(source, /id: "change:" \+ row\.path/)
   // The pane receives that path, not `meta.path` from an unrelated selection.
   assert.match(source, /path: previewChangePath/)
 })
@@ -3122,33 +3133,80 @@ test('a renamed file is read from its old path but highlighted as clicked', () =
  * its content. Opening is a fresh session and must clear all of it.
  * -------------------------------------------------------------------------- */
 
-test('opening the drawer resets every view state left by the previous visit', () => {
+test('closing and reopening the drawer keeps the previous visit intact', () => {
   const source = read('lib/client.js')
 
-  // The reset lives in the roots effect, which runs on every open.
+  // Closing the drawer only hides it: the overlay stays mounted, so reopening
+  // must land on the same tabs, the same sidebar pane and the same expansion
+  // set. Wiping them on every open is what this test now guards against.
   const start = source.indexOf('if (request_ === null) return undefined;')
   assert(start > 0, 'the roots effect must exist')
-  const body = source.slice(start, start + 2000)
+  const body = source.slice(start, start + 3000)
 
-  for (const reset of [
-    'setSide("files")',
-    'setShowCommit(false)',
-    'setCommitView("files")',
-    'setPreviewCommit("")',
-    'setPreviewOrigin(null)',
-    'setPreviewChangePath("")',
-    'setMeta(null)',
-    'setError(null)',
-  ]) {
-    assert(body.includes(reset), `opening must reset ${reset}`)
+  // Nothing is cleared before the root is known; the decision needs the answer.
+  const rootsCall = body.indexOf('request("roots"')
+  const clearTabs = body.indexOf('setTabs(null)')
+  assert(rootsCall > 0, 'the roots request must be there')
+  assert(clearTabs > rootsCall, 'tabs may only be dropped once the resolved root is known')
+
+  // The reset is conditional on the visit changing, keyed by the resolved root.
+  assert.match(body, /const sameContext = resolvedRoot !== "" && resolvedRoot === visitContextRef\.current/)
+  assert.match(body, /if \(!sameContext\) \{/)
+  assert.match(body, /visitContextRef\.current = resolvedRoot/)
+  // Everything the tab model replaced (showCommit/previewCommit/...) is gone,
+  // so there is no per-view flag left to leak between visits either.
+  for (const gone of ['setShowCommit', 'setPreviewCommit', 'setPreviewOrigin', 'setMeta(null)']) {
+    assert.equal(body.includes(gone), false, `${gone} must not exist any more`)
   }
+  // The sidebar pane is deliberately NOT reset on reopen: the reader left the
+  // Git panel open and expects to find it there.
+  assert.equal(body.includes('setSide("files")'), false, 'reopening must keep the sidebar pane')
+})
 
-  // The reset is synchronous, before the request that resolves the root: a
-  // stale preview must not paint while the new one loads.
-  assert(
-    body.indexOf('setPreviewCommit("")') < body.indexOf('request("roots"'),
-    'the reset must happen before the roots request',
-  )
+test('the Git panel is not wiped when the drawer merely reopens', () => {
+  const source = read('lib/client.js')
+  const start = source.indexOf('const gitRootRef = react.useRef(null);')
+  assert(start > 0, 'the git root ref must exist')
+  const body = source.slice(start, start + 700)
+  // A commit tab reopened from the previous visit needs its detail, and the
+  // branch the reader was browsing is part of "the same visit".
+  assert.match(body, /if \(gitRootRef\.current === root\) return;/)
+  assert.match(body, /git\.reset\(root\)/)
+  // Null (never initialised) is distinct from the empty root of the first
+  // render, so the very first resolution still initialises the controller.
+  assert.match(source, /const gitRootRef = react\.useRef\(null\)/)
+})
+
+test('the tree is only rebuilt when its context actually changed', () => {
+  const source = read('lib/client.js')
+  assert.match(source, /const treeBuiltForRef = react\.useRef\(\{ root: "", hidden: null, reveal: "" \}\)/)
+  const start = source.indexOf('const built = treeBuiltForRef.current;')
+  assert(start > 0, 'the tree build guard must exist')
+  // Read to the end of the effect rather than a fixed window, so the assertions
+  // below cannot silently race a comment being added inside the same effect.
+  const body = source.slice(start, source.indexOf('}, [open, root, hidden, reveal]);', start))
+  // Reopening with the same root/filter/reveal is not a rebuild: the reader's
+  // expansion set survives, which is what "comes back the way I left it" means.
+  assert.match(body, /if \(!rootChanged && !filterChanged && !revealChanged\) return;/)
+  // A reopen still re-reads the listings the tree is showing, so the contents
+  // are current even though the shape is remembered.
+  assert.match(body, /for \(const dirPath of listings\) loadDirectory\(dirPath\)/)
+})
+
+test('a different root starts over, because paths only mean one thing there', () => {
+  const source = read('lib/client.js')
+
+  // The tree keeps its shape across a reopen but not across a root switch.
+  assert.match(source, /const rootChanged = built\.root !== root/)
+  assert.match(source, /if \(!rootChanged && !filterChanged && !revealChanged\) return/)
+  // A root switch drops the tabs, the expansion set and returns to the tree.
+  const block = /if \(rootChanged\) \{([\s\S]*?)\n\s*\}/.exec(source)
+  assert(block, 'the rootChanged branch must exist')
+  for (const effect of ['setTabs(null)', 'setExpanded(new Set())', 'setPane("tree")']) {
+    assert(block[1].includes(effect), `a root switch must ${effect}`)
+  }
+  // And the listing is rebuilt for the new root instead of being reused.
+  assert.match(source, /for \(const dirPath of listings\) loadDirectory\(dirPath\)/)
 })
 
 test('a plain file is never read as a history blob', () => {
@@ -3157,14 +3215,17 @@ test('a plain file is never read as a history blob', () => {
   // A preview only becomes a blob lookup when an actual commit hash is carried.
   assert.match(source, /const fromCommit = typeof commit === "string" && commit !== ""/)
   // And that hash only comes from opening a row inside a commit's file list.
-  const openers = source.match(/setPreviewCommit\([^)]*\)/g) || []
+  // Tabs opened from the tree always carry the empty string.
+  const openers = source.match(/commit: (readSha|""|previewCommit)/g) || []
+  assert(openers.length >= 2, 'both openers must declare their commit source')
   for (const opener of openers) {
-    // Every assignment is either the commit hash just resolved, or a clear.
     assert(
-      /setPreviewCommit\((readSha|"")\)/.test(opener),
+      /commit: (readSha|""|previewCommit)/.test(opener),
       `unexpected preview commit source: ${opener}`,
     )
   }
+  // The tree opener is empty by construction.
+  assert.match(source, /kind: "file",[\s\S]{0,400}?commit: "",/)
 })
 
 /* -------------------------------------------------------------------------- *
@@ -3221,4 +3282,190 @@ test('the diff leads only for a file opened from a commit', () => {
   assert.match(source, /\.\.\.\(fromCommit && diffTab !== null\s*\n\s*\? \[diffTab, contentTab, sourceTab\]\s*\n\s*: \[contentTab, sourceTab, diffTab\]\)/)
   // The label is explicit when the two views are siblings.
   assert.match(source, /fromCommit \? "完整内容" : "内容"/)
+})
+
+/* -------------------------------------------------------------------------- *
+ * The content area is a set of tabs
+ *
+ * One preview used to be the whole pane, so opening a second file silently
+ * replaced the first. The pane is now a tab list: every open file, commit and
+ * working-tree change keeps its own description, and a right-click on any tab
+ * offers 刷新当前 / 关闭当前 / 关闭其它 / 关闭所有.
+ * -------------------------------------------------------------------------- */
+
+test('the content area holds tabs instead of a single preview', () => {
+  const source = read('lib/client.js')
+
+  // The list, its active id and its menu are the only content-area state; the
+  // per-view flags the single preview needed are derived from the active tab.
+  assert.match(source, /const \[tabs, setTabs\] = react\.useState\(null\)/)
+  assert.match(source, /const \[activeTabId, setActiveTabId\] = react\.useState\(""\)/)
+  assert.match(source, /const activeTab = \(\(\) => \{/)
+  // The derived values keep every existing handler reading the same names.
+  assert.match(source, /const meta = activeTab === null \? null :/)
+  assert.match(source, /const previewCommit = activeTab === null \? "" :/)
+  assert.match(source, /const showCommit = activeTab !== null && \(activeTab\.kind === "commit" \|\| activeTab\.kind === "change"\)/)
+
+  // A tab is identified by what it shows, so re-opening focuses rather than
+  // duplicating, and the ids of the three kinds cannot collide.
+  assert.match(source, /const id = "file:" \+ path/)
+  assert.match(source, /const id = "file:" \+ blobPath \+ "\\u0000" \+ readSha/)
+  assert.match(source, /id: "change:" \+ row\.path/)
+  assert.match(source, /const id = "commit:" \+ sha/)
+})
+
+test('the tab strip renders and marks the active tab', () => {
+  const source = read('lib/client.js')
+
+  assert.match(source, /function TabStrip\(\{ tabs, activeId, onActivate, onClose, onContextMenu, menuFor \}\)/)
+  assert.match(source, /className: "fv-tab-cell"/)
+  assert.match(source, /"aria-selected": selected \? "true" : "false"/)
+  assert.match(source, /role: "tablist"/)
+  // The strip is rendered inside the content area, above the head.
+  assert.match(source, /react\.createElement\(TabStrip, \{/)
+  assert.match(source, /className: "fv-tabs"/)
+  // An empty content area says so rather than rendering nothing at all.
+  assert.match(source, /className: "fv-tabs-empty"/)
+  assert.match(source, /未打开文件/)
+})
+
+test('a tab offers refresh, close, close others and close all', () => {
+  const source = read('lib/client.js')
+
+  // The four items, asserted by their labels: they are what the request named.
+  assert.match(source, /label: "刷新当前"/)
+  assert.match(source, /label: "关闭当前"/)
+  assert.match(source, /label: "关闭其它"/)
+  assert.match(source, /label: "关闭所有"/)
+
+  // Right-click on a tab opens its own menu, not the file tree's.
+  assert.match(source, /onContextMenu: \(event\) => \{\s*\n\s*event\.preventDefault\(\);\s*\n\s*event\.stopPropagation\(\);\s*\n\s*onContextMenu\(\{ tabId: tab\.id, x: event\.clientX, y: event\.clientY \}\);/)
+  assert.match(source, /function TabContextMenu\(\{ menu, tabs, onClose, onAction \}\)/)
+  assert.match(source, /react\.createElement\(TabContextMenu, \{/)
+
+  // Every item maps to one list operation.
+  assert.match(source, /if \(action === "refresh"\) refreshTab\(id\);/)
+  assert.match(source, /else if \(action === "close"\) closeTab\(id\);/)
+  assert.match(source, /else if \(action === "others"\) closeTabs\(current\.filter\(\(tab\) => tab\.id !== id\)\.map\(\(tab\) => tab\.id\)\);/)
+  assert.match(source, /else if \(action === "all"\) closeTabs\(current\.map\(\(tab\) => tab\.id\)\);/)
+})
+
+test('closing tabs lands on a neighbour and never resurrects the closed one', () => {
+  const { tabsAfterClose } = loadClient().internals
+  const list = ['a', 'b', 'c', 'd'].map((id) => ({ id }))
+  const ids = (rows) => rows.map((row) => row.id)
+
+  // Closing the tab that was on screen lands on its RIGHT neighbour, measured
+  // in the list as it was — closing a middle tab must not jump to the end.
+  assert.deepEqual(ids(tabsAfterClose(list, 'b', ['b']).tabs), ['a', 'c', 'd'])
+  assert.equal(tabsAfterClose(list, 'b', ['b']).activeId, 'c')
+  // The rightmost tab has no right neighbour, so it falls back to the left.
+  assert.equal(tabsAfterClose(list, 'd', ['d']).activeId, 'c')
+  // The leftmost tab falls forward to its right neighbour.
+  assert.equal(tabsAfterClose(list, 'a', ['a']).activeId, 'b')
+  // Closing a tab other than the one on screen keeps the reader where they were.
+  const kept = tabsAfterClose(list, 'c', ['b'])
+  assert.deepEqual(ids(kept.tabs), ['a', 'c', 'd'])
+  assert.equal(kept.activeId, 'c')
+
+  // "Close others" and "close all" are the same operation with a different set.
+  const others = tabsAfterClose(list, 'c', ['a', 'b', 'd'])
+  assert.deepEqual(ids(others.tabs), ['c'])
+  assert.equal(others.activeId, 'c')
+  const all = tabsAfterClose(list, 'a', ['a', 'b', 'c', 'd'])
+  assert.deepEqual(ids(all.tabs), [])
+  // An empty active id is exactly what the pane reads as "no tab open", which
+  // is what hands the content area back to the sidebar.
+  assert.equal(all.activeId, '')
+  // Nothing to close, and unknown ids, must be no-ops rather than resurrecting
+  // or clearing the list.
+  assert.equal(tabsAfterClose(list, 'a', []), null)
+  assert.equal(tabsAfterClose(list, 'a', ['zzz']), null)
+  // Closing into an already empty list is a no-op too, not a phantom result.
+  assert.equal(tabsAfterClose([], '', ['a']), null)
+})
+
+test('opening an already open file focuses its tab instead of duplicating it', () => {
+  const { tabsAfterUpsert } = loadClient().internals
+  const first = tabsAfterUpsert([], '', { id: 'file:a.ts', title: 'a.ts', path: 'a.ts' })
+  assert.equal(first.tabs.length, 1)
+  assert.equal(first.activeId, 'file:a.ts')
+  const second = tabsAfterUpsert(first.tabs, 'file:a.ts', { id: 'file:b.ts', title: 'b.ts', path: 'b.ts' })
+  assert.deepEqual(second.tabs.map((tab) => tab.id), ['file:a.ts', 'file:b.ts'])
+  assert.equal(second.activeId, 'file:b.ts', 'a new tab comes forward')
+
+  // Re-opening the first one keeps two tabs, updates in place and focuses it.
+  const again = tabsAfterUpsert(second.tabs, 'file:b.ts', { id: 'file:a.ts', title: 'a.ts (re)', path: 'a.ts' })
+  assert.equal(again.tabs.length, 2, 'an already open file must not open a second tab')
+  assert.deepEqual(again.tabs.map((tab) => tab.id), ['file:a.ts', 'file:b.ts'], 'the tab keeps its seat')
+  assert.equal(again.tabs[0].title, 'a.ts (re)', 'the description is refreshed in place')
+  assert.equal(again.activeId, 'file:a.ts')
+  // A draft never opened through a commit carries no origin, which the back
+  // control reads as "nowhere to go back to".
+  assert.equal(first.tabs[0].origin, null)
+})
+
+test('returning to a tab whose git detail was replaced re-reads it', () => {
+  const source = read('lib/client.js')
+  // The Git controller holds one commit's detail at a time; coming back to a
+  // commit tab must re-read rather than render another commit under its title.
+  assert.match(source, /if \(tab\.kind === "commit"\) \{\s*\n\s*const sha = id\.slice\("commit:"\.length\);/)
+  assert.match(source, /if \(!loaded\) git\.openCommit\(sha\);/)
+  // The tab's own hash is what its header and diff read, not the controller's.
+  assert.match(source, /const activeCommitSha = activeTab !== null && activeTab\.kind === "commit"/)
+  assert.match(source, /const commitSha = activeCommitSha !== ""/)
+  // An unknown id is ignored instead of being created on the spot.
+  assert.match(source, /const activateTab = \(id\) => \{\s*\n\s*const current = tabList\(\);/)
+  assert.match(source, /if \(tab === undefined\) return;/)
+})
+
+test('the top toolbar refresh also re-reads the tab on screen', () => {
+  const source = read('lib/client.js')
+  const start = source.indexOf('const refresh = () => {')
+  const body = source.slice(start, start + 1200)
+  // Refreshing the tree around a stale preview leaves the file the reader is
+  // actually looking at unchanged, which reads as "refresh does nothing".
+  assert.match(body, /if \(activeTabId !== ""\) refreshTab\(activeTabId\);/)
+  // The commit to restore belongs to the tab on screen, not to whichever
+  // detail the Git controller holds.
+  assert.match(body, /const keepSha = activeTab !== null && activeTab\.kind === "commit"/)
+})
+
+test('refreshing a tab re-reads what that tab shows', () => {
+  const source = read('lib/client.js')
+
+  assert.match(source, /const refreshTab = \(id\) => \{/)
+  // A commit tab re-runs the commit read; a file tab re-reads its metadata;
+  // a historical blob has nothing to re-read but its bytes, so it remounts.
+  assert.match(source, /if \(tab\.kind === "commit"\) \{\s*\n\s*git\.openCommit\(tab\.id\.slice\("commit:"\.length\)\);/)
+  assert.match(source, /patchTab\(id, \(current\) => \(\{ \.\.\.current, status: "loading", epoch: \(current\.epoch \|\| 0\) \+ 1 \}\)\);/)
+  assert.match(source, /request\("meta", \{ root, path: tab\.path \}\)/)
+  // The epoch is part of the remount key, which is what makes the refresh
+  // visible instead of returning the same cached subtree.
+  assert.match(source, /resetKey: activeTab === null\s*\n\s*\? ""\s*\n\s*: activeTab\.id \+ "\\u0000" \+ \(activeTab\.epoch \|\| 0\),/)
+})
+
+test('switching tabs switches the file, the language pin and the origin', () => {
+  const source = read('lib/client.js')
+
+  // Everything the pane shows comes from the active tab, so two tabs cannot
+  // bleed into one another the way one shared preview state did.
+  assert.match(source, /const previewChangePath = activeTab === null \? "" : \(activeTab\.changePath \|\| ""\);/)
+  assert.match(source, /const localeTagOfActive = activeTab === null \? "auto" : \(activeTab\.lang \|\| "auto"\);/)
+  assert.match(source, /const previewOrigin = activeTab === null \? null : \(activeTab\.origin \|\| null\);/)
+  assert.match(source, /const commitView = activeTab === null \? "files" : \(activeTab\.commitView \|\| "files"\);/)
+  // The language picker writes to the tab it applies to.
+  assert.match(source, /patchTab\(current\.id, \(tab\) => \(\{ \.\.\.tab, lang: next \}\)\);/)
+  // Switching the commit pane's view is a tab update, not a drawer-wide flag.
+  assert.match(source, /patchTab\(activeTab\.id, \(tab\) => \(\{ \.\.\.tab, commitView: next \}\)\);/)
+})
+
+test('the tab set is dropped when the drawer reopens or the root changes', () => {
+  const source = read('lib/client.js')
+
+  // Two resets, both for the same reason: a tab names a path that only means
+  // one thing under the root it was opened in.
+  const resets = source.match(/tabsRef\.current = null;/g) || []
+  assert(resets.length >= 2, 'both the open path and the root path must drop the tabs')
+  assert.match(source, /tabsRef\.current = null;\s*\n\s*setTabs\(null\);\s*\n\s*activeTabIdRef\.current = "";\s*\n\s*setActiveTabId\(""\);/)
 })

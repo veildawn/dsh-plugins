@@ -414,6 +414,20 @@ window.__ModuleLoader__.load({
       .fv-glyph-open{transform:rotate(90deg)}
       .fv-tree-status{padding:4px 8px;color:var(--dsw-alias-label-caption);font-size:12px;line-height:20px}
       .fv-main{display:flex;flex:1 1 auto;flex-direction:column;min-width:0;min-height:0}
+      /* 主内容区的多标签栏：一行横向滚动，每个标签是一个带关闭按钮的按钮组。
+         标签本身不是按钮里套按钮（HTML 不允许），所以外面是 div[role=tab]，
+         内部的关闭与标题各是一个 button。 */
+      .fv-tabs{display:flex;flex:none;align-items:stretch;gap:2px;padding:4px 6px 0;overflow-x:auto;overflow-y:hidden;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1,transparent);scrollbar-width:thin}
+      .fv-tabs::-webkit-scrollbar{height:4px}
+      .fv-tabs-empty{flex:1 1 auto;padding:4px 8px 6px;color:var(--dsw-alias-label-caption);font-size:12px;white-space:nowrap}
+      .fv-tab-cell{display:inline-flex;flex:none;align-items:center;gap:2px;max-width:220px;min-width:0;height:30px;padding:0 2px 0 10px;border:1px solid transparent;border-bottom:none;border-radius:8px 8px 0 0;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
+      .fv-tab-cell:hover{background:var(--dsw-alias-interactive-bg-hover)}
+      .fv-tab-cell[aria-selected="true"]{border-color:var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font-weight:500}
+      .fv-tab-cell[data-menu="true"]{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:-2px}
+      .fv-tab-label{flex:0 1 auto;min-width:0;max-width:170px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:none;border:none;padding:0;color:inherit;font:inherit;cursor:pointer;text-align:left}
+      .fv-tab-dir{flex:0 0 auto;color:var(--dsw-alias-label-caption);font-size:11px;max-width:96px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+      .fv-tab-close{flex:none;display:inline-grid;place-items:center;width:18px;height:18px;padding:0;border:none;border-radius:4px;background:none;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:14px;line-height:1;cursor:pointer}
+      .fv-tab-close:hover{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary)}
       .fv-main-head{display:flex;flex:none;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:12px}
       .fv-main-name{flex:1 1 auto;min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-weight:500;white-space:nowrap;text-overflow:ellipsis}
       .fv-lang{display:inline-flex;flex:none;align-items:center;gap:4px;min-width:0}
@@ -680,6 +694,13 @@ window.__ModuleLoader__.load({
         @keyframes fv-menu-slide-up{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
         .fv-context-item{height:46px!important;font-size:15px!important;padding:0 14px!important;border-radius:12px!important}
         .fv-context-item-icon{width:22px!important;height:22px!important;font-size:16px!important}
+        /* 手机上标签栏同样要能滚动，关闭按钮放大到可点面积。 */
+        .fv-tabs{padding:4px 4px 0!important}
+        .fv-tab-cell{height:34px!important;max-width:190px!important}
+        .fv-tab-label{max-width:120px!important}
+        .fv-tab-dir{display:none!important}
+        .fv-tab-close{width:24px!important;height:24px!important;font-size:16px!important}
+        .fv-main-head{padding:6px 8px!important;gap:6px!important}
         /* SafePathsModal 移动端自适应优化：输入框与添加按钮纵向铺满，防溢出 */
         .fv-modal-scrim{padding:10px!important}
         .fv-modal{width:min(96vw,560px)!important;max-height:min(90dvh,90vh,680px)!important;border-radius:16px!important}
@@ -1483,6 +1504,20 @@ window.__ModuleLoader__.load({
       const trimmed = String(path || "").replace(/[\\/]+$/, "");
       const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
       return cut < 0 ? trimmed : trimmed.slice(cut + 1);
+    }
+
+    /**
+     * The directory part of a root-relative path, or "" at the top level.
+     *
+     * Used as the secondary line on a tab: two open files with the same name
+     * from different folders would otherwise be indistinguishable.
+     * @param {string} path - root-relative path.
+     * @returns {string} its directory, without a trailing separator.
+     */
+    function directoryOf(path) {
+      const trimmed = String(path || "").replace(/[\\/]+$/, "");
+      const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+      return cut <= 0 ? "" : trimmed.slice(0, cut);
     }
 
     /**
@@ -2842,6 +2877,271 @@ window.__ModuleLoader__.load({
       return groups;
     }
 
+    /**
+     * The items a tab's context menu offers, in order.
+     *
+     * Exported (through `internals`) rather than inlined so the labels are
+     * asserted by the tests instead of drifting from the request that named
+     * them: 刷新当前 / 关闭当前 / 关闭其它 / 关闭所有.
+     *
+     * @type {Array<{key: string, icon: string, label: string}>}
+     */
+    const TAB_MENU_ITEMS = [
+      { key: "refresh", icon: "↻", label: "刷新当前" },
+      { key: "close", icon: "×", label: "关闭当前" },
+      { key: "others", icon: "⇤", label: "关闭其它" },
+      { key: "all", icon: "⊗", label: "关闭所有" },
+    ];
+
+    /**
+     * Apply closes to a tab list and say which tab is on screen afterwards.
+     *
+     * Pure so the rule is testable without a renderer, and so the three menu
+     * items ("close current / others / all") are one implementation instead of
+     * three: they differ only in the set of ids handed to this function.
+     *
+     * The landing tab is the neighbour on the right of the tab that was on
+     * screen, then the one on the left, and finally the first survivor — the
+     * order every tabbed editor uses. When nothing survives, the active id
+     * becomes the empty string, which is what the pane reads as "no tab".
+     *
+     * Returns null when the closes would change nothing, so callers can skip a
+     * re-render (and so closing an id that is not in the list is a no-op rather
+     * than a resurrection).
+     *
+     * @param {Array<{id: string}>} tabs - the current list.
+     * @param {string} activeId - the tab on screen now.
+     * @param {Array<string>} ids - tabs to close.
+     * @returns {{tabs: Array<object>, activeId: string} | null}
+     */
+    function tabsAfterClose(tabs, activeId, ids) {
+      const current = Array.isArray(tabs) ? tabs : [];
+      const doomed = new Set(Array.isArray(ids) ? ids : []);
+      if (doomed.size === 0) return null;
+      const next = current.filter((tab) => !doomed.has(tab.id));
+      if (next.length === current.length) return null;
+      if (!doomed.has(activeId) && next.some((tab) => tab.id === activeId)) {
+        return { tabs: next, activeId };
+      }
+      if (next.length === 0) return { tabs: next, activeId: "" };
+      // Measured in the OLD list: closing a middle tab must land on its right
+      // neighbour, not on whatever ends up at the same index afterwards.
+      const index = current.findIndex((tab) => tab.id === activeId);
+      const right = current.slice(index + 1).find((tab) => !doomed.has(tab.id));
+      const left = current.slice(0, Math.max(0, index)).reverse().find((tab) => !doomed.has(tab.id));
+      const landing = right || left || next[0];
+      return { tabs: next, activeId: landing.id };
+    }
+
+    /**
+     * The tab that should be on screen after `activate` is brought forward.
+     *
+     * Only meaningful for the "reopen an already open file" path: the reader
+     * expects the tab to come forward, not to be replaced, and definitely not
+     * to be duplicated.
+     *
+     * @param {Array<object>} tabs - the current list.
+     * @param {string} activeId - the tab on screen now.
+     * @param {object} draft - the tab to open or update (must carry an `id`).
+     * @returns {{tabs: Array<object>, activeId: string}}
+     */
+    function tabsAfterUpsert(tabs, activeId, draft) {
+      const current = Array.isArray(tabs) ? tabs : [];
+      const existing = current.find((tab) => tab.id === draft.id);
+      if (existing === undefined) {
+        return { tabs: current.concat([{ ...draft, origin: draft.origin === undefined ? null : draft.origin }]), activeId: draft.id };
+      }
+      // Updating in place keeps the tab where it already sits in the strip.
+      return { tabs: current.map((tab) => (tab.id === draft.id ? { ...tab, ...draft } : tab)), activeId: draft.id };
+    }
+
+    /**
+     * The content area's tab strip.
+     *
+     * One tab per opened file, commit or working-tree change. The strip is a
+     * plain horizontal scroller: the drawer is narrow and a wrapping strip
+     * would eat the space the preview needs, so overflow scrolls instead.
+     *
+     * Right-clicking any tab opens the four-item menu the reader asked for
+     * (refresh / close / close others / close all); the same menu is reachable
+     * from the keyboard via Shift+F10 or the ContextMenu key, because a
+     * pointer-only affordance is a defect on a phone.
+     *
+     * @param {{tabs: Array<object>, activeId: string, onActivate: Function, onClose: Function, onContextMenu: Function, menuFor: string}} props
+     */
+    function TabStrip({ tabs, activeId, onActivate, onClose, onContextMenu, menuFor }) {
+      const rows = Array.isArray(tabs) ? tabs : [];
+      if (rows.length === 0) {
+        return react.createElement("div", { className: "fv-tabs", role: "tablist", "aria-label": "已打开的文件" },
+          react.createElement("span", { className: "fv-tabs-empty" }, "未打开文件"));
+      }
+      return react.createElement("div", {
+        className: "fv-tabs",
+        role: "tablist",
+        "aria-label": "已打开的文件",
+      }, ...rows.map((tab) => {
+        const selected = tab.id === activeId;
+        // The directory part is a secondary hint: two files with the same
+        // name from different folders would otherwise look identical.
+        const directory = typeof tab.dir === "string" ? tab.dir : "";
+        return react.createElement("div", {
+          key: tab.id,
+          className: "fv-tab-cell",
+          role: "tab",
+          "aria-selected": selected ? "true" : "false",
+          "data-menu": menuFor === tab.id ? "true" : "false",
+          title: tab.path !== "" ? tab.path : tab.title,
+          onClick: () => onActivate(tab.id),
+          onContextMenu: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onContextMenu({ tabId: tab.id, x: event.clientX, y: event.clientY });
+          },
+          onKeyDown: (event) => {
+            // Shift+F10 and the dedicated ContextMenu key are what a keyboard
+            // has instead of a right click.
+            if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+              event.preventDefault();
+              const box = event.currentTarget.getBoundingClientRect();
+              onContextMenu({ tabId: tab.id, x: box.left + 12, y: box.bottom - 4 });
+              return;
+            }
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onActivate(tab.id);
+              return;
+            }
+            // Arrow keys walk the strip the way a tablist is expected to.
+            if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+              event.preventDefault();
+              const index = rows.findIndex((row) => row.id === tab.id);
+              const step = event.key === "ArrowRight" ? 1 : -1;
+              const next = rows[(index + step + rows.length) % rows.length];
+              if (next !== undefined) onActivate(next.id);
+            }
+          },
+          tabIndex: selected ? 0 : -1,
+        },
+          react.createElement("button", {
+            type: "button",
+            className: "fv-tab-label",
+            // The tab cell already handles activation; this button exists so
+            // the label is a real control for screen readers and touch.
+            onClick: (event) => { event.stopPropagation(); onActivate(tab.id); },
+            title: tab.path !== "" ? tab.path : tab.title,
+          }, tab.title),
+          directory !== ""
+            ? react.createElement("span", { className: "fv-tab-dir" }, directory)
+            : null,
+          react.createElement("button", {
+            type: "button",
+            className: "fv-tab-close",
+            "aria-label": "关闭 " + tab.title,
+            title: "关闭",
+            onClick: (event) => { event.stopPropagation(); onClose(tab.id); },
+          }, "×"));
+      }));
+    }
+
+    /**
+     * The four-item menu a tab offers on right click.
+     *
+     * Deliberately its own component instead of a mode of the file-tree menu:
+     * the subjects differ (a tab versus a path), and merging them produced
+     * items that made no sense on one of the two.
+     *
+     * @param {{menu: object, tabs: Array<object>, onClose: Function, onAction: Function}} props
+     */
+    function TabContextMenu({ menu, tabs, onClose, onAction }) {
+      const ref = react.useRef(null);
+      const mountTimeRef = react.useRef(Date.now());
+      react.useEffect(() => {
+        mountTimeRef.current = Date.now();
+        const handlePointerDown = (event) => {
+          if (Date.now() - mountTimeRef.current < 400) return;
+          if (ref.current && !ref.current.contains(event.target)) onClose();
+        };
+        const handleKeyDown = (event) => {
+          if (event.key === "Escape") onClose();
+        };
+        const handleScroll = (event) => {
+          if (Date.now() - mountTimeRef.current < 400) return;
+          if (event.target === window || event.target === document || event.target === document.body) onClose();
+        };
+        window.addEventListener("pointerdown", handlePointerDown);
+        window.addEventListener("keydown", handleKeyDown);
+        window.addEventListener("scroll", handleScroll);
+        window.addEventListener("resize", onClose);
+        return () => {
+          window.removeEventListener("pointerdown", handlePointerDown);
+          window.removeEventListener("keydown", handleKeyDown);
+          window.removeEventListener("scroll", handleScroll);
+          window.removeEventListener("resize", onClose);
+        };
+      }, [onClose]);
+
+      if (menu === null || menu === undefined) return null;
+      const rows = Array.isArray(tabs) ? tabs : [];
+      const target = rows.find((tab) => tab.id === menu.tabId) || null;
+      const winW = typeof window !== "undefined" ? window.innerWidth : 1000;
+      const winH = typeof window !== "undefined" ? window.innerHeight : 800;
+      const top = Math.max(8, Math.min(menu.y, winH - 240)) + "px";
+      const left = Math.max(8, Math.min(menu.x, winW - 210)) + "px";
+
+      // Which items can do anything is decided from the list, not left to
+      // the view: "close others" with one tab open is a no-op that would
+      // look like a broken button.
+      const disabled = {
+        refresh: target === null,
+        close: target === null,
+        others: rows.length < 2,
+        all: rows.length === 0,
+      };
+
+      return react.createElement(react.Fragment, null,
+        react.createElement("div", {
+          className: "fv-context-backdrop",
+          onClick: (event) => {
+            event.stopPropagation();
+            if (Date.now() - mountTimeRef.current < 400) return;
+            onClose();
+          },
+          onContextMenu: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (Date.now() - mountTimeRef.current < 400) return;
+            onClose();
+          },
+        }),
+        react.createElement("div", {
+          ref,
+          className: "fv-context-menu",
+          style: { top, left },
+          role: "menu",
+          "aria-label": "标签操作",
+          onContextMenu: (event) => event.preventDefault(),
+        },
+          react.createElement("div", { className: "fv-context-head" },
+            react.createElement("div", { className: "fv-context-title" }, target === null ? "标签" : target.title),
+            target !== null && target.path !== "" && target.path !== target.title
+              ? react.createElement("div", { className: "fv-context-path" }, target.path)
+              : null),
+          ...TAB_MENU_ITEMS.map((item) => react.createElement("button", {
+            key: item.key,
+            type: "button",
+            className: "fv-context-item",
+            role: "menuitem",
+            disabled: disabled[item.key] === true,
+            onClick: (event) => {
+              event.stopPropagation();
+              onClose();
+              onAction(item.key, menu.tabId);
+            },
+          },
+            react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, item.icon),
+            react.createElement("span", { className: "fv-context-item-label" }, item.label)))));
+    }
+
     function apply(ctx) {
       ensureStyles(typeof document === "undefined" ? null : document);
       // `null` is closed; an object is open. Carrying the requesting session lets
@@ -3570,9 +3870,12 @@ window.__ModuleLoader__.load({
       }
 
       /** Pick the viewer for a file and keep unsupported formats useful. */
-      function FileView({ meta, root, api, wrap, lang, onDownload, commit, repo }) {
+      function FileView({ meta, root, api, wrap, lang, onDownload, commit, repo, loading }) {
         if (meta === null) {
-          return react.createElement("div", { className: "fv-note" }, "从左侧选择一个文件。");
+          // A tab exists but its metadata is still in flight. Saying "pick a
+          // file" there would be a lie, and the reader would click again.
+          return react.createElement("div", { className: "fv-note" },
+            loading === true ? "正在读取文件…" : "从左侧选择一个文件。");
         }
         if (meta.tooLarge || meta.kind === "binary") {
           return react.createElement("div", { className: "fv-note" },
@@ -3623,6 +3926,7 @@ window.__ModuleLoader__.load({
         return react.createElement(react.Fragment, null, banner,
           react.createElement(TextView, { key, meta, root, wrap, lang, commit, repo }));
       }
+
 
       /** Right-click context menu for file and directory items. */
       function ContextMenu({ menu, rootPath, onClose, onMention, onToast, onDownload }) {
@@ -3765,6 +4069,7 @@ window.__ModuleLoader__.load({
         if (!toast) return null;
         return react.createElement("div", { className: "fv-toast", role: "status" }, toast);
       }
+
 
       /** Safe Access Paths Configuration Dialog */
       function SafePathsModal({ open, onClose, onToast, onUpdated, prefillPath }) {
@@ -3927,7 +4232,9 @@ window.__ModuleLoader__.load({
         // collapsing and reopening costs nothing.
         const [expanded, setExpanded] = react.useState(() => new Set());
         const [nodes, setNodes] = react.useState(() => new Map());
-        const [meta, setMeta] = react.useState(null);
+        // The preview's own metadata is no longer a standalone piece of state:
+        // it belongs to the tab that opened it, so switching tabs switches the
+        // file. `meta` is derived from the active tab further down.
         const [hidden, setHidden] = react.useState(false);
         const [safeModalOpen, setSafeModalOpen] = react.useState(false);
         const [prefillPath, setPrefillPath] = react.useState("");
@@ -4040,9 +4347,8 @@ window.__ModuleLoader__.load({
         // Soft wrap for source views. Off by default: code is written with
         // meaningful line breaks and wrapping obscures them.
         const [wrap, setWrap] = react.useState(false);
-        // The language override for the selected file: "auto" follows the
-        // host's name-then-content resolution, any other id pins a grammar.
-        const [langChoice, setLangChoice] = react.useState("auto");
+        // The language override now lives on the tab it applies to (see
+        // `localeTagOfActive`), so switching tabs switches the pin with it.
         const [fullscreen, setFullscreen] = react.useState(false);
         const [isMobile, setIsMobile] = react.useState(() => {
           if (typeof window === "undefined") return false;
@@ -4075,28 +4381,35 @@ window.__ModuleLoader__.load({
         // Which sidebar pane is showing, and whether the main pane is a commit
         // rather than a file. Both live here because the drawer owns the split.
         const [side, setSide] = react.useState("files");
-        const [showCommit, setShowCommit] = react.useState(false);
-        // Which commit a previewed file is being read from. Empty means the
-        // ordinary working-tree preview, which is the file tree's behaviour.
-        const [previewCommit, setPreviewCommit] = react.useState("");
-        // Which half of the commit pane is showing: the file list or the patch.
-        const [commitView, setCommitView] = react.useState("files");
         /**
-         * What the main pane was showing before the current file preview.
+         * The right-hand content area is a set of tabs.
          *
-         * The back control has to undo exactly one step. Opening a file from a
-         * commit's changed-file list must return to that list — not to the file
-         * tree, which is a different place entirely — so the origin is recorded
-         * when the file is opened rather than guessed when back is pressed.
+         * Every tab owns the *complete* description of what the pane shows:
+         * the file preview (`meta`, which commit it was read from, the language
+         * pinned for it) as well as the commit-shaped views (`detail` /
+         * `changes`). Keeping one object per tab is what lets an inactive tab
+         * be restored exactly, instead of inheriting whatever the last opened
+         * file happened to leave behind.
          *
-         * `null` means there is nowhere to go back to.
-         * @type {"commit" | "changes" | null}
+         * `null` (never an empty array) means the content area has no tabs at
+         * all, which is the state the drawer opens in.
+         *
+         * @type {null | Array<{id: string, kind: "file" | "commit" | "change", title: string, path: string, label: string, meta: object | null, commit: string, commitView: string, changePath: string, lang: string}>}
          */
-        const [previewOrigin, setPreviewOrigin] = react.useState(null);
-        // The working-tree change shown in the main pane. It cannot ride on the
-        // commit detail, which is keyed by hash, and `meta` belongs to the file
-        // preview — so the row the reader clicked is kept here.
-        const [previewChangePath, setPreviewChangePath] = react.useState("");
+        const [tabs, setTabs] = react.useState(null);
+        // Which tab is on screen. Kept beside the list rather than inside it so
+        // closing the active tab can pick a neighbour with the list in hand.
+        const [activeTabId, setActiveTabId] = react.useState("");
+        // The tab whose context menu is open, plus where the pointer asked for
+        // it. Kept apart from the tree's `contextMenu`: the two menus describe
+        // different subjects and must never be confused for one another.
+        const [tabMenu, setTabMenu] = react.useState(null);
+        const tabsRef = react.useRef(null);
+        tabsRef.current = tabs;
+        const activeTabIdRef = react.useRef("");
+        activeTabIdRef.current = activeTabId;
+        // The tab a language pin was last applied to, so a pin made on one tab
+        // is not mistaken for one made on another after a switch.
         const gitState = useStore(git.store);
 
         react.useEffect(() => {
@@ -4112,13 +4425,27 @@ window.__ModuleLoader__.load({
           return () => { live = false; };
         }, [open, root]);
 
+        /**
+         * The root the Git controller was last initialised for.
+         *
+         * Reopening the drawer must not wipe the panel: a commit tab reopened
+         * from the previous visit needs its detail, and the branch the reader
+         * was browsing is part of what "the same visit" means. Only an actual
+         * root change discards the cached repositories, branches and pages.
+         *
+         * Null means "never initialised", which is distinct from the empty root
+         * the first render sees before the host has resolved anything.
+         */
+        const gitRootRef = react.useRef(null);
+
         // The Git panel describes one root; switching roots drops every cached
         // repository, branch and page rather than showing another project's
         // history under the new name.
         react.useEffect(() => {
           if (!open) return;
+          if (gitRootRef.current === root) return;
+          gitRootRef.current = root;
           git.reset(root);
-          setShowCommit(false);
         }, [open, root]);
 
         // Loaded on first use, never on open: most visits never touch the Git
@@ -4244,28 +4571,36 @@ window.__ModuleLoader__.load({
         // Directory to open on arrival, relative to the resolved root: the
         // session's working directory when it sits below the workspace root.
         const [reveal, setReveal] = react.useState("");
-        const metaTicket = react.useRef(0);
+        // One ticket per tab id, so a read that is slow for one file cannot
+        // cancel a read that is fast for another. A single drawer-wide counter
+        // would have done exactly that once tabs made concurrent reads normal.
+        const metaTickets = react.useRef(new Map());
         const treeGeneration = react.useRef(0);
+        /**
+         * Which root (and therefore which project) the current state describes.
+         *
+         * Closing the drawer keeps everything mounted, so reopening lands on
+         * the previous visit's tabs, sidebar and expansion set — that is the
+         * whole point. This ref is how "the same visit" is recognised: as long
+         * as the host resolves the same root, nothing is thrown away.
+         */
+        const visitContextRef = react.useRef("");
 
         // Resolve the root set on every open. When the request came from a
         // conversation header or a file click, the host also reports which root
         // that session/file belongs to, the directory path to reveal, and any
         // file to automatically select and preview.
+        //
+        // The drawer stays mounted while closed (`open` only gates rendering),
+        // so everything is still here when it reopens — and that is the point:
+        // closing the viewer is not "ending a session", it is hiding a panel,
+        // and it must come back the way it was left. The one thing that CANNOT
+        // survive is a tab opened under a different root or a different session,
+        // because its paths mean something else there; that case is handled
+        // below, against the root the host resolves.
         react.useEffect(() => {
           if (request_ === null) return undefined;
           let live = true;
-          // The drawer stays mounted while closed (`open` only gates rendering),
-          // so every view state survives from the previous visit. Opening a
-          // plain file after browsing Git used to inherit the old commit hash
-          // and the Git sidebar, and the file rendered as "history preview"
-          // instead of its content. A new open is a new session: clear it all.
-          setSide("files");
-          setShowCommit(false);
-          setCommitView("files");
-          setPreviewCommit("");
-          setPreviewOrigin(null);
-          setPreviewChangePath("");
-          setMeta(null);
           setError(null);
           const payload = {
             ...(request_.sessionId !== undefined ? { sessionId: request_.sessionId } : {}),
@@ -4277,18 +4612,31 @@ window.__ModuleLoader__.load({
               if (!live) return;
               setRoots(value.roots || []);
               const resolvedRoot = value.root || (value.roots || [])[0]?.id || "";
+              // A reopen against the same root and the same session keeps every
+              // tab, the active one included. Anything else is a different
+              // project, and carrying the tabs over would point them at files
+              // that merely share a name.
+              const sameContext = resolvedRoot !== "" && resolvedRoot === visitContextRef.current;
+              if (!sameContext) {
+                tabsRef.current = null;
+                setTabs(null);
+                activeTabIdRef.current = "";
+                setActiveTabId("");
+                setTabMenu(null);
+                setPane("tree");
+                // The tree belongs to the previous root too; the listing effect
+                // below re-reads it from scratch.
+                setExpanded(new Set());
+              }
+              visitContextRef.current = resolvedRoot;
               setRoot(resolvedRoot);
               setReveal(typeof value.reveal === "string" ? value.reveal : "");
               setError(null);
               if (typeof value.selectFile === "string" && value.selectFile !== "") {
                 setPane("content");
-                // Arriving on a file from a link: honour its remembered choice.
-                setLangChoice(readLangOverride(resolvedRoot, value.selectFile));
-                const ticket = ++metaTicket.current;
-                request("meta", { root: resolvedRoot, path: value.selectFile }).then((metaVal) => {
-                  if (metaTicket.current !== ticket) return;
-                  setMeta(metaVal);
-                }).catch(() => {});
+                // Arriving on a file from a link: it opens in its own tab, the
+                // same way clicking it in the tree would.
+                openFileTab(resolvedRoot, value.selectFile, { activate: true });
               }
             }).catch((problem) => {
               if (live) setError(problem);
@@ -4330,23 +4678,60 @@ window.__ModuleLoader__.load({
           });
         };
 
+        /**
+         * What the tree was last built for.
+         *
+         * Opening and closing the drawer must not rebuild the tree: the reader
+         * expands a few directories, looks at a file, hides the panel and
+         * expects the same shape when it comes back. Only a real context change
+         * — a different root, a different dotfile filter, a different directory
+         * to reveal — starts over.
+         */
+        const treeBuiltForRef = react.useRef({ root: "", hidden: null, reveal: "" });
+
         // A new root or filter invalidates every cached listing; the bumped
         // generation makes any in-flight response from the old tree stale.
         // When the host named a directory to reveal, its whole ancestor chain
         // opens at once so the session's project is visible on arrival.
         react.useEffect(() => {
           if (!open || root === "") return;
+          const built = treeBuiltForRef.current;
+          const rootChanged = built.root !== root;
+          const filterChanged = built.hidden !== hidden;
+          // The reveal chain is only worth re-opening when the host names a
+          // different directory; the reader's own expansions stay put.
+          const revealChanged = built.reveal !== reveal;
+          if (!rootChanged && !filterChanged && !revealChanged) return;
+          treeBuiltForRef.current = { root, hidden, reveal };
           treeGeneration.current += 1;
           setNodes(new Map());
-          setMeta(null);
-          // The override belonged to a file in the previous root; carrying it
-          // over would silently apply one file's grammar to the next file
-          // opened, and the picker is not even rendered while no file is
-          // selected. The per-file choice is restored in selectFile.
-          setLangChoice("auto");
-          const chain = reveal === "" ? [] : [...ancestorsOf(reveal), reveal];
-          setExpanded(new Set(chain));
-          for (const dirPath of ["", ...chain]) loadDirectory(dirPath);
+          if (rootChanged) {
+            // Tabs describe paths inside the root that opened them; carrying
+            // one across a root switch would point it at a different file with
+            // the same name, so the whole set is dropped with the old tree.
+            // (The open path already cleared them; this covers a root switched
+            // from the picker while the drawer stays open.)
+            tabsRef.current = null;
+            setTabs(null);
+            activeTabIdRef.current = "";
+            setActiveTabId("");
+            setTabMenu(null);
+            setExpanded(new Set());
+            setPane("tree");
+          }
+          const chain = revealChanged && reveal !== "" ? [...ancestorsOf(reveal), reveal] : [];
+          if (chain.length > 0) {
+            setExpanded((current) => {
+              const next = new Set(current);
+              for (const dirPath of chain) next.add(dirPath);
+              return next;
+            });
+          }
+          // Reload the root plus whatever the tree is actually showing, so a
+          // reopen shows current contents rather than a stale listing.
+          const visible = rootChanged ? chain : [...expanded];
+          const listings = [...new Set(["", ...chain, ...visible])];
+          for (const dirPath of listings) loadDirectory(dirPath);
         }, [open, root, hidden, reveal]);
 
         react.useEffect(() => {
@@ -4404,6 +4789,177 @@ window.__ModuleLoader__.load({
           if (!isOpen && !nodes.has(dirPath)) loadDirectory(dirPath);
         };
 
+        // ------------------------------------------------------------------
+        // Tabs
+        //
+        // The content area holds a list of tabs instead of one preview. Every
+        // operation below works on that list, and `activeTab` (plus the values
+        // derived from it) is what the render body and the previously existing
+        // handlers read. Keeping the list as one piece of state is what makes
+        // "close others" and "close all" correct by construction: they are list
+        // operations, not four separate flags that could disagree.
+        // ------------------------------------------------------------------
+
+        /**
+         * The tab on screen, or null.
+         *
+         * Never compute this from `tabs[0]`: the active tab can be the last
+         * one closed, and falling back to a neighbour silently would show a
+         * file the reader just dismissed.
+         */
+        const activeTab = (() => {
+          if (tabs === null || tabs.length === 0) return null;
+          const found = tabs.find((tab) => tab.id === activeTabId);
+          return found === undefined ? null : found;
+        })();
+        const meta = activeTab === null ? null : (activeTab.meta === undefined ? null : activeTab.meta);
+        const previewCommit = activeTab === null ? "" : (activeTab.commit || "");
+        const previewChangePath = activeTab === null ? "" : (activeTab.changePath || "");
+        const localeTagOfActive = activeTab === null ? "auto" : (activeTab.lang || "auto");
+        const showCommit = activeTab !== null && (activeTab.kind === "commit" || activeTab.kind === "change");
+        const commitView = activeTab === null ? "files" : (activeTab.commitView || "files");
+        const previewOrigin = activeTab === null ? null : (activeTab.origin || null);
+
+        /**
+         * Read the list, tolerating the "no tabs yet" state.
+         *
+         * The render body runs before any tab exists, and every list operation
+         * must be safe there rather than special-casing null at each call site.
+         */
+        const tabList = () => (tabsRef.current === null ? [] : tabsRef.current);
+
+        /**
+         * Open a tab, or update the one with the same id and bring it forward.
+         *
+         * Ids are content-derived (`file:<path>`, `commit:<sha>`,
+         * `change:<path>`), which is what makes re-clicking an already open
+         * file focus its tab instead of stacking a duplicate.
+         */
+        const upsertTab = (draft, options) => {
+          const result = tabsAfterUpsert(tabList(), activeTabIdRef.current, draft);
+          tabsRef.current = result.tabs;
+          setTabs(result.tabs);
+          // A caller that does not want to move the reader's focus (an arrival
+          // path that resolves in the background) keeps the current tab.
+          if (options === undefined || options.activate !== false) {
+            activeTabIdRef.current = result.activeId;
+            setActiveTabId(result.activeId);
+          }
+          setTabMenu(null);
+          return result.activeId;
+        };
+
+        /** Focus one existing tab; a missing one is ignored rather than resurrected. */
+        const activateTab = (id) => {
+          const current = tabList();
+          const tab = current.find((row) => row.id === id);
+          if (tab === undefined) return;
+          activeTabIdRef.current = id;
+          setActiveTabId(id);
+          setTabMenu(null);
+          // The Git controller holds one commit's detail at a time, so coming
+          // back to a commit tab whose detail has since been replaced has to
+          // re-read it — otherwise the pane would show a different commit
+          // under this tab's title.
+          if (tab.kind === "commit") {
+            const sha = id.slice("commit:".length);
+            const detail = git.store.get().detail;
+            const loaded = detail !== null && detail !== undefined && detail.commit !== undefined
+              && detail.commit.sha === sha;
+            if (!loaded) git.openCommit(sha);
+          }
+        };
+
+        /** Patch one tab by id. Used by asynchronous reads that outlive a switch. */
+        const patchTab = (id, mutator) => {
+          const current = tabList();
+          if (!current.some((tab) => tab.id === id)) return;
+          const next = current.map((tab) => (tab.id === id
+            ? (typeof mutator === "function" ? mutator(tab) : { ...tab, ...mutator })
+            : tab));
+          tabsRef.current = next;
+          setTabs(next);
+        };
+
+        const findTab = (id) => {
+          const found = tabList().find((tab) => tab.id === id);
+          return found === undefined ? null : found;
+        };
+
+        /**
+         * Close tabs and land on a sensible neighbour.
+         *
+         * The list maths lives in `tabsAfterClose` so it can be exercised
+         * without a renderer: "which tab is active afterwards" is the one rule
+         * a reader notices immediately when it is wrong.
+         */
+        const closeTabs = (ids) => {
+          const current = tabList();
+          const result = tabsAfterClose(current, activeTabIdRef.current, Array.isArray(ids) ? ids : [ids]);
+          if (result === null) return;
+          tabsRef.current = result.tabs;
+          setTabs(result.tabs);
+          setTabMenu(null);
+          activeTabIdRef.current = result.activeId;
+          setActiveTabId(result.activeId);
+          if (result.tabs.length === 0) setPane("tree");
+        };
+
+        const closeTab = (id) => { closeTabs([id]); };
+
+        /**
+         * Re-read what one tab shows, without disturbing the others.
+         *
+         * What "refresh" means depends on what the tab is: a working-tree file
+         * re-reads its metadata and forces the viewer to remount, a commit or a
+         * change re-runs the Git read that produced it.
+         */
+        const refreshTab = (id) => {
+          const tab = findTab(id);
+          if (tab === null) return;
+          if (tab.kind === "commit") {
+            git.openCommit(tab.id.slice("commit:".length));
+            return;
+          }
+          if (tab.kind === "change") {
+            git.loadChanges();
+            // The diff itself is fetched by the child's own effect, which is
+            // keyed on the path; bumping the epoch remounts it so a re-read
+            // happens even when the path did not change.
+            patchTab(id, (current) => ({ ...current, epoch: (current.epoch || 0) + 1 }));
+            return;
+          }
+          if (tab.commit !== "" && tab.commit !== undefined) {
+            // A blob from history has no metadata to re-read; remounting the
+            // viewer is what asks the host for the bytes again.
+            patchTab(id, (current) => ({ ...current, epoch: (current.epoch || 0) + 1 }));
+            return;
+          }
+          patchTab(id, (current) => ({ ...current, status: "loading", epoch: (current.epoch || 0) + 1 }));
+          // A ticket per tab, not per drawer: refreshing B after A must not
+          // cancel A's read, which is what a shared counter would do.
+          const tickets = metaTickets.current;
+          const ticket = (tickets.get(id) || 0) + 1;
+          tickets.set(id, ticket);
+          request("meta", { root, path: tab.path }).then((value) => {
+            if (tickets.get(id) !== ticket) return;
+            patchTab(id, (current) => ({ ...current, meta: value, status: "ready", error: null }));
+          }).catch((problem) => {
+            if (tickets.get(id) !== ticket) return;
+            patchTab(id, (current) => ({ ...current, status: "error", error: problem }));
+          });
+        };
+
+        /** The four items a tab's context menu offers. */
+        const onTabAction = (action, id) => {
+          const current = tabList();
+          if (action === "refresh") refreshTab(id);
+          else if (action === "close") closeTab(id);
+          else if (action === "others") closeTabs(current.filter((tab) => tab.id !== id).map((tab) => tab.id));
+          else if (action === "all") closeTabs(current.map((tab) => tab.id));
+          setTabMenu(null);
+        };
+
         // Re-read every directory the reader currently has open, keeping the
         // tree's shape, plus the status badges a checkout or external edit
         // invalidates.
@@ -4419,36 +4975,63 @@ window.__ModuleLoader__.load({
           }).catch(() => {});
         };
 
+        /**
+         * The top toolbar's refresh: the tree, the Git panel, and the tab on
+         * screen.
+         *
+         * The tab is refreshed too because that is what the reader is looking
+         * at — refreshing the tree around a stale preview would leave the file
+         * they care about unchanged.
+         */
         const refresh = () => {
           reloadWorkingTree();
           if (side === "git") {
             const state = git.store.get();
-            const keepSha = showCommit && state.detail !== null && state.detail !== undefined && state.detail.commit !== undefined
-              ? state.detail.commit.sha
+            // The commit to come back to belongs to the tab on screen, not to
+            // whichever detail the controller happens to hold.
+            const keepSha = activeTab !== null && activeTab.kind === "commit"
+              ? activeTab.id.slice("commit:".length)
               : "";
             if (state.root !== root) git.reset(root);
             git.loadRepos().then(() => {
               if (keepSha !== "") git.openCommit(keepSha);
             });
           }
+          if (activeTabId !== "") refreshTab(activeTabId);
         };
 
-        /** Open one commit in the main pane, replacing whatever was there. */
+        /** Open one commit in its own tab, or activate the tab already showing it. */
         const openCommit = (commit) => {
           if (commit === null || commit === undefined || typeof commit.sha !== "string") return;
-          setShowCommit(true);
+          const sha = commit.sha;
+          const title = commit.shortSha || sha.slice(0, 7);
+          const id = "commit:" + sha;
           setPane("content");
-          setCommitView("files");
           // Re-opening the commit already on screen costs nothing: its detail
           // does not depend on the working tree, only on the commit itself.
           const cached = git.store.get();
-          if (cached.detailStatus === "ready" && cached.detail !== null && cached.detail !== undefined
-            && cached.detail.commit !== undefined && cached.detail.commit.sha === commit.sha) return;
-          git.openCommit(commit.sha);
+          const alreadyLoaded = cached.detailStatus === "ready" && cached.detail !== null && cached.detail !== undefined
+            && cached.detail.commit !== undefined && cached.detail.commit.sha === sha;
+          upsertTab({
+            id,
+            kind: "commit",
+            path: "",
+            title,
+            // The subject is the useful second line; the hash is already the
+            // title, so repeating it would say nothing.
+            dir: typeof commit.subject === "string" ? commit.subject : "",
+            meta: null,
+            commitView: "files",
+            commit: "",
+            changePath: "",
+            origin: null,
+            lang: "auto",
+          }, { activate: true });
+          if (!alreadyLoaded) git.openCommit(sha);
         };
 
         /**
-         * Open one file from a commit in the ordinary preview.
+         * Open one file from a commit in its own tab.
          *
          * The row's path is already root-relative (the host rebased it), so it
          * goes straight through the same `meta` request the tree uses; files
@@ -4477,53 +5060,58 @@ window.__ModuleLoader__.load({
               ? file.oldPath
               : file.path;
             const readSha = fromParent ? parentSha : sha;
-            setShowCommit(false);
             setPane("content");
-            setPreviewCommit(readSha);
-            // Back must return to the changed-file list this row came from,
-            // not to the file tree, which is somewhere else entirely.
-            setPreviewOrigin("commit");
-            setLangChoice("auto");
-            const ticket = metaTicket.current + 1;
-            metaTicket.current = ticket;
             const known = detail && Array.isArray(detail.files)
               ? detail.files.find((row) => row.path === file.path)
               : null;
-            setMeta({
-              root: root,
-              // The blob path is what the host reads; the display path keeps the
-              // row the reader clicked.
+            const id = "file:" + blobPath + "\u0000" + readSha;
+            upsertTab({
+              id,
+              kind: "file",
               path: blobPath,
-              // A rename is read from its old path but highlighted as the row
-              // the reader actually clicked.
               rowPath: file.path,
-              name: baseNameOf(blobPath),
-              displayPath: baseNameOf(blobPath) + " @ " + readSha.slice(0, 7),
-              kind: component,
+              title: baseNameOf(blobPath) + " @ " + readSha.slice(0, 7),
+              dir: baseNameOf(blobPath) + " @ " + readSha.slice(0, 7),
+              meta: {
+                root: root,
+                // The blob path is what the host reads; the display path keeps the
+                // row the reader clicked.
+                path: blobPath,
+                // A rename is read from its old path but highlighted as the row
+                // the reader actually clicked.
+                rowPath: file.path,
+                name: baseNameOf(blobPath),
+                displayPath: baseNameOf(blobPath) + " @ " + readSha.slice(0, 7),
+                kind: component,
+                commit: readSha,
+                // Opening a changed file must offer both halves of the question:
+                // what this commit changed in it, and what the file looks like.
+                // `diffSha` is the commit being viewed (the blob may come from
+                // its parent for a deletion), and `oldPath` is what lets the host
+                // keep rename detection intact when filtering the patch.
+                diffSha: sha,
+                oldPath: typeof file.oldPath === "string" && file.oldPath !== "" ? file.oldPath : null,
+                // The commit records whether the file was added, modified or
+                // deleted; the preview says so instead of looking like a normal
+                // working-tree file.
+                change: known ? known.change : "",
+                changeLetter: known ? known.letter : "",
+                deleted: known ? known.letter === "D" : false,
+              },
               commit: readSha,
-              // Opening a changed file must offer both halves of the question:
-              // what this commit changed in it, and what the file looks like.
-              // `diffSha` is the commit being viewed (the blob may come from
-              // its parent for a deletion), and `oldPath` is what lets the host
-              // keep rename detection intact when filtering the patch.
-              diffSha: sha,
-              oldPath: typeof file.oldPath === "string" && file.oldPath !== "" ? file.oldPath : null,
-              // The commit records whether the file was added, modified or
-              // deleted; the preview says so instead of looking like a normal
-              // working-tree file.
-              change: known ? known.change : "",
-              changeLetter: known ? known.letter : "",
-              deleted: known ? known.letter === "D" : false,
-            });
+              // Back must return to the changed-file list this row came from,
+              // not to the file tree, which is somewhere else entirely.
+              origin: { kind: "commit", sha: sha },
+              lang: "auto",
+            }, { activate: true });
             setError(null);
             return;
           }
-          setShowCommit(false);
           selectFile({ path: file.path, name: baseNameOf(file.path), type: "file" });
         };
 
         /**
-         * Step back one place from the main pane.
+         * Step back one place from the active tab.
          *
          * Three destinations, in the order the reader arrived from: a commit's
          * changed-file list, the working-tree change list, or the file tree.
@@ -4531,89 +5119,133 @@ window.__ModuleLoader__.load({
          * a stale hash or blob path cannot leak into the next preview.
          */
         const goBack = () => {
-          if (previewOrigin === "commit") {
-            // Re-open the changed-file view of the commit still in `detail`;
+          const current = activeTab;
+          const origin = current === null || current === undefined ? null : current.origin;
+          if (origin !== null && origin !== undefined && origin.kind === "commit") {
+            // Re-open the changed-file view of the commit this file came from;
             // its hash is what the sidebar is highlighting.
-            setShowCommit(true);
-            setCommitView("files");
-            setPreviewCommit("");
-            setPreviewOrigin(null);
             setPane("content");
+            patchTab(current.id, (tab) => ({ ...tab, commitView: "files", commit: "", origin: null }));
+            openCommit({ sha: origin.sha });
             return;
           }
-          if (previewOrigin === "changes") {
-            setShowCommit(true);
-            setCommitView("changes");
-            setPreviewCommit("");
-            setPreviewOrigin(null);
+          if (origin !== null && origin !== undefined && origin.kind === "changes") {
             setPane("content");
+            patchTab(current.id, (tab) => ({ ...tab, commitView: "changes", commit: "", origin: null }));
             return;
           }
           // Nothing to undo inside the pane: hand control back to the sidebar.
           // On a phone that actually swaps panes; on desktop the tree is
           // already alongside, so the selection is cleared instead of the
           // button doing nothing at all.
-          setPreviewCommit("");
-          setPreviewOrigin(null);
-          setMeta(null);
+          closeTab(activeTabId);
           setError(null);
           setPane("tree");
         };
 
         /**
-         * Open one working-tree change as a diff.
+         * Open one working-tree change as a diff, in its own tab.
          *
          * The main pane shows the patch rather than the file: a deletion has no
          * file to open, and "what changed" is the question the row answers.
          */
         const openWorkspaceChange = (row) => {
           if (row === null || row === undefined || typeof row.path !== "string" || row.path === "") return;
-          setShowCommit(true);
           setPane("content");
-          setCommitView("changes");
-          setPreviewCommit("");
-          setPreviewOrigin(null);
           // The pane diffs exactly this path; ignoring the row left it reading
           // whatever file happened to be selected before.
-          setPreviewChangePath(row.path);
+          upsertTab({
+            id: "change:" + row.path,
+            kind: "change",
+            path: row.path,
+            title: row.path,
+            dir: row.change || "工作区",
+            meta: null,
+            commitView: "changes",
+            changePath: row.path,
+            lang: "auto",
+          }, { activate: true });
         };
 
-        // Clicking two files quickly must not let the slower answer win: only
-        // the newest request may write state.
-        const selectFile = (entry) => {
-          setPane("content");
+        /**
+         * Open one working-tree file as a tab, reading its metadata.
+         *
+         * Split out from `selectFile` because the drawer's arrival path (a
+         * conversation link that names a file) has to open a tab against the
+         * root it just resolved, before that root has reached `root` state.
+         *
+         * @param {string} rootPath - root the path belongs to.
+         * @param {string} path - root-relative file path.
+         * @param {{activate?: boolean, name?: string}} [options]
+         */
+        const openFileTab = (rootPath, path, options) => {
+          if (typeof path !== "string" || path === "") return;
+          const chosenRoot = typeof rootPath === "string" && rootPath !== "" ? rootPath : root;
+          const name = options && typeof options.name === "string" ? options.name : baseNameOf(path);
+          const id = "file:" + path;
+          const existing = findTab(id);
+          // A tab already open for this path is re-activated rather than
+          // re-read: its contents are on screen already, and the refresh item
+          // in its context menu is how the reader asks for a re-read.
+          if (existing !== null) {
+            activateTab(id);
+            return;
+          }
           // Selecting from the file tree is always the working tree, so any
           // commit a preview was read from is dropped here — and there is no
           // intermediate pane to return to.
-          setPreviewCommit("");
-          setPreviewOrigin(null);
-          setPreviewChangePath("");
-          // The remembered choice for this file takes effect immediately, so
-          // the read that follows is already resolved with it.
-          setLangChoice(readLangOverride(root, entry.path));
-          const ticket = metaTicket.current + 1;
-          metaTicket.current = ticket;
-          request("meta", { root, path: entry.path }).then((value) => {
-            if (metaTicket.current !== ticket) return;
-            setMeta(value);
+          upsertTab({
+            id,
+            kind: "file",
+            path,
+            title: name,
+            dir: directoryOf(path),
+            meta: null,
+            // A brand-new tab has nothing to show yet; `status` is what the
+            // pane reads to tell "loading" from "the file is empty".
+            status: "loading",
+            commit: "",
+            commitView: "files",
+            changePath: "",
+            origin: null,
+            // The remembered choice for this file takes effect immediately, so
+            // the read that follows is already resolved with it.
+            lang: readLangOverride(chosenRoot, path),
+          }, { activate: options === undefined || options.activate !== false });
+          // Clicking two files quickly must not let the slower answer win: only
+          // the newest request for THIS tab may write its state. Tabs are read
+          // in parallel now, so the ticket is kept per id.
+          const tickets = metaTickets.current;
+          const ticket = (tickets.get(id) || 0) + 1;
+          tickets.set(id, ticket);
+          request("meta", { root: chosenRoot, path }).then((value) => {
+            if (tickets.get(id) !== ticket) return;
+            patchTab(id, (tab) => ({ ...tab, meta: value, status: "ready", error: null }));
             setError(null);
           }).catch((problem) => {
-            if (metaTicket.current !== ticket) return;
-            setMeta(null);
+            if (tickets.get(id) !== ticket) return;
+            patchTab(id, (tab) => ({ ...tab, meta: null, status: "error", error: problem }));
             setError(problem);
           });
         };
 
+        const selectFile = (entry) => {
+          if (entry === null || entry === undefined || typeof entry.path !== "string") return;
+          setPane("content");
+          openFileTab(root, entry.path, { name: entry.name });
+        };
+
         /**
-         * Pin, or unpin, the language for the selected file.
+         * Pin, or unpin, the language for the active tab's file.
          *
          * The choice is remembered per file and sent with every read, so the
          * host stays the only thing that decides what grammar applies.
          */
         const chooseLang = (next) => {
-          if (meta === null) return;
-          setLangChoice(next);
-          writeLangOverride(root, meta.path, next);
+          const current = activeTab;
+          if (current === null || current.meta === null || current.meta === undefined) return;
+          patchTab(current.id, (tab) => ({ ...tab, lang: next }));
+          writeLangOverride(root, current.meta.path, next);
         };
 
         const activeRoot = roots.find((row) => row.id === root);
@@ -4635,8 +5267,10 @@ window.__ModuleLoader__.load({
             "aria-selected": side === "files" ? "true" : "false",
             title: "浏览项目文件",
             onClick: () => {
+              // Switching the sidebar back to the tree does not touch the
+              // content area: the open tabs stay open, which is the whole point
+              // of having them.
               setSide("files");
-              setShowCommit(false);
             },
           }, "文件"),
           react.createElement("button", {
@@ -4651,16 +5285,27 @@ window.__ModuleLoader__.load({
             },
           }, react.createElement(SvgIconBranch, { size: 13 }), "Git"));
 
-        const commitSha = gitState.detail !== null && gitState.detail !== undefined && gitState.detail.commit !== undefined
-          ? gitState.detail.commit.sha
+        /**
+         * The hash the pane is describing.
+         *
+         * A commit tab names its own sha, which is what the header and the diff
+         * read: the Git controller holds one detail at a time, so trusting it
+         * alone would label this tab with whichever commit was opened last.
+         */
+        const activeCommitSha = activeTab !== null && activeTab.kind === "commit"
+          ? activeTab.id.slice("commit:".length)
           : "";
+        const commitSha = activeCommitSha !== ""
+          ? activeCommitSha
+          : (gitState.detail !== null && gitState.detail !== undefined && gitState.detail.commit !== undefined
+            ? gitState.detail.commit.sha
+            : "");
         // The main pane is showing something commit-shaped whenever it is not
         // the ordinary file preview: a commit, or one working-tree change.
-        const detailPane = showCommit;
         const commitHeadline = commitView === "changes"
           ? "工作区改动"
-          : (showCommit && gitState.detail !== null && gitState.detail !== undefined && gitState.detail.commit !== undefined
-            ? "提交 " + (gitState.detail.commit.shortSha || String(gitState.detail.commit.sha || "").slice(0, 7))
+          : (showCommit && activeTab !== null && activeTab.kind === "commit"
+            ? "提交 " + (commitSha === "" ? "" : commitSha.slice(0, 7))
             : "");
 
         const handleDownloadItem = (entry) => {
@@ -4846,14 +5491,26 @@ window.__ModuleLoader__.load({
                 onDoubleClick: onResizerDoubleClick,
               }),
               react.createElement("div", { className: "fv-main" },
+                // The tab strip sits above the head so the head keeps naming
+                // the active tab alone; the two together read as "these are
+                // open, this one is on screen".
+                react.createElement(TabStrip, {
+                  tabs,
+                  activeId: activeTabId,
+                  onActivate: activateTab,
+                  onClose: closeTab,
+                  onContextMenu: (menu) => setTabMenu(menu),
+                  menuFor: tabMenu === null || tabMenu === undefined ? "" : tabMenu.tabId,
+                }),
                 react.createElement("div", { className: "fv-main-head" },
                   (() => {
                     // The control returns one step, so it names that step and
                     // is disabled when there is nowhere to go — a button that
                     // silently does nothing reads as broken.
-                    const backTarget = previewOrigin === "commit"
+                    const originKind = previewOrigin === null || previewOrigin === undefined ? null : previewOrigin.kind;
+                    const backTarget = originKind === "commit"
                       ? "返回变更文件列表"
-                      : (previewOrigin === "changes" ? "返回工作区改动列表" : "返回文件列表");
+                      : (originKind === "changes" ? "返回工作区改动列表" : "返回文件列表");
                     // On a phone the panes are exclusive, so leaving the content
                     // pane is always meaningful; on desktop the sidebar is
                     // already visible and only an origin is worth returning to.
@@ -4872,7 +5529,9 @@ window.__ModuleLoader__.load({
                   react.createElement("span", { className: "fv-main-name" },
                     commitHeadline !== ""
                       ? commitHeadline
-                      : (meta === null ? "未选择文件" : meta.name)),
+                      : (activeTab === null
+                        ? "未选择文件"
+                        : (meta === null ? activeTab.title : meta.name))),
                   meta !== null && !showCommit && typeof meta.size === "number"
                     ? react.createElement("span", null, formatBytes(meta.size))
                     : null,
@@ -4881,14 +5540,14 @@ window.__ModuleLoader__.load({
                   // document has no grammar to choose.
                   meta !== null && !showCommit && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
                     ? react.createElement(LanguagePicker, {
-                      choice: langChoice,
+                      choice: localeTagOfActive,
                       catalog: languageCatalog,
                       source: meta.langSource,
                       resolved: meta.lang,
                       onChange: chooseLang,
                     })
                     : null),
-                error !== null && meta === null && !showCommit
+                error !== null && meta === null && !showCommit && activeTab === null
                   ? react.createElement("div", { className: "fv-note fv-error" },
                     react.createElement("span", null, messageOf(error)),
                     error?.code === "outside-root"
@@ -4903,43 +5562,81 @@ window.__ModuleLoader__.load({
                         },
                       }, "配置安全访问路径")
                       : null)
-                  : showCommit
-                    ? react.createElement(ErrorBoundary, {
-                      resetKey: "commit\u0000" + commitSha,
-                    }, commitView === "changes"
-                      ? react.createElement(WorkspaceChangeDetail, {
-                        state: gitState,
-                        path: previewChangePath,
-                        request,
-                        repo: gitState.repoId,
-                      })
-                      : react.createElement(CommitDetail, {
-                        state: gitState,
-                        // A rename is read from its old path but highlighted as
-                        // the row that was clicked, so the two stay in step.
-                        selectedPath: meta === null ? "" : (meta.rowPath || meta.path),
-                        onSelectFile: openCommitFile,
-                        view: commitView,
-                        onSwitchView: setCommitView,
-                        onLoadDiff: () => {
-                          const sha = commitSha;
-                          if (sha !== "") git.loadCommitDiff(sha);
-                        },
-                      }))
-                    : react.createElement(ErrorBoundary, {
-                      resetKey: meta ? meta.path : "",
-                    }, react.createElement(FileView, {
-                      meta,
-                      root,
-                      api: props.api,
-                      wrap,
-                      lang: langChoice,
-                      onDownload: handleDownloadItem,
-                      // Empty for a working-tree file; a hash for one opened
-                      // from history, which makes the read a blob lookup.
-                      commit: previewCommit,
-                      repo: gitState.repoId,
-                    })))),
+                  : activeTab !== null && activeTab.status === "error" && activeTab.error !== null && activeTab.error !== undefined
+                    ? react.createElement("div", { className: "fv-note fv-error" },
+                      react.createElement("span", null, messageOf(activeTab.error)),
+                      activeTab.error?.code === "outside-root"
+                        ? react.createElement("button", {
+                          type: "button",
+                          className: "fv-button",
+                          style: { marginTop: "6px" },
+                          onClick: () => {
+                            const reqPath = activeTab.error?.details?.realPath || activeTab.path || "";
+                            setPrefillPath(reqPath ? parentOf(reqPath) : "");
+                            setSafeModalOpen(true);
+                          },
+                        }, "配置安全访问路径")
+                        : null)
+                    : showCommit
+                      ? react.createElement(ErrorBoundary, {
+                        // The epoch is part of the key so "刷新当前" remounts the
+                        // pane instead of showing the same cached answer.
+                        resetKey: "commit\u0000" + commitSha + "\u0000" + (activeTab === null ? 0 : (activeTab.epoch || 0)),
+                      }, commitView === "changes"
+                        ? react.createElement(WorkspaceChangeDetail, {
+                          key: (activeTab === null ? "" : activeTab.id) + "\u0000" + (activeTab === null ? 0 : (activeTab.epoch || 0)),
+                          state: gitState,
+                          path: previewChangePath,
+                          request,
+                          repo: gitState.repoId,
+                        })
+                        : react.createElement(CommitDetail, {
+                          state: gitState,
+                          // A rename is read from its old path but highlighted as
+                          // the row that was clicked, so the two stay in step.
+                          selectedPath: meta === null ? "" : (meta.rowPath || meta.path),
+                          onSelectFile: openCommitFile,
+                          view: commitView,
+                          onSwitchView: (next) => {
+                            if (activeTab !== null) patchTab(activeTab.id, (tab) => ({ ...tab, commitView: next }));
+                          },
+                          onLoadDiff: () => {
+                            const sha = commitSha;
+                            if (sha !== "") git.loadCommitDiff(sha);
+                          },
+                        }))
+                      : react.createElement(ErrorBoundary, {
+                        // One viewer per tab (and per refresh epoch), so no
+                        // paging or blob state survives a tab switch.
+                        resetKey: activeTab === null
+                          ? ""
+                          : activeTab.id + "\u0000" + (activeTab.epoch || 0),
+                      }, activeTab === null
+                        ? react.createElement(FileView, {
+                          meta: null,
+                          root,
+                          api: props.api,
+                          wrap,
+                          lang: "auto",
+                          onDownload: handleDownloadItem,
+                          commit: "",
+                          repo: gitState.repoId,
+                        })
+                        : react.createElement(FileView, {
+                          meta,
+                          root,
+                          api: props.api,
+                          wrap,
+                          lang: localeTagOfActive,
+                          onDownload: handleDownloadItem,
+                          // Empty for a working-tree file; a hash for one opened
+                          // from history, which makes the read a blob lookup.
+                          commit: previewCommit,
+                          repo: gitState.repoId,
+                          // A tab is created before its metadata arrives, so the
+                          // pane has to say "reading" instead of "pick a file".
+                          loading: activeTab.status === "loading",
+                        })))),
             contextMenu !== null
               ? react.createElement(ContextMenu, {
                 menu: contextMenu,
@@ -4948,6 +5645,17 @@ window.__ModuleLoader__.load({
                 onMention: mention,
                 onToast: showToast,
                 onDownload: handleDownloadItem,
+              })
+              : null,
+            // The tab menu is a separate component with a separate subject; it
+            // is rendered last so it stacks above the tree's menu if both were
+            // somehow open, which cannot happen but must not paint twice.
+            tabMenu !== null && tabMenu !== undefined
+              ? react.createElement(TabContextMenu, {
+                menu: tabMenu,
+                tabs,
+                onClose: () => setTabMenu(null),
+                onAction: onTabAction,
               })
               : null,
             safeModalOpen
@@ -5269,6 +5977,10 @@ window.__ModuleLoader__.load({
       // Git panel: controller, views and the small formatters they share.
       GIT_PAGE_SIZE, createGitController, GitSidebar, CommitDetail, WorkspaceChangeDetail, DiffView, kindOfPath,
       formatCommitDate, formatCommitTimestamp,
+      // Content-area tabs: the strip, its four-item menu and the path helper
+      // that gives a tab its secondary directory line.
+      directoryOf, TabStrip, TabContextMenu,
+      TAB_MENU_ITEMS, tabsAfterClose, tabsAfterUpsert,
     };
     return module.exports;
   }
