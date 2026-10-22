@@ -573,6 +573,27 @@ export function apply(ctx, config) {
   }
 
   /**
+   * 安全读取一个宿主服务。
+   *
+   * Cordis 的 Context 代理在读取**未注入**的服务时会直接抛
+   * `cannot get property "<name>" without inject`，而不是返回 undefined。
+   * 本插件对 `settings` / `credentials` / `tools` 都是**软依赖**（组合里可能
+   * 没有），任何一处裸访问 `ctx.xxx` 都会让整个 apply 抛错、插件加载失败，
+   * 最终表现为前端 RPC 报 HTTP 405。统一走 `ctx.get()`（刻意绕过注入校验）
+   * 并吞掉异常。
+   *
+   * @param {string} name 服务名
+   * @returns {any} 服务实例，或 undefined
+   */
+  function getService(name) {
+    try {
+      return ctx.get?.(name);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * 解析凭据：优先 ctx.credentials，其次环境变量。
    * 每次操作现解析，保证设置页刚保存的密钥立刻生效。
    *
@@ -581,7 +602,8 @@ export function apply(ctx, config) {
    */
   async function resolveSecret(ref) {
     try {
-      const stored = await ctx.credentials?.resolve?.(credentialRef(ref));
+      const credentials = getService('credentials');
+      const stored = await credentials?.resolve?.(credentialRef(ref));
       const value = str(stored?.value);
       if (value !== '') return value;
     } catch (error) {
@@ -1112,9 +1134,10 @@ export function apply(ctx, config) {
     const wecomSecret = str(secretPatch.wecomSecret);
     const ilinkToken = str(secretPatch.ilinkToken);
     const httpSecret = str(secretPatch.httpSecret);
-    if (wecomSecret !== '') await ctx.credentials?.set?.(CREDENTIAL_REFS.wecomSecret, wecomSecret);
-    if (ilinkToken !== '') await ctx.credentials?.set?.(CREDENTIAL_REFS.ilinkToken, ilinkToken);
-    if (httpSecret !== '') await ctx.credentials?.set?.(CREDENTIAL_REFS.httpSecret, httpSecret);
+    const credentials = getService('credentials');
+    if (wecomSecret !== '') await credentials?.set?.(CREDENTIAL_REFS.wecomSecret, wecomSecret);
+    if (ilinkToken !== '') await credentials?.set?.(CREDENTIAL_REFS.ilinkToken, ilinkToken);
+    if (httpSecret !== '') await credentials?.set?.(CREDENTIAL_REFS.httpSecret, httpSecret);
 
     // 写回配置。live 字段由宿主设置服务落盘并就地生效。
     try {
@@ -1138,7 +1161,7 @@ export function apply(ctx, config) {
     const ops = CONFIG_KEYS
       .filter((key) => Object.hasOwn(flat, key))
       .map((key) => ({ op: 'set', path: [key], value: flat[key] }));
-    await ctx.settings?.mutate?.(NS, ops);
+    await getService('settings')?.mutate?.(NS, ops);
   }
 
   /**
@@ -1164,7 +1187,7 @@ export function apply(ctx, config) {
     const snapshot = await loginSession.poll();
     if (snapshot.status === 'confirmed' && snapshot.credentials !== undefined) {
       const { accountId, token, baseUrl } = snapshot.credentials;
-      await ctx.credentials?.set?.(CREDENTIAL_REFS.ilinkToken, token);
+      await getService('credentials')?.set?.(CREDENTIAL_REFS.ilinkToken, token);
       const config = readConfig();
       // 扫码成功即视为用户明确要启用个人微信通道，连同总开关一起打开，
       // 否则用户还要再点两次「启用」才能收到消息。
@@ -1396,8 +1419,19 @@ export function apply(ctx, config) {
   // 原生工具：让模型能主动推消息
   // -------------------------------------------------------------------------
 
-  if (typeof ctx.tools?.register === 'function') {
-    ctx.tools.register({
+  /*
+   * `tools` 不是本插件的硬依赖（headless 或裁剪过的组合里可能没有），所以不能
+   * 直接写 `ctx.tools`：Cordis 的 Context 代理在**读取未注入的服务时会抛
+   * `cannot get property "tools" without inject`**，而不是返回 undefined。
+   * 那个异常会冒泡到 apply，让整个插件加载失败 —— RPC 通道也就永远不会注册，
+   * 前端表现为 `POST /dsh-im-bot/status` 落到 SPA fallback 的 HTTP 405。
+   *
+   * `ctx.get(name)` 是刻意不经过注入校验的读取入口，用它做能力探测。
+   */
+  const toolsService = getService('tools');
+
+  if (toolsService !== undefined && typeof toolsService.register === 'function') {
+    toolsService.register({
       name: 'im_bot_send',
       description: [
         '向已绑定的微信/企业微信聊天主动发送一条消息。',

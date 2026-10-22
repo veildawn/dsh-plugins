@@ -97,6 +97,9 @@ async function mountPlugin(configOverride = {}) {
       if (name === 'webServer') return webServer;
       if (name === 'settings') return settings;
       if (name === 'credentials') return credentials;
+      // 插件用 ctx.get('tools') 做能力探测，这里必须能取到 tools，
+      // 否则 im_bot_send 不会被注册（见 host.test 的软依赖回归用例）。
+      if (name === 'tools') return ctx.tools;
       return undefined;
     },
     inject: (_deps, fn) => {
@@ -114,6 +117,80 @@ async function mountPlugin(configOverride = {}) {
   const handler = rpcHandlers.get('/dsh-im-bot')?.handler;
   return { rpcHandlers, routes, settingsWrites, credentialWrites, tools, handler };
 }
+
+test('软依赖缺失时 apply 不得崩溃（Cordis 未注入服务会抛错）', { skip: skipReason }, async () => {
+  /*
+   * 这是 v0.1.4 线上事故的回归测试。
+   *
+   * Cordis 的 Context 代理在读取**未注入**的服务时会抛
+   * `cannot get property "<name>" without inject`，而不是返回 undefined ——
+   * 可选链 `ctx.tools?.register` 挡不住代理的 get 陷阱。原实现因此让整个
+   * apply 抛错，插件加载失败，RPC 通道没注册，前端报 HTTP 405。
+   *
+   * 这里用一个「读未注入服务就抛错」的 ctx 模拟真实宿主，断言：
+   *   - apply 不抛错；
+   *   - 即使 tools / settings / credentials 都不可用，RPC 通道与发送路由仍然注册成功。
+   */
+  const apply = applyFn;
+
+  const rpcHandlers = new Map();
+  const routes = [];
+
+  /** 只允许读取已注入的服务，其余一律抛错——与 Cordis 代理一致。 */
+  const makeStrictCtx = (injected) => {
+    const base = {
+      fiber: { entry: { options: { config: {} } } },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      inject: (_deps, fn) => { fn(strict); return strict; },
+      effect: (fn) => fn(),
+      on: () => () => {},
+      // 关键：get() 安全，但直接属性访问未注入服务会抛错。
+      get: (name) => injected[name],
+    };
+    const strict = new Proxy(base, {
+      get(target, prop, receiver) {
+        if (prop in target) return Reflect.get(target, prop, receiver);
+        if (typeof prop === 'string' && Object.hasOwn(injected, prop)) return injected[prop];
+        // 模拟 Cordis：任何未注入的服务名读取都抛错。
+        if (typeof prop === 'string' && /^[a-z][A-Za-z]*$/.test(prop)) {
+          throw new Error(`cannot get property "${prop}" without inject`);
+        }
+        return undefined;
+      },
+    });
+    return strict;
+  };
+
+  const connection = {
+    rpc: {
+      handle: (channel, handler) => {
+        rpcHandlers.set(channel, { handler });
+        return () => {};
+      },
+    },
+  };
+  const webServer = {
+    register: (route) => {
+      routes.push(route);
+      return () => {};
+    },
+  };
+
+  // 只注入 connection 与 webServer —— tools / settings / credentials 全部缺席。
+  const ctx = makeStrictCtx({ connection, webServer });
+
+  let thrown = null;
+  try {
+    apply(ctx, {});
+  } catch (error) {
+    thrown = error;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(thrown, null, `apply 不得抛错，实际：${thrown?.message}`);
+  assert.ok(rpcHandlers.has('/dsh-im-bot'), '即使软依赖缺失，RPC 通道也必须注册');
+  assert.ok(routes.some((route) => route.path === '/dsh-im-bot/send'), '发送路由也必须注册');
+});
 
 test.after(async () => {
   await rm(STATE_ROOT, { recursive: true, force: true });
