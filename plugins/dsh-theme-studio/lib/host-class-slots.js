@@ -1,0 +1,165 @@
+/**
+ * 自动生成，请勿手改。
+ *
+ * 生成器：`node scripts/build-host-class-slots.mjs`（仓库根目录执行）
+ * 数据源：`test/fixtures/host-classes.json`（由 `scripts/harvest-host-classes.mjs` 采集）
+ *
+ * 这张表回答一个问题：主题 CSS 里写死的 `.<hash>_<part>`，属于宿主的哪个模块？
+ *
+ * ## 为什么需要它
+ *
+ * 宿主每次构建都会重新生成 CSS Modules 的哈希前缀。同一个组件在 Web 版、macOS 桌面版、
+ * Windows 桌面版里是三个完全不同的类名（例如 `AppFrame.centerCol` 分别是
+ * `pI_x6G_centerCol`、`_LS25G_centerCol`、`BynINW_centerCol`）。主题只能把其中两套
+ * 写进 CSS，第三套就一条规则都命中不了，而且不会报错。
+ *
+ * 而 `bundle + 模块文件名 + 部件名` 这个三元组跨构建稳定 —— 拿到它，就能在当前宿主里
+ * 查回正确的类名。
+ *
+ * ## 为什么必须精确到模块文件
+ *
+ * 只按部件名匹配会张冠李戴：`root` 在宿主里有 37 个模块在用、`title` 有 36 个、
+ * `card` 有 21 个。精确到模块文件后，主题引用的每个类名都能唯一对上目标。
+ *
+ * @module dsh-theme-studio/host-class-slots
+ */
+
+/** 旧宿主类名 → `bundle/模块文件|部件名`。共 134 条，覆盖 11 个 bundle。 */
+export const HOST_CLASS_SLOTS = Object.freeze({
+  "BInVoG_mask": "attachment/DropOverlay.module.css|mask",
+  "BrezkG_chip": "conversation/ReferenceChip.module.css|chip",
+  "CY-8Ka_title": "tool/bash-sample.module.css|title",
+  "ES3sqa_root": "chat/ReasoningRow.module.css|root",
+  "ES3sqa_thinkBody": "chat/ReasoningRow.module.css|thinkBody",
+  "EvIC1a_column": "chat/ChatView.module.css|column",
+  "EvIC1a_frame": "chat/ChatView.module.css|frame",
+  "EvIC1a_root": "chat/ChatView.module.css|root",
+  "EvIC1a_runningContent": "chat/ChatView.module.css|runningContent",
+  "EvIC1a_runningIcon": "chat/ChatView.module.css|runningIcon",
+  "EvIC1a_scroll": "chat/ChatView.module.css|scroll",
+  "IW6AQa_iconButton": "sidebar/HeaderLeadingControls.module.css|iconButton",
+  "JObwrW_colorMessages": "conversation/ContextMeter.module.css|colorMessages",
+  "JObwrW_colorSystem": "conversation/ContextMeter.module.css|colorSystem",
+  "JObwrW_colorTools": "conversation/ContextMeter.module.css|colorTools",
+  "JdKHja_folder": "workspace/Rows.module.css|folder",
+  "JdKHja_folderActive": "workspace/Rows.module.css|folderActive",
+  "JdKHja_iconButton": "workspace/Rows.module.css|iconButton",
+  "JdKHja_projectRow": "workspace/Rows.module.css|projectRow",
+  "JdKHja_searchResultRow": "workspace/Rows.module.css|searchResultRow",
+  "JdKHja_selected": "workspace/Rows.module.css|selected",
+  "JdKHja_sessionRow": "workspace/Rows.module.css|sessionRow",
+  "JdKHja_title": "workspace/Rows.module.css|title",
+  "NScxBa_selector": "chat/PreferenceRow.module.css|selector",
+  "P9wcjW_bubble": "chat/MessageItem.module.css|bubble",
+  "P9wcjW_turnErrorMessage": "chat/MessageItem.module.css|turnErrorMessage",
+  "P9wcjW_turnErrorTitle": "chat/MessageItem.module.css|turnErrorTitle",
+  "Qf4lJq_title": "tool/bash-sample.module.css|title",
+  "Qt4Hga_add": "conversation/InputBar.module.css|add",
+  "Qt4Hga_card": "conversation/InputBar.module.css|card",
+  "Qt4Hga_input": "conversation/InputBar.module.css|input",
+  "Qt4Hga_placeholder": "conversation/InputBar.module.css|placeholder",
+  "Qt4Hga_primary": "conversation/InputBar.module.css|primary",
+  "Qt4Hga_tools": "conversation/InputBar.module.css|tools",
+  "Qt4Hga_trailing": "conversation/InputBar.module.css|trailing",
+  "Sixlwa_bubble": "chat/MessageItem.module.css|bubble",
+  "Sixlwa_turnErrorMessage": "chat/MessageItem.module.css|turnErrorMessage",
+  "Sixlwa_turnErrorTitle": "chat/MessageItem.module.css|turnErrorTitle",
+  "TvmKiG_header": "conversation/QueueDock.module.css|header",
+  "VOzbGW_content": "settings-general/SettingsRoot.module.css|content",
+  "VOzbGW_mask": "settings-general/SettingsRoot.module.css|mask",
+  "VOzbGW_nav": "settings-general/SettingsRoot.module.css|nav",
+  "VOzbGW_options": "settings-general/SettingsRoot.module.css|options",
+  "WqxjfG_trigger": "model-selection/ModelSelect.module.css|trigger",
+  "WqxjfG_triggerEffort": "model-selection/ModelSelect.module.css|triggerEffort",
+  "Y0dWHa_markdownPayload": "trajectory/TrajectoryTable.module.css|markdownPayload",
+  "Y0dWHa_markdownPreview": "trajectory/TrajectoryTable.module.css|markdownPreview",
+  "YDXeBa_folder": "workspace/Rows.module.css|folder",
+  "YDXeBa_folderActive": "workspace/Rows.module.css|folderActive",
+  "YDXeBa_iconButton": "workspace/Rows.module.css|iconButton",
+  "YDXeBa_projectRow": "workspace/Rows.module.css|projectRow",
+  "YDXeBa_searchResultRow": "workspace/Rows.module.css|searchResultRow",
+  "YDXeBa_selected": "workspace/Rows.module.css|selected",
+  "YDXeBa_sessionRow": "workspace/Rows.module.css|sessionRow",
+  "YDXeBa_title": "workspace/Rows.module.css|title",
+  "_1O6vqW_composerSeat": "conversation/ConversationRoot.module.css|composerSeat",
+  "_1O6vqW_crumb": "conversation/ConversationRoot.module.css|crumb",
+  "_1O6vqW_crumbCurrent": "conversation/ConversationRoot.module.css|crumbCurrent",
+  "_1O6vqW_header": "conversation/ConversationRoot.module.css|header",
+  "_1O6vqW_headerUtilities": "conversation/ConversationRoot.module.css|headerUtilities",
+  "_1O6vqW_tab": "conversation/ConversationRoot.module.css|tab",
+  "_1O6vqW_tabActive": "conversation/ConversationRoot.module.css|tabActive",
+  "_2XZxNq_selector": "chat/PreferenceRow.module.css|selector",
+  "_6nxh1G_column": "chat/ChatView.module.css|column",
+  "_6nxh1G_frame": "chat/ChatView.module.css|frame",
+  "_6nxh1G_root": "chat/ChatView.module.css|root",
+  "_6nxh1G_runningContent": "chat/ChatView.module.css|runningContent",
+  "_6nxh1G_runningIcon": "chat/ChatView.module.css|runningIcon",
+  "_6nxh1G_scroll": "chat/ChatView.module.css|scroll",
+  "_7KE1Ra_trigger": "model-selection/ModelSelect.module.css|trigger",
+  "_7KE1Ra_triggerEffort": "model-selection/ModelSelect.module.css|triggerEffort",
+  "_7yHdaG_header": "conversation/QueueDock.module.css|header",
+  "_97McFa_content": "settings-general/SettingsRoot.module.css|content",
+  "_97McFa_mask": "settings-general/SettingsRoot.module.css|mask",
+  "_97McFa_nav": "settings-general/SettingsRoot.module.css|nav",
+  "_97McFa_options": "settings-general/SettingsRoot.module.css|options",
+  "_LS25G_bottomRow": "layout/AppFrame.module.css|bottomRow",
+  "_LS25G_centerCol": "layout/AppFrame.module.css|centerCol",
+  "_LS25G_frame": "layout/AppFrame.module.css|frame",
+  "_LS25G_handle": "layout/AppFrame.module.css|handle",
+  "_LS25G_rightbarCol": "layout/AppFrame.module.css|rightbarCol",
+  "_LS25G_sidebarCol": "layout/AppFrame.module.css|sidebarCol",
+  "bhn1Oq_fade": "workspace/WorkspaceBrowser.module.css|fade",
+  "bhn1Oq_sectionLabel": "workspace/WorkspaceBrowser.module.css|sectionLabel",
+  "byfCcW_fade": "workspace/WorkspaceBrowser.module.css|fade",
+  "byfCcW_sectionLabel": "workspace/WorkspaceBrowser.module.css|sectionLabel",
+  "cX-2eG_iconButton": "sidebar/HeaderLeadingControls.module.css|iconButton",
+  "e1PTRq_colorMessages": "conversation/ContextMeter.module.css|colorMessages",
+  "e1PTRq_colorSystem": "conversation/ContextMeter.module.css|colorSystem",
+  "e1PTRq_colorTools": "conversation/ContextMeter.module.css|colorTools",
+  "hHd-Xa_brand": "sidebar/SidebarRoot.module.css|brand",
+  "hHd-Xa_brandName": "sidebar/SidebarRoot.module.css|brandName",
+  "hHd-Xa_buildVersion": "sidebar/SidebarRoot.module.css|buildVersion",
+  "hHd-Xa_newSession": "sidebar/SidebarRoot.module.css|newSession",
+  "hHd-Xa_panelActive": "sidebar/SidebarRoot.module.css|panelActive",
+  "hHd-Xa_panelRow": "sidebar/SidebarRoot.module.css|panelRow",
+  "hHd-Xa_root": "sidebar/SidebarRoot.module.css|root",
+  "iWlSmW_trigger": "permission-presets/PermissionSelect.module.css|trigger",
+  "ixJ31a_brand": "sidebar/SidebarRoot.module.css|brand",
+  "ixJ31a_brandName": "sidebar/SidebarRoot.module.css|brandName",
+  "ixJ31a_buildVersion": "sidebar/SidebarRoot.module.css|buildVersion",
+  "ixJ31a_newSession": "sidebar/SidebarRoot.module.css|newSession",
+  "ixJ31a_panelActive": "sidebar/SidebarRoot.module.css|panelActive",
+  "ixJ31a_panelRow": "sidebar/SidebarRoot.module.css|panelRow",
+  "ixJ31a_root": "sidebar/SidebarRoot.module.css|root",
+  "j9L3CW_terminalBody": "tool/ToolRow.module.css|terminalBody",
+  "lcKema_root": "chat/ReasoningRow.module.css|root",
+  "lcKema_thinkBody": "chat/ReasoningRow.module.css|thinkBody",
+  "lyZLYW_markdownPayload": "trajectory/TrajectoryTable.module.css|markdownPayload",
+  "lyZLYW_markdownPreview": "trajectory/TrajectoryTable.module.css|markdownPreview",
+  "o3BgMG_terminalBody": "tool/ToolRow.module.css|terminalBody",
+  "pI_x6G_bottomRow": "layout/AppFrame.module.css|bottomRow",
+  "pI_x6G_centerCol": "layout/AppFrame.module.css|centerCol",
+  "pI_x6G_frame": "layout/AppFrame.module.css|frame",
+  "pI_x6G_handle": "layout/AppFrame.module.css|handle",
+  "pI_x6G_rightbarCol": "layout/AppFrame.module.css|rightbarCol",
+  "pI_x6G_sidebarCol": "layout/AppFrame.module.css|sidebarCol",
+  "qVH09a_trigger": "permission-presets/PermissionSelect.module.css|trigger",
+  "uV2eYG_add": "conversation/InputBar.module.css|add",
+  "uV2eYG_card": "conversation/InputBar.module.css|card",
+  "uV2eYG_input": "conversation/InputBar.module.css|input",
+  "uV2eYG_placeholder": "conversation/InputBar.module.css|placeholder",
+  "uV2eYG_primary": "conversation/InputBar.module.css|primary",
+  "uV2eYG_tools": "conversation/InputBar.module.css|tools",
+  "uV2eYG_trailing": "conversation/InputBar.module.css|trailing",
+  "vExQgW_mask": "attachment/DropOverlay.module.css|mask",
+  "wSkVaW_composerSeat": "conversation/ConversationRoot.module.css|composerSeat",
+  "wSkVaW_crumb": "conversation/ConversationRoot.module.css|crumb",
+  "wSkVaW_crumbCurrent": "conversation/ConversationRoot.module.css|crumbCurrent",
+  "wSkVaW_header": "conversation/ConversationRoot.module.css|header",
+  "wSkVaW_headerUtilities": "conversation/ConversationRoot.module.css|headerUtilities",
+  "wSkVaW_tab": "conversation/ConversationRoot.module.css|tab",
+  "wSkVaW_tabActive": "conversation/ConversationRoot.module.css|tabActive",
+  "yAWgPa_chip": "conversation/ReferenceChip.module.css|chip"
+})
+
+export default HOST_CLASS_SLOTS

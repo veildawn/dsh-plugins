@@ -207,7 +207,10 @@ test('生效范围为空 id 时不写入 applyTo', () => {
 
 /** 读取 patch 里某个插件行的 inject 列表。 */
 function readPatchInject(source) {
-  const match = source.match(/inject:\n((?:\s*-\s*\S+\n)+)/)
+  // 行尾必须两种都认：仓库里的 yml 是 LF，但 Windows 检出（core.autocrlf）后是 CRLF。
+  // 只写 `\n` 会让这条断言在 Windows 上恒定失败 —— 那是测试环境的换行差异，
+  // 不是插件真的没声明 inject。
+  const match = source.match(/inject:\r?\n((?:\s*-\s*\S+\r?\n)+)/)
   assert.ok(match, '未能从 cordis.patch.yml 解析出 inject 列表')
   return [...match[1].matchAll(/-\s*(\S+)/g)].map((item) => item[1])
 }

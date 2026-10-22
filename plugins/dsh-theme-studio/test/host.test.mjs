@@ -216,6 +216,75 @@ test('apply 在桌面上下文推入结构化注入行', () => {
   assert.equal(table[0].kind, 'script')
 })
 
+/**
+ * 桌面版首屏必须带上用户自定义设置。
+ *
+ * 桌面版**只**走结构化注入这条路径：Electron 主进程对 `/` 与 `/index.html` 用
+ * `serveWebDocument` 直接读静态 dist（见 app.asar `lib/main.js`），不经过
+ * `renderIndex` / `tapIndex`，所以 `patchIndex` 在桌面上一次都不会执行。
+ * 注入行一旦漏掉 settings，桌面版首屏就只有主题色、没有用户自定义的背景/字体/字段色，
+ * 要等客户端 RPC 回来才补上——表现为「启动后闪一下才出现自定义样式」。
+ */
+test('桌面注入行必须携带用户自定义设置（否则桌面首屏丢失自定义样式）', async () => {
+  const handlers = new Map()
+  const ctx = {
+    effect: (fn) => fn(),
+    on: (event, handler) => handlers.set(event, handler),
+  }
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'theme-studio-desktop-'))
+  try {
+    const settingsFile = join(dir, 'settings.json')
+    writeFileSync(settingsFile, JSON.stringify({
+      theme: 'glass',
+      fonts: { text: 'Inter' },
+      fieldColors: { foreground: '#010203' },
+    }))
+    apply(ctx, { settingsFile })
+    const table = []
+    handlers.get('webserver/index-inject')(table)
+    assert.equal(table.length, 2)
+    const html = table.find((row) => row.kind === 'html').html
+    assert.match(html, /--dsw-font-family: Inter/, '桌面首屏没有写入自定义字体')
+    assert.match(html, /--color-foreground: #010203/, '桌面首屏没有写入自定义字段色')
+    // 主题属性由 script 行负责：桌面版前端用 createElement('script') 执行 textContent。
+    assert.match(table[0].text, /data-theme-studio', "glass"/, 'script 行必须把已保存主题写到 documentElement')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('桌面注入行与 Web 端 patchIndex 产出同一份样式表', async () => {
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  // 必须指向临时设置文件：默认路径是开发机上真实的 ~/.dsh/theme-studio/settings.json，
+  // 用它会让这条测试随开发者的个人主题配置飘。
+  const dir = mkdtempSync(join(tmpdir(), 'theme-studio-parity-'))
+  try {
+    const settingsFile = join(dir, 'settings.json')
+    const handlers = new Map()
+    apply({
+      effect: (fn) => fn(),
+      on: (event, handler) => handlers.set(event, handler),
+    }, { settingsFile })
+    const table = []
+    handlers.get('webserver/index-inject')(table)
+    const desktopHtml = table.find((row) => row.kind === 'html').html
+
+    // 两条路径必须字节一致：不一致就说明「桌面版和 Web 版长得不一样」。
+    // 注意 `patchIndex` 的产物里 style 标签后面还跟着 `</head>` 等，这里只截取标签本体。
+    const web = patchIndex(HTML, { themeId: 'none' })
+    const start = web.indexOf(`<style id="${STYLE_ID}">`)
+    const end = web.indexOf('</style>', start) + '</style>'.length
+    assert.equal(desktopHtml, web.slice(start, end))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('apply 注册背景图路由', () => {
   const routes = []
   const ctx = {
@@ -306,7 +375,10 @@ test('模块 inject 与 cordis.patch.yml 的 inject 必须包含 connection 且�
   assert.ok(moduleInject, 'lib/index.js 必须导出 inject')
   const moduleList = [...moduleInject[1].matchAll(/'([^']+)'/g)].map((item) => item[1])
 
-  const patchMatch = patchSource.match(/inject:\n((?:\s*-\s*\S+\n)+)/)
+  // 行尾必须两种都认：仓库里的 yml 是 LF，但 Windows 检出（core.autocrlf）后是 CRLF，
+  // 只写 `\n` 会让这条断言在 Windows 上恒定失败 —— 那属于测试环境的换行差异，
+  // 不是插件真的没声明 inject。
+  const patchMatch = patchSource.match(/inject:\r?\n((?:\s*-\s*\S+\r?\n)+)/)
   assert.ok(patchMatch, '未能从 cordis.patch.yml 解析出 inject 列表')
   const patchList = [...patchMatch[1].matchAll(/-\s*(\S+)/g)].map((item) => item[1])
 

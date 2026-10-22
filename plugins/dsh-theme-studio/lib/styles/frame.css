@@ -53,3 +53,67 @@ html[data-theme-studio] .pI_x6G_handle,
 html[data-theme-studio] ._LS25G_handle {
   background: transparent;
 }
+
+/* ---------------------------------------------------------------------------
+   Windows 桌面版（Electron self-drawn titlebar）
+   ---------------------------------------------------------------------------
+   桌面版的 preload 会往 `html` 上打两个平台标记（见 app.asar 的
+   `lib/preload-app.cjs`）：
+
+   - `data-platform` = `process.platform` —— macOS 是 `darwin`，Windows 是 `win32`；
+   - `data-windows-titlebar` = `""` —— **仅 Windows**，同时把
+     `--dsh-windows-titlebar-height` 设成 40px。
+
+   宿主在 `[data-windows-titlebar]` 下换了一整套骨架（AppFrame.module.css）：
+
+   ```
+   [data-windows-titlebar] .frame   { padding-top: var(--dsh-windows-titlebar-height);
+                                      background: var(--dsw-specific-sidebar-fill) }
+   [data-windows-titlebar] .frame:before { content:""; height:…; position:absolute; inset:0 0 auto;
+                                           -webkit-app-region: drag }
+   [data-windows-titlebar] .centerCol { border-radius: 16px 0 0 0; corner-shape: round }
+   [data-windows-titlebar] .sidebarCol { border-right: none }
+   ```
+
+   也就是说：**窗口顶部 40px 是拖拽条，内容卡从它下沿开始，只在左上角切 16px 圆角**
+   ——这是 Windows 11 的窗口规范，和 macOS 那套「四周内缩 4px + 6px 全圆角」完全不同。
+
+   主题原来的 `margin: 4px 4px 4px 0` + `border-radius: 6px` 是照着 macOS 写的：
+   在 Windows 上会把内容卡从拖拽条下沿再往里缩一圈，圆角也压在宿主已经画好的
+   左上 16px 圆角上，出现「圆角套圆角」和窗口右上角露白边。所以这里显式让位：
+   几何全部交还宿主，主题只负责配色。
+   --------------------------------------------------------------------------- */
+
+/* ① 让位几何：Windows 的圆角与内缩由宿主 AppFrame 决定，主题不再叠加。 */
+html[data-theme-studio][data-windows-titlebar] .pI_x6G_centerCol,
+html[data-theme-studio][data-windows-titlebar] ._LS25G_centerCol {
+  /* 宿主给的是 `16px 0 0 0`；这里跟随宿主并在右上也切圆角，
+     否则窗口右上角会露出一块直角底色，与标题栏圆角对不齐。 */
+  border-radius: var(--dsh-windows-content-radius, 16px) var(--dsh-windows-content-radius, 16px) 0 0;
+  margin: 0;
+  /* 描边交给宿主的窗口阴影；主题再画一圈会变成双层边框。 */
+  border: none;
+}
+
+/* ② 拖拽条（frame::before）也要跟着主题走：宿主用 --dsw-specific-sidebar-fill，
+    主题把它映射成 --color-sidebar，Windows 上是画布黑，会在标题栏区域形成一条
+    与侧栏不同的深色带。这里统一到窗口底色。
+    高度取宿主变量，绝不写死 40px —— 微软在不同 DPI 下会改这个值。 */
+html[data-theme-studio][data-windows-titlebar] .pI_x6G_frame::before,
+html[data-theme-studio][data-windows-titlebar] ._LS25G_frame::before {
+  background: var(--color-background-win-alt);
+}
+
+/* ③ 侧栏底色：Windows 没有 macOS 那层渐变，直接用窗口底色即可，
+    但要显式声明成 transparent 之下的同一色，避免 ::before 覆盖区与侧栏出现色差。 */
+html[data-theme-studio][data-windows-titlebar] .pI_x6G_sidebarCol,
+html[data-theme-studio][data-windows-titlebar] ._LS25G_sidebarCol {
+  background: var(--color-background-win-alt);
+}
+
+/* ④ 全屏时宿主把标题栏高度归零（`--dsh-frame-chrome-top: 0px`），
+    内容卡重新贴住窗口顶部，此时恢复四周内缩的观感才不会顶边。 */
+html[data-theme-studio][data-windows-titlebar][data-fullscreen] .pI_x6G_centerCol,
+html[data-theme-studio][data-windows-titlebar][data-fullscreen] ._LS25G_centerCol {
+  border-radius: 0;
+}

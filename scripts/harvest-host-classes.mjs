@@ -1,17 +1,26 @@
 // 从 DSH 前端抽取全部 dsh-client-ui-* 的 CSS Module 类名，生成仓库共享的 fixture。
-// 使用者：dsh-zcode-theme 的类名存活测试、dsh-mobile-adapter 的语义化改造与存活测试。
+// 使用者：dsh-theme-studio 的类名存活测试与「旧类名 → 模块槽位」对照表、
+// dsh-mobile-adapter 的语义化改造与存活测试、dsh-zcode-theme 的兼容薄壳。
 // 只在宿主升级后手动执行。
 //
 // 用法：
-//   node scripts/harvest-host-classes.mjs                     # 默认读桌面版 app.asar（macOS 路径）
+//   node scripts/harvest-host-classes.mjs                     # 默认读桌面版 app.asar（按平台推导路径）
 //   node scripts/harvest-host-classes.mjs <app.asar>          # 指定 asar
+//   node scripts/harvest-host-classes.mjs --all               # 桌面版 + Web 版一起采（推荐）
 //   node scripts/harvest-host-classes.mjs --web              # 读 dsh web 的 node_modules
 //   node scripts/harvest-host-classes.mjs --web <dsh-scope>  # 指定 @deepseek-ai 目录
 //
+// 环境变量：
+//   DSH_APP_ASAR   显式指定桌面版 app.asar（非常规安装路径时用）
+//   DSH_WEB_SCOPE  显式指定 Web 版的 @deepseek-ai 目录
+//
 // 为什么有两种来源：桌面版（Electron，前端打在 app.asar 里）与 Web 版（`dsh web`，
 // 前端在 node_modules/@deepseek-ai/dsh-client-ui-*）是**两次独立构建**，CSS Module
-// 哈希完全不同（同一时期桌面是 `Qt4Hga_primary`、Web 是 `uV2eYG_primary`）。
+// 哈希完全不同（同一时期桌面是 `BynINW_centerCol`、Web 是 `pI_x6G_centerCol`）。
 // 主题要同时兼容两侧，fixture 就得把两套都收进来。
+//
+// 采集完之后**必须**再跑一次 `node scripts/build-host-class-slots.mjs`：
+// 主题的跨构建定位靠的就是这张由 fixture 推导出的对照表。
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -138,32 +147,74 @@ function mergeInto(target, source, kind) {
 const args = process.argv.slice(2)
 const sources = []
 
+/** 默认的桌面版 app.asar 位置：按平台给出，并允许环境变量覆盖。 */
+function defaultDesktopAsar() {
+  if (process.env.DSH_APP_ASAR) return process.env.DSH_APP_ASAR
+  if (process.platform === 'darwin') {
+    return '/Applications/DeepSeek Harness.app/Contents/Resources/app.asar'
+  }
+  if (process.platform === 'win32') {
+    // Windows 安装版默认在 %LOCALAPPDATA%\Programs，也常见于任意盘符的自定义目录。
+    const local = process.env.LOCALAPPDATA
+    const candidates = [local && join(local, 'Programs', 'DeepSeek Harness', 'resources', 'app.asar')]
+    for (const candidate of candidates) if (candidate && existsSync(candidate)) return candidate
+    return candidates[0]
+  }
+  return '/opt/DeepSeek Harness/resources/app.asar'
+}
+
+/**
+ * Web 版 `@deepseek-ai` 目录：从 node 可执行文件向上找。
+ *
+ * 之前只认 `nvm` 的 `lib/node_modules`，Windows 的全局安装（`%APPDATA%\npm\node_modules`
+ * 或 `D:\Apps\nodejs\node_modules`）一律命中不了，于是 `--all` 在 Windows 上永远只采到
+ * 桌面版，fixture 的 `web` 一侧是空的 —— 主题的「双构建孪生」测试于是拿不到对照。
+ */
+function defaultWebScope() {
+  if (process.env.DSH_WEB_SCOPE) return process.env.DSH_WEB_SCOPE
+  let dir = dirname(process.execPath)
+  for (let depth = 0; depth < 6; depth += 1) {
+    const candidates = [
+      join(dir, 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai'),
+      join(dir, 'node_modules', '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai'),
+      join(dir, 'lib', 'node_modules', '@deepseek-ai'),
+      join(dir, 'node_modules', '@deepseek-ai'),
+    ]
+    for (const candidate of candidates) {
+      // 目录存在还不够：`@deepseek-ai` 可能是被别的包顺带建出来的空壳，
+      // 真正的 UI 包要看里面有没有 `dsh-client-ui-*`。
+      if (!existsSync(candidate)) continue
+      try {
+        if (readdirSync(candidate).some((name) => name.startsWith('dsh-client-ui-'))) return candidate
+      } catch {
+        // 读不到就当它不适用，继续找下一个候选。
+      }
+    }
+    const next = dirname(dir)
+    if (next === dir) break
+    dir = next
+  }
+  return join(dirname(process.execPath), 'lib', 'node_modules', '@deepseek-ai')
+}
+
 // --all：桌面版与 Web 版同时采集并合并（推荐，主题要同时兼容两侧）。
 if (args.includes('--all')) {
-  const webScope = resolve(
-    dirname(process.execPath),
-    '../lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai',
-  )
-  const asarPath = resolve('/Applications/DeepSeek Harness.app/Contents/Resources/app.asar')
+  const webScope = defaultWebScope()
+  const asarPath = defaultDesktopAsar()
   if (existsSync(asarPath)) sources.push({ kind: 'desktop', label: asarPath, data: harvestAsar(asarPath) })
   else console.warn(`跳过桌面版（找不到 ${asarPath}）`)
   if (existsSync(webScope)) sources.push({ kind: 'web', label: webScope, data: harvestWeb(webScope) })
   else console.warn(`跳过 Web 版（找不到 ${webScope}）`)
 } else if (args.includes('--web')) {
   const explicit = args.find((a) => a !== '--web')
-  const defaultScope = resolve(
-    dirname(process.execPath),
-    '../lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai',
-  )
-  const scopeDir = explicit ?? process.env.DSH_WEB_SCOPE ?? defaultScope
+  const scopeDir = explicit ?? defaultWebScope()
   if (!existsSync(scopeDir)) {
     console.error(`找不到 Web 版 @deepseek-ai 目录：${scopeDir}`)
     process.exit(1)
   }
   sources.push({ kind: 'web', label: scopeDir, data: harvestWeb(scopeDir) })
 } else {
-  const asarPath =
-    args[0] ?? process.env.DSH_APP_ASAR ?? resolve('/Applications/DeepSeek Harness.app/Contents/Resources/app.asar')
+  const asarPath = args[0] ?? defaultDesktopAsar()
   if (!existsSync(asarPath)) {
     console.error(`找不到 app.asar：${asarPath}`)
     console.error('用法：node scripts/harvest-host-classes.mjs [--all | --web] [路径]')

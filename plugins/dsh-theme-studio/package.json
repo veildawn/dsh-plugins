@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-theme-studio",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "Theme Studio for DeepSeek Harness: switchable built-in themes (ZCode / Apple Glass), unified design tokens compatible with every dsh plugin, and user-customizable background, fonts and field colors",
   "type": "module",
   "main": "lib/index.js",
@@ -10,6 +10,8 @@
     "./themes": "./lib/themes/index.js",
     "./settings": "./lib/settings.js",
     "./css": "./lib/css.js",
+    "./host-modules": "./lib/host-modules.js",
+    "./host-class-slots": "./lib/host-class-slots.js",
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
@@ -19,6 +21,8 @@
     "lib/themes",
     "lib/settings.js",
     "lib/css.js",
+    "lib/host-modules.js",
+    "lib/host-class-slots.js",
     "lib/client.js",
     "lib/styles",
     "README.md",

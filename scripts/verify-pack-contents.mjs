@@ -29,6 +29,9 @@ const PLUGINS_DIR = join(REPO_ROOT, 'plugins');
 /** 单包解压后体积上限：超过通常意味着误打包了二进制或 node_modules。 */
 const MAX_UNPACKED_BYTES = 8 * 1024 * 1024;
 
+/** npm 可执行名：Windows 上是 `npm.cmd`。 */
+const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
 /** 任何情况下都不该出现在发布产物里的路径。 */
 const FORBIDDEN = [
   { test: (p) => p.startsWith('test/'), why: '测试目录' },
@@ -67,9 +70,13 @@ for (const dirName of dirs) {
 
   let report;
   try {
-    const stdout = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+    // Windows 上 `npm` 是 `npm.cmd` 包装脚本，execFileSync 不会经过 shell，
+    // 直接 spawn('npm') 会 ENOENT。用 shell 让它按平台的 PATHEXT 解析，
+    // Linux/macOS 行为不变。
+    const stdout = execFileSync(NPM, ['pack', '--dry-run', '--json'], {
       cwd: pluginDir,
       encoding: 'utf8',
+      shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     report = JSON.parse(stdout)[0];

@@ -21,6 +21,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { THEME_ATTR, themeVarsCss } from './tokens.js'
 import { BUILTIN_THEMES, getTheme } from './themes/index.js'
+import { adaptCssToHost, detectHostModules } from './host-modules.js'
+import { HOST_CLASS_SLOTS } from './host-class-slots.js'
 
 /**
  * 组件级样式表的加载顺序。
@@ -63,6 +65,51 @@ export function stylesDir() {
 export function readStyleFile(name) {
   return readFileSync(join(stylesDir(), name), 'utf8')
 }
+
+/**
+ * 宿主 CSS Modules 索引的进程级缓存。
+ *
+ * 探测要读遍宿主 54 个 bundle（asar 里 18000+ 条目），只在进程首启做一次；
+ * 宿主换了构建必然重启 dsh，那时缓存自然失效，不需要文件监听。
+ *
+ * @type {{ slots: Map<string, string>, owners: Map<string, Set<string>> } | undefined}
+ */
+let hostIndexCache
+
+/**
+ * 取当前宿主的 CSS Modules 索引（只探测一次）。
+ *
+ * @param {{ refresh?: boolean, roots?: string[] }} [options]
+ * @returns {{ slots: Map<string, string>, owners: Map<string, Set<string>> }}
+ */
+export function hostModuleIndex(options = {}) {
+  if (options.refresh === true) hostIndexCache = undefined
+  if (hostIndexCache === undefined) {
+    try {
+      hostIndexCache = detectHostModules(options)
+    } catch {
+      // 探测失败必须退化而不是抛错：主题的首要职责是把写死在 CSS 里的那几套
+      // 哈希原样交付，自适应层只是增量。
+      hostIndexCache = { slots: new Map(), owners: new Map() }
+    }
+  }
+  return hostIndexCache
+}
+
+/**
+ * 把一份样式表按当前宿主补全类名。
+ *
+ * @param {string} css
+ * @param {{ slots: Map<string, string>, owners: Map<string, Set<string>> }} [index]
+ * @returns {string}
+ */
+export function adaptStyleCss(css, index) {
+  const resolved = index ?? hostModuleIndex()
+  return adaptCssToHost(css, resolved, HOST_CLASS_SLOTS).css
+}
+
+/** 组件层样式表的缓存（读盘 + 自适应改写后）。 */
+let styleFilesCache
 
 /**
  * 基础声明：与主题无关，但必须在变量之前就位。
@@ -108,6 +155,25 @@ export function legacyVarsCss(theme) {
 }
 
 /**
+ * 组件层与玻璃层的读取 + 自适应改写结果（进程内缓存一次）。
+ *
+ * 首屏直出每次请求都要拼一份完整样式表，不缓存的话每次都要重新读 16 个文件并做
+ * 一遍正则改写。宿主映射在进程生命周期内不变（换构建必然重启），所以缓存安全。
+ *
+ * @returns {{ files: string[], glass: string }}
+ */
+function adaptedStyleLayers() {
+  if (styleFilesCache === undefined) {
+    const index = hostModuleIndex()
+    styleFilesCache = {
+      files: STYLE_FILES.map((name) => adaptStyleCss(readStyleFile(name), index)),
+      glass: adaptStyleCss(readStyleFile(GLASS_STYLE_FILE), index),
+    }
+  }
+  return styleFilesCache
+}
+
+/**
  * 装配某一个主题的完整 CSS。
  *
  * @param {string} themeId
@@ -121,7 +187,11 @@ export function composeThemeCss(themeId, options = {}) {
   const theme = getTheme(themeId)
   if (!theme) throw new Error(`未知主题 "${themeId}"`)
 
-  const files = STYLE_FILES.map(readStyleFile)
+  // 用户自定义层**不参与**宿主自适应：它只由颜色/字体组成的白名单值构成，
+  // 一旦混进正则改写，任何形如 `xxx_yyy` 的合法字体名都可能被误当成模块类名。
+  const layers = adaptedStyleLayers()
+  const files = layers.files
+  const glass = layers.glass
   // shiki 基础声明并入主题变量块，避免产出两个同名的 html[attr] 选择器块。
   const base = baseToneDeclarations()
 
@@ -137,7 +207,7 @@ export function composeThemeCss(themeId, options = {}) {
     return [
       vars,
       files.join('\n'),
-      readStyleFile(GLASS_STYLE_FILE),
+      glass,
       options.custom ?? '',
     ].join('\n')
   }
@@ -148,7 +218,7 @@ export function composeThemeCss(themeId, options = {}) {
     files.join('\n'),
     // 玻璃材质层始终包含：它在选择器里自带主题限定，非玻璃主题下不命中任何元素。
     // 这样避免「先选 ZCode 再切玻璃」时需要重新注入整份样式表。
-    readStyleFile(GLASS_STYLE_FILE),
+    glass,
     options.custom ?? '',
   ].join('\n')
 }

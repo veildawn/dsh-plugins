@@ -143,13 +143,29 @@ export function themeScopeScript(themeId) {
 /**
  * 生成结构化 index 注入行（桌面端 Electron 走这条路径）。
  *
+ * 桌面版与 Web 端的**渲染时机完全不同**，这是这里必须传 `settings` 的原因：
+ *
+ * - Web 端：`tapIndex` 在服务端渲染 index 时同步跑 `patchIndex(html, { themeId, settings })`；
+ * - 桌面版：主进程从 `webServer.collectIndexInjections()` 取一次行表，
+ *   经 IPC 交给渲染进程，由前端 `PZ()` 在应用挂载前逐行执行：
+ *   `script` 行 → `document.createElement('script')` + `textContent`，
+ *   `html` 行 → `head.insertAdjacentHTML('beforeend', row.html)`。
+ *
+ * 所以两行各司其职：`script` 行负责把 `data-theme-studio` 写到 `documentElement`
+ * （没有它，`html[data-theme-studio] …` 全部不命中），`html` 行负责样式表本体。
+ *
+ * 早期实现只传了 `themeId`，没传 `settings`：Web 端有自定义背景/字体/字段色，
+ * 桌面版首屏却是「主题色生效、用户自定义丢失」，要等客户端 `applyToDocument()`
+ * 通过 RPC 拿到设置后才补上——表现为**桌面版启动后自定义样式闪一下才出现**。
+ *
  * @param {string} [themeId]
+ * @param {object} [settings] 已规范化的用户设置（与 Web 端 `patchIndex` 同一份）
  * @returns {Array<{ kind: string, placement: string, text?: string, html?: string }>}
  */
-export function themeInjections(themeId) {
+export function themeInjections(themeId, settings = {}) {
   return [
     { kind: 'script', placement: 'head', text: themeScopeScript(themeId) },
-    { kind: 'html', placement: 'head', html: themeStyleTag({ themeId }) },
+    { kind: 'html', placement: 'head', html: themeStyleTag({ themeId, settings }) },
   ]
 }
 
@@ -307,9 +323,12 @@ export function apply(ctx, config = {}) {
   }
 
   // —— 1. 结构化注入行：桌面端 Electron 从 collectIndexInjections() 收集 ——
+  // 桌面版**只**走这条路径：主进程 `/` 请求由 Electron 自己读静态文件（见 app.asar 的
+  // `serveWebDocument`），不经过 renderIndex / tapIndex，所以 tapIndex 在桌面上一次都不会执行。
+  // 必须把 settings 一并带上，否则自定义背景/字体在桌面版首屏会丢失。
   if (typeof ctx.on === 'function') {
     ctx.on('webserver/index-inject', (table) => {
-      table.push(...themeInjections(activeThemeId()))
+      table.push(...themeInjections(activeThemeId(), settings))
     })
   }
 

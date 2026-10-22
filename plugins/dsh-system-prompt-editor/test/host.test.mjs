@@ -44,7 +44,17 @@ function fakePrompt(sections) {
 test('resolveSettingsFilePath 处理空值与相对路径', () => {
   assert.equal(resolveSettingsFilePath(''), defaultSettingsFilePath())
   assert.equal(resolveSettingsFilePath('   '), defaultSettingsFilePath())
-  assert.equal(resolveSettingsFilePath('/tmp/a/b.json'), '/tmp/a/b.json')
+  // 绝对路径必须原样返回。判据不能用写死的 POSIX 路径：宿主在 Windows 上会把
+  // `/tmp/a/b.json` 解析成 `D:\tmp\a\b.json`（盘符来自当前工作目录），
+  // 断言 `'/tmp/a/b.json' === '/tmp/a/b.json'` 在 Windows 上必然失败 —— 那是
+  // 测试用了平台相关的字面量，不是解析逻辑有问题。
+  const absolute = path.resolve('/tmp/a/b.json')
+  assert.equal(resolveSettingsFilePath('/tmp/a/b.json'), absolute)
+  // Windows 盘符路径额外验一次，覆盖「反斜杠 + 盘符」这一形态。
+  if (process.platform === 'win32') {
+    const winPath = path.join(process.cwd(), 'a', 'b.json')
+    assert.equal(resolveSettingsFilePath(winPath), winPath)
+  }
 })
 
 test('resolveSettingsFilePath 展开 ~ 前缀', () => {

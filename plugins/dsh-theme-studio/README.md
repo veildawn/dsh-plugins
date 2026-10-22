@@ -34,6 +34,9 @@ lib/tokens.js
 ├── buildHostTokens()     把主题色板解析成 { light, dark } 成对值
 ├── themeVarsCss()        生成变量块（按 body 级 / :root 级分层）
 └── lib/themes/*.js       四套色板；变体只声明差异键，由 inheritPalette() 合并
+
+lib/host-modules.js       探测当前宿主的 CSS Modules 映射（跨构建自适应）
+lib/host-class-slots.js   旧类名 → 模块槽位（自动生成，勿手改）
 ```
 
 ### 为什么变量要分两块输出
@@ -131,12 +134,84 @@ dsh plugin --profile web add @weniatall/dsh-theme-studio
 宿主升级后重新采集：
 
 ```bash
-node scripts/harvest-host-classes.mjs --all   # 桌面版 + Web 版一起采，推荐
+node scripts/harvest-host-classes.mjs --all      # 桌面版 + Web 版一起采，推荐
+node scripts/build-host-class-slots.mjs          # 重建「旧类名 → 模块槽位」对照表
 ```
 
-**必须采两个来源**：桌面版（Electron，前端在 `app.asar`）与 Web 版是两次独立
-构建，哈希完全不同。只采一侧，另一侧的选择器就全是死的，而且测试照样绿。
-每条宿主选择器都要**同时写两套哈希**。
+**两步都要做**：采集更新快照，重建把快照转成运行时用的对照表。少第二步，
+主题就查不到新构建的类名（`test/host-modules.test.mjs` 会先失败）。
+
+### 跨构建自适应（桌面版不兼容的根治）
+
+宿主每次构建都会重新生成 CSS Modules 的哈希前缀。同一个组件在三套构建里是三个
+不同类名（实测 2026-10，宿主 0.2.1-rc.2）：
+
+| 来源 | `AppFrame.centerCol` | `MessageItem.bubble` |
+| :--- | :--- | :--- |
+| Web（`dsh web`） | `pI_x6G_centerCol` | `Sixlwa_bubble` |
+| macOS 桌面版 | `_LS25G_centerCol` | `P9wcjW_bubble` |
+| **Windows 桌面版** | **`BynINW_centerCol`** | **`cJsG2q_bubble`** |
+
+只把前两套写进 CSS，第三套就**一条规则都命中不了**——没有报错、没有日志，
+只是「主题在桌面版上看起来没生效」。这是本插件 0.1.x 的真实故障。
+
+修复不靠「再多写一套哈希」（下次构建又会失效），而是靠一条**跨构建稳定的身份**：
+
+```
+bundle + 模块文件名 + 部件名      例：layout/AppFrame.module.css|centerCol
+```
+
+`test/host-modules.test.mjs` 用快照锁定「137 个模块的部件名在两套构建之间逐个
+完全一致」，这条前提成立，定位才可靠。运行时按它做三件事：
+
+1. `lib/host-modules.js` 启动时枚举**当前正在运行的宿主**的 CSS Modules 映射
+   （桌面版读 `app.asar`，Web 版读 `node_modules/@deepseek-ai`）；
+2. `lib/host-class-slots.js`（生成产物）把主题里写死的旧类名翻译成槽位键；
+3. `adaptCssToHost()` 把 `.旧类名` 改写成 `:is(.旧类名, .当前类名)`。
+
+**已有类名一个都不删** —— Web 版与 macOS 桌面版的写法原样保留，当前构建追加为
+并列候选。`:is()` 的特异性取参数最高项，与单类相同（`0,1,0`），不会压过社区插件的
+单类规则。实测覆盖：主题引用的 128 个宿主类名**全部命中**，未命中 0 个。
+
+同时覆盖 `[class*="hash_part"]` 这类**属性选择器里的哈希**（权限触发器、
+上下文占用表着色段用的就是它）。`[class*="_primary_"]`、`[class~="primary"]`
+不含构建哈希，属于跨构建稳定写法，不会被改写。
+
+**读不到宿主就退化**：CI、单元测试、未知安装布局下面板探测为空，`adaptCssToHost()`
+原样返回 CSS，行为与引入这层之前完全一致，不会抛错也不会告警。
+
+## 桌面版首屏契约
+
+桌面版（Electron）与 Web 端的首屏路径**完全不同**，这是本插件第二个兼容性坑：
+
+| | Web 端 | 桌面版 |
+| :--- | :--- | :--- |
+| index.html 来源 | `frontend-static` → `webServer.renderIndex()` | Electron 主进程 `serveWebDocument()` 直读静态 dist |
+| 结构化注入行 | `renderIndexInjections()` 渲染进文档 | IPC `dsh-desktop:boot` 交回渲染进程，前端 `PZ()` 逐行执行 |
+| `tapIndex` | ✅ 执行 | ❌ **一次都不执行** |
+
+桌面版对静态 index 只做一件事——插入 `__DSH_BOOT_READY__` 的 Promise；其余全部
+依赖 `dshDesktopBoot.ready()` 返回的 `injections`。所以主题**必须**提供
+`webserver/index-inject` 行，且两行各司其职：
+
+- `script` 行 → 把 `data-theme-studio` 写到 `documentElement`
+  （没有它，`html[data-theme-studio] …` 全部不命中）；
+- `html` 行 → 样式表本体（前端用 `head.insertAdjacentHTML('beforeend', …)` 追加）。
+
+注入行**必须携带 `settings`**，否则桌面版首屏只有主题色、没有用户自定义的
+背景/字体/字段色，要等客户端 RPC 回来才补上——表现为「启动后闪一下才出现自定义
+样式」。`test/host.test.mjs` 用「桌面注入行与 Web 端 `patchIndex` 产出字节一致」
+锁死这条。
+
+### Windows 标题栏
+
+桌面版 preload（`app.asar/lib/preload-app.cjs`）在 Windows 上会写
+`html[data-windows-titlebar]` 并把 `--dsh-windows-titlebar-height` 设成 40px，
+宿主 UI 随即切换成 Windows 11 骨架：**顶部 40px 拖拽条 + 内容卡只切左上 16px 圆角**。
+
+主题原本只有 macOS 那套「四周内缩 4px + 6px 全圆角」。两者叠加会出现「圆角套圆角」
+和右上角露底。`lib/styles/frame.css` 的 `[data-windows-titlebar]` 段落显式让位：
+几何交还宿主，圆角跟随 `--dsh-windows-content-radius`，不写死像素值（宿主按 DPI 换算）。
 
 ## 特异性契约
 
@@ -177,13 +252,16 @@ dsh plugin --profile web add @weniatall/dsh-theme-studio
 
 ```bash
 cd plugins/dsh-theme-studio && npm pack
-dsh plugin --profile web add ./plugins/dsh-theme-studio/dsh-theme-studio-0.1.8.tgz
+dsh plugin --profile web add ./dsh-theme-studio-0.2.0.tgz
 ```
+
+桌面版请用 `--profile desktop` 安装同一份包。
 
 ## 重启生效
 
 - **macOS / Linux**：`./scripts/dsh-web.sh restart`
 - **Windows**：`.\scripts\dsh-web.ps1 restart` 或 `scripts\dsh-web.cmd restart`
+- **桌面版**：退出并重新打开 DeepSeek Harness —— Electron 主进程重启后才会重新读取注入行。
 
 ## License
 
