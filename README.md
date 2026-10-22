@@ -22,6 +22,7 @@
 | **`dsh-jev`** | [`plugins/dsh-jev`](plugins/dsh-jev) | 决策模型原生工具插件（可直接下拉选择 dsh 已配置的提供商与模型，此时接口地址与 API Key 完全由提供商配置解析；也可手写 baseURL/Key/模型 ID。决策模型按 `/v1/models` 的 `modality`、静态 `modality`（含 dsh-ai-proxy 材料化写入）、classifier 协议、模型类型与名称识别；默认仍为 TypeSafe Jev 官方地址、Choice/Score/Noul 三大决策原语、/v1/systemone 与 /v1/decisions 端点切换、代理访问支持 http/https/socks5、常驻决策策略切面引导 Agent 何时调用） | [`v0.2.6`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-jev@v0.2.6) |
 | **`dsh-image-gen`** | [`plugins/dsh-image-gen`](plugins/dsh-image-gen) | DSH 原生生图插件（把文生图作为原生工具暴露，可直接下拉选择 dsh 已配置的提供商与模型、或手动填写 baseURL/Key，内置尺寸与画质选择，支持 http/https/socks5 代理；设置面板可实时切换并测试连通性） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-image-gen@v0.1.5) |
 | **`dsh-task-models`** | [`plugins/dsh-task-models`](plugins/dsh-task-models) | 独立子任务模型路由插件（按任务类型为子代理选择模型、显式标签优先与词边界匹配、规则试运行预览、workflow 模型标注附路由解释、可选 TypeSafe Jev 决策、可选轻量分类回退、有界决策超时与取消传播、不依赖任何 Agent Preset 或角色路由插件） | [`v0.3.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-task-models@v0.3.0) |
+| **`dsh-im-bot`** | [`plugins/dsh-im-bot`](plugins/dsh-im-bot) | 集成机器人：企业微信智能机器人（长连接 API 模式，无需公网地址）与个人微信（腾讯 iLink Bot 官方接口）双通道、微信发消息驱动 DSH 会话的双向通信（`/new` `/use` `/sessions` `/status` `/stop` `/notify` `/help` 内置命令）、回合完成与失败告警主动回推发起聊天、白名单安全默认拒绝、每 peer 限流与分片、断线指数退避重连、扫码登录、绑定关系可视化管理、`im_bot_send` 原生工具与 `/dsh-im-bot/send` 通用推送接口 | [`v0.1.1`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-im-bot@v0.1.1) |
 | **`dsh-system-prompt-editor`** | [`plugins/dsh-system-prompt-editor`](plugins/dsh-system-prompt-editor) | 系统提示词可视化编辑器（默认展示当前真实系统提示词、按名称定位改为下拉框列出真实段落并附中文含义与悬停预览、同行字段顶部对齐修正下拉框错位、五种定位方式与五种改写动作、可按预设或会话限定生效范围、追加段落走正式 section 注册、保存前实时预览与逐条命中反馈、优先写入官方 settings 服务并原子落盘、任一规则异常都不阻断会话且失败时原样放行官方提示词、通过 `system-prompt/assemble` waterfall 实现故无需改动安装包） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-system-prompt-editor@v0.2.1) |
 
 ---
@@ -88,6 +89,9 @@ dsh plugin --profile web add @weniatall/dsh-image-gen
 
 # 13. 安装独立子任务模型路由 (按任务类型为子代理选模型)
 dsh plugin --profile web add @weniatall/dsh-task-models
+
+# 14. 安装集成机器人 (企业微信 / 个人微信双向通信与任务完成通知)
+dsh plugin --profile web add @weniatall/dsh-im-bot
 ```
 
 ### 从旧版 tarball 安装迁移

@@ -1,0 +1,73 @@
+{
+  "name": "@weniatall/dsh-im-bot",
+  "version": "0.1.1",
+  "description": "IM bot integration for DeepSeek Harness: personal WeChat (Tencent iLink Bot) and WeCom intelligent robot (long-connection API) with bidirectional chat and turn-completion notifications",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./core": "./lib/core.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/core.js",
+    "lib/client.js",
+    "lib/channels/base.js",
+    "lib/channels/ilink.js",
+    "lib/channels/wecom.js",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs && node ../../scripts/harness-host-test.mjs plugins/dsh-im-bot && node ../../scripts/check-host-settings.mjs plugins/dsh-im-bot im-bot"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "wechat",
+    "wecom",
+    "weixin",
+    "im",
+    "bot",
+    "notification"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-credentials": ">=0.1.0-rc.6",
+    "@deepseek-ai/dsh-home-paths": ">=0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": ">=0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-connection"
+      ],
+      "platform": "web"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-im-bot"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-im-bot#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  }
+}
