@@ -177,8 +177,16 @@ html[data-theme-studio="glass-color"] ._LS25G_sidebarCol {
     var(--dsw-shadow-lv3);
 }
 
-/* 弹出菜单（Menu）：Apple 风格的高级毛玻璃悬浮菜单，圆角、大阴影、菜单项悬停微光 */
-:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [role="menu"] {
+/* 弹出菜单（Menu）：Apple 风格的高级毛玻璃悬浮菜单，圆角、大阴影、菜单项悬停微光。
+   关键：宿主模型选择菜单里**内外两层都带 role="menu"** —— 外层容器是
+   ._7KE1Ra_menu / .WqxjfG_menu，内层滚动区是 ._7KE1Ra_groups / .WqxjfG_groups（见
+   dsh-client-ui-model-selection 的 className: clsx(css.groups, "scrollable"),
+   role: "menu"）。裸写 [role="menu"] 会把内层滚动区一起命中，给它套上
+   border / border-radius / padding，并把 overflow-y:auto 覆盖成
+   overflow:hidden，于是列表滚不动、底部被裁掉一半，而真正的容器反倒
+   拿不到圆角与描边。这里用 :not() 把内层滚动区排除，让它只负责滚动。 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [role="menu"]:not(:is(._7KE1Ra_groups, .WqxjfG_groups, [class$="_groups"])),
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(._7KE1Ra_menu, .WqxjfG_menu, [class$="_menu"]):not(:is(._7KE1Ra_groups, .WqxjfG_groups, [class$="_groups"])) {
   background: var(--color-menu) !important;
   -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 1.3)) saturate(var(--ts-saturate)) !important;
   backdrop-filter: blur(calc(var(--ts-blur) * 1.3)) saturate(var(--ts-saturate)) !important;
@@ -190,6 +198,25 @@ html[data-theme-studio="glass-color"] ._LS25G_sidebarCol {
     0 4px 12px rgba(0, 0, 0, 0.06) !important;
   padding: 6px !important;
   overflow: hidden;
+}
+
+/* 菜单内部滚动区：只保滚动职责，不套任何视觉外框。
+   这些 !important 必须压过上面那条（同样带 !important，靠后声明取胜），
+   把被误套上的描边/圆角/内边距清掉，并把 overflow 还原成可滚动。 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is([role="menu"], ._7KE1Ra_menu, .WqxjfG_menu, [class$="_menu"]) :is(._7KE1Ra_groups, .WqxjfG_groups, [class$="_groups"]) {
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
 }
 
 :is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [role="menuitem"] {

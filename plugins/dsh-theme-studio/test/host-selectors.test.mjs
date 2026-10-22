@@ -304,3 +304,34 @@ test('玻璃主题的输入卡按钮必须无背景框，与相邻的 + 号按�
   assert.ok(hover, '缺少 hover 规则')
   assert.match(hover[1], /background:\s*var\(--color-surface\)/, 'hover 时应给出轻量底色反馈')
 })
+
+test('玻璃主题的菜单规则必须把内层滚动区排除，否则模型列表滚不动', async () => {
+  const css = await readFile(join(root, 'lib/styles/glass.css'), 'utf8')
+
+  // 真实事故：宿主模型选择菜单内外两层都带 role="menu" ——
+  // 外层 ._7KE1Ra_menu 是容器，内层 ._7KE1Ra_groups 是滚动区
+  // （dsh-client-ui-model-selection: className: clsx(css.groups, "scrollable"),
+  //  role: "menu"）。玻璃主题裸写 [role="menu"] 时会把内层一起命中，
+  // 给它套上 border/border-radius/padding，并把宿主原本的
+  // overflow-y:auto 覆盖成 overflow:hidden，于是列表滚不动、底部被裁掉，
+  // 而真正的容器反倒拿不到圆角与描边。这也解释了为什么该问题只在玻璃主题下出现。
+
+  // 1) 容器规则必须显式排除内层滚动区
+  const containerStart = css.indexOf('[role="menu"]:not(')
+  assert.ok(containerStart !== -1,
+    '玻璃主题的 [role="menu"] 容器规则必须用 :not() 排除内层滚动区')
+  const containerBody = css.slice(css.indexOf('{', containerStart) + 1, css.indexOf('}', containerStart))
+  assert.match(containerBody, /border:\s*1px solid var\(--ts-glass-edge\)/, '容器保留玻璃描边')
+  assert.match(containerBody, /border-radius:\s*14px/, '容器保留玻璃圆角')
+  assert.match(containerBody, /padding:\s*6px/, '容器保留内边距')
+
+  // 2) 内层滚动区必须反向覆盖回滚动职责
+  const groupsStart = css.lastIndexOf(':is(._7KE1Ra_groups, .WqxjfG_groups, [class$="_groups"])')
+  assert.ok(groupsStart !== -1, '缺少内层滚动区的复位规则')
+  const groupsBody = css.slice(css.indexOf('{', groupsStart) + 1, css.indexOf('}', groupsStart))
+  assert.match(groupsBody, /overflow-y:\s*auto\s*!important/, '滚动区必须还原成可滚动')
+  assert.match(groupsBody, /border:\s*0\s*!important/, '滚动区不得有描边')
+  assert.match(groupsBody, /border-radius:\s*0\s*!important/, '滚动区不得有圆角')
+  assert.match(groupsBody, /padding:\s*0\s*!important/, '滚动区不得有内边距')
+  assert.match(groupsBody, /max-height:\s*none\s*!important/, '滚动区不得被高度限制')
+})

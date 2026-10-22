@@ -24,7 +24,7 @@
  * @module dsh-theme-studio/host-class-slots
  */
 
-/** 旧宿主类名 → `bundle/模块文件|部件名`。共 134 条，覆盖 11 个 bundle。 */
+/** 旧宿主类名 → `bundle/模块文件|部件名`。共 138 条，覆盖 11 个 bundle。 */
 export const HOST_CLASS_SLOTS = Object.freeze({
   "BInVoG_mask": "attachment/DropOverlay.module.css|mask",
   "BrezkG_chip": "conversation/ReferenceChip.module.css|chip",
@@ -69,6 +69,8 @@ export const HOST_CLASS_SLOTS = Object.freeze({
   "VOzbGW_mask": "settings-general/SettingsRoot.module.css|mask",
   "VOzbGW_nav": "settings-general/SettingsRoot.module.css|nav",
   "VOzbGW_options": "settings-general/SettingsRoot.module.css|options",
+  "WqxjfG_groups": "model-selection/ModelSelect.module.css|groups",
+  "WqxjfG_menu": "model-selection/ModelSelect.module.css|menu",
   "WqxjfG_trigger": "model-selection/ModelSelect.module.css|trigger",
   "WqxjfG_triggerEffort": "model-selection/ModelSelect.module.css|triggerEffort",
   "Y0dWHa_markdownPayload": "trajectory/TrajectoryTable.module.css|markdownPayload",
@@ -95,6 +97,8 @@ export const HOST_CLASS_SLOTS = Object.freeze({
   "_6nxh1G_runningContent": "chat/ChatView.module.css|runningContent",
   "_6nxh1G_runningIcon": "chat/ChatView.module.css|runningIcon",
   "_6nxh1G_scroll": "chat/ChatView.module.css|scroll",
+  "_7KE1Ra_groups": "model-selection/ModelSelect.module.css|groups",
+  "_7KE1Ra_menu": "model-selection/ModelSelect.module.css|menu",
   "_7KE1Ra_trigger": "model-selection/ModelSelect.module.css|trigger",
   "_7KE1Ra_triggerEffort": "model-selection/ModelSelect.module.css|triggerEffort",
   "_7yHdaG_header": "conversation/QueueDock.module.css|header",
