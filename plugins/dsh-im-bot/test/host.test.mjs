@@ -90,7 +90,25 @@ async function mountPlugin(configOverride = {}) {
     settings,
     credentials,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
-    tools: { register: (definition) => { tools.push(definition); return () => {}; } },
+    /*
+     * 复刻宿主 tools.register() 的强制校验：output 必须存在，且 render 必须是
+     * 函数。v0.1.5 线上事故就是漏了 output 让 apply 抛错、RPC 通道没注册。
+     * 桩过于宽松就测不出这类问题，所以这里按真实契约严格校验。
+     */
+    tools: {
+      register: (definition) => {
+        const output = definition?.output;
+        if (output === undefined || typeof output !== 'object'
+          || typeof output.render !== 'function') {
+          throw new TypeError(`tool "${definition?.name}" must declare output { schema, render, presentationMeta? }`);
+        }
+        if (output.schema === undefined || typeof output.schema !== 'object') {
+          throw new TypeError(`tool "${definition?.name}" output.schema must be a JSON Schema`);
+        }
+        tools.push(definition);
+        return () => {};
+      },
+    },
     fiber: { entry: { options: { config: configOverride } } },
     get: (name) => {
       if (name === 'connection') return connection;
@@ -212,6 +230,19 @@ test('apply 注册 RPC 通道、发送路由与原生工具', { skip: skipReason
   assert.ok(tool !== undefined, '必须注册 im_bot_send 工具');
   assert.ok(Array.isArray(tool.parameters.required));
   assert.ok(tool.parameters.required.includes('text'));
+
+  // output 是宿主强制契约：缺 render 会让 tools.register() 抛错、拖垮 apply。
+  assert.ok(tool.output !== undefined, '工具必须声明 output');
+  assert.equal(typeof tool.output.render, 'function', 'output.render 必须是函数');
+  assert.ok(tool.output.schema !== undefined, 'output.schema 必须存在');
+
+  // render 必须能按 schema 的字段渲染出内容块。
+  const rendered = tool.output.render({ text: 'hi' }, {
+    ok: true, channel: 'wecom', peer: 'C1', chars: 2,
+  });
+  assert.ok(Array.isArray(rendered) && rendered.length > 0, 'render 必须返回内容块');
+  assert.equal(rendered[0].type, 'text');
+  assert.match(rendered[0].text, /wecom/);
 });
 
 test('默认配置下插件完全关闭，不建立任何连接', { skip: skipReason }, async () => {

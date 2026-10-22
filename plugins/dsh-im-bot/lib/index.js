@@ -1453,10 +1453,41 @@ export function apply(ctx, config) {
           peer: { type: 'string', description: '通道内的聊天标识（企微 chatid/userid，iLink userid）。' },
         },
       },
+      /*
+       * `output` 是**强制**声明：宿主 `tools.register()` 会校验
+       * `typeof output.render === 'function'`，缺失时直接抛
+       * `tool "x" must declare output { schema, render, presentationMeta? }`。
+       * 这个异常同样会冒泡到 apply、拖垮整个插件（RPC 通道随之消失 → HTTP 405），
+       * 所以它不能省。
+       */
+      output: {
+        schema: {
+          type: 'object',
+          required: ['ok', 'channel', 'peer', 'chars'],
+          properties: {
+            ok: { type: 'boolean', description: '是否已交给通道发送。' },
+            channel: { type: 'string', description: '实际使用的通道。' },
+            peer: { type: 'string', description: '目标聊天标识。' },
+            chars: { type: 'integer', description: '正文的字符数。' },
+          },
+          description: '本次推送的去向与正文规模。',
+        },
+        render: (args, value) => [{
+          type: 'text',
+          text: `已发送到 ${value.channel} / ${value.peer}（${value.chars} 字）`,
+        }],
+      },
       isConcurrencySafe: () => false,
       execute: async (args) => {
-        const result = await sendMessage(args ?? {});
-        return result;
+        const input = args ?? {};
+        const result = await sendMessage(input);
+        // 回填 schema 声明的字段，render 与模型都依赖它。
+        return {
+          ...result,
+          channel: str(input.channel) || 'auto',
+          peer: str(input.peer) || str(input.sessionId),
+          chars: typeof input.text === 'string' ? input.text.length : 0,
+        };
       },
     });
   }
