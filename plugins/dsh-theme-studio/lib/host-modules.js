@@ -35,7 +35,7 @@
  * @module dsh-theme-studio/host-modules
  */
 
-import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -198,6 +198,14 @@ export function openAsar(asarPath) {
   let fd
   try {
     fd = openSync(asarPath, 'r')
+    // Electron 把 asar 挂成一个虚拟目录：对它 open 能成功，但读到的是空文件，
+    // 目录项不可遍历，`stat` 的 size 也是 0。此时必须改走 fs 的 asar 透明读取。
+    const stat = fstatSync(fd)
+    if (stat.size === 0) {
+      closeSync(fd)
+      fd = undefined
+      return null
+    }
     const sizeBuf = Buffer.alloc(8)
     readSync(fd, sizeBuf, 0, 8, 0)
     const headerPickleSize = sizeBuf.readUInt32LE(4)
@@ -293,17 +301,34 @@ export function hostRootCandidates() {
     push(join(dir, 'app.asar'))
   }
 
+  /**
+   * 从一个**位于 asar 内部的脚本路径**取出 asar 本身的路径。
+   *
+   * 真实 dsh 进程就是这样启动的：
+   *   `<electron> --expose-internals .../resources/app.asar/dsh/node_modules/.../bin.js`
+   * 这里 argv[1] 直接落在 asar 里面，`dirname` 往上爬只会在 asar 内部打转，
+   * 永远拼不出 `resources/app.asar`。必须按 `.asar` 后缀把前缀切出来。
+   */
+  const pushAsarOfScript = (from) => {
+    if (typeof from !== 'string' || from === '') return
+    const at = from.indexOf('.asar')
+    if (at <= 0) return
+    // 兼容 `…/app.asar` 与 `…/app.asar.unpacked` 两种写法。
+    push(from.slice(0, at + 5))
+  }
+
   if (typeof process !== 'undefined' && typeof process.resourcesPath === 'string') {
     push(join(process.resourcesPath, 'app.asar'))
     push(join(process.resourcesPath, 'app'))
   }
   if (process.env?.DSH_APP_ASAR) push(process.env.DSH_APP_ASAR)
+  // 桌面版把真正的 Electron 可执行文件通过该变量交给子进程（见 runtime/bin/node）。
+  // 处于 `ELECTRON_RUN_AS_NODE` 形态时 execPath 是它是 node shim，拿不到 resources。
+  pushAsarAncestors(process.env?.DSH_DESKTOP_NODE_EXECUTABLE)
   // 宿主以 `<electron> <...>/app.asar/dsh/...` 启动时，argv 里就带着 asar 路径。
-  for (const arg of process.argv ?? []) {
-    const at = arg.indexOf('.asar')
-    if (at > 0) push(arg.slice(0, at + 5))
-  }
+  for (const arg of process.argv ?? []) pushAsarOfScript(arg)
   pushAsarAncestors(process.execPath)
+  pushAsarOfScript(process.argv?.[1])
   pushAsarAncestors(process.argv?.[1])
   pushScopeAncestors(process.execPath)
   pushScopeAncestors(process.argv?.[1])
@@ -325,6 +350,63 @@ function readFileUtf8(path) {
 }
 
 /**
+ * 判断当前进程是否是 Electron（无论主进程、渲染进程还是 `ELECTRON_RUN_AS_NODE`）。
+ *
+ * Electron 会全局安装 asar 支持：`app.asar` 及其内部文件可以**当普通路径**读，
+ * 而原始字节读（`openSync(asar, 'r')`）拿到的是空内容。两者必须走不同分支。
+ *
+ * @returns {boolean}
+ */
+export function isElectronRuntime() {
+  return typeof process !== 'undefined'
+    && typeof process.versions?.electron === 'string'
+    && process.versions.electron !== ''
+}
+
+/**
+ * 通过 fs 的 asar 透明读取，枚举一个 asar 里的 UI bundle。
+ *
+ * Electron 把 asar 当目录，所以 `readdirSync('<...>/app.asar/dsh/node_modules/@deepseek-ai')`
+ * 直接可用，不需要自己解析 asar 二进制。这是桌面版里唯一可行的路径。
+ *
+ * @param {string} asarPath
+ * @returns {Array<{ path: string, text: string }>}
+ */
+function readBundlesViaFs(asarPath) {
+  const out = []
+  const candidates = [
+    join(asarPath, 'dsh', 'node_modules', '@deepseek-ai'),
+    join(asarPath, 'node_modules', '@deepseek-ai'),
+  ]
+  for (const scopeDir of candidates) {
+    if (!existsSync(scopeDir)) continue
+    let names
+    try {
+      names = readdirSync(scopeDir)
+    } catch {
+      continue
+    }
+    for (const name of names) {
+      if (!name.startsWith(UI_BUNDLE_PREFIX)) continue
+      const file = join(scopeDir, name, 'lib', 'client.js')
+      try {
+        if (!statSync(file).isFile()) continue
+      } catch {
+        continue
+      }
+      let text
+      try {
+        text = readFileUtf8(file)
+      } catch {
+        continue
+      }
+      if (typeof text === 'string' && text !== '') out.push({ path: file, text })
+    }
+  }
+  return out
+}
+
+/**
  * 解析出一个宿主根里的全部 UI bundle 源码。
  *
  * @param {string} root
@@ -339,6 +421,11 @@ function readBundleSources(root) {
 
   if (asarPath !== null) {
     if (!existsSync(asarPath)) return []
+    // Electron 下 asar 被挂成目录：必须走 fs 透明读取。
+    if (isElectronRuntime()) {
+      const viaFs = readBundlesViaFs(asarPath)
+      if (viaFs.length > 0) return viaFs
+    }
     const asar = openAsar(asarPath)
     if (!asar) return []
     const out = []

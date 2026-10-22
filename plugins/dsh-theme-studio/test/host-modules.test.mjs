@@ -24,6 +24,8 @@ import {
   adaptCssToHost,
   collectMappings,
   detectHostModules,
+  isElectronRuntime,
+  openAsar,
   slotKey,
   splitModuleClass,
   stripCssComments,
@@ -461,6 +463,41 @@ test('Windows 桌面版规则不写死 40px 标题栏高度', async () => {
     false,
     '不得写死 40px 拖拽条高度',
   )
+})
+
+/**
+ * Electron 下 asar 是「虚拟目录」，原始字节读会拿到空文件。
+ *
+ * 事故现场（2026-10）：探测在普通 Node 里能读到 2141 个槽位，装进桌面版后却是 0 ——
+ * Electron 给 asar 装了透明读取层，`openSync('<...>/app.asar', 'r')` 能成功打开，
+ * 但 `fstat().size === 0`、读出来是空内容。于是自己解析 asar 二进制的分支直接失败，
+ * 自适应整层静默退化成「只认写死的哈希」，桌面版又回到原来的问题。
+ *
+ * 判据：`openAsar()` 遇到读不出内容的路径必须安静返回 null（而不是抛错），
+ * 由调用方改走 fs 的 asar 透明读取。
+ */
+test('openAsar 对无法解析的输入安静返回 null，不中断探测', async () => {
+  // 不存在的路径
+  assert.equal(openAsar(join(root, 'test', 'definitely-not-here.asar')), null)
+  // 存在的普通文本文件（不是 asar 格式）
+  assert.equal(openAsar(join(root, 'package.json')), null)
+  // 空文件（Electron 眼里 asar 就长这样：能打开、size 为 0）
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const dir = mkdtempSync(join(tmpdir(), 'empty-asar-'))
+  try {
+    const empty = join(dir, 'app.asar')
+    writeFileSync(empty, '')
+    assert.equal(openAsar(empty), null, '空 asar 必须返回 null 而不是抛错')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('isElectronRuntime 在纯 Node 下为 false', () => {
+  // CI 跑的是普通 Node；桌面版由 Electron 提供 process.versions.electron。
+  assert.equal(typeof isElectronRuntime(), 'boolean')
+  assert.equal(isElectronRuntime(), false, '纯 Node 环境不应被判定为 Electron')
 })
 
 /**
