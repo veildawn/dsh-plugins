@@ -175,6 +175,22 @@ window.__ModuleLoader__.load({
         value: '"LXGW WenKai", "霞鹜文楷", "STKaiti", "KaiTi", serif',
         label: '霞鹜文楷 / 楷体 (人文舒适阅读)',
       },
+      {
+        value: '"Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif',
+        label: '思源宋体 / 宋体 (古典衬线书香)',
+      },
+      {
+        value: '"Yuanti SC", "YouYuan", "PingFang SC", "Microsoft YaHei", sans-serif',
+        label: '圆体 / 幼圆 (温和圆润亲和)',
+      },
+      {
+        value: '"TsangerJinKai03", "FZNewKai", "STKaiti", "KaiTi", serif',
+        label: '仓耳今楷 / 现代美楷 (新式行楷手书)',
+      },
+      {
+        value: 'Georgia, Cambria, "Times New Roman", "Songti SC", "SimSun", serif',
+        label: 'Georgia / 经典西文衬线 (杂志社论质感)',
+      },
     ]
 
     // 与服务端 settings.js 的 CODE_FONT_OPTIONS 保持一致（测试守护）。
@@ -200,6 +216,22 @@ window.__ModuleLoader__.load({
         value: '"Source Code Pro", Consolas, Monaco, "PingFang SC", "Microsoft YaHei", monospace',
         label: 'Source Code Pro (Adobe 经典等宽)',
       },
+      {
+        value: 'Hack, "JetBrains Mono", Consolas, Menlo, "PingFang SC", "Microsoft YaHei", monospace',
+        label: 'Hack (专为代码而生的极客神器)',
+      },
+      {
+        value: '"IBM Plex Mono", Consolas, "PingFang SC", "Microsoft YaHei", monospace',
+        label: 'IBM Plex Mono (新包豪斯硬朗工业风)',
+      },
+      {
+        value: '"Roboto Mono", Consolas, "PingFang SC", "Microsoft YaHei", monospace',
+        label: 'Roboto Mono (Google 极简现代等宽)',
+      },
+      {
+        value: '"VT323", "Courier New", Courier, Lucida Console, Monaco, monospace',
+        label: 'Retro Terminal / 复古终端 (怀旧打字机风格)',
+      },
     ]
 
     // 与服务端 FONT_SIZE_RANGES 一致（测试守护）。
@@ -207,6 +239,27 @@ window.__ModuleLoader__.load({
       text: { min: 10, max: 22, label: '正文' },
       code: { min: 10, max: 16, label: '代码' },
       terminal: { min: 10, max: 20, label: '终端' },
+    }
+
+    /**
+     * 根据桌面端基准字号，计算移动端人机工学舒适字号（Fluid Responsive Scaling）。
+     * 与服务端 settings.js 的 computeMobileFontSize 完全一致（测试守护）。
+     */
+    function computeMobileFontSize(role, desktopSize) {
+      if (typeof desktopSize !== 'number' || Number.isNaN(desktopSize)) return desktopSize
+      if (role === 'text') {
+        const val = 14 + (desktopSize - 14) * 0.6
+        return Math.min(17.5, Math.max(12, Math.round(val * 2) / 2))
+      }
+      if (role === 'code') {
+        const val = 11 + (desktopSize - 11) * 0.5
+        return Math.min(13.5, Math.max(10.5, Math.round(val * 2) / 2))
+      }
+      if (role === 'terminal') {
+        const val = 10 + (desktopSize - 10) * 0.5
+        return Math.min(15, Math.max(10, Math.round(val * 2) / 2))
+      }
+      return desktopSize
     }
 
     /** 主题 id → 旧属性值（与服务端 legacyId 规则一致）。 */
@@ -245,16 +298,28 @@ window.__ModuleLoader__.load({
       } else if (background.mode === 'image' && backgroundUrl) {
         const fit = background.fit === 'contain' ? 'contain' : background.fit === 'repeat' ? 'auto' : 'cover'
         const repeat = background.fit === 'repeat' ? 'repeat' : 'no-repeat'
-        if (background.value) backgroundLines.push(`  background-color: ${background.value};`)
+        // 衬底底色始终要写，且必须不透明（图片失败时的兜底 + 半透明图的下垫面）。
+        // 不能用 --color-background：玻璃主题下它本身半透明，会把图片洗淡。
+        // 两端必须逐字节一致，由 test/client-parity.test.mjs 守护。
+        backgroundLines.push(
+          `  background-color: ${background.value || 'var(--color-background-win-alt, var(--dsw-alias-bg-base, #ffffff))'};`,
+        )
 
         // 不透明度用多层背景的盖层实现，不用 `opacity` 也不用 `::before` 蒙版。
         // 原因见服务端 settings.js 的同一段注释：`::before` + `z-index:-1` 依赖
         // 宿主给 body 加 `isolation:isolate`，那是实现细节而非契约，不能依赖。
-        // 两端必须逐字节一致，由 test/client-parity.test.mjs 守护。
+        //
+        // 盖层色必须是**与主题无关的中性遮罩**（亮色白 / 暗色黑），不能取
+        // `--color-background` —— 玻璃主题下它是半透明的，乘上 fade 后复合遮挡
+        // 会把照片压到几乎看不见，那正是「玻璃主题下背景图被挡住」的成因。
         const fade = Math.round(100 - Math.min(100, Math.max(0, background.opacity ?? 100)))
         if (fade > 0) {
-          const veil = `color-mix(in srgb, var(--color-background, var(--dsw-alias-bg-base, #808080)) ${fade}%, transparent)`
-          backgroundLines.push(`  background-image: linear-gradient(${veil}, ${veil}), url("${backgroundUrl}");`)
+          backgroundLines.push(
+            `  background-image: linear-gradient(var(--ts-bg-veil, transparent), var(--ts-bg-veil, transparent)), url("${backgroundUrl}");`,
+          )
+          backgroundLines.push(
+            `  --ts-bg-veil: light-dark(rgba(255, 255, 255, ${(fade / 100).toFixed(2)}), rgba(0, 0, 0, ${(fade / 100).toFixed(2)}));`,
+          )
           backgroundLines.push(`  background-size: 100% 100%, ${fit};`)
           backgroundLines.push(`  background-repeat: no-repeat, ${repeat};`)
           backgroundLines.push('  background-position: center center, center center;')
@@ -268,20 +333,44 @@ window.__ModuleLoader__.load({
         }
       }
 
-      if (fonts.text) lines.push(`  --dsw-font-family: ${fonts.text};`)
+      const fontBodyLines = []
+      if (fonts.text) {
+        lines.push(`  --dsh-font-family-text: ${fonts.text};`)
+        lines.push(`  --dsw-font-family: ${fonts.text};`)
+        fontBodyLines.push(`  --dsh-font-family-text: ${fonts.text};`)
+        fontBodyLines.push(`  --dsw-font-family: ${fonts.text};`)
+        fontBodyLines.push(`  font-family: var(--dsw-font-family);`)
+      }
       if (fonts.code) {
+        lines.push(`  --dsh-font-family-code: ${fonts.code};`)
         lines.push(`  --ds-font-family-code: ${fonts.code};`)
         lines.push(`  --dsw-font-family-mono: ${fonts.code};`)
         lines.push(`  --dsw-font-mono: ${fonts.code};`)
         lines.push(`  --dsw-font-code: ${fonts.code};`)
+        fontBodyLines.push(`  --dsh-font-family-code: ${fonts.code};`)
+        fontBodyLines.push(`  --ds-font-family-code: ${fonts.code};`)
+        fontBodyLines.push(`  --dsw-font-family-mono: ${fonts.code};`)
+        fontBodyLines.push(`  --dsw-font-mono: ${fonts.code};`)
       }
 
+      const mobileSizeLines = []
       if (sizes.text) {
         lines.push(`  --dsh-content-font-size: ${sizes.text}px;`)
         lines.push(`  --ui-font-size: ${sizes.text}px;`)
+        const mText = computeMobileFontSize('text', sizes.text)
+        mobileSizeLines.push(`    --dsh-content-font-size: ${mText}px;`)
+        mobileSizeLines.push(`    --ui-font-size: ${mText}px;`)
       }
-      if (sizes.code) lines.push(`  --dsh-code-font-size: ${sizes.code}px;`)
-      if (sizes.terminal) lines.push(`  --dsh-terminal-font-size: ${sizes.terminal}px;`)
+      if (sizes.code) {
+        lines.push(`  --dsh-code-font-size: ${sizes.code}px;`)
+        const mCode = computeMobileFontSize('code', sizes.code)
+        mobileSizeLines.push(`    --dsh-code-font-size: ${mCode}px;`)
+      }
+      if (sizes.terminal) {
+        lines.push(`  --dsh-terminal-font-size: ${sizes.terminal}px;`)
+        const mTerm = computeMobileFontSize('terminal', sizes.terminal)
+        mobileSizeLines.push(`    --dsh-terminal-font-size: ${mTerm}px;`)
+      }
 
       if (typeof glass.blur === 'number') lines.push(`  --ts-blur: ${glass.blur}px;`)
       if (typeof glass.saturate === 'number') lines.push(`  --ts-saturate: ${glass.saturate}%;`)
@@ -299,6 +388,13 @@ window.__ModuleLoader__.load({
       const scope = `:is(html[${THEME_ATTR}], html:root)`
       let css = ''
       if (lines.length > 0) css += `${scope} {\n${lines.join('\n')}\n}\n`
+      if (fontBodyLines.length > 0) {
+        css += `${scope} body {\n${fontBodyLines.join('\n')}\n}\n`
+      }
+      if (mobileSizeLines.length > 0) {
+        css += `@media (max-width: 768px), (pointer: coarse) and (max-width: 1024px) {\n`
+        css += `  ${scope},\n  ${scope} body {\n${mobileSizeLines.join('\n')}\n  }\n}\n`
+      }
       if (backgroundLines.length > 0) {
         css += `${scope} body {\n${backgroundLines.join('\n')}\n}\n`
         css += `${scope} body[data-ds-dark-theme] {\n${backgroundLines.join('\n')}\n}\n`
@@ -413,6 +509,87 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
         reader.onload = () => resolve(String(reader.result ?? ''))
         reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'))
         reader.readAsDataURL(file)
+      })
+    }
+
+    /**
+     * 背景图的最大长边与目标体积。
+     *
+     * 手机相册原图动辄 3072×4096 / 7MB+，直接当背景有三个问题：上传慢、每次首屏
+     * 都要传一份、移动网络下很容易超时导致**图片根本显示不出来**（用户看到的就是
+     * 「设置了却没有效果」）。背景是铺满视口的装饰图，2048 长边、~600KB 已经绰绰有余。
+     */
+    const MAX_BACKGROUND_EDGE = 2048
+    const TARGET_BACKGROUND_BYTES = 900 * 1024
+    const COMPRESS_QUALITIES = [0.86, 0.78, 0.68, 0.58, 0.48]
+
+    /**
+     * 在浏览器里把图片缩到合理尺寸并重新编码，避免把相册原图（近 8MB）传上去。
+     *
+     * 全部走 canvas，不引第三方库。任一步失败都回退到原图——压缩是优化，
+     * 不能因为它挂了就让用户连图片都传不了。
+     *
+     * @param {File} file
+     * @returns {Promise<{ dataUrl: string, bytes: number, width: number, height: number, compressed: boolean }>}
+     */
+    async function compressBackground(file) {
+      const original = await readFileAsDataUrl(file)
+      const originalBytes = Math.floor((original.length * 3) / 4)
+      const needsWork =
+        (typeof file.size === 'number' && file.size > TARGET_BACKGROUND_BYTES) ||
+        (typeof file.type === 'string' && file.type !== 'image/png' && file.type !== 'image/jpeg')
+      if (!needsWork) {
+        return { dataUrl: original, bytes: originalBytes, width: 0, height: 0, compressed: false }
+      }
+
+      try {
+        const image = await loadImage(original)
+        const edge = Math.max(image.naturalWidth, image.naturalHeight) || 0
+        const scale = edge > MAX_BACKGROUND_EDGE ? MAX_BACKGROUND_EDGE / edge : 1
+        const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale))
+        const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale))
+
+        let best = original
+        let bestBytes = originalBytes
+        let bestWidth = width
+        let bestHeight = height
+        for (const quality of COMPRESS_QUALITIES) {
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          const context = canvas.getContext('2d')
+          if (!context) break
+          context.drawImage(image, 0, 0, width, height)
+          const encoded = canvas.toDataURL('image/jpeg', quality)
+          const bytes = Math.floor((encoded.length * 3) / 4)
+          // 越压越小就继续；一旦不再变小（已经到底），保留上一次结果。
+          if (bytes >= bestBytes) break
+          best = encoded
+          bestBytes = bytes
+          if (bytes <= TARGET_BACKGROUND_BYTES) break
+        }
+        // 压完反而更大就不采用（某些 PNG 转 JPEG 会出现）。
+        if (bestBytes >= originalBytes) {
+          return { dataUrl: original, bytes: originalBytes, width: 0, height: 0, compressed: false }
+        }
+        return { dataUrl: best, bytes: bestBytes, width: bestWidth, height: bestHeight, compressed: true }
+      } catch {
+        return { dataUrl: original, bytes: originalBytes, width: 0, height: 0, compressed: false }
+      }
+    }
+
+    /**
+     * 把 data URL 加载成可绘制到 canvas 的 Image。
+     *
+     * @param {string} src
+     * @returns {Promise<HTMLImageElement>}
+     */
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const image = new Image()
+        image.onload = () => resolve(image)
+        image.onerror = () => reject(new Error('图片解码失败'))
+        image.src = src
       })
     }
 
@@ -625,10 +802,17 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
         setBusy(true)
         setStatus(null)
         try {
-          const dataUrl = await readFileAsDataUrl(file)
-          const next = await rpcCall('uploadBackground', { dataUrl })
+          // 先在浏览器里缩图/压缩再上传：相册原图近 8MB，直接传既慢又容易在
+          // 移动网络下超时；而背景图本来只需要覆盖视口，不必保留原始分辨率。
+          setStatus({ ok: true, msg: '正在处理图片…' })
+          const prepared = await compressBackground(file)
+          const next = await rpcCall('uploadBackground', { dataUrl: prepared.dataUrl })
           adopt(next)
-          setStatus({ ok: true, msg: `背景图已上传（${(file.size / 1024).toFixed(0)}KB），已立即生效。` })
+          const kb = (prepared.bytes / 1024).toFixed(0)
+          const saved = prepared.compressed
+            ? `（已从 ${(file.size / 1024 / 1024).toFixed(1)}MB 压缩到 ${kb}KB）`
+            : `（${kb}KB）`
+          setStatus({ ok: true, msg: `背景图已上传${saved}，已立即生效。` })
         } catch (error) {
           fail(error)
         } finally {
@@ -744,6 +928,13 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
             onChange: (e) => patchSize(role, Number(e.target.value)),
           }))))
 
+      const mobileHint = (sizes.text || sizes.code)
+        ? h('p', {
+            className: 'ts-section-hint',
+            style: { margin: '4px 0 0', color: 'var(--color-primary, var(--dsw-alias-brand-primary, #0071e3))' },
+          }, `📱 移动端自适应调谐：正文约 ${computeMobileFontSize('text', sizes.text ?? 14)}px · 代码约 ${computeMobileFontSize('code', sizes.code ?? 11)}px（大屏小屏两端自适应，防爆排版防小字）`)
+        : null
+
       // —— 字段颜色 ——
       const colorGrid = h('div', { className: 'ts-colors' },
         FIELD_COLOR_ROLES.map((role) =>
@@ -806,7 +997,8 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
           h('p', { className: 'ts-section-hint' },
             '字体留空表示使用主题自带的字体栈。字号留空表示跟随宿主设置。'),
           fontRow,
-          sizeRow),
+          sizeRow,
+          mobileHint),
 
         h('div', { className: 'ts-section' },
           h('div', { className: 'ts-section-title' }, '字段颜色'),
@@ -933,6 +1125,10 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
       legacyIdOf,
       applyToDocument,
       customLayerCss,
+      computeMobileFontSize,
+      // 背景图压缩参数（测试用它守护「不要把相册原图直接传上去」这条约束）。
+      MAX_BACKGROUND_EDGE,
+      TARGET_BACKGROUND_BYTES,
     }
     return module.exports
   },

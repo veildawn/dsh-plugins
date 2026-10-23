@@ -28,6 +28,36 @@ import { homedir } from 'node:os'
 import { HOST_TOKEN_MAP, THEME_ATTR, resolveKey } from './tokens.js'
 import { getTheme } from './themes/index.js'
 
+/**
+ * 根据桌面端基准字号，计算移动端人机工学舒适字号（Fluid Responsive Scaling）。
+ *
+ * 物理依据：
+ *   - 手机握持视距（25~35cm）显著短于桌面显示器视距（50~80cm）；
+ *   - 手机屏幕宽度仅 360~430px，单行舒适字数为 20~26 字，过大字号会严重破坏排版密度；
+ *   - 移动端微调曲线：以默认值（正文 14px / 代码 11px / 终端 10px）为轴心，
+ *     增减量柔化折算 50%~60%，并设置防爆上限与防瞎下限，确保大屏小屏两端均得体舒适。
+ *
+ * @param {'text' | 'code' | 'terminal'} role - 字号角色
+ * @param {number} desktopSize - 桌面端基准字号 (px)
+ * @returns {number} 移动端适配字号 (px)
+ */
+export function computeMobileFontSize(role, desktopSize) {
+  if (typeof desktopSize !== 'number' || Number.isNaN(desktopSize)) return desktopSize
+  if (role === 'text') {
+    const val = 14 + (desktopSize - 14) * 0.6
+    return Math.min(17.5, Math.max(12, Math.round(val * 2) / 2))
+  }
+  if (role === 'code') {
+    const val = 11 + (desktopSize - 11) * 0.5
+    return Math.min(13.5, Math.max(10.5, Math.round(val * 2) / 2))
+  }
+  if (role === 'terminal') {
+    const val = 10 + (desktopSize - 10) * 0.5
+    return Math.min(15, Math.max(10, Math.round(val * 2) / 2))
+  }
+  return desktopSize
+}
+
 /** 默认设置文件位置。 */
 export const DEFAULT_SETTINGS_PATH = path.join(homedir(), '.dsh', 'theme-studio', 'settings.json')
 
@@ -72,6 +102,22 @@ export const TEXT_FONT_OPTIONS = Object.freeze([
     value: '"LXGW WenKai", "霞鹜文楷", "STKaiti", "KaiTi", serif',
     label: '霞鹜文楷 / 楷体 (人文舒适阅读)',
   },
+  {
+    value: '"Source Han Serif SC", "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif',
+    label: '思源宋体 / 宋体 (古典衬线书香)',
+  },
+  {
+    value: '"Yuanti SC", "YouYuan", "PingFang SC", "Microsoft YaHei", sans-serif',
+    label: '圆体 / 幼圆 (温和圆润亲和)',
+  },
+  {
+    value: '"TsangerJinKai03", "FZNewKai", "STKaiti", "KaiTi", serif',
+    label: '仓耳今楷 / 现代美楷 (新式行楷手书)',
+  },
+  {
+    value: 'Georgia, Cambria, "Times New Roman", "Songti SC", "SimSun", serif',
+    label: 'Georgia / 经典西文衬线 (杂志社论质感)',
+  },
 ])
 
 /** 精选代码等宽字体预设选项（等宽 + CJK 回退链，避免中文变宋体）。 */
@@ -96,6 +142,22 @@ export const CODE_FONT_OPTIONS = Object.freeze([
   {
     value: '"Source Code Pro", Consolas, Monaco, "PingFang SC", "Microsoft YaHei", monospace',
     label: 'Source Code Pro (Adobe 经典等宽)',
+  },
+  {
+    value: 'Hack, "JetBrains Mono", Consolas, Menlo, "PingFang SC", "Microsoft YaHei", monospace',
+    label: 'Hack (专为代码而生的极客神器)',
+  },
+  {
+    value: '"IBM Plex Mono", Consolas, "PingFang SC", "Microsoft YaHei", monospace',
+    label: 'IBM Plex Mono (新包豪斯硬朗工业风)',
+  },
+  {
+    value: '"Roboto Mono", Consolas, "PingFang SC", "Microsoft YaHei", monospace',
+    label: 'Roboto Mono (Google 极简现代等宽)',
+  },
+  {
+    value: '"VT323", "Courier New", Courier, Lucida Console, Monaco, monospace',
+    label: 'Retro Terminal / 复古终端 (怀旧打字机风格)',
   },
 ])
 
@@ -497,7 +559,24 @@ export function customCss(settings, options = {}) {
   } else if (background.mode === 'image' && options.backgroundUrl) {
     const fit = background.fit === 'contain' ? 'contain' : background.fit === 'repeat' ? 'auto' : 'cover'
     const repeat = background.fit === 'repeat' ? 'repeat' : 'no-repeat'
-    if (background.value) backgroundLines.push(`  background-color: ${background.value};`)
+    // 衬底底色**始终**要写，且必须是**不透明**的。
+    //
+    // 两个作用：
+    //   1. 图片加载失败时的唯一兜底——`background-image` 的 url 取不到时浏览器
+    //      不报错也不回退，只是不画那一层；没有底色就只剩半透明盖层，透出宿主
+    //      白底，用户看到「一片灰白，根本没有背景图」。
+    //   2. 给半透明图片一个确定的下垫面。`background-color` 画在 `background-image`
+    //      **之下**，图片不透明时它被完全盖住；只有图片半透明（不透明度滑块）时
+    //      才透出来——这正是想要的行为。
+    //
+    // 注意不能直接用 `--color-background`：玻璃主题下它是半透明
+    // （`rgba(238,241,246,0.82)`），作为 body 最底层会让整个页面透出浏览器默认白，
+    // 而且叠在图片下面等于把图片又洗淡一层。这里改用各主题都不透明的「窗口底色」
+    // `--color-background-win-alt`（每款色板里都是实色），theme=none 时再退到宿主的
+    // `--dsw-alias-bg-base`。
+    backgroundLines.push(
+      `  background-color: ${background.value || 'var(--color-background-win-alt, var(--dsw-alias-bg-base, #ffffff))'};`,
+    )
 
     // 不透明度用**多层背景的盖层**实现，不用 `opacity` 也不用 `::before` 蒙版：
     //
@@ -508,15 +587,22 @@ export function customCss(settings, options = {}) {
     //   蒙版就会跑到背景图**后面**，不透明度看起来完全没生效，而且不报错。
     //
     // 盖层与图片同属 body 的背景，绘制顺序由声明顺序决定，不依赖任何宿主前提。
-    // 盖层色用 `color-mix()` 把主题画布色调到目标不透明度：opacity=40 时盖 60%。
     const fade = Math.round(100 - Math.min(100, Math.max(0, background.opacity ?? 100)))
     if (fade > 0) {
-      // `--color-background` 必须有 fallback：`scope` 里的 `html:root` 分支在不选主题时
-      // 也命中，而那时主题变量一个都没定义。变量未定义会让整条 `background-image`
-      // 在 computed-value 阶段失效（不是这条变量失效，是**整条声明**），背景图会
-      // 直接消失——比不透明度不准严重得多。
-      const veil = `color-mix(in srgb, var(--color-background, var(--dsw-alias-bg-base, #808080)) ${fade}%, transparent)`
-      backgroundLines.push(`  background-image: linear-gradient(${veil}, ${veil}), url("${options.backgroundUrl}");`)
+      // 盖层色**必须用不透明的画布色**，绝不能再取 `--color-background`。
+      //
+      // 这是「玻璃主题下背景图被挡住」的真正原因：玻璃主题的 `--color-background`
+      // 本身是半透明（`rgba(238,241,246,0.82)`）。把它再乘 50% 当盖层，叠出来
+      // 的实际遮挡是 1-(1-0.82*0.5) 级别的复合效果，再加上 body 自身底色，
+      // 照片只剩个位数的可见度——用户看到的就是「图在，但完全看不出来」。
+      //
+      // 现在盖层用「与主题无关的中性遮罩」：亮色用白、暗色用黑，按 fade 给不透明度。
+      // 这样 `opacity=50` 就真的是「照片半透」，语义与滑块一致、与主题无关。
+      // 暗色模式由下面 body[data-ds-dark-theme] 那块自动换用黑色。
+      backgroundLines.push(
+        `  background-image: linear-gradient(var(--ts-bg-veil, transparent), var(--ts-bg-veil, transparent)), url("${options.backgroundUrl}");`,
+      )
+      backgroundLines.push('  --ts-bg-veil: light-dark(rgba(255, 255, 255, ' + (fade / 100).toFixed(2) + '), rgba(0, 0, 0, ' + (fade / 100).toFixed(2) + '));')
       // 两层背景要各自给值，否则第二层（图片）会继承盖层的尺寸与重复方式。
       backgroundLines.push(`  background-size: 100% 100%, ${fit};`)
       backgroundLines.push(`  background-repeat: no-repeat, ${repeat};`)
@@ -532,19 +618,43 @@ export function customCss(settings, options = {}) {
   }
   const hasBackgroundImage = backgroundLines.length > 0 && background.mode === 'image'
 
-  if (settings.fonts?.text) lines.push(`  --dsw-font-family: ${settings.fonts.text};`)
+  const fontBodyLines = []
+  if (settings.fonts?.text) {
+    lines.push(`  --dsh-font-family-text: ${settings.fonts.text};`)
+    lines.push(`  --dsw-font-family: ${settings.fonts.text};`)
+    fontBodyLines.push(`  --dsh-font-family-text: ${settings.fonts.text};`)
+    fontBodyLines.push(`  --dsw-font-family: ${settings.fonts.text};`)
+    fontBodyLines.push(`  font-family: var(--dsw-font-family);`)
+  }
   if (settings.fonts?.code) {
+    lines.push(`  --dsh-font-family-code: ${settings.fonts.code};`)
     lines.push(`  --ds-font-family-code: ${settings.fonts.code};`)
     lines.push(`  --dsw-font-family-mono: ${settings.fonts.code};`)
     lines.push(`  --dsw-font-mono: ${settings.fonts.code};`)
     lines.push(`  --dsw-font-code: ${settings.fonts.code};`)
+    fontBodyLines.push(`  --dsh-font-family-code: ${settings.fonts.code};`)
+    fontBodyLines.push(`  --ds-font-family-code: ${settings.fonts.code};`)
+    fontBodyLines.push(`  --dsw-font-family-mono: ${settings.fonts.code};`)
+    fontBodyLines.push(`  --dsw-font-mono: ${settings.fonts.code};`)
   }
+  const mobileSizeLines = []
   if (settings.fontSizes?.text) {
     lines.push(`  --dsh-content-font-size: ${settings.fontSizes.text}px;`)
     lines.push(`  --ui-font-size: ${settings.fontSizes.text}px;`)
+    const mText = computeMobileFontSize('text', settings.fontSizes.text)
+    mobileSizeLines.push(`    --dsh-content-font-size: ${mText}px;`)
+    mobileSizeLines.push(`    --ui-font-size: ${mText}px;`)
   }
-  if (settings.fontSizes?.code) lines.push(`  --dsh-code-font-size: ${settings.fontSizes.code}px;`)
-  if (settings.fontSizes?.terminal) lines.push(`  --dsh-terminal-font-size: ${settings.fontSizes.terminal}px;`)
+  if (settings.fontSizes?.code) {
+    lines.push(`  --dsh-code-font-size: ${settings.fontSizes.code}px;`)
+    const mCode = computeMobileFontSize('code', settings.fontSizes.code)
+    mobileSizeLines.push(`    --dsh-code-font-size: ${mCode}px;`)
+  }
+  if (settings.fontSizes?.terminal) {
+    lines.push(`  --dsh-terminal-font-size: ${settings.fontSizes.terminal}px;`)
+    const mTerm = computeMobileFontSize('terminal', settings.fontSizes.terminal)
+    mobileSizeLines.push(`    --dsh-terminal-font-size: ${mTerm}px;`)
+  }
 
   if (settings.glass?.blur !== undefined) lines.push(`  --ts-blur: ${settings.glass.blur}px;`)
   if (settings.glass?.saturate !== undefined) lines.push(`  --ts-saturate: ${settings.glass.saturate}%;`)
@@ -569,6 +679,18 @@ export function customCss(settings, options = {}) {
   let css = ''
   if (lines.length > 0) {
     css += `${scope} {\n${lines.join('\n')}\n}\n`
+  }
+  if (fontBodyLines.length > 0) {
+    // 字体定义同时挂到 body 上：宿主在 body 上重新声明了 --dsw-font-family 与
+    // --ds-font-family-code 并引用 --dsh-font-family-*，挂到 body 才能破除宿主
+    // 在更内层声明的重置拦截，同时让 body 直接继承正文字体。
+    css += `${scope} body {\n${fontBodyLines.join('\n')}\n}\n`
+  }
+  if (mobileSizeLines.length > 0) {
+    // 移动端人机工学自适应：手机/平板等近视距窄屏视口自动微调字号，
+    // 避免大屏字号在小屏撑破单行信息密度或极端小屏看不清。
+    css += `@media (max-width: 768px), (pointer: coarse) and (max-width: 1024px) {\n`
+    css += `  ${scope},\n  ${scope} body {\n${mobileSizeLines.join('\n')}\n  }\n}\n`
   }
   if (backgroundLines.length > 0) {
     // 背景挂 body：玻璃主题的壁纸也在 body 上，同级且自定义层后注入 → 压过它。

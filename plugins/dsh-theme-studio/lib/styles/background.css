@@ -48,7 +48,9 @@ html[data-ts-bg] ._LS25G_sidebarCol,
 html[data-ts-bg] .pI_x6G_rightbarCol,
 html[data-ts-bg] ._LS25G_rightbarCol,
 html[data-ts-bg] .pI_x6G_bottomRow,
-html[data-ts-bg] ._LS25G_bottomRow {
+html[data-ts-bg] ._LS25G_bottomRow,
+html[data-ts-bg] .hHd-Xa_root,
+html[data-ts-bg] .ixJ31a_root {
   /* 用 `background: none` 而不是 `transparent`：后者只清 background-color，
      会把主题可能叠加的渐变/描边图一起留在身上，出现「图片上又浮一层色带」。 */
   background: none;
@@ -62,27 +64,110 @@ html[data-ts-bg] ._LS25G_frame::before {
 }
 
 /* ---------------------------------------------------------------------------
-   二、主内容卡：保留主题底色但放低不透明度
-   --------------------------------------------------------------------------- */
+   二、主内容卡：保留一点底色但必须让背景透出来
+   ---------------------------------------------------------------------------
+   用户设背景图的**目的**就是让它在界面上看得见。主内容区如果还压一层 72%
+   的实色，等于把刚透出来的图又糊掉一大半——这是「设置了却没有效果」的另一半原因。
+
+   取值权衡：
+     - 上层文字必须可读，所以不能全透明；
+     - 背景必须明显可见，所以不能太实。
+   38% 是实测的平衡点（配套的 backdrop-filter 会再模糊一层，观感更像毛玻璃）。
+
+   `--color-background` 只在 `html[data-theme-studio="<id>"]` 块里定义，用户选
+   「系统默认」时未定义，`color-mix` 整条声明会失效 → 卡片变透明、正文压在照片上。
+   所以必须给 fallback。 */
 html[data-ts-bg] .pI_x6G_centerCol,
 html[data-ts-bg] ._LS25G_centerCol {
-  background: color-mix(in oklab, var(--color-background) 72%, transparent);
+  background: color-mix(
+    in oklab,
+    var(--color-background, var(--dsw-alias-bg-base, #ffffff)) 38%,
+    transparent
+  );
 }
 
-/* 玻璃主题的毛玻璃必须保留：它让背景图在卡片后面被模糊，正是「真玻璃」的来源。
-   我们的规则排在 glass.css 之后，若不做这条显式声明，上面那条 `background`
-   会顶掉玻璃的填充，卡片退化成一块 72% 的纯色膜。
-   同理，`-webkit-backdrop-filter` 与不带前缀的必须成对出现。 */
+/* ---------------------------------------------------------------------------
+   二·补、会话层：.centerCol 里面还有一整列不透明画布
+   ---------------------------------------------------------------------------
+   这是「背景图始终被挡在会话区域后面」的真正原因。
+
+   `.centerCol` 只是**外层容器**。宿主在它内部铺了 `ConversationRoot`：
+   `wSkVaW_root`（Web）与 `_1O6vqW_root`（Desktop），自带
+   `background: var(--dsw-alias-bg-base)` 实色（默认主题是纯白 #fff！）。
+   只要这层不透明实白在，外面 .centerCol 设多透明都会被挡死。
+
+   另外：
+   - 输入框底座 `wSkVaW_composerSeat` / `_1O6vqW_composerSeat` 带实白渐变；
+   - 会话消息列 `EvIC1a_*` / `_6nxh1G_*` / `[data-chat-flow]`；
+   - 轨迹视图 `qBU-ya_root` / `p28-XW_root`。
+   全部清成 transparent：底色已由上面 `.centerCol` 的 38% 那层统一承担，
+   文字可读性由 .centerCol 守住。
+   --------------------------------------------------------------------------- */
+html[data-ts-bg] .wSkVaW_root,
+html[data-ts-bg] ._1O6vqW_root,
+html[data-ts-bg] .wSkVaW_composerSeat,
+html[data-ts-bg] ._1O6vqW_composerSeat,
+html[data-ts-bg] .EvIC1a_root,
+html[data-ts-bg] ._6nxh1G_root,
+html[data-ts-bg] .EvIC1a_frame,
+html[data-ts-bg] ._6nxh1G_frame,
+html[data-ts-bg] .EvIC1a_scroll,
+html[data-ts-bg] ._6nxh1G_scroll,
+html[data-ts-bg] .EvIC1a_column,
+html[data-ts-bg] ._6nxh1G_column,
+html[data-ts-bg] [data-chat-flow],
+html[data-ts-bg] .qBU-ya_root,
+html[data-ts-bg] .p28-XW_root {
+  background: transparent;
+}
+
+/* 代码块与终端自带实底，是阅读必需的可读性保障，不能透明；
+   这里只把它们在背景图下的不透明度略微收一点，让照片的色温透上来。 */
+html[data-ts-bg] pre,
+html[data-ts-bg] code,
+html[data-ts-bg] [class*="_code"],
+html[data-ts-bg] [class*="_terminal"] {
+  background-color: color-mix(
+    in oklab,
+    var(--color-background, var(--dsw-alias-bg-base, #ffffff)) 88%,
+    transparent
+  );
+}
+
+/* 玻璃主题的毛玻璃在**用户自己设了背景图**时要明显减弱。
+   ---------------------------------------------------------------------------
+   玻璃主题的默认模糊是 30~36px，那是为「低饱和渐变壁纸」调的——把渐变糊开
+   只会更柔和。但用户传的是一张真实照片，36px 模糊会把它糊成一片纯色块，
+   照片里的内容完全认不出来，用户看到的就是「背景图被挡住了」。
+
+   这里把模糊降到 8px：足以柔化照片让上层文字保持可读，又保留照片的可辨识度。
+   这是「用户明确选择了自己的图」时的合理让步——主题的材质不该压过用户的素材。
+   饱和度同样收窄（280% 会把照片推到失真的艳丽）。 */
 html[data-ts-bg][data-theme-studio="glass"] .pI_x6G_centerCol,
 html[data-ts-bg][data-theme-studio="glass"] ._LS25G_centerCol,
 html[data-ts-bg][data-theme-studio="glass-color"] .pI_x6G_centerCol,
 html[data-ts-bg][data-theme-studio="glass-color"] ._LS25G_centerCol {
-  -webkit-backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
-  backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  backdrop-filter: blur(8px) saturate(120%);
 }
 
 /* ---------------------------------------------------------------------------
-   三、无障碍：用户要求降低透明度时，背景图整体让位，恢复实色骨架
+   三、图片取不到时的兜底
+   ---------------------------------------------------------------------------
+   背景图走 HTTP 路由，可能因多种原因取不到：服务刚重启、路由注册失败、
+   文件被清理、鉴权 cookie 过期。`background-image` 的 url 加载失败时，
+   CSS 不会报错也不会回退，浏览器只是「这一层不画」——于是 body 上只剩
+   我们那层半透明盖层，透出宿主的白/黑底。
+
+   用户看到的就是「一片灰白，根本没有背景图」。
+
+   `customCss()` 生成的 `body` 规则里已经先写了 `background-color`（用户填的
+   衬底底色，或主题画布色），本文件不需要、也不应该再补一条 —— 补了反而会
+   因为「同特异性后写者胜」把用户选的衬底底色顶掉。所以这里**只做说明，
+   不加规则**：兜底由 `customCss()` 那条 `background-color` 承担。 */
+
+/* ---------------------------------------------------------------------------
+   四、无障碍：用户要求降低透明度时，背景图整体让位，恢复实色骨架
    --------------------------------------------------------------------------- */
 @media (prefers-reduced-transparency: reduce) {
   html[data-ts-bg] .pI_x6G_centerCol,
@@ -100,5 +185,15 @@ html[data-ts-bg][data-theme-studio="glass-color"] ._LS25G_centerCol {
   html[data-ts-bg] ._LS25G_frame,
   html[data-ts-bg] #root {
     background: var(--color-background-win-alt);
+  }
+
+  html[data-ts-bg] .hHd-Xa_root,
+  html[data-ts-bg] .ixJ31a_root {
+    background: var(--dsw-specific-sidebar-fill);
+  }
+
+  html[data-ts-bg] .wSkVaW_root,
+  html[data-ts-bg] ._1O6vqW_root {
+    background: var(--dsw-alias-bg-base);
   }
 }

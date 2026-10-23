@@ -179,3 +179,41 @@ test('正文与代码字体下拉预设选项两端一致', async () => {
   assert.deepEqual(client.internals.TEXT_FONT_OPTIONS, TEXT_FONT_OPTIONS, '正文字体选项两端不一致')
   assert.deepEqual(client.internals.CODE_FONT_OPTIONS, CODE_FONT_OPTIONS, '代码字体选项两端不一致')
 })
+
+test('两端 computeMobileFontSize 函数逻辑与计算结果严格一致', async () => {
+  const { computeMobileFontSize } = await import('../lib/settings.js')
+  assert.equal(typeof client.internals.computeMobileFontSize, 'function')
+  for (const role of ['text', 'code', 'terminal']) {
+    for (let size = 8; size <= 26; size++) {
+      assert.equal(
+        client.internals.computeMobileFontSize(role, size),
+        computeMobileFontSize(role, size),
+        `角色 ${role} 在字号 ${size}px 时两端计算不一致`,
+      )
+    }
+  }
+})
+
+/**
+ * 背景图上传前必须在浏览器侧缩图/压缩。
+ *
+ * 事故背景：用户传的是手机相册原图（3072×4096、7.5MB），接近 8MB 上限。
+ * 原图直传有三个后果——上传慢、每次首屏都要重传一份、移动网络下容易超时，
+ * 而超时的表现就是「背景图设置了却看不到」。背景是铺满视口的装饰图，
+ * 2048 长边已经绰绰有余。
+ */
+test('背景图上传前会压缩：长边上限与目标体积都在合理范围', () => {
+  const { MAX_BACKGROUND_EDGE, TARGET_BACKGROUND_BYTES } = client.internals
+  assert.equal(typeof MAX_BACKGROUND_EDGE, 'number')
+  assert.ok(
+    MAX_BACKGROUND_EDGE >= 1280 && MAX_BACKGROUND_EDGE <= 2560,
+    `长边上限 ${MAX_BACKGROUND_EDGE} 不合理：太小会糊，太大起不到压缩作用`,
+  )
+  assert.equal(typeof TARGET_BACKGROUND_BYTES, 'number')
+  // 目标体积必须明显小于服务端 8MB 上限，否则压缩没有意义。
+  const MAX_SERVER_BYTES = 8 * 1024 * 1024
+  assert.ok(
+    TARGET_BACKGROUND_BYTES <= MAX_SERVER_BYTES / 4,
+    `目标体积 ${TARGET_BACKGROUND_BYTES} 相对服务端上限 ${MAX_SERVER_BYTES} 太大`,
+  )
+})

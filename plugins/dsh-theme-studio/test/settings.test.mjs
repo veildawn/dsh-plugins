@@ -18,6 +18,7 @@ import {
   FIELD_COLOR_KEYS,
   MAX_BACKGROUND_BYTES,
   backgroundDir,
+  computeMobileFontSize,
   customCss,
   defaultSettings,
   loadSettings,
@@ -224,8 +225,27 @@ test('customCss：图片背景含 URL 与铺满方式，且写在 body 上', () 
   assert.match(css, /url\("\/api\/x\/bg\.png"\)/)
   assert.match(css, /background-size: contain;/)
   assert.match(css, /background-repeat: no-repeat;/)
-  // 背景图同样必须挂在 body 上
-  assert.match(css, /:is\(html\[data-theme-studio\], html:root\) body \{\s*background-image: url\("\/api\/x\/bg\.png"\)/)
+  // 背景挂在 body 上；块内先写底色（图片加载失败时的兜底）再写背景图。
+  assert.match(
+    css,
+    /:is\(html\[data-theme-studio\], html:root\) body \{\s*background-color: [^;]+;\s*background-image: url\("\/api\/x\/bg\.png"\)/,
+  )
+  // 兜底底色必须有，且必须取**不透明**的窗口底色。
+  // 用 --color-background 是错的：玻璃主题下它本身半透明，会让整页透出浏览器白底。
+  assert.match(css, /background-color: var\(--color-background-win-alt, var\(--dsw-alias-bg-base, #ffffff\)\);/)
+})
+
+test('customCss：用户填了衬底底色时优先用用户的，不被主题色覆盖', () => {
+  const css = customCss(
+    { background: { mode: 'image', file: 'bg.png', value: '#202020', opacity: 100 } },
+    { backgroundUrl: '/api/x/bg.png' },
+  )
+  assert.match(css, /background-color: #202020;/)
+  assert.equal(
+    css.includes('var(--color-background-win-alt, var(--dsw-alias-bg-base, #ffffff))'),
+    false,
+    '用户已填衬底底色时不该再写主题色兜底',
+  )
 })
 
 /**
@@ -243,8 +263,14 @@ test('customCss：不透明度用背景盖层，不用 body::before 蒙版', () 
     { background: { mode: 'image', file: 'bg.png', fit: 'cover', opacity: 60 } },
     { backgroundUrl: '/api/x/bg.png' },
   )
-  // 盖层：把主题画布色调到 40% 不透明，叠在图片之上（声明在前 = 绘制在上）。
-  assert.match(css, /background-image: linear-gradient\(color-mix\(in srgb, var\(--color-background[^;]*40%, transparent\)/)
+  // 盖层：一层**中性**遮罩（亮色白 / 暗色黑，40% 不透明），叠在图片之上。
+  //
+  // 关键：绝不能用 `--color-background` 当盖层色。玻璃主题下它本身半透明
+  // （rgba(238,241,246,0.82)），乘上 fade 后复合遮挡会把照片压到几乎看不见——
+  // 那正是用户反馈「玻璃主题下背景图被挡住」的成因。
+  assert.match(css, /background-image: linear-gradient\(var\(--ts-bg-veil, transparent\), var\(--ts-bg-veil, transparent\)\), url\("\/api\/x\/bg\.png"\)/)
+  assert.match(css, /--ts-bg-veil: light-dark\(rgba\(255, 255, 255, 0\.40\), rgba\(0, 0, 0, 0\.40\)\)/)
+  assert.equal(css.includes('color-mix'), false, '盖层不得再依赖半透明的 --color-background')
   assert.match(css, /url\("\/api\/x\/bg\.png"\)/)
   // 两层背景必须各自给出尺寸/重复/位置，否则图片层会继承盖层的取值。
   assert.match(css, /background-size: 100% 100%, cover;/)
@@ -265,14 +291,14 @@ test('customCss：不透明度 100 时不生成盖层（保持单层背景）', 
   assert.equal(css.includes('color-mix'), false, '不透明度 100 不该有色混合')
 })
 
-test('customCss：盖层变量必须有 fallback（不选主题时 --color-background 未定义）', () => {
-  const css = customCss(
-    { background: { mode: 'image', file: 'bg.png', opacity: 50 } },
-    { backgroundUrl: '/api/x/bg.png' },
-  )
-  // 变量未定义会让整条 background-image 在 computed-value 阶段失效，
-  // 背景图直接消失——比不透明度不准严重得多，所以 fallback 是硬要求。
-  assert.match(css, /var\(--color-background, var\(--dsw-alias-bg-base, #808080\)\)/)
+test('背景让位层的主内容卡底色必须有 fallback（theme=none 时变量未定义）', async () => {
+  const { readStyleFile, BACKGROUND_STYLE_FILE } = await import('../lib/css.js')
+  const css = readStyleFile(BACKGROUND_STYLE_FILE)
+  // `color-mix(in oklab, var(--color-background) 72%, transparent)` 在变量未定义时
+  // 整条声明失效 → 卡片变透明 → 正文压在照片上。必须有 fallback 兜住。
+  const mix = css.match(/background:\s*color-mix\([\s\S]*?\);/)
+  assert.ok(mix, '让位层缺少 centerCol 的 color-mix 规则')
+  assert.match(mix[0], /var\(--color-background,[^)]+\)/, 'centerCol 的 color-mix 必须给 --color-background 提供 fallback')
 })
 
 test('customCss：字体同时覆盖四个别名', () => {
@@ -280,6 +306,45 @@ test('customCss：字体同时覆盖四个别名', () => {
   for (const token of ['--dsw-font-family', '--ds-font-family-code', '--dsw-font-family-mono', '--dsw-font-mono', '--dsw-font-code']) {
     assert.match(css, new RegExp(`${token}: `), `缺少 ${token}`)
   }
+  // 必须同时挂载到 body 上且包含宿主原生变量名，防止被宿主在 body 上的 fallback 规则冲掉
+  assert.match(css, /--dsh-font-family-text:\s*Inter/)
+  assert.match(css, /--dsh-font-family-code:\s*Fira Code/)
+  assert.match(css, /body\s*\{[\s\S]*font-family:\s*var\(--dsw-font-family\);/)
+})
+
+test('computeMobileFontSize：移动端人机工学曲线柔化大字与保底小字', () => {
+  // 默认值原样保持
+  assert.equal(computeMobileFontSize('text', 14), 14)
+  assert.equal(computeMobileFontSize('code', 11), 11)
+  assert.equal(computeMobileFontSize('terminal', 10), 10)
+
+  // 桌面放大时，手机按 60% 增量平滑跟随，上限收敛防撑爆排版
+  assert.equal(computeMobileFontSize('text', 16), 15)
+  assert.equal(computeMobileFontSize('text', 18), 16.5)
+  assert.equal(computeMobileFontSize('text', 22), 17.5)
+
+  // 桌面缩小时，手机按 60% 减量平滑收缩，保底 12px 防辨认困难
+  assert.equal(computeMobileFontSize('text', 12), 13)
+  assert.equal(computeMobileFontSize('text', 10), 12)
+
+  // 代码字号映射
+  assert.equal(computeMobileFontSize('code', 14), 12.5)
+  assert.equal(computeMobileFontSize('code', 16), 13.5)
+  assert.equal(computeMobileFontSize('code', 10), 10.5)
+})
+
+test('customCss：字号设置同时输出移动端自适应媒体查询', () => {
+  const css = customCss({ fontSizes: { text: 18, code: 14, terminal: 12 } })
+  // 桌面端写入原始偏好
+  assert.match(css, /--dsh-content-font-size:\s*18px;/)
+  assert.match(css, /--dsh-code-font-size:\s*14px;/)
+  assert.match(css, /--dsh-terminal-font-size:\s*12px;/)
+
+  // 移动端媒体查询下写入人机工学适配字号
+  assert.match(css, /@media \(max-width: 768px\), \(pointer: coarse\) and \(max-width: 1024px\)/)
+  assert.match(css, /--dsh-content-font-size:\s*16\.5px;/)
+  assert.match(css, /--dsh-code-font-size:\s*12\.5px;/)
+  assert.match(css, /--dsh-terminal-font-size:\s*11px;/)
 })
 
 test('customCss：字段色同时写 body 与暗色 body', () => {

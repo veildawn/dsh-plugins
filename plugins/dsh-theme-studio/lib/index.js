@@ -111,7 +111,7 @@ export {
 } from './tokens.js'
 export { ZAI_PALETTE, GLASS_PALETTE } from './themes/index.js'
 export { composeThemeCss, fullThemeCss, readStyleFile, STYLE_FILES, GLASS_STYLE_FILE, BACKGROUND_STYLE_FILE } from './css.js'
-export { customCss as buildCustomCss, activeBackgroundMode } from './settings.js'
+export { customCss as buildCustomCss, activeBackgroundMode, computeMobileFontSize } from './settings.js'
 // 供测试与下游直接构造/校验背景图落盘行为（与 RPC 走同一条实现）。
 export { saveBackgroundImage, readBackgroundImage, backgroundDir } from './settings.js'
 

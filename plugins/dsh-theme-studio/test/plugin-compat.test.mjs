@@ -138,3 +138,17 @@ test('玻璃材质层被装配进每一款主题的 CSS', async () => {
     assert.ok(composeThemeCss(id).includes(marker), `${id} 的产物里缺玻璃材质层`)
   }
 })
+
+test('文件查看插件的右键菜单背景层（.fv-context-backdrop）保持透明且不带模糊滤镜', () => {
+  const modalCss = readStyleFile('modal.css')
+  // 必须显式声明透明
+  assert.match(modalCss, /\.fv-context-backdrop\s*\{[^}]*background:\s*transparent\s*!important/, 'fv-context-backdrop 必须声明为 transparent')
+  assert.match(modalCss, /\.fv-context-backdrop\s*\{[^}]*backdrop-filter:\s*none\s*!important/, 'fv-context-backdrop 必须声明 backdrop-filter: none')
+  // 不得混在半透明遮罩选择器列表里
+  assert.doesNotMatch(
+    modalCss,
+    /\.fv-context-backdrop[^{]*\{[^}]*rgba\(0,\s*0,\s*0/s,
+    'fv-context-backdrop 绝不能被套上半透明黑遮罩',
+  )
+})
+

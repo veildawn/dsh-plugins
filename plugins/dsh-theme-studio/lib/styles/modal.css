@@ -12,11 +12,12 @@ html[data-theme-studio] .fv-modal {
   box-shadow: var(--dsw-elevation-prominent);
 }
 
-/* 文件查看器侧边抽屉容器：桌面端必须保持完全透明，无遮罩与白块，露出主会话 */
-html[data-theme-studio] .fv-scrim {
-  background: transparent;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+/* 文件查看器侧边抽屉容器及右键菜单背景层：必须保持完全透明，无遮罩与模糊，露出内容 */
+html[data-theme-studio] .fv-scrim,
+html[data-theme-studio] .fv-context-backdrop {
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 html[data-theme-studio] .fv-shell {
@@ -28,7 +29,6 @@ html[data-theme-studio] .dm-modal-scrim,
 html[data-theme-studio] .dam-backdrop,
 html[data-theme-studio] .dam-modal-scrim,
 html[data-theme-studio] .fv-modal-scrim,
-html[data-theme-studio] .fv-context-backdrop,
 html[data-theme-studio] .term-tools-backdrop,
 html[data-theme-studio] .dsh-ph-backdrop,
 html[data-theme-studio] .dsh-remote-gate-mask,

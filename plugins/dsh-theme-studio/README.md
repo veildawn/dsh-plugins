@@ -284,7 +284,7 @@ dsh plugin --profile web add @weniatall/dsh-theme-studio
 
 ```bash
 cd plugins/dsh-theme-studio && npm pack
-dsh plugin --profile web add ./dsh-theme-studio-0.2.3.tgz
+dsh plugin --profile web add ./dsh-theme-studio-0.2.7.tgz
 ```
 
 桌面版请用 `--profile desktop` 安装同一份包。

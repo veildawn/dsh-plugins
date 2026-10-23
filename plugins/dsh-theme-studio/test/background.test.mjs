@@ -167,7 +167,29 @@ test('让位层覆盖全部不透明骨架，并且只在 data-ts-bg 下生效',
   for (const part of ['_frame', '_centerCol', '_sidebarCol', '_rightbarCol', '_bottomRow']) {
     assert.ok(css.includes(part), `让位层漏掉了 ${part}`)
   }
+  // 左侧栏内容容器也必须清掉实色底，否则侧边栏整列挡住背景。
+  assert.ok(css.includes('hHd-Xa_root'), '让位层必须清掉左侧栏 hHd-Xa_root')
+  assert.ok(css.includes('ixJ31a_root'), '让位层必须清掉桌面左侧栏 ixJ31a_root')
   assert.match(css, new RegExp(`\\[${BACKGROUND_ATTR}\\]\\s+#root`), '让位层必须清掉 #root 的实色底')
+})
+
+test('会话层也让位，否则背景图被挡在会话区域后面', () => {
+  const css = readStyleFile(BACKGROUND_STYLE_FILE)
+
+  // 这是「设了背景图却只在外层边缘看得见」的根因：`.centerCol` 只是外层容器，
+  // 宿主在里面铺了 ConversationRoot（wSkVaW_root / _1O6vqW_root），自带纯白实底！
+  // 并且会话消息列与输入框底座也都有不透明背景。
+  for (const part of ['wSkVaW_root', '_1O6vqW_root', 'wSkVaW_composerSeat', '_1O6vqW_composerSeat', 'EvIC1a_root', 'EvIC1a_scroll', 'EvIC1a_column', 'data-chat-flow']) {
+    assert.ok(css.includes(part), `会话层让位漏掉了 ${part}`)
+  }
+  // 也覆盖 0.3.x 的类名哈希。
+  assert.ok(css.includes('_6nxh1G_root'), '会话层让位必须同时覆盖 _6nxh1G_* 哈希')
+
+  // 这几层必须是 transparent，不能只是降低不透明度：它们铺满滚动区，
+  // 任何实色都会把照片整块挡掉。底色由 .centerCol 那 38% 统一承担。
+  const chatBlock = /html\[data-ts-bg\][^{]*wSkVaW_root[^{]*\{([^}]*)\}/.exec(css)
+  assert(chatBlock, '会话层让位规则必须存在')
+  assert.match(chatBlock[1], /background:\s*transparent/)
 })
 
 test('让位层排在玻璃层之后（否则玻璃的填充会反压回来）', () => {
@@ -183,4 +205,31 @@ test('没设背景时首屏产物里让位规则不命中任何元素', () => {
   assert.equal(html.includes(`${BACKGROUND_ATTR}=`), false, '没背景却写了 data-ts-bg')
   // 样式表里虽然有让位规则，但 html 上没有开关属性 → 选择器不命中。
   assert.ok(html.includes(`[${BACKGROUND_ATTR}]`), '让位规则应始终在样式表里（由属性开关）')
+})
+
+/**
+ * 玻璃主题在「用户设了背景图」时不得使用主题的强模糊。
+ *
+ * 事故背景：玻璃主题默认 blur 30~36px，那是给低饱和渐变壁纸调的。用户传真实
+ * 照片后，36px 会把照片糊成一片纯色块——内容完全认不出，用户反馈为
+ * 「玻璃主题下背景图被挡住了」。降到 8px 既柔化照片、又保留可辨识度。
+ */
+test('玻璃主题在用户设了背景图时使用弱模糊（否则照片被糊成色块）', async () => {
+  const { readStyleFile, BACKGROUND_STYLE_FILE } = await import('../lib/css.js')
+  const css = readStyleFile(BACKGROUND_STYLE_FILE)
+  const blocks = [...css.matchAll(/[^{}]*data-theme-studio="glass[^"]*"[^{}]*\{([^}]*)\}/g)]
+  assert.ok(blocks.length > 0, '让位层缺少玻璃主题的 backdrop-filter 覆盖')
+  for (const block of blocks) {
+    const body = block[1]
+    if (!body.includes('backdrop-filter')) continue
+    // 不允许再引用主题的强模糊变量。
+    assert.equal(
+      /blur\(var\(--ts-blur\)\)/.test(body),
+      false,
+      '用户设了背景图时不应沿用主题的 30~36px 强模糊',
+    )
+    const blur = /blur\((\d+)px\)/.exec(body)
+    assert.ok(blur, '缺少明确的模糊半径')
+    assert.ok(Number(blur[1]) <= 12, `模糊半径 ${blur[1]}px 过大，会把用户照片糊成色块`)
+  }
 })
