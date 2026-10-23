@@ -25,6 +25,7 @@ export const ZAI_PALETTE = {
   "border-hover": { light: "rgba(13, 13, 13, 0.15)", dark: "rgba(255, 255, 255, 0.15)" },
   "brand": { light: "#000000", dark: "#ffffff" },
   "card": { light: "#ffffff", dark: "#2b2b2b" },
+  "drawer": "@card",
   "card-border": { light: "rgba(13, 13, 13, 0.1)", dark: "rgba(255, 255, 255, 0.1)" },
   "card-selected": { light: "#ffffff", dark: "#2b2b2b" },
   "code-diff-added": { light: "color-mix(in srgb, #1e8a3e 8%, transparent)", dark: "color-mix(in srgb, #46bf72 12%, transparent)" },

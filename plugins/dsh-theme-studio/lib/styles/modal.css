@@ -21,7 +21,7 @@ html[data-theme-studio] .fv-context-backdrop {
 }
 
 html[data-theme-studio] .fv-shell {
-  background: var(--color-card);
+  background: var(--color-drawer);
 }
 
 /* 模态弹出框与抽屉遮罩层：统一使用低透明度磨砂半透明背景，消除生硬实色黑块与全白遮挡 */
@@ -80,7 +80,7 @@ html[data-theme-studio] [class*="sheet"],
 html[data-theme-studio] [class*="Sheet"],
 html[data-theme-studio] [class*="drawer"],
 html[data-theme-studio] [class*="Drawer"] {
-  background: var(--color-panel);
+  background: var(--color-drawer);
   border-color: var(--color-border-hover);
 }
 

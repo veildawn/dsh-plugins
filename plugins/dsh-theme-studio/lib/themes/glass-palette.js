@@ -40,6 +40,7 @@ export const GLASS_PALETTE = {
   // 亮色模式卡片比画布更亮（玻璃反光），暗色模式卡片比画布更亮一档（玻璃透光）。
   panel: { light: 'rgba(255, 255, 255, 0.65)', dark: 'rgba(34, 36, 44, 0.65)' },
   card: { light: 'rgba(255, 255, 255, 0.76)', dark: 'rgba(42, 45, 54, 0.74)' },
+  drawer: { light: 'rgba(255, 255, 255, 0.94)', dark: 'rgba(26, 28, 35, 0.95)' },
   input: { light: 'rgba(255, 255, 255, 0.70)', dark: 'rgba(42, 45, 56, 0.72)' },
   menu: { light: 'rgba(255, 255, 255, 0.72)', dark: 'rgba(32, 34, 42, 0.74)' },
   'menu-hover': { light: 'rgba(0, 0, 0, 0.06)', dark: 'rgba(255, 255, 255, 0.1)' },

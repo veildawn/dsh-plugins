@@ -250,6 +250,24 @@ html[data-theme-studio="glass-color"] .fv-modal {
 }
 
 /* ---------------------------------------------------------------------------
+   四点一、大面板与抽屉：厚重防穿透毛玻璃
+   ---------------------------------------------------------------------------
+   文件查看器（.fv-shell）、终端抽屉等侧边大面板滑出在主会话长文与代码流之上。
+   若透明度过高或缺少毛玻璃模糊，底层的高对比对话文字会清晰穿透造成视错觉与阅读障碍。
+   因此使用厚重材质：94%~95% 高不透明度底色 + 强力模糊（blur 1.8x）+ 左缘高光微光 + 侧边纵深投影。 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .fv-shell,
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [class*="drawer"]:not([class*="handle"]):not([class*="btn"]) {
+  background: var(--color-drawer) !important;
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 1.8)) saturate(var(--ts-saturate)) !important;
+  backdrop-filter: blur(calc(var(--ts-blur) * 1.8)) saturate(var(--ts-saturate)) !important;
+  border-left: 1px solid var(--ts-glass-edge) !important;
+  box-shadow:
+    inset 1px 0 0 var(--ts-glass-highlight),
+    -16px 0 48px rgba(0, 0, 0, 0.36),
+    var(--dsw-shadow-lv3) !important;
+}
+
+/* ---------------------------------------------------------------------------
    五、输入卡：可聚焦玻璃
    ---------------------------------------------------------------------------
    玻璃主题下输入框是最需要克制的地方：模糊太强会让用户看不清自己在打什么。

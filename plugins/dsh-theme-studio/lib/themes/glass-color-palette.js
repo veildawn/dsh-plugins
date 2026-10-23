@@ -30,6 +30,7 @@ export const GLASS_COLOR_OVERRIDES = {
   'background-win-alt': { light: '#e3e6f4', dark: '#0f0f18' },
   panel: { light: 'rgba(244, 246, 255, 0.64)', dark: 'rgba(34, 36, 50, 0.66)' },
   card: { light: 'rgba(250, 251, 255, 0.76)', dark: 'rgba(46, 48, 66, 0.76)' },
+  drawer: { light: 'rgba(250, 251, 255, 0.94)', dark: 'rgba(28, 30, 42, 0.95)' },
   input: { light: 'rgba(250, 251, 255, 0.70)', dark: 'rgba(48, 50, 68, 0.72)' },
   menu: { light: 'rgba(248, 249, 255, 0.72)', dark: 'rgba(40, 42, 58, 0.74)' },
   popover: { light: 'rgba(248, 249, 255, 0.76)', dark: 'rgba(42, 44, 60, 0.78)' },
