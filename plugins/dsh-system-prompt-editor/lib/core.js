@@ -654,6 +654,430 @@ export function findUnknownVariables(text, variables = {}) {
   return [...unknown].sort()
 }
 
+/* ------------------------------------------------------------------ *
+ * 段落查询定位
+ *
+ * 场景：用户知道提示词里有这么一句话（例如「Web GUI」），但不知道它属于
+ * 哪个 section，因此没办法写定位规则。这里提供“给一段文字 → 找出命中的
+ * 段落”的纯函数，设置页据此展示结果，并可一键转成 `match.kind = 'name'`。
+ *
+ * 设计要点：
+ *  1. 忽略空白差异。用户粘贴的多行文本、段内的换行/缩进都不应影响命中，
+ *     所以匹配在「折叠空白」的副本上进行，再用下标映射回原文。
+ *  2. `auto` 策略两级降级：先按连续短语找，找不到再按关键词（全部出现）找。
+ *     前者精确，后者容忍措辞差异。
+ *  3. 输出可直接渲染的片段（segments），前端不需要再做正则高亮。
+ * ------------------------------------------------------------------ */
+
+/** 允许的查询策略。`auto` 表示先短语、后关键词。 */
+export const QUERY_MODES = Object.freeze(['auto', 'phrase', 'terms', 'regex'])
+
+/** 片段上下文默认保留的字符数（匹配处前后各这么多）。 */
+export const SNIPPET_CONTEXT = 60
+
+/** 每个段落默认最多展示几个片段。 */
+export const MAX_SNIPPETS = 3
+
+/** 把匹配区间合并后，最多收集多少个区间（防止超短关键词命中上千处）。 */
+const MAX_SPANS = 200
+
+/**
+ * 判断一个字符是否属于「单词字符」，用于 wholeWord 边界判断。
+ * @param {string} char - 单个字符。
+ * @returns {boolean} 是否单词字符。
+ */
+function isWordChar(char) {
+  return char !== '' && /[A-Za-z0-9_]/.test(char)
+}
+
+/**
+ * 折叠空白：把连续空白压成一个空格，并记录下标映射。
+ *
+ * 这样 `"Web\n  GUI"` 与 `"Web GUI"` 能互相匹配，而返回给前端的片段
+ * 仍然取自**原文**（用 `map` 把折叠后的下标翻回原始下标）。
+ * @param {string} text - 原始文本。
+ * @returns {{text: string, map: number[]}} 折叠后的文本与 `折叠下标 → 原始下标`。
+ */
+export function compactWhitespace(text) {
+  const source = asText(text)
+  const out = []
+  const map = []
+  let pendingSpace = false
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (/\s/.test(char)) {
+      // 前导空白直接丢弃；中间的连续空白只留一个空格占位。
+      if (out.length > 0) pendingSpace = true
+      continue
+    }
+    if (pendingSpace) {
+      // 占位空格映射到「这一串空白的第一个字符」，切片时不会吞掉正文。
+      map.push(index - 1)
+      out.push(' ')
+      pendingSpace = false
+    }
+    map.push(index)
+    out.push(char)
+  }
+
+  return { text: out.join(''), map }
+}
+
+/**
+ * 尽量做大小写折叠，同时保证长度不变。
+ *
+ * 极少数 Unicode 字符小写化后长度会变（如 `İ` → `i̇`），那会让匹配下标与
+ * 原文错位，进而切出错误的片段。此时放弃折叠，退化为大小写敏感比较。
+ * @param {string} text - 文本。
+ * @returns {string} 折叠结果。
+ */
+function foldCase(text) {
+  const lower = asText(text).toLowerCase()
+  return lower.length === text.length ? lower : text
+}
+
+/**
+ * 生成「折叠后的查询词」。
+ *
+ * 段落侧的 `foldCase` 可能因长度异常放弃折叠，查询侧必须做同样的判断，
+ * 否则一边折叠、一边不折叠，两边永远匹配不上。
+ * @param {string} text - 归一化后的查询文本（已折叠空白）。
+ * @param {boolean} caseSensitive - 是否区分大小写。
+ * @returns {string} 参与比较的查询词。
+ */
+function foldNeedle(text, caseSensitive) {
+  return caseSensitive ? text : foldCase(text)
+}
+
+/**
+ * 把一组区间按起止排序并合并相邻/重叠部分。
+ * @param {{start: number, end: number}[]} spans - 原始区间。
+ * @returns {{start: number, end: number}[]} 合并后的区间。
+ */
+function mergeSpans(spans) {
+  const sorted = [...spans].sort((left, right) => left.start - right.start || left.end - right.end)
+  const merged = []
+  for (const span of sorted) {
+    const last = merged[merged.length - 1]
+    // 相邻（end 正好等于下一段 start）也合并：用户搜 "Web GUI" 的两个词时，
+    // 结果应显示成一个连读的短语，而不是两段割裂的高亮。
+    if (last && span.start <= last.end) {
+      last.end = Math.max(last.end, span.end)
+      continue
+    }
+    merged.push({ start: span.start, end: span.end })
+  }
+  return merged
+}
+
+/**
+ * 在一段已折叠空白的文本里找出全部关键词区间。
+ * @param {string} haystack - 已折叠空白（并按需折叠大小写）的文本。
+ * @param {string[]} needles - 关键词列表。
+ * @param {{wholeWord?: boolean}} [options] - 是否要求单词边界。
+ * @returns {{start: number, end: number}[]} 合并后的区间。
+ */
+function collectSpans(haystack, needles, options = {}) {
+  const spans = []
+  for (const needle of needles) {
+    if (!needle) continue
+    let from = 0
+    while (from <= haystack.length - needle.length) {
+      const at = haystack.indexOf(needle, from)
+      if (at < 0) break
+      const end = at + needle.length
+      const bounded = options.wholeWord
+        ? !isWordChar(haystack[at - 1] ?? '') && !isWordChar(haystack[end] ?? '')
+        : true
+      if (bounded) spans.push({ start: at, end })
+      // 步进至少一个字符，避免零宽匹配造成死循环。
+      from = at + Math.max(1, needle.length)
+      if (spans.length >= MAX_SPANS) return mergeSpans(spans)
+    }
+  }
+  return mergeSpans(spans)
+}
+
+/**
+ * 归一化一次段落查询。
+ * @param {unknown} raw - 原始查询（字符串或 `{text, mode, caseSensitive, wholeWord}`）。
+ * @returns {{query: object|null, problem?: string}} 归一化结果。
+ */
+export function normalizeQuery(raw) {
+  const value = raw && typeof raw === 'object' ? raw : { text: raw }
+  const text = asText(value.text ?? value.query).trim()
+
+  if (text === '') {
+    return { query: null, problem: '查询内容为空' }
+  }
+
+  const mode = asText(value.mode || 'auto').trim().toLowerCase() || 'auto'
+  const normalizedMode = QUERY_MODES.includes(mode) ? mode : 'auto'
+  const query = {
+    text,
+    mode: normalizedMode,
+    caseSensitive: asBool(value.caseSensitive, false),
+    wholeWord: asBool(value.wholeWord, false),
+  }
+
+  const problem = QUERY_MODES.includes(mode)
+    ? undefined
+    : `未知的匹配方式 "${mode}"，已改用自动`
+
+  if (normalizedMode === 'regex') {
+    // 提前编译，把语法错误在归一化阶段暴露；非法正则退化为自动模式，
+    // 至少还能给用户一个可用的结果，而不是一屏报错。
+    try {
+      // eslint-disable-next-line no-new
+      new RegExp(text)
+    } catch (error) {
+      return {
+        query: { ...query, mode: 'auto' },
+        problem: `不是合法正则（${error instanceof Error ? error.message : String(error)}），已改用自动匹配`,
+      }
+    }
+  }
+
+  return { query, ...problem === undefined ? {} : { problem } }
+}
+
+/**
+ * 把一段原文按区间切成「可渲染片段」。
+ *
+ * 返回的 `segments` 已包含命中标记与省略号，前端直接 `<mark>` 即可，
+ * 不需要再自己找下标。换行被压成空格，因为这里是定位预览而非全文。
+ * @param {string} text - 原文（未折叠）。
+ * @param {{start: number, end: number}} span - 在原文中的命中区间。
+ * @param {number} [contextChars] - 前后保留的字符数。
+ * @returns {{segments: {text: string, hit: boolean}[], leading: boolean, trailing: boolean, hitText: string}} 片段。
+ */
+export function buildSnippet(text, span, contextChars = SNIPPET_CONTEXT) {
+  const source = asText(text)
+  const context = Math.max(0, asNumber(contextChars, SNIPPET_CONTEXT) ?? SNIPPET_CONTEXT)
+  const start = Math.max(0, Math.min(span.start, source.length))
+  const end = Math.max(start, Math.min(span.end, source.length))
+
+  const from = Math.max(0, start - context)
+  const to = Math.min(source.length, end + context)
+
+  const flatten = (value) => value.replace(/\s+/g, ' ')
+
+  const segments = []
+  const before = flatten(source.slice(from, start))
+  const hit = flatten(source.slice(start, end))
+  const after = flatten(source.slice(end, to))
+
+  if (before !== '') segments.push({ text: `${from > 0 ? '…' : ''}${before}`, hit: false })
+  else if (from > 0) segments.push({ text: '…', hit: false })
+
+  segments.push({ text: hit, hit: true })
+
+  if (after !== '') segments.push({ text: `${after}${to < source.length ? '…' : ''}`, hit: false })
+  else if (to < source.length) segments.push({ text: '…', hit: false })
+
+  return {
+    segments,
+    leading: from > 0,
+    trailing: to < source.length,
+    // 用于展示的 hit 已把换行压成空格；写进规则的「查找原文」必须用未经
+    // 改动的原始文本，否则跨行命中会被填成一段在原文里根本不存在的内容。
+    hitText: source.slice(start, end),
+  }
+}
+
+/**
+ * 对单个段落跑一次查询。
+ *
+ * 三种策略的语义差别很重要：
+ *  - `phrase`：整段查询文本作为一个连续短语出现（最精确）；
+ *  - `terms`：查询文本按空白切词后，**每个词都出现**（顺序与间隔不限）；
+ *  - `regex`：在折叠空白的原文上跑正则，跨行也能命中。
+ * @param {{compact: string, folded: string}} target - 段落的折叠文本（原文 / 折叠大小写）。
+ * @param {object} query - 归一化后的查询（含 `needle` / `terms`）。
+ * @param {'phrase'|'terms'|'regex'} strategy - 实际使用的策略。
+ * @returns {{start: number, end: number}[]} 命中区间（基于折叠文本下标）。
+ */
+function runQuery(target, query, strategy) {
+  if (strategy === 'regex') {
+    // 正则跑在**未折叠大小写**的文本上，只用 flags 控制大小写：
+    // 折叠会破坏 `[A-Z]`、`\p{Lu}` 这类模式，结果是静默查不到。
+    const flags = query.caseSensitive ? 'g' : 'gi'
+    try {
+      const pattern = new RegExp(query.text, flags)
+      const spans = []
+      for (const match of target.compact.matchAll(pattern)) {
+        if (match[0] === '') continue
+        spans.push({ start: match.index, end: match.index + match[0].length })
+        if (spans.length >= MAX_SPANS) break
+      }
+      return mergeSpans(spans)
+    } catch {
+      return []
+    }
+  }
+
+  // phrase / terms 在折叠大小写的文本上做字面比较。
+  if (strategy === 'terms') {
+    // 关键词模式要求每个词都必须至少产生一处有效命中（在满足 wholeWord 等条件下）。
+    // 若某个词未能产生任何有效命中，整段直接判定为不匹配。
+    const allSpans = []
+    for (const term of query.terms) {
+      if (!term) continue
+      const termSpans = collectSpans(target.folded, [term], { wholeWord: query.wholeWord })
+      if (termSpans.length === 0) return []
+      allSpans.push(...termSpans)
+    }
+    return mergeSpans(allSpans)
+  }
+
+  return collectSpans(target.folded, [query.needle], { wholeWord: query.wholeWord })
+}
+
+/**
+ * 在若干段落里定位一段文字。
+ *
+ * 这是「段落查询定位」的核心：给定一个词或一段话，返回命中它的段落列表，
+ * 每段附命中次数与可直接渲染的上下文片段。
+ * @param {object[]} sections - 段落列表（`{name, text, interpolate?}`）。
+ * @param {unknown} rawQuery - 原始查询。
+ * @param {{variables?: object, contextChars?: number, maxSnippets?: number}} [options] - 选项。
+ * @returns {object} 查询结果；任何异常都转成 `ok: false` 而不是抛出。
+ */
+export function locateInSections(sections, rawQuery, options = {}) {
+  const list = Array.isArray(sections) ? sections : []
+  const variables = options.variables && typeof options.variables === 'object' ? options.variables : {}
+  const contextChars = asNumber(options.contextChars, SNIPPET_CONTEXT) ?? SNIPPET_CONTEXT
+  const maxSnippets = Math.max(1, asNumber(options.maxSnippets, MAX_SNIPPETS) ?? MAX_SNIPPETS)
+
+  const { query, problem } = normalizeQuery(rawQuery)
+  const base = {
+    ok: true,
+    query,
+    problem: problem ?? null,
+    strategy: null,
+    matches: [],
+    matchedSections: 0,
+    totalSections: list.length,
+    totalSpans: 0,
+    message: '',
+  }
+
+  if (query === null) {
+    return { ...base, ok: false, message: problem || '查询内容为空' }
+  }
+
+  try {
+    // 预处理：每个段落的「展示文本」（插值后）+ 折叠副本。
+    //  `compact` 保留大小写，只折叠空白——正则用它，`[A-Z]` 才有意义；
+    //  `folded`  再折叠大小写——字面匹配用它，区分大小写时与 compact 相同。
+    // 两者长度必须相等，否则下标映射会错位。
+    const prepared = list.map((section, index) => {
+      const raw = asText(section?.text)
+      const display = section?.interpolate === false ? raw : interpolateLenient(raw, variables)
+      const compact = compactWhitespace(display)
+      return {
+        index,
+        name: asText(section?.name),
+        display,
+        compact: compact.text,
+        folded: query.caseSensitive ? compact.text : foldCase(compact.text),
+        map: compact.map,
+      }
+    })
+
+    const needleSource = compactWhitespace(query.text)
+    const baseQuery = {
+      ...query,
+      needle: foldNeedle(needleSource.text, query.caseSensitive),
+      // 按空白切词：多词查询时要求「每个词都出现」，容忍顺序与间隔差异。
+      terms: needleSource.text
+        .split(' ')
+        .map((item) => foldNeedle(item, query.caseSensitive))
+        .filter((item) => item !== ''),
+    }
+
+    // auto 的两级降级：短语命中说明这段文字**原样存在**，可信度最高；
+    // 短语一个都没命中时，再退回关键词，避免用户抄错一个标点就毫无结果。
+    // 单词查询没有降级空间（短语与关键词等价），直接只跑一次。
+    const order = query.mode === 'auto'
+      ? (baseQuery.terms.length > 1 ? ['phrase', 'terms'] : ['phrase'])
+      : [query.mode]
+
+    let strategy = null
+    let hits = []
+
+    for (const candidate of order) {
+      const found = prepared
+        .map((entry) => ({ entry, spans: runQuery(entry, baseQuery, candidate) }))
+        .filter((item) => item.spans.length > 0)
+
+      if (found.length > 0) {
+        strategy = candidate
+        hits = found
+        break
+      }
+    }
+
+    if (strategy === null) {
+      return {
+        ...base,
+        strategy: order[0],
+        message: `没有任何段落包含「${query.text}」。可以试试更短的词、关闭大小写区分，或改用正则匹配。`,
+      }
+    }
+
+    const matches = hits.map(({ entry, spans }) => {
+      // 折叠副本的下标 → 原文下标。区间末端要 +1（slice 左闭右开），
+      // 因此用「命中最后一个字符的下标」，而不是映射表的越界读取。
+      const toOriginal = (span) => ({
+        start: entry.map[span.start] ?? 0,
+        end: (entry.map[span.end - 1] ?? Math.max(0, entry.display.length - 1)) + 1,
+      })
+
+      const snippets = spans.slice(0, maxSnippets).map((span) =>
+        buildSnippet(entry.display, toOriginal(span), contextChars))
+
+      // 片段被截断时额外给出「首个命中 → 末个命中」的原文范围，
+      // 方便前端提示"还有 N 处未展示"，而不必把全文塞进响应。
+      const first = toOriginal(spans[0])
+      const last = toOriginal(spans[spans.length - 1])
+
+      return {
+        name: entry.name,
+        index: entry.index + 1,
+        length: entry.display.length,
+        hits: spans.length,
+        omitted: Math.max(0, spans.length - snippets.length),
+        range: { from: first.start, to: last.end },
+        snippets,
+      }
+    })
+
+    // 命中越多越靠前；同分时按段落原始顺序，便于用户对照提示词结构。
+    matches.sort((left, right) => right.hits - left.hits || left.index - right.index)
+
+    const totalSpans = matches.reduce((sum, item) => sum + item.hits, 0)
+    const strategyText = strategy === 'phrase' ? '按短语匹配' : strategy === 'terms' ? '按关键词匹配' : '按正则匹配'
+
+    return {
+      ...base,
+      strategy,
+      matches,
+      matchedSections: matches.length,
+      totalSpans,
+      message: `共 ${matches.length} 个段落命中「${query.text}」（${strategyText}），合计 ${totalSpans} 处。`,
+    }
+  } catch (error) {
+    // 查询是辅助功能，坏输入绝不能让设置页崩掉。
+    return {
+      ...base,
+      ok: false,
+      message: `查询失败：${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
+
 /**
  * 构造一份便于阅读的默认配置。
  * @returns {object} 默认配置。

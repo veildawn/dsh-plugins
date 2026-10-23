@@ -334,3 +334,37 @@ test('spe-label 有固定行高，保证两侧标签基线一致', () => {
   assert.match(labelRule[1], /line-height:16px/,
     '标签需要固定行高，否则两侧标签高度不同也会导致控件错位')
 })
+
+/**
+ * 回归：段落查询的匹配方式必须在前后端保持一致。
+ *
+ * 前端从 QUERY_OPTIONS 渲染下拉框，后端 core.js 的 QUERY_MODES 决定实际
+ * 支持哪些模式。两边漂移的后果是静默的——用户能选到一个后端不认识的模式，
+ * 后端按 auto 处理，界面却显示"按关键词"，排查时完全看不出来。
+ */
+test('QUERY_OPTIONS 覆盖 core.js 的 QUERY_MODES', async () => {
+  const { QUERY_MODES } = await import('../lib/core.js')
+  const source = readClient()
+
+  const block = source.match(/const QUERY_OPTIONS = \[[\s\S]*?\n    \]/)
+  assert.ok(block, 'client.js 必须定义 QUERY_OPTIONS')
+
+  const values = [...block[0].matchAll(/value:\s*'([^']+)'/g)].map((item) => item[1])
+  assert.deepEqual([...values].sort(), [...QUERY_MODES].sort(),
+    '前端可选的匹配方式必须与 core.js 支持的一致')
+})
+
+test('client.js 通过 locate 方法查询，且不把查询结果写进配置', () => {
+  const source = readClient()
+  assert.match(source, /rpcCall\(\s*'locate'/, '前端必须调用 locate 方法')
+  // 查询是只读操作：locate 的响应不能直接变成 save 的入参。
+  assert.doesNotMatch(source, /rpcCall\(\s*'save'[\s\S]{0,80}queryResult/,
+    '查询结果不应进入保存流程')
+})
+
+test('查询请求带上模式、大小写与整词开关', () => {
+  const source = readClient()
+  for (const field of ['text:', 'mode:', 'caseSensitive:', 'wholeWord:']) {
+    assert.match(source, new RegExp(field), `locate 请求缺少字段 ${field}`)
+  }
+})

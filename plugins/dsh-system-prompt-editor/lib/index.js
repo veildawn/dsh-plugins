@@ -29,6 +29,7 @@ import {
   applyRules,
   defaultConfig,
   findUnknownVariables,
+  locateInSections,
   normalizeConfig,
   renderSections,
 } from './core.js'
@@ -188,6 +189,96 @@ export function resolveAgentIdentity(agent) {
   }
 
   return result
+}
+
+/**
+ * 最近一次 assembly 的短时缓存。
+ *
+ * 「段落查询定位」是输入即查的交互：用户每敲一个词就会发一次请求，若每次都
+ * 重新 `assemble`，等于把整条 waterfall 链（含其它插件）反复跑一遍。
+ * 缓存只保留极短时间（默认 3 秒），既能吸收连续输入，又不会让用户在改完
+ * 规则后看到过期结果。
+ * @type {WeakMap<object, {at: number, promise: Promise<object>}>}
+ */
+const assemblyCache = new WeakMap()
+
+/** 缓存有效期（毫秒）。 */
+const ASSEMBLY_CACHE_TTL = 3000
+
+/**
+ * 取一份「纯默认」assembly（已带旁路标记，不含本插件的改写）。
+ * @param {object} state - 插件运行时状态。
+ * @param {{fresh?: boolean}} [options] - `fresh: true` 强制重新组装。
+ * @returns {Promise<object>} assembly。
+ */
+async function getBaselineAssembly(state, options = {}) {
+  const now = Date.now()
+  const cached = assemblyCache.get(state)
+  if (!options.fresh && cached && now - cached.at < ASSEMBLY_CACHE_TTL) {
+    try {
+      return await cached.promise
+    } catch {
+      // 缓存里的失败不该持续放大，丢掉后重新组装。
+      assemblyCache.delete(state)
+    }
+  }
+
+  const promise = state.prompt.assemble({ scope: undefined, [BYPASS_KEY]: true })
+  assemblyCache.set(state, { at: now, promise })
+  return promise
+}
+
+/**
+ * 在**当前系统提示词的段落**里定位一段文字。
+ *
+ * 查询对象与设置页「按名称」下拉框列出的是同一批段落（纯官方段落 + 用户追加
+ * 的段落），因此查到结果后可以直接在下拉框里选中它去写规则——这正是本功能
+ * 存在的意义：用户往往知道某句话在提示词里，但不知道它属于哪个 section。
+ * @param {object} state - 插件运行时状态。
+ * @param {unknown} rawQuery - 原始查询（字符串或 `{text, mode, ...}`）。
+ * @param {{contextChars?: number, maxSnippets?: number, fresh?: boolean}} [options] - 选项。
+ * @returns {Promise<object>} 查询结果；组装失败时返回 `ok: false` 而非抛错。
+ */
+export async function locatePrompt(state, rawQuery, options = {}) {
+  try {
+    const assembly = await getBaselineAssembly(state, options)
+    const variables = assembly?.variables && typeof assembly.variables === 'object'
+      ? assembly.variables
+      : {}
+    const sections = Array.isArray(assembly?.sections) ? assembly.sections : []
+
+    const located = locateInSections(sections, rawQuery, {
+      variables,
+      contextChars: options.contextChars,
+      maxSnippets: options.maxSnippets,
+    })
+
+    // 给每个命中段落补上「是否用户追加」与排序值：前者让前端能区分官方段与
+    // 自定义段，后者方便用户理解它在提示词里的位置。
+    const byName = new Map(sections.map((section) => [asText(section?.name), section]))
+    const matches = located.matches.map((match) => {
+      const section = byName.get(match.name)
+      return {
+        ...match,
+        custom: match.name.startsWith(CUSTOM_SECTION_PREFIX),
+        order: Number.isFinite(section?.order) ? section.order : null,
+      }
+    })
+
+    return { ...located, matches, totalSections: sections.length }
+  } catch (error) {
+    return {
+      ok: false,
+      query: null,
+      problem: null,
+      strategy: null,
+      matches: [],
+      matchedSections: 0,
+      totalSections: 0,
+      totalSpans: 0,
+      message: `无法组装提示词，暂时无法定位：${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
 }
 
 /**
@@ -472,6 +563,7 @@ export function apply(ctx, config) {
       // 只有持久化成功后才更新内存值：若写入失败就抛错，外层不会走到这里，
       // 因此不会出现"用户以为没保存成功、规则却已经生效"的静默不一致。
       stored = normalized
+      assemblyCache.delete(state)
       syncSections()
       notify()
       return normalized
@@ -490,6 +582,15 @@ export function apply(ctx, config) {
           if (method === 'preview') {
             const view = await buildSettingsView(state, { preview: payload?.config })
             return { ok: true, value: view }
+          }
+          if (method === 'locate') {
+            // 段落查询定位：输入即查，不落盘、不改配置。
+            // `payload.query` 既可以是字符串，也可以是 {text, mode, caseSensitive, wholeWord}。
+            const located = await locatePrompt(state, payload?.query, {
+              contextChars: payload?.contextChars,
+              maxSnippets: payload?.maxSnippets,
+            })
+            return { ok: true, value: located }
           }
           if (method === 'save') {
             const saved = await state.save(payload?.config ?? {})
@@ -525,4 +626,5 @@ export const _internals = {
   resolveSettingsFilePath,
   defaultSettingsFilePath,
   buildSettingsView,
+  locatePrompt,
 }

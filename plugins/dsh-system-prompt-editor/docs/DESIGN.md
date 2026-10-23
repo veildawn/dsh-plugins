@@ -148,11 +148,80 @@ type Reach =
   这是 file-viewer 插件已验证过的兼容写法。
 - 原子写：写临时文件 + `rename`，避免半截 JSON。
 
-### 2.5 前端设置页
+### 2.5 段落查询定位（locate）
+
+前面几节都在解决「知道段落名之后怎么改」，但用户真正卡住的地方往往更早一步：
+**他知道提示词里有这么一句话，但不知道它属于哪个段落**。
+
+典型求助是这样的：
+
+> 想改掉提示词里「Web GUI」这个说法，但翻了半天 `harness:identity`、
+> `deployment:persona-prefix` 都不是，到底在哪一段？
+
+所以提供一个**反向查询**：给一段文字，返回命中的段落。
+
+```ts
+interface LocateOptions {
+  text: string
+  mode?: 'auto' | 'phrase' | 'terms' | 'regex'   // 默认 auto
+  caseSensitive?: boolean                        // 默认 false
+  wholeWord?: boolean                            // 默认 false
+}
+
+interface LocateResult {
+  ok: boolean
+  strategy: 'phrase' | 'terms' | 'regex' | null   // 实际生效的策略
+  matchedSections: number
+  totalSpans: number
+  matches: Array<{
+    name: string          // section 名，可直接用于 match.kind = 'name'
+    index: number         // 在 assembly 里的序号（1-based）
+    hits: number          // 命中次数
+    omitted: number       // 未展示的命中数
+    custom: boolean       // 是否是用户追加的段落
+    snippets: Array<{ segments: Array<{ text: string, hit: boolean }> }>
+  }>
+  message: string         // 可直接展示给用户的一句话
+}
+```
+
+**设计取舍**：
+
+- **在折叠空白的副本上匹配，再映射回原文**。用户从别处粘贴的文本常带着换行与
+  缩进，而提示词段落本身也有换行；直接 `indexOf` 会大量漏判。`compactWhitespace()`
+  把连续空白压成一个空格并记录 `折叠下标 → 原始下标` 的映射，匹配在副本上做，
+  切片仍取原文，所以高亮片段不会错位。
+- **`auto` 两级降级**。先用整段文字当短语找——命中即说明原文**一字不差地存在**，
+  可信度最高；一个都没命中时才按关键词（每个词都出现）找，容忍措辞与顺序差异。
+  用户抄错一个标点就得到「查无此项」是最糟糕的体验。
+- **大小写折叠要防长度变化**。极少数字符（如 `İ`）小写化后长度会变，会让下标与
+  原文错位、切出乱码。`foldCase()` 检测到长度变化即放弃折叠，退化为大小写敏感比较。
+  注意查询侧必须做同样的判断，否则一边折叠一边不折叠，永远匹配不上。
+- **正则跑在未折叠大小写的文本上**，只用 flags 控制大小写。折叠会破坏 `[A-Z]`、
+  `\p{Lu}` 这类模式，结果是静默查不到。
+- **查询对象必须是真实段落**。宿主端 `locatePrompt()` 直接对 `assemble()` 的
+  `sections` 求值，与「按名称」下拉框同源，因此查到的名字一定能直接选中。
+- **短时缓存 assembly**（3 秒）。输入即查意味着每次按键一次请求，若每次都重跑
+  整条 waterfall，代价过高。缓存只存极短时间，既能吸收连续输入，又不会让用户
+  在改完规则后看到过期结果。
+- **纯只读**。`locate` 不落盘、不改配置，失败也只影响结果区。
+
+前端在此基础上多做一步「落成规则」：命中后一键新建 `match.kind = 'name'` 的规则，
+并把命中的原文预填进 `replaceText.find`。查到之后还要用户自己去下拉框里翻，
+那查询就只是个玩具。
+
+前端还有两个容易出错的地方，测试里专门钉住了：
+
+- **请求序号**。输入即查会产生并发请求，先发的可能后到；不丢弃过期响应，
+  界面就会闪回上一个词的结果。
+- **查询失败不能连累主流程**。定位只是辅助功能，它挂了也要能正常保存规则。
+
+### 2.6 前端设置页
 
 - 注册到 `settings.section` 插槽（与 dsh-jev 一致）。
 - 通过 `ctx.connection.rpc.handle` 暴露方法：
   - `describe`：返回当前配置 + **渲染后的真实系统提示词**（默认展示需求）
+  - `locate`：段落查询定位（见 2.5），输入即查
   - `save`：保存配置
   - `preview`：用候选配置渲染一次预览（不落盘，用于“保存前看效果”）
   - `reset`：恢复默认
@@ -168,6 +237,7 @@ type Reach =
 | 改身份句文本 | ✅ | `replaceText` 命中 `harness:identity` |
 | 追加自定义规矩 | ✅ | `appendSections` |
 | 删除某段工具说明 | ✅ | `remove` 规则 |
+| 查出某句话在哪个段落 | ✅ | `locate`，结果可直接落成 `match.kind = 'name'` 规则 |
 | 改变段落顺序 | ✅ | 给自定义段落指定 order / position |
 | 在 `complete: true` 的预设下改写 | ⚠️ 检测到即禁用并提示 | 官方会强制恢复该 section，任何监听器都改不动 |
 | 改工具 schema 描述 | ❌ | 属于 `systemPrompt.tools()` 提供方，不在本插件职责内 |
@@ -186,3 +256,6 @@ type Reach =
 6. **插值变量**：所有改写都保留原 section 的 `interpolate` 标记。
    若用户在新文本里写了未知 `{{var}}`，官方渲染期会抛错——
    前端在保存前用当前变量表校验一遍并拦截。
+7. **查询定位失败**：`locate` 捕获全部异常并返回 `ok: false` + 可读消息，
+   绝不抛出；查询只是辅助功能，不能连累保存与预览。组装提示词本身失败时
+   （例如 `systemPrompt` 服务未就绪），同样只降级成「暂时无法定位」。

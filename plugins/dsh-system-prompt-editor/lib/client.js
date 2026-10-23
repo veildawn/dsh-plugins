@@ -34,6 +34,14 @@ window.__ModuleLoader__.load({
       { value: 'regex', label: '按内容正则' },
     ]
 
+    /** 段落查询的匹配方式。与 core.js 的 QUERY_MODES 保持一致。 */
+    const QUERY_OPTIONS = [
+      { value: 'auto', label: '自动（先整句，再关键词）' },
+      { value: 'phrase', label: '整句短语' },
+      { value: 'terms', label: '关键词（全部出现）' },
+      { value: 'regex', label: '正则表达式' },
+    ]
+
     const ACTION_OPTIONS = [
       { value: 'replaceText', label: '替换文本片段' },
       { value: 'setText', label: '整段替换' },
@@ -95,6 +103,22 @@ window.__ModuleLoader__.load({
       .spe-empty{padding:18px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
       .spe-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
       .spe-spacer{flex:1 1 auto}
+      /* —— 段落查询定位 —— */
+      .spe-query-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
+      .spe-query-row .spe-field{flex:1 1 240px}
+      .spe-query-row .spe-field.grow{flex:3 1 380px}
+      .spe-check{display:inline-flex;align-items:center;gap:6px;height:34px;color:var(--dsw-alias-label-secondary);font-size:12px;white-space:nowrap;cursor:pointer}
+      .spe-results{display:flex;flex-direction:column;gap:8px}
+      .spe-snippets{display:flex;flex-direction:column;gap:6px}
+      .spe-result{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-left:3px solid var(--dsw-alias-brand-primary,#4d6bfe);border-radius:10px;background:var(--dsw-alias-bg-layer-1,transparent)}
+      .spe-result-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .spe-result-name{font-size:12px;font-weight:600}
+      .spe-result-cat{color:var(--dsw-alias-label-tertiary);font-size:12px}
+      .spe-snippet{margin:0;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-label-tertiary,#888) 8%,transparent);color:var(--dsw-alias-label-secondary);font-family:var(--dsw-font-family-mono,ui-monospace,monospace);font-size:12px;line-height:19px;white-space:pre-wrap;word-break:break-word}
+      .spe-snippet mark{padding:0 2px;border-radius:3px;background:color-mix(in srgb,var(--dsw-alias-state-warning-primary,#f59e0b) 34%,transparent);color:var(--dsw-alias-label-primary);font-weight:600}
+      .spe-result-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .spe-result-actions .spe-btn{height:28px;padding:0 10px;border-radius:14px;font-size:12px}
+      .spe-kv{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}
     `
 
     /** 生成一个足够唯一的本地 id。 */
@@ -167,13 +191,48 @@ window.__ModuleLoader__.load({
     /**
      * 官方已知段落的可读名称。
      *
-     * section 名是内部标识（harness:identity、deployment:persona-prefix），
-     * 直接展示对普通用户不友好。这里映射成中文含义，未收录的按原名展示。
+     * section 名是内部标识（harness:identity、app:web-surface），直接展示对
+     * 普通用户不友好。这里映射成中文含义，未收录的按原名展示。
+     *
+     * 键以官方真实注册名为准（冒号形式，见 `SECTION_ORDERS` 与各插件源码）；
+     * 早期版本曾误写成 `tool-bash` 这类连字符形式，两种都保留，避免存量
+     * 部署因命名差异退化成裸名字。
      */
     const SECTION_LABELS = {
+      // —— 骨架段落 ——
       'harness:identity': '身份声明（我是谁）',
+      'harness:source': '实现代码位置说明',
+      'app:web-surface': 'Web GUI 界面说明',
       'deployment:persona-prefix': '角色设定·前段（系统人设）',
       'deployment:persona-suffix': '角色设定·后段（收尾提醒）',
+      'plan:policy': '计划模式规范',
+      'team:identity': '团队身份说明',
+      'team:policy': '团队协作规范',
+      'ptc:only': 'PTC 专用说明',
+      'mcp-servers': 'MCP 服务说明',
+
+      // —— 工具说明（冒号形式为官方真实名）——
+      'tool:bash': 'Bash 工具说明',
+      'tool:pwsh': 'PowerShell 工具说明',
+      'tool:read': '读取文件工具说明',
+      'tool:write': '写入文件工具说明',
+      'tool:edit': '编辑文件工具说明',
+      'tool:glob': '文件搜索工具说明',
+      'tool:grep': '内容搜索工具说明',
+      'tool:jobs': '后台任务工具说明',
+      'tool:pty': '终端会话工具说明',
+      'tool:web-search': '联网搜索工具说明',
+      'tool:web-fetch': '网页抓取工具说明',
+      'tool:goal': '目标管理工具说明',
+      'tool:workflow': '工作流工具说明',
+      'tool:subagent': '子代理工具说明',
+      'tool:ralph': 'Ralph 循环工具说明',
+      'tool:lsp': '语言服务工具说明',
+      'tool:session-query': '会话检索工具说明',
+      'tool:report': '报告工具说明',
+      'tool:computer-use': '桌面操作工具说明',
+
+      // —— 兼容旧命名（连字符）——
       'tool-bash': 'Bash 工具说明',
       'tool-pwsh': 'PowerShell 工具说明',
       'tool-read': '读取文件工具说明',
@@ -217,6 +276,19 @@ window.__ModuleLoader__.load({
       const [rules, setRules] = react.useState([])
       const [sections, setSections] = react.useState([])
       const [previewMode, setPreviewMode] = react.useState('effective')
+
+      // —— 段落查询定位 ——
+      // 用户知道某句话在提示词里（例如「Web GUI」），但不知道它属于哪个段落。
+      // 这里维护查询条件、结果与进行中标记；命中后可以一键把结果填进某条规则。
+      const [queryText, setQueryText] = react.useState('')
+      const [queryMode, setQueryMode] = react.useState('auto')
+      const [queryCase, setQueryCase] = react.useState(false)
+      const [queryWholeWord, setQueryWholeWord] = react.useState(false)
+      const [queryResult, setQueryResult] = react.useState(null)
+      const [querying, setQuerying] = react.useState(false)
+
+      // 请求序号：丢弃过期响应，避免快速输入时结果与输入框对不上。
+      const queryTicket = react.useRef(0)
 
       /** 把服务端视图灌进本地编辑状态。 */
       const adopt = react.useCallback((next) => {
@@ -294,6 +366,49 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /**
+       * 执行一次段落查询。
+       *
+       * 三个细节：
+       *  1. 用请求序号丢弃过期响应——连续输入时先发的请求可能后到，
+       *     不丢弃会让结果与输入框对不上。
+       *  2. 空查询直接清空结果，不发请求。
+       *  3. 查询失败只显示在结果区，不动页面上的其它状态（保存按钮等照常可用）。
+       */
+      const runQuery = react.useCallback(async (text, options = {}) => {
+        const trimmed = String(text || '').trim()
+        if (trimmed === '') {
+          setQueryResult(null)
+          setQuerying(false)
+          return
+        }
+
+        const ticket = (queryTicket.current += 1)
+        setQuerying(true)
+        try {
+          const data = await rpcCall('locate', {
+            query: {
+              text: trimmed,
+              mode: options.mode || queryMode,
+              caseSensitive: options.caseSensitive ?? queryCase,
+              wholeWord: options.wholeWord ?? queryWholeWord,
+            },
+          })
+          if (ticket !== queryTicket.current) return
+          setQueryResult(data)
+        } catch (error) {
+          if (ticket !== queryTicket.current) return
+          setQueryResult({
+            ok: false,
+            matches: [],
+            matchedSections: 0,
+            message: error instanceof Error ? error.message : String(error),
+          })
+        } finally {
+          if (ticket === queryTicket.current) setQuerying(false)
+        }
+      }, [queryCase, queryMode, queryWholeWord, rpcCall])
+
       const updateRule = (index, patch) => {
         setRules((list) => list.map((item, at) => (at === index ? { ...item, ...patch } : item)))
       }
@@ -333,6 +448,120 @@ window.__ModuleLoader__.load({
           ...list,
           { id: nextId('section', list), enabled: true, text: '', position: 'after-persona' },
         ])
+      }
+
+      /**
+       * 把一次查询命中应用到规则上——这是「查询定位」真正有价值的一步。
+       *
+       * 用户的原始诉求是「我知道这句话在提示词里，但不知道改哪一段」。查完之后
+       * 用户点击「定位到这条规则」或「+ 再加一条规则」，插件都会新建一条规则，
+       * 定位方式设置为「按名称」并选定该段落，同时把命中的原文自动填进「要查找的原文」。
+       * 用户只需决定替换成什么即可。
+       * @param {string} name - 命中的 section 名。
+       * @param {object} [snippet] - 命中的片段，用于预填 replaceText 的 find。
+       */
+      const applyLocateToRule = (name, snippet) => {
+        // 优先用服务端给的原始命中文本：`segments` 里的 hit 为了展示把换行
+        // 压成了空格，跨行命中时直接拿它当查找原文会永远匹配不上。
+        const findText = snippet && typeof snippet.hitText === 'string'
+          ? snippet.hitText
+          : snippet && Array.isArray(snippet.segments)
+            ? snippet.segments.filter((item) => item && item.hit).map((item) => item.text).join('')
+            : ''
+
+        const hasExisting = rules.some((rule) => rule && rule.matchValue === name && rule.matchKind === 'name')
+
+        setRules((list) => [
+          ...list,
+          {
+            id: nextId('rule', list),
+            enabled: true,
+            matchKind: 'name',
+            matchValue: name,
+            actionKind: findText === '' ? 'append' : 'replaceText',
+            actionText: '',
+            actionFind: findText,
+            actionReplace: '',
+            reachMode: 'all',
+            reachIds: '',
+          },
+        ])
+
+        const baseMsg = findText === ''
+          ? `定位到「${name}」，请填写要追加的内容`
+          : `定位到「${name}」，并把「${findText}」填为查找原文`
+        setStatus({
+          kind: 'ok',
+          text: hasExisting ? `已再新建一条规则，${baseMsg}` : `已新建规则，${baseMsg}`,
+        })
+      }
+
+      /** 复制文本到剪贴板；不可用时给出可读提示，绝不抛错。 */
+      const copyText = (text) => {
+        try {
+          if (typeof navigator !== 'undefined' && navigator.clipboard) {
+            navigator.clipboard.writeText(text)
+            setStatus({ kind: 'ok', text: `已复制：${text}` })
+            return
+          }
+        } catch {
+          // 落到下面的提示。
+        }
+        setStatus({ kind: 'err', text: '浏览器不允许访问剪贴板，请手动复制。' })
+      }
+
+      /** 渲染一条查询结果（一个命中段落）。 */
+      const renderMatch = (match, index) => {
+        const known = SECTION_LABELS[match.name]
+        const title = known ? `${known}（${match.name}）` : match.name
+        const referenced = rules.some(
+          (rule) => rule && rule.matchKind === 'name' && rule.matchValue === match.name,
+        )
+
+        return react.createElement('div', { key: `${match.name}-${index}`, className: 'spe-result' },
+          react.createElement('div', { className: 'spe-result-head' },
+            react.createElement('span', { className: 'spe-result-name' }, title),
+            react.createElement('span', { className: 'spe-badge ok' }, `命中 ${match.hits} 处`),
+            react.createElement('span', { className: 'spe-badge muted' }, `第 ${match.index} 段`),
+            match.custom ? react.createElement('span', { className: 'spe-badge warn' }, '自定义段落') : null,
+            typeof match.order === 'number'
+              ? react.createElement('span', { className: 'spe-kv' }, `order ${match.order}`)
+              : null,
+            react.createElement('span', { className: 'spe-kv' }, `${match.length} 字`),
+          ),
+
+          // 片段直接来自服务端（已含省略号与命中标记），前端只负责加 <mark>，
+          // 避免两端各自实现一遍高亮导致不一致。
+          react.createElement('div', { className: 'spe-snippets' },
+            (match.snippets || []).map((snippet, at) => react.createElement('p', {
+              key: at,
+              className: 'spe-snippet',
+            }, (snippet.segments || []).map((segment, pos) => (segment.hit
+              ? react.createElement('mark', { key: pos }, segment.text)
+              : react.createElement('span', { key: pos }, segment.text))))),
+          ),
+
+          match.omitted > 0 && match.range
+            ? react.createElement('p', { className: 'spe-hint' },
+              `另有 ${match.omitted} 处命中未展示，全部集中在第 ${match.range.from}–${match.range.to} 字符之间。`)
+            : null,
+
+          react.createElement('div', { className: 'spe-result-actions' },
+            react.createElement('button', {
+              type: 'button',
+              className: 'spe-btn',
+              title: referenced
+                ? '已有规则指向这个段落，再次点击会再建一条'
+                : '新建一条定位到这个段落的规则，并把命中的文字填为查找原文',
+              onClick: () => applyLocateToRule(match.name, (match.snippets || [])[0]),
+            }, referenced ? '+ 再加一条规则' : '定位到这条规则'),
+            react.createElement('button', {
+              type: 'button',
+              className: 'spe-btn',
+              onClick: () => copyText(match.name),
+            }, '复制段落名'),
+          ),
+        )
       }
 
       /** 渲染单条规则编辑卡片。 */
@@ -612,6 +841,114 @@ window.__ModuleLoader__.load({
           react.createElement('p', { className: 'spe-hint' },
             '关闭后系统提示词完全恢复官方默认，配置仍会保留。'
           ),
+        ),
+
+        react.createElement('div', { className: 'spe-card' },
+          react.createElement('div', { className: 'spe-card-head' },
+            react.createElement('div', { className: 'spe-card-title' }, '段落查询定位'),
+            react.createElement('span', { className: 'spe-kv' },
+              view && Array.isArray(view.sections)
+                ? `当前共 ${view.sections.length} 个段落`
+                : '段落列表尚未读取'),
+          ),
+          react.createElement('p', { className: 'spe-hint' },
+            '知道提示词里有这么一句话、但不知道它属于哪个段落？在这里输入一个词或一段话，'
+            + '下方会列出命中的段落与上下文。例如输入 Web GUI，会定位到 app:web-surface。'
+          ),
+
+          react.createElement('div', { className: 'spe-query-row' },
+            react.createElement('div', { className: 'spe-field grow' },
+              react.createElement('label', { className: 'spe-label' }, '要查找的词或句子'),
+              react.createElement('input', {
+                className: 'spe-input',
+                value: queryText,
+                placeholder: '例如：Web GUI，或整段原文',
+                onChange: (event) => {
+                  setQueryText(event.target.value)
+                  // 输入即查：用户不必再点一次按钮。请求序号保证结果与输入对齐。
+                  runQuery(event.target.value)
+                },
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') runQuery(queryText)
+                },
+              }),
+            ),
+            react.createElement('div', { className: 'spe-field' },
+              react.createElement('label', { className: 'spe-label' }, '匹配方式'),
+              react.createElement('select', {
+                className: 'spe-select',
+                value: queryMode,
+                onChange: (event) => {
+                  setQueryMode(event.target.value)
+                  runQuery(queryText, { mode: event.target.value })
+                },
+              }, QUERY_OPTIONS.map((option) => react.createElement('option', {
+                key: option.value,
+                value: option.value,
+              }, option.label))),
+            ),
+          ),
+
+          react.createElement('div', { className: 'spe-query-row' },
+            react.createElement('label', { className: 'spe-check' },
+              react.createElement('input', {
+                type: 'checkbox',
+                checked: queryCase,
+                onChange: (event) => {
+                  setQueryCase(event.target.checked)
+                  runQuery(queryText, { caseSensitive: event.target.checked })
+                },
+              }),
+              '区分大小写',
+            ),
+            react.createElement('label', { className: 'spe-check' },
+              react.createElement('input', {
+                type: 'checkbox',
+                checked: queryWholeWord,
+                onChange: (event) => {
+                  setQueryWholeWord(event.target.checked)
+                  runQuery(queryText, { wholeWord: event.target.checked })
+                },
+              }),
+              '整词匹配',
+            ),
+            react.createElement('div', { className: 'spe-spacer' }),
+            react.createElement('button', {
+              type: 'button',
+              className: 'spe-btn',
+              disabled: querying || String(queryText).trim() === '',
+              onClick: () => runQuery(queryText),
+            }, querying ? '查询中…' : '重新查询'),
+            react.createElement('button', {
+              type: 'button',
+              className: 'spe-btn',
+              disabled: String(queryText).trim() === '',
+              onClick: () => {
+                setQueryText('')
+                setQueryResult(null)
+              },
+            }, '清空'),
+          ),
+
+          queryResult && queryResult.problem
+            ? react.createElement('div', { className: 'spe-status err' }, queryResult.problem)
+            : null,
+
+          queryResult
+            ? react.createElement('div', {
+              className: `spe-status ${queryResult.ok && queryResult.matchedSections > 0 ? 'ok' : 'err'}`,
+            }, queryResult.message || '没有结果')
+            : null,
+
+          queryResult && Array.isArray(queryResult.matches) && queryResult.matches.length > 0
+            ? react.createElement('div', { className: 'spe-results' }, queryResult.matches.map(renderMatch))
+            : null,
+
+          queryResult && queryResult.ok && queryResult.matches && queryResult.matches.length === 0
+            ? react.createElement('p', { className: 'spe-hint' },
+              '提示：自动模式先按整句找，找不到再按关键词（每个词都出现）找。'
+              + '整段长句常因为多了一个标点就查不到，可以只取其中最有辨识度的几个词。')
+            : null,
         ),
 
         react.createElement('div', { className: 'spe-card' },

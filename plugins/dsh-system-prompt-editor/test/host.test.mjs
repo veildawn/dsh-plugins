@@ -8,6 +8,7 @@ import {
   _internals,
   buildSettingsView,
   defaultSettingsFilePath,
+  locatePrompt,
   readPersistedSettings,
   resolveAgentIdentity,
   resolveSettingsFilePath,
@@ -276,4 +277,98 @@ test('_internals 暴露归一化工具', () => {
   const config = _internals.normalizeConfig({ rules: [] })
   assert.equal(config.enabled, true)
   assert.deepEqual(config.rules, [])
+})
+
+/* ================================================================== *
+ * locatePrompt：段落查询定位的宿主端入口
+ *
+ * 前端只负责展示，真正「在哪些段落里找」由这里决定。关键约束：
+ *  - 查询对象必须是**当前真实存在的段落**，否则查到了也没法写规则；
+ *  - 必须插值后再查，否则用户搜 {{model}} 的替换值会一无所获；
+ *  - 组装失败时返回 ok:false，而不是让设置页整页报错。
+ * ================================================================== */
+
+test('locatePrompt 能在当前段落里定位一段文字', async () => {
+  const state = {
+    prompt: fakePrompt([
+      { name: 'harness:identity', text: 'You are an AI agent powered by DeepSeek Harness.' },
+      { name: 'app:web-surface', text: 'You are interacting with the user through the DeepSeek Harness Web GUI.' },
+    ]),
+    current: () => ({ enabled: true, rules: [], appendSections: [], diagnostics: [] }),
+    settingsFile: '/tmp/x.json',
+    storageKind: 'file',
+  }
+
+  const result = await locatePrompt(state, 'Web GUI')
+  assert.equal(result.ok, true)
+  assert.equal(result.matchedSections, 1)
+  assert.equal(result.matches[0].name, 'app:web-surface')
+  assert.equal(result.matches[0].custom, false)
+  assert.equal(result.totalSections, 2)
+  // 片段里的高亮词必须是干净的原文。
+  const hit = result.matches[0].snippets[0].segments.find((segment) => segment.hit)
+  assert.equal(hit.text, 'Web GUI')
+})
+
+test('locatePrompt 在插值后的文本上匹配', async () => {
+  const state = {
+    prompt: fakePrompt([{ name: 'persona', text: 'You are a coding agent powered by the {{model}} model.' }]),
+    current: () => ({ enabled: true, rules: [], appendSections: [], diagnostics: [] }),
+    settingsFile: '/tmp/x.json',
+    storageKind: 'file',
+  }
+
+  const result = await locatePrompt(state, 'test-model')
+  assert.equal(result.matchedSections, 1, '应能在插值结果里命中变量值')
+  assert.equal(result.matches[0].name, 'persona')
+})
+
+test('locatePrompt 标记用户追加的段落', async () => {
+  const state = {
+    prompt: fakePrompt([
+      { name: 'harness:identity', text: 'You are an AI agent.' },
+      { name: 'prompt-editor:custom:001-tone', text: 'Always answer in Chinese, and keep Web GUI terms untranslated.' },
+    ]),
+    current: () => ({ enabled: true, rules: [], appendSections: [], diagnostics: [] }),
+    settingsFile: '/tmp/x.json',
+    storageKind: 'file',
+  }
+
+  const result = await locatePrompt(state, 'Web GUI')
+  assert.equal(result.matches[0].custom, true, '自定义段落必须被标记出来')
+})
+
+test('locatePrompt 在组装失败时降级而不抛错', async () => {
+  const state = {
+    prompt: {
+      async assemble() {
+        throw new Error('prompt service unavailable')
+      },
+    },
+    current: () => ({ enabled: true, rules: [], appendSections: [], diagnostics: [] }),
+    settingsFile: '/tmp/x.json',
+    storageKind: 'file',
+  }
+
+  const result = await locatePrompt(state, 'Web GUI')
+  assert.equal(result.ok, false)
+  assert.match(result.message, /无法组装提示词/)
+  assert.deepEqual(result.matches, [])
+})
+
+test('locatePrompt 对空查询返回可读提示', async () => {
+  const state = {
+    prompt: fakePrompt([{ name: 'a', text: 'x' }]),
+    current: () => ({ enabled: true, rules: [], appendSections: [], diagnostics: [] }),
+    settingsFile: '/tmp/x.json',
+    storageKind: 'file',
+  }
+
+  const result = await locatePrompt(state, '   ')
+  assert.equal(result.ok, false)
+  assert.match(result.message, /为空/)
+})
+
+test('_internals 暴露 locatePrompt 便于测试', () => {
+  assert.equal(typeof _internals.locatePrompt, 'function')
 })

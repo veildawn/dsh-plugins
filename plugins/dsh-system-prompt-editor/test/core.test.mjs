@@ -8,18 +8,23 @@ import {
   ORDER_ANCHORS,
   POSITIONS,
   POSITION_ORDERS,
+  QUERY_MODES,
   applyActionToText,
   applyRules,
   asBool,
   asNumber,
   asText,
+  buildSnippet,
+  compactWhitespace,
   defaultConfig,
   findUnknownVariables,
   interpolateLenient,
+  locateInSections,
   matchesSection,
   normalizeAction,
   normalizeConfig,
   normalizeMatch,
+  normalizeQuery,
   normalizeReach,
   normalizeRule,
   normalizeSection,
@@ -558,4 +563,266 @@ test('完整场景：替换身份句 + 追加规则 + 按预设限定', () => {
   assert.match(rendered, /Always answer in Chinese\./)
   assert.match(rendered, /powered by the deepseek-v4\.1-flash model/)
   assert.doesNotMatch(rendered, /You are an AI agent powered by DeepSeek Harness\./)
+})
+
+/* ================================================================== *
+ * 段落查询定位
+ *
+ * 场景：用户知道提示词里有「Web GUI」这句话，但不知道该改哪个段落。
+ * 这些用例把「给一段文字 → 找出段落」的行为钉死，重点是：
+ *  - 空白与大小写不应影响命中；
+ *  - 片段要能正确定位回原文（下标映射错位会切出乱七八糟的文字）；
+ *  - 查不到时给出可操作的信息，而不是空数组了事。
+ * ================================================================== */
+
+/** 一份带 Web GUI 段落的 sample，接近真实提示词规模。 */
+function locateSample() {
+  return [
+    { name: 'harness:identity', text: 'You are an AI agent powered by DeepSeek Harness.' },
+    {
+      name: 'app:web-surface',
+      text: 'You are interacting with the user through the DeepSeek Harness Web GUI whose URL the runtime context names.\n'
+        + 'When the user refers to "this page", "this GUI", or "this app" without naming another target, they mean this GUI.',
+    },
+    {
+      name: 'tool:bash',
+      text: 'Check the [exit code: N] marker on every bash result. Web search is a separate tool.',
+    },
+  ]
+}
+
+test('normalizeQuery 归一化各种输入形态', () => {
+  // 字符串是最常见的入口（前端直接传输入框内容）。
+  assert.deepEqual(normalizeQuery('Web GUI').query, {
+    text: 'Web GUI',
+    mode: 'auto',
+    caseSensitive: false,
+    wholeWord: false,
+  })
+
+  assert.equal(normalizeQuery({ text: 'x', mode: 'regex', caseSensitive: true }).query.mode, 'regex')
+  assert.equal(normalizeQuery({ text: 'x', mode: 'regex', caseSensitive: true }).query.caseSensitive, true)
+
+  // 空查询返回 null，由调用方决定怎么提示。
+  assert.equal(normalizeQuery('   ').query, null)
+  assert.match(normalizeQuery('   ').problem, /为空/)
+
+  // 未知模式退化到 auto，但仍要告诉用户。
+  const unknown = normalizeQuery({ text: 'x', mode: 'fuzzy' })
+  assert.equal(unknown.query.mode, 'auto')
+  assert.match(unknown.problem, /未知的匹配方式/)
+})
+
+test('normalizeQuery 对非法正则退化为自动匹配', () => {
+  const result = normalizeQuery({ text: '([a-z', mode: 'regex' })
+  assert.equal(result.query.mode, 'auto', '非法正则不能让整个查询报废')
+  assert.match(result.problem, /不是合法正则/)
+})
+
+test('QUERY_MODES 与前端下拉框一致', () => {
+  // 前端从 QUERY_OPTIONS 渲染，两处漂移会让用户选到后端不认识的模式。
+  assert.deepEqual([...QUERY_MODES], ['auto', 'phrase', 'terms', 'regex'])
+})
+
+test('compactWhitespace 折叠空白并保留原文下标映射', () => {
+  const { text, map } = compactWhitespace('  a\n\n  b  c ')
+  assert.equal(text, 'a b c')
+  // 每个折叠后的字符都能翻回原文位置。
+  assert.equal(map.length, text.length)
+  for (let index = 0; index < text.length; index += 1) {
+    const original = '  a\n\n  b  c '[(map[index])]
+    assert.equal(original, text[index], `下标 ${index} 映射错位`)
+  }
+})
+
+test('locateInSections 用一句话定位到正确段落', () => {
+  const result = locateInSections(locateSample(), 'Web GUI')
+  assert.equal(result.ok, true)
+  assert.equal(result.matchedSections, 1)
+  assert.equal(result.matches[0].name, 'app:web-surface')
+  assert.equal(result.strategy, 'phrase')
+  // 同一段里 "Web GUI" 只出现一次（另一处是 "this GUI"）。
+  assert.equal(result.matches[0].hits, 1)
+})
+
+test('locateInSections 忽略大小写差异', () => {
+  const lower = locateInSections(locateSample(), 'web gui')
+  assert.equal(lower.matchedSections, 1)
+  assert.equal(lower.matches[0].name, 'app:web-surface')
+
+  const sensitive = locateInSections(locateSample(), {
+    text: 'web gui',
+    caseSensitive: true,
+  })
+  assert.equal(sensitive.matchedSections, 0, '开启区分大小写后不应命中 "Web GUI"')
+})
+
+test('locateInSections 忽略换行与缩进差异', () => {
+  // 用户从别处粘贴的文本往往带着换行，必须仍能命中。
+  const result = locateInSections(locateSample(), 'Web GUI whose URL\nthe runtime context')
+  assert.equal(result.matchedSections, 1)
+  assert.equal(result.matches[0].name, 'app:web-surface')
+})
+
+test('locateInSections 命中多个段落时按命中次数排序', () => {
+  const result = locateInSections(locateSample(), 'GUI')
+  assert.equal(result.ok, true)
+  // app:web-surface 出现两次 GUI（Web GUI + this GUI），tool:bash 一次都没有。
+  assert.equal(result.matchedSections, 1)
+  assert.ok(result.matches[0].hits >= 2)
+
+  const many = locateInSections([
+    { name: 'a', text: 'Web GUI once.' },
+    { name: 'b', text: 'Web GUI twice. Web GUI again.' },
+  ], 'Web GUI')
+  assert.deepEqual(many.matches.map((item) => item.name), ['b', 'a'], '命中多的段落应排在前面')
+  assert.equal(many.matches[0].hits, 2)
+})
+
+test('locateInSections 的片段能正确定位回原文', () => {
+  const result = locateInSections(locateSample(), 'Web GUI')
+  const snippet = result.matches[0].snippets[0]
+  const hit = snippet.segments.find((segment) => segment.hit)
+  assert.equal(hit.text, 'Web GUI', '高亮片段必须是干净的原词，不能带残留标点或空白')
+
+  // 前后文拼接后，应当是原文的一段连续内容。
+  const joined = snippet.segments.map((segment) => segment.text).join('')
+  assert.ok(joined.includes('Web GUI'))
+  assert.ok(joined.startsWith('…') || joined.startsWith('You'), `片段起始异常：${joined}`)
+})
+
+test('locateInSections 对长文本只返回有限片段并标记遗漏', () => {
+  const repetitive = Array.from({ length: 10 }, (_, index) => `Line ${index}: Web GUI.`).join('\n')
+  const result = locateInSections([{ name: 'long', text: repetitive }], 'Web GUI', { maxSnippets: 2 })
+
+  const match = result.matches[0]
+  assert.equal(match.hits, 10)
+  assert.equal(match.snippets.length, 2, '片段数应受 maxSnippets 限制')
+  assert.equal(match.omitted, 8, '未展示的命中要能告诉用户还有多少')
+  assert.ok(match.range.from < match.range.to, '应给出首末命中的原文范围')
+})
+
+test('locateInSections 查不到时给出可操作的提示', () => {
+  const result = locateInSections(locateSample(), '绝对不存在的句子')
+  assert.equal(result.ok, true)
+  assert.equal(result.matchedSections, 0)
+  assert.deepEqual(result.matches, [])
+  // 提示里要说清楚"短语优先、关键词兜底"，否则用户会以为功能坏了。
+  assert.match(result.message, /没有任何段落包含/)
+})
+
+test('locateInSections 的 auto 模式会降级到关键词', () => {
+  // 整句写法与原文有出入：短语查不到，但每个词都在。
+  const query = 'Web GUI runtime context names'
+  const phraseOnly = locateInSections(locateSample(), { text: query, mode: 'phrase' })
+  assert.equal(phraseOnly.matchedSections, 0, '整句不同不应命中')
+
+  const auto = locateInSections(locateSample(), query)
+  assert.equal(auto.matchedSections, 1, 'auto 应降级到关键词后命中')
+  assert.equal(auto.strategy, 'terms')
+  assert.equal(auto.matches[0].name, 'app:web-surface')
+})
+
+test('locateInSections 的关键词模式要求全部出现', () => {
+  const partial = locateInSections(locateSample(), { text: 'Web 不存在的词', mode: 'terms' })
+  assert.equal(partial.matchedSections, 0, '只出现一部分关键词不算命中')
+})
+
+test('locateInSections 支持正则', () => {
+  const result = locateInSections(locateSample(), { text: 'Web\\s+GUI', mode: 'regex' })
+  assert.equal(result.matchedSections, 1)
+  assert.equal(result.strategy, 'regex')
+
+  // 非法正则不抛错，只是没有结果。
+  const broken = locateInSections(locateSample(), { text: '([a-z', mode: 'regex' })
+  assert.equal(broken.ok, true)
+  assert.equal(broken.matchedSections, 0)
+})
+
+test('locateInSections 在插值后的文本上匹配', () => {
+  // {{model}} 在预览里会被替换，用户搜替换后的值必须能命中。
+  const result = locateInSections(
+    [{ name: 'persona', text: 'You are a coding agent powered by the {{model}} model.' }],
+    'deepseek-v4.1-flash',
+    { variables: { model: 'deepseek-v4.1-flash' } },
+  )
+  assert.equal(result.matchedSections, 1)
+  assert.equal(result.matches[0].name, 'persona')
+})
+
+test('locateInSections 对空查询与坏输入不抛错', () => {
+  assert.equal(locateInSections(locateSample(), '').ok, false)
+  assert.match(locateInSections(locateSample(), '').message, /为空/)
+  assert.equal(locateInSections(null, 'x').ok, true)
+  assert.equal(locateInSections(undefined, 'x').matchedSections, 0)
+  assert.equal(locateInSections([null, { name: 'x' }], 'x').ok, true)
+})
+
+test('locateInSections 支持整词匹配', () => {
+  // 整词匹配只在「前后都不是单词字符」时命中，用来避开 WebGUIClone 这类误伤。
+  const loose = locateInSections([{ name: 'a', text: 'Web GUI is here.' }], { text: 'Web GUID' })
+  assert.equal(loose.matchedSections, 0)
+
+  const word = locateInSections(
+    [{ name: 'a', text: 'Hello Web GUI world.' }],
+    { text: 'Web GUI', wholeWord: true },
+  )
+  assert.equal(word.matchedSections, 1, '整词匹配下正常的词仍应命中')
+
+  // 嵌在更长的单词里：WebGUIClone 中的 GUI 前后都是字母，整词匹配应拒绝。
+  const inside = locateInSections(
+    [{ name: 'a', text: 'prefix WebGUIClone suffix' }],
+    { text: 'GUI', wholeWord: true },
+  )
+  assert.equal(inside.matchedSections, 0, '整词匹配不应命中嵌在单词内部的片段')
+
+  // 对照：关掉整词匹配后，同一段文字应当命中。
+  const insideLoose = locateInSections(
+    [{ name: 'a', text: 'prefix WebGUIClone suffix' }],
+    { text: 'GUI', wholeWord: false },
+  )
+  assert.equal(insideLoose.matchedSections, 1)
+
+  // terms 模式下整词匹配：所有词都必须满足整词条件，部分词仅子串命中算未命中。
+  const partialWord = locateInSections(
+    [{ name: 'a', text: 'Web is great, but GUIClone is not.' }],
+    { text: 'Web GUI', mode: 'terms', wholeWord: true },
+  )
+  assert.equal(partialWord.matchedSections, 0, 'terms 模式下若某词未满足整词条件，整段不算命中')
+})
+
+test('buildSnippet 在文本两端不产生多余省略号', () => {
+  const middle = buildSnippet('0123456789', { start: 4, end: 6 }, 100)
+  assert.equal(middle.leading, false)
+  assert.equal(middle.trailing, false)
+  assert.equal(middle.segments.map((item) => item.text).join(''), '0123456789')
+
+  const tail = buildSnippet('0123456789', { start: 8, end: 10 }, 2)
+  assert.equal(tail.trailing, false, '命中在末尾时不应加尾部省略号')
+  assert.equal(tail.leading, true)
+})
+
+test('buildSnippet 把换行压成空格，避免预览里出现大片空白', () => {
+  const snippet = buildSnippet('first line\n\nsecond line', { start: 12, end: 18 }, 20)
+  const text = snippet.segments.map((item) => item.text).join('')
+  assert.doesNotMatch(text, /\n/)
+  assert.match(text, /second/)
+})
+
+test('buildSnippet 额外返回未经折叠的原始命中文本', () => {
+  // 展示用片段会把换行压成空格，但写进规则的「查找原文」必须保留原文，
+  // 否则跨行命中会被填成一段原文里不存在的内容。
+  const text = 'first line\nsecond Web GUI here'
+  const start = text.indexOf('Web')
+  const snippet = buildSnippet(text, { start, end: start + 7 }, 10)
+
+  assert.equal(snippet.hitText, 'Web GUI')
+  const shown = snippet.segments.find((segment) => segment.hit)
+  assert.equal(shown.text, 'Web GUI')
+
+  const multiline = 'alpha\nbeta gamma'
+  const at = multiline.indexOf('beta')
+  const crossed = buildSnippet(multiline, { start: at, end: at + 10 }, 4)
+  assert.equal(crossed.hitText, 'beta gamma', 'hitText 必须是原文切片')
+  assert.equal(crossed.segments.find((segment) => segment.hit).text, 'beta gamma')
 })

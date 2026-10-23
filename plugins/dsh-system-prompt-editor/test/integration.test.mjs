@@ -376,3 +376,116 @@ test('保存失败时内存保持原样，不会出现“以为没保存却已�
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+/* ================================================================== *
+ * 段落查询定位：用真实的 SystemPrompt 服务验证 RPC locate
+ *
+ * 用户诉求：「给定一个词或一段话，查出它在哪一个/哪几个段落里」，
+ * 例如 Web GUI → app:web-surface。这里模拟注册了该段落的真实服务，
+ * 走完整 RPC 通道，确认结果与设置页「按名称」下拉框能对上。
+ * ================================================================== */
+
+/** 建一个带 app:web-surface 段落的运行时，模拟真实提示词里存在这个段落。 */
+function createRuntimeWithWebSurface() {
+  const { ctx, prompt } = createRuntime()
+  prompt.section({
+    name: 'app:web-surface',
+    order: 10100,
+    text: 'You are interacting with the user through the DeepSeek Harness Web GUI whose URL the runtime context names.',
+  })
+  return { ctx, prompt }
+}
+
+test('RPC locate 能把 Web GUI 定位到 app:web-surface', async () => {
+  const { ctx, prompt } = createRuntimeWithWebSurface()
+  let handler = null
+  const view = createPluginContext(ctx, prompt, {
+    connection: {
+      rpc: {
+        handle(channel, fn) {
+          if (channel === RPC_CHANNEL) handler = fn
+        },
+      },
+    },
+  })
+
+  apply(view, {
+    enabled: true,
+    settingsFile: path.join(os.tmpdir(), `spe-${process.pid}-locate.json`),
+    rules: [],
+    appendSections: [],
+  })
+
+  const result = await handler('locate', { query: 'Web GUI' })
+  assert.equal(result.ok, true)
+
+  const value = result.value
+  assert.equal(value.ok, true)
+  assert.equal(value.matchedSections, 1)
+  assert.equal(value.matches[0].name, 'app:web-surface')
+  assert.equal(value.strategy, 'phrase')
+
+  const hit = value.matches[0].snippets[0].segments.find((segment) => segment.hit)
+  assert.equal(hit.text, 'Web GUI')
+
+  // 定位结果必须能直接喂给「按名称」下拉框——这是该功能的落点。
+  const describe = await handler('describe', {})
+  assert.ok(
+    describe.value.sections.some((section) => section.name === 'app:web-surface'),
+    '定位到的段落必须出现在 describe 的段落列表里',
+  )
+})
+
+test('RPC locate 定位不到时返回 0 命中而不是报错', async () => {
+  const { ctx, prompt } = createRuntime()
+  let handler = null
+  const view = createPluginContext(ctx, prompt, {
+    connection: {
+      rpc: {
+        handle(channel, fn) {
+          if (channel === RPC_CHANNEL) handler = fn
+        },
+      },
+    },
+  })
+
+  apply(view, {
+    enabled: true,
+    settingsFile: path.join(os.tmpdir(), `spe-${process.pid}-locate2.json`),
+    rules: [],
+    appendSections: [],
+  })
+
+  const result = await handler('locate', { query: '这句话肯定不存在于提示词里' })
+  assert.equal(result.ok, true)
+  assert.equal(result.value.matchedSections, 0)
+  assert.match(result.value.message, /没有任何段落包含/)
+})
+
+test('RPC locate 不改动配置，也不会落盘', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spe-locate-'))
+  const settingsFile = path.join(dir, 'settings.json')
+  try {
+    const { ctx, prompt } = createRuntimeWithWebSurface()
+    let handler = null
+    const view = createPluginContext(ctx, prompt, {
+      connection: {
+        rpc: {
+          handle(channel, fn) {
+            if (channel === RPC_CHANNEL) handler = fn
+          },
+        },
+      },
+    })
+
+    apply(view, { enabled: true, settingsFile, rules: [], appendSections: [] })
+    await handler('locate', { query: 'Web GUI' })
+
+    // 查询是只读操作：不能因为用户搜了一下就把空配置写成文件。
+    assert.equal(fs.existsSync(settingsFile), false, 'locate 不得落盘')
+    const after = await handler('describe', {})
+    assert.deepEqual(after.value.config.rules, [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
