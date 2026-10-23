@@ -392,3 +392,119 @@ test('跨行命中时用原始文本（含换行）作为查找原文', async ()
     '应使用服务端给的原始命中文本',
   )
 })
+
+test('查询结果卡片包含独立的段落名 code 块，便于无剪贴板权限时手动划选', async () => {
+  const { SystemPromptEditor } = loadClientModule()
+  const { rpcCall } = fakeRpc()
+  const handle = await mount(SystemPromptEditor, { rpcCall })
+
+  await handle.act(() => queryInput(handle.tree).props.onChange({ target: { value: 'Web GUI' } }))
+  await handle.settle()
+
+  const codes = byTag(handle.tree, 'code')
+  assert.ok(codes.length >= 1, '应有 code 标签渲染原始段落名')
+  const codeNode = codes.find((n) => (n.props.children || []).includes('app:web-surface'))
+  assert.ok(codeNode, 'code 标签内容必须是原始段落名 app:web-surface')
+  assert.equal(codeNode.props.className, 'spe-code')
+})
+
+test('复制段落名按钮在 Clipboard API 失败时能自动走 execCommand 兜底并反馈', async () => {
+  const { SystemPromptEditor } = loadClientModule()
+  const { rpcCall } = fakeRpc()
+
+  // 模拟浏览器环境：没有 navigator.clipboard，但有 document.execCommand
+  let copiedCommand = ''
+  const fakeDoc = {
+    createElement(tag) {
+      return {
+        value: '',
+        style: {},
+        setAttribute() {},
+        focus() {},
+        select() {},
+      }
+    },
+    body: {
+      appendChild(node) {
+        copiedCommand = node.value
+      },
+      removeChild() {},
+    },
+    execCommand(cmd) {
+      return cmd === 'copy'
+    },
+  }
+
+  const prevDoc = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const prevNav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  try {
+    Object.defineProperty(globalThis, 'document', { value: fakeDoc, configurable: true, writable: true })
+    Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true, writable: true }) // 无 clipboard
+    const handle = await mount(SystemPromptEditor, { rpcCall })
+
+    await handle.act(() => queryInput(handle.tree).props.onChange({ target: { value: 'Web GUI' } }))
+    await handle.settle()
+
+    const copyBtn = buttonByText(handle.tree, '复制段落名')
+    assert.equal(copyBtn.length, 1)
+
+    await handle.act(() => copyBtn[0].props.onClick())
+    await handle.settle()
+
+    // 验证 execCommand 成功写入了段落名
+    assert.equal(copiedCommand, 'app:web-surface')
+    // 按钮即时变为「✓ 已复制」
+    assert.ok(buttonByText(handle.tree, '✓ 已复制').length >= 1)
+    // 状态栏包含成功提示
+    assert.match(textOf(handle.tree), /已复制段落名：app:web-surface/)
+  } finally {
+    if (prevDoc) Object.defineProperty(globalThis, 'document', prevDoc)
+    else delete globalThis.document
+    if (prevNav) Object.defineProperty(globalThis, 'navigator', prevNav)
+    else delete globalThis.navigator
+  }
+})
+
+test('所有剪贴板通道均失败时，给出包含具体段落名的显式提示', async () => {
+  const { SystemPromptEditor } = loadClientModule()
+  const { rpcCall } = fakeRpc()
+
+  const prevDoc = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const prevNav = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  const prevWin = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  let promptShown = ''
+  try {
+    delete globalThis.document
+    Object.defineProperty(globalThis, 'navigator', { value: undefined, configurable: true, writable: true })
+    Object.defineProperty(globalThis, 'window', {
+      value: {
+        prompt(msg, val) {
+          promptShown = val
+        },
+      },
+      configurable: true,
+      writable: true,
+    })
+
+    const handle = await mount(SystemPromptEditor, { rpcCall })
+    await handle.act(() => queryInput(handle.tree).props.onChange({ target: { value: 'Web GUI' } }))
+    await handle.settle()
+
+    const copyBtn = buttonByText(handle.tree, '复制段落名')
+    await handle.act(() => copyBtn[0].props.onClick())
+    await handle.settle()
+
+    // 状态提示必须明确打印出段落名 app:web-surface，不再是空洞的“请手动复制”
+    const text = textOf(handle.tree)
+    assert.match(text, /未能自动写入剪贴板，段落名：app:web-surface/)
+    // prompt 对话框应收到该段落名供一键复制
+    assert.equal(promptShown, 'app:web-surface')
+  } finally {
+    if (prevDoc) Object.defineProperty(globalThis, 'document', prevDoc)
+    else delete globalThis.document
+    if (prevNav) Object.defineProperty(globalThis, 'navigator', prevNav)
+    else delete globalThis.navigator
+    if (prevWin) Object.defineProperty(globalThis, 'window', prevWin)
+    else delete globalThis.window
+  }
+})

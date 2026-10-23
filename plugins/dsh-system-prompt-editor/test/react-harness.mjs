@@ -55,13 +55,23 @@ export function loadClientModule() {
   let captured = null
 
   // client.js 顶部直接调用 window.__ModuleLoader__.load，必须先造出 window。
-  const sandbox = {
-    window: {
-      __ModuleLoader__: {
-        load(spec) {
-          captured = spec
-        },
+  const localWindow = {
+    __ModuleLoader__: {
+      load(spec) {
+        captured = spec
       },
+    },
+  }
+
+  const sandbox = {
+    get window() {
+      return globalThis.window ? Object.assign(globalThis.window, localWindow) : localWindow
+    },
+    get document() {
+      return globalThis.document
+    },
+    get navigator() {
+      return globalThis.navigator
     },
     console,
     setTimeout,

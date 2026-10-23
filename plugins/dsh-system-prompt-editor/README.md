@@ -45,7 +45,7 @@ DSH 的系统提示词由 `@deepseek-ai/dsh-system-prompt` 按 `order` 排序拼
 cd plugins/dsh-system-prompt-editor
 npm test          # 先跑测试
 npm pack          # 生成 tgz
-dsh plugin --profile web add ./weniatall-dsh-system-prompt-editor-0.3.0.tgz
+dsh plugin --profile web add ./weniatall-dsh-system-prompt-editor-0.3.1.tgz
 ```
 
 > 请勿手动把 `lib/*.js` 复制进 `~/.dsh/profiles/<profile>/node_modules/`，
@@ -243,7 +243,7 @@ cd plugins/dsh-system-prompt-editor
 npm test
 ```
 
-覆盖范围（共 150 项）：
+覆盖范围（共 153 项）：
 
 - `test/core.test.mjs`：规则归一化、匹配、动作、排序、渲染、边界与完整场景；
   以及段落查询定位的匹配语义、空白折叠、下标映射与片段生成（73 项）
@@ -252,7 +252,7 @@ npm test
 - `test/client.test.mjs`：模块契约、插槽、RPC 通道一致性、编辑表单往返无损、
   前后端匹配方式一致性（25 项）
 - `test/locate-ui.test.mjs`：用 `test/react-harness.mjs` **真正挂载设置页组件**，
-  验证输入即查、结果渲染与高亮、一键落成规则、多次追加规则、过期响应丢弃（12 项）
+  验证输入即查、结果渲染与高亮、一键落成规则、多次追加规则、剪贴板全路径写入与同步兜底、过期响应丢弃（15 项）
 - `test/integration.test.mjs`：用**真实** `dsh-system-prompt` 服务验证 waterfall 生效、
   追加段落不重复、坏规则不阻断、baseline 不被自身污染、RPC 全链路，
   以及 `locate` 能把 `Web GUI` 定位到 `app:web-surface`（15 项）

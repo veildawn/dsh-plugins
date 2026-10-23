@@ -119,6 +119,8 @@ window.__ModuleLoader__.load({
       .spe-result-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
       .spe-result-actions .spe-btn{height:28px;padding:0 10px;border-radius:14px;font-size:12px}
       .spe-kv{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}
+      /* 段落名独立代码块：user-select:all 让用户点击或双击时自动全选，方便无剪贴板权限时手动划选复制 */
+      .spe-code{display:inline-block;padding:2px 7px;border-radius:5px;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 8%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe);font-family:var(--dsw-font-family-mono,ui-monospace,monospace);font-size:12px;line-height:16px;user-select:all;-webkit-user-select:all;cursor:text}
     `
 
     /** 生成一个足够唯一的本地 id。 */
@@ -286,6 +288,8 @@ window.__ModuleLoader__.load({
       const [queryWholeWord, setQueryWholeWord] = react.useState(false)
       const [queryResult, setQueryResult] = react.useState(null)
       const [querying, setQuerying] = react.useState(false)
+      // 记录最近一次成功复制的段落名，用于按钮显示「✓ 已复制」微反馈
+      const [copiedName, setCopiedName] = react.useState('')
 
       // 请求序号：丢弃过期响应，避免快速输入时结果与输入框对不上。
       const queryTicket = react.useRef(0)
@@ -496,31 +500,88 @@ window.__ModuleLoader__.load({
         })
       }
 
-      /** 复制文本到剪贴板；不可用时给出可读提示，绝不抛错。 */
-      const copyText = (text) => {
+      /**
+       * 兼容同步复制兜底（用于不支持 Clipboard API、未获授权或非安全上下文 HTTP 环境）。
+       * @param {string} text - 待复制文本。
+       * @returns {boolean} 是否成功。
+       */
+      const execCopy = (text) => {
         try {
-          if (typeof navigator !== 'undefined' && navigator.clipboard) {
-            navigator.clipboard.writeText(text)
-            setStatus({ kind: 'ok', text: `已复制：${text}` })
-            return
+          if (typeof document === 'undefined') return false
+          const ta = document.createElement('textarea')
+          ta.value = text
+          ta.setAttribute('readonly', '')
+          ta.style.position = 'fixed'
+          ta.style.top = '0'
+          ta.style.left = '0'
+          ta.style.opacity = '0'
+          document.body.appendChild(ta)
+          ta.focus()
+          ta.select()
+          const ok = document.execCommand('copy')
+          document.body.removeChild(ta)
+          return Boolean(ok)
+        } catch {
+          return false
+        }
+      }
+
+      /**
+       * 健壮的剪贴板写入通道：优先使用异步 Clipboard API，
+       * 被拒绝或在非安全上下文（如直接 IP 访问）不可用时自动回退到 execCommand。
+       * 若全部失败，给出包含原始段落名的明确提示，并尝试通过原生 prompt 辅助划选。
+       * @param {string} text - 要复制的段落名。
+       */
+      const copyText = async (text) => {
+        let copied = false
+        if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          try {
+            await navigator.clipboard.writeText(text)
+            copied = true
+          } catch {
+            // 回退到 execCopy
+          }
+        }
+
+        if (!copied) {
+          copied = execCopy(text)
+        }
+
+        if (copied) {
+          setCopiedName(text)
+          setTimeout(() => setCopiedName(''), 1800)
+          setStatus({ kind: 'ok', text: `已复制段落名：${text}` })
+          return true
+        }
+
+        // 最终兜底：弹原生 prompt 对话框（自动全选中文字，用户直接 Ctrl+C 即可复制）
+        try {
+          if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
+            window.prompt('浏览器阻止了自动写入剪贴板，请在此按 Ctrl+C 复制段落名：', text)
           }
         } catch {
-          // 落到下面的提示。
+          // 忽略
         }
-        setStatus({ kind: 'err', text: '浏览器不允许访问剪贴板，请手动复制。' })
+
+        setStatus({ kind: 'err', text: `未能自动写入剪贴板，段落名：${text}（可直接在上方卡片标签或此处手动划选）` })
+        return false
       }
 
       /** 渲染一条查询结果（一个命中段落）。 */
       const renderMatch = (match, index) => {
         const known = SECTION_LABELS[match.name]
-        const title = known ? `${known}（${match.name}）` : match.name
         const referenced = rules.some(
           (rule) => rule && rule.matchKind === 'name' && rule.matchValue === match.name,
         )
+        const isCopied = copiedName === match.name
 
         return react.createElement('div', { key: `${match.name}-${index}`, className: 'spe-result' },
           react.createElement('div', { className: 'spe-result-head' },
-            react.createElement('span', { className: 'spe-result-name' }, title),
+            known ? react.createElement('span', { className: 'spe-result-name' }, known) : null,
+            react.createElement('code', {
+              className: 'spe-code',
+              title: '段落名（已启用全选，双击或长按可直接手动复制）',
+            }, match.name),
             react.createElement('span', { className: 'spe-badge ok' }, `命中 ${match.hits} 处`),
             react.createElement('span', { className: 'spe-badge muted' }, `第 ${match.index} 段`),
             match.custom ? react.createElement('span', { className: 'spe-badge warn' }, '自定义段落') : null,
@@ -557,9 +618,9 @@ window.__ModuleLoader__.load({
             }, referenced ? '+ 再加一条规则' : '定位到这条规则'),
             react.createElement('button', {
               type: 'button',
-              className: 'spe-btn',
+              className: `spe-btn${isCopied ? ' spe-btn-primary' : ''}`,
               onClick: () => copyText(match.name),
-            }, '复制段落名'),
+            }, isCopied ? '✓ 已复制' : '复制段落名'),
           ),
         )
       }

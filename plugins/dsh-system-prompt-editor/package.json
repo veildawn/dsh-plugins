@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-system-prompt-editor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Visual editor for the DeepSeek Harness system prompt: inspect the assembled prompt, then append, replace or remove sections with persistent, per-preset rules",
   "type": "module",
   "main": "lib/index.js",
