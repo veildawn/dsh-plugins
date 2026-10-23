@@ -1408,12 +1408,25 @@ window.__ModuleLoader__.load({
 
       decorateVisibleUserRows(document);
       let observer = null;
+      let isDecorating = false;
       if (typeof MutationObserver === "function") {
         observer = new MutationObserver((mutations) => {
-          for (const m of mutations) {
-            for (const node of m.addedNodes) {
-              if (node && node.nodeType === 1) decorateVisibleUserRows(node);
+          if (isDecorating) return;
+          try {
+            isDecorating = true;
+            for (const m of mutations) {
+              for (const node of m.addedNodes) {
+                if (node && node.nodeType === 1) {
+                  if (node.classList?.contains?.("dsh-ph-action-btn") || node.hasAttribute?.("data-dsh-ph-action")) continue;
+                  decorateVisibleUserRows(node);
+                }
+              }
             }
+          } finally {
+            if (typeof observer?.takeRecords === "function") {
+              observer.takeRecords();
+            }
+            isDecorating = false;
           }
         });
         observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
