@@ -451,17 +451,22 @@ test('the entry reads clearly and renders a native folder icon in composer toolb
   assert.match(source, /"aria-label": "查看项目文件"/)
 })
 
-test('source views can be soft wrapped from the toolbar', () => {
+test('soft wrap is owned by the code banner, not by a second header switch', () => {
   const source = read('lib/client.js')
 
-  // Off by default: code carries meaning in its line breaks.
-  assert.match(source, /const \[wrap, setWrap\] = react\.useState\(false\)/)
+  // The host ReadBlock banner renders the only wrap toggle. The viewer used to
+  // mirror it with a header button; two switches for one flag could disagree,
+  // and the header's is gone. The flag is therefore a constant now.
+  assert.doesNotMatch(source, /const \[wrap, setWrap\] = react\.useState\(false\)/)
+  assert.match(source, /const wrap = false;/)
+  assert.doesNotMatch(source, /"aria-label": wrap \? "取消自动换行" : "自动换行"/)
+  assert.doesNotMatch(source, /SvgIconWrap/)
 
-  // The toggle is offered only where sideways scrolling actually happens —
-  // images, PDFs, sheets and documents do not.
-  assert.match(source, /meta\.kind === "text" \|\| meta\.kind === "markdown" \|\| meta\.kind === "json"/)
-  assert.match(source, /"aria-pressed": wrap \? "true" : "false"/)
-  assert.match(source, /"aria-label": wrap \? "取消自动换行" : "自动换行"/)
+  // The banner names its own toggle through these two labels. They were once
+  // missing, and the proxy fallback made the wrap toggle announce itself as
+  // "复制" — a different control's verb.
+  assert.match(source, /wrapLabel: "自动换行"/)
+  assert.match(source, /unwrapLabel: "取消自动换行"/)
 
   // A rendered preview already reflows, so the attribute only applies to source.
   assert.match(source, /const wrapping = wrap && \(!canPreview \|\| raw\)/)
@@ -473,7 +478,7 @@ test('source views can be soft wrapped from the toolbar', () => {
   assert.match(source, /\.fv-content\[data-wrap="on"\] span\[class\*="_gutter_"\]\{flex:none;white-space:pre\}/)
   assert.match(source, /\.fv-content\[data-wrap="on"\] span\[class\*="_content_"\]\{min-width:0;flex:1 1 auto;white-space:pre-wrap;overflow-wrap:anywhere\}/)
 
-  // The pressed state has to be visible, or the toggle looks inert.
+  // The pressed state has to be visible, or a toggle looks inert.
   assert.match(source, /\.fv-icon-button\[aria-pressed="true"\]\{background:/)
 })
 
@@ -1560,7 +1565,9 @@ test('preview source and diff tabs stay pinned outside the scrolling content pan
   // The tabs sit outside the scrolling pane, and the pane now sits inside a
   // positioning wrapper so the Markdown outline can float over the reading
   // area without scrolling away with it.
-  assert.match(source, /tabs,\s*\n\s*react\.createElement\("div", \{ className: "fv-content-wrap"/)
+  // The wrapper also carries the reading-size property now, so match the class
+  // rather than the exact object literal.
+  assert.match(source, /tabs,\s*\n\s*react\.createElement\("div", \{\s*\n\s*className: "fv-content-wrap"/)
   assert.match(source, /className: "fv-content",\s*\n\s*"data-wrap": wrapping/)
   assert.match(source, /\.fv-content-wrap\{position:relative;flex:1 1 auto;min-height:0/)
   assert.match(source, /\.fv-content \.fv-sheet-tabs\{[^}]*position:sticky/)
@@ -2746,11 +2753,13 @@ test('a commit preview reads the commit blob and says so', () => {
   assert.match(source, /const readSha = fromParent \? parentSha : sha/)
 })
 
-test('a refresh restores the open commit after re-reading the repository', () => {
+test('a checkout puts the open commit back after re-reading the repository', () => {
   const source = read('lib/client.js')
-  // The branch is reloaded first, then the commit is put back: loadRepos clears
-  // the detail by design, so the order matters.
-  assert.match(source, /git\.loadRepos\(\)\.then\(\(\) => \{\s*\n\s*if \(keepSha !== ""\) git\.openCommit\(keepSha\)/)
+  // A checkout rewrites the working tree, so the badges are re-read and the
+  // commit being viewed is restored: it is history, not the working tree, and
+  // reloading clears the detail by design — the order matters.
+  assert.match(source, /const keepSha = commitSha;/)
+  assert.match(source, /git\.checkout\(branch, state\.scope === "parent"\)\.then\(\(\) => \{\s*\n\s*reloadWorkingTree\(\);\s*\n\s*if \(keepSha !== ""\) git\.openCommit\(keepSha\);/)
 })
 
 /* -------------------------------------------------------------------------- *
@@ -2793,6 +2802,35 @@ test('the controller reads the working tree on demand and groups it', async () =
   assert.equal(state.changes.total, 2)
   assert.equal(state.changes.staged[0].path, 'a.txt')
   assert.deepEqual(calls.find((call) => call.method === 'gitStatusChanges').payload, { root: '/repo', repo: '.' })
+})
+
+test('loading repositories automatically triggers working-tree changes without an explicit manual click', async () => {
+  const { internals } = loadClient()
+  const calls = []
+  const request = async (method, payload) => {
+    calls.push({ method, payload })
+    if (method === 'gitRepos') return { repos: [gitRepo()], truncated: false }
+    if (method === 'gitCommits') return { repository: '.', branch: payload.branch, total: 0, offset: 0, limit: 30, commits: [], hasMore: false }
+    if (method === 'gitStatusChanges') {
+      return {
+        repository: '.', current: 'main', detached: false, outside: 0, total: 1,
+        staged: [], unstaged: [{ path: 'auto.txt', letter: 'M', change: '修改', tone: 'mod' }],
+        untracked: [], conflicted: [],
+      }
+    }
+    throw new Error(`unexpected ${method}`)
+  }
+
+  const git = internals.createGitController(request)
+  git.reset('/repo')
+  await git.loadRepos()
+  await new Promise((r) => setTimeout(r, 10))
+
+  const state = git.store.get()
+  assert.equal(state.changesStatus, 'ready')
+  assert.equal(state.changes.total, 1)
+  assert.equal(state.changes.unstaged[0].path, 'auto.txt')
+  assert.ok(calls.some((c) => c.method === 'gitStatusChanges'), 'gitStatusChanges must be issued automatically')
 })
 
 test('a failed status read is an error, not an empty working tree', async () => {
@@ -3661,16 +3699,18 @@ test('returning to a tab whose git detail was replaced re-reads it', () => {
   assert.match(source, /if \(tab === undefined\) return;/)
 })
 
-test('the top toolbar refresh also re-reads the tab on screen', () => {
+test('refresh is offered per subject instead of from one header button', () => {
   const source = read('lib/client.js')
-  const start = source.indexOf('const refresh = () => {')
-  const body = source.slice(start, start + 1200)
-  // Refreshing the tree around a stale preview leaves the file the reader is
-  // actually looking at unchanged, which reads as "refresh does nothing".
-  assert.match(body, /if \(activeTabId !== ""\) refreshTab\(activeTabId\);/)
-  // The commit to restore belongs to the tab on screen, not to whichever
-  // detail the Git controller holds.
-  assert.match(body, /const keepSha = activeTab !== null && activeTab\.kind === "commit"/)
+
+  // The header's single refresh re-read the tree, the Git panel and the tab at
+  // once, most of which the reader was not looking at. It is gone; the three
+  // subject-specific affordances remain.
+  assert.doesNotMatch(source, /const refresh = \(\) => \{/)
+  assert.doesNotMatch(source, /"aria-label": "刷新", title: "刷新"/)
+  // The tab menu still refreshes exactly the tab it was opened on.
+  assert.match(source, /if \(action === "refresh"\) refreshTab\(id\);/)
+  // The Git panel keeps its own working-tree refresh.
+  assert.match(source, /"aria-label": "刷新工作区改动"/)
 })
 
 test('refreshing a tab re-reads what that tab shows', () => {
@@ -3909,4 +3949,77 @@ test('content area toolbar provides a path copy dropdown button for copying rela
 
   assert(dropdown, 'PathCopyDropdown must render')
   assert.equal(dropdown.props.className, 'fv-path-copy-wrap')
+})
+
+test('the preview offers its own reading size, bounded and remembered', () => {
+  const { internals } = loadClient()
+  const source = read('lib/client.js')
+
+  // Clamped on both ends: a hand-edited or upgraded value must not produce an
+  // unreadable pane, and the stepper stops instead of silently refusing.
+  assert.equal(internals.clampFontSize(13), 13)
+  assert.equal(internals.clampFontSize(internals.MIN_FONT_SIZE - 5), internals.MIN_FONT_SIZE)
+  assert.equal(internals.clampFontSize(internals.MAX_FONT_SIZE + 5), internals.MAX_FONT_SIZE)
+  assert.equal(internals.clampFontSize('abc'), internals.DEFAULT_FONT_SIZE)
+  assert.equal(internals.clampFontSize(undefined), internals.DEFAULT_FONT_SIZE)
+  assert(internals.MIN_FONT_SIZE < internals.DEFAULT_FONT_SIZE)
+  assert(internals.DEFAULT_FONT_SIZE < internals.MAX_FONT_SIZE)
+
+  // Storage is re-validated on read rather than trusted.
+  const original = globalThis.localStorage
+  try {
+    const memory = new Map()
+    globalThis.localStorage = {
+      getItem: (k) => (memory.has(k) ? memory.get(k) : null),
+      setItem: (k, v) => memory.set(k, String(v)),
+      removeItem: (k) => memory.delete(k),
+    }
+    assert.equal(internals.readFontSize(), internals.DEFAULT_FONT_SIZE)
+    internals.writeFontSize(16)
+    assert.equal(internals.readFontSize(), 16)
+    // Out-of-range and malformed stored values fall back to the default.
+    globalThis.localStorage.setItem(internals.FONT_SIZE_KEY, '4')
+    assert.equal(internals.readFontSize(), internals.DEFAULT_FONT_SIZE)
+    globalThis.localStorage.setItem(internals.FONT_SIZE_KEY, '999')
+    assert.equal(internals.readFontSize(), internals.DEFAULT_FONT_SIZE)
+    globalThis.localStorage.setItem(internals.FONT_SIZE_KEY, 'huge')
+    assert.equal(internals.readFontSize(), internals.DEFAULT_FONT_SIZE)
+  } finally {
+    globalThis.localStorage = original
+  }
+
+  // The stepper is a real control: two labelled buttons and a live value.
+  assert.equal(typeof internals.FontSizeControl, 'function')
+  const control = internals.FontSizeControl({ value: 13, onChange: () => {} })
+  assert.equal(control.props.className, 'fv-font-size')
+  const walk = (node, out) => {
+    if (!node) return out
+    if (Array.isArray(node)) { node.forEach((child) => walk(child, out)); return out }
+    out.push(node)
+    if (node.children) walk(node.children, out)
+    return out
+  }
+  const nodes = walk(control, [])
+  const labels = nodes.map((n) => n.props && n.props['aria-label']).filter(Boolean)
+  // The group is labelled too, so screen readers announce what the two
+  // buttons belong to.
+  assert.deepEqual(labels, ['文件内字号', '减小字号', '增大字号'])
+  const texts = nodes.filter((n) => typeof n === 'string').join('|')
+  assert.match(texts, /13px/)
+
+  // The size reaches the rendered text through one inherited property, so
+  // Markdown, JSON and plain source all follow the same setting.
+  assert.match(source, /"--fv-font-size": fontSize \+ "px"/)
+  assert.match(source, /font-size:var\(--fv-font-size,13px\)/)
+  // The host's code card sets `font:` shorthand, which resets size and line
+  // height together; both have to be re-declared or larger text overlaps.
+  assert.match(source, /div\[class\*="_card_"\],\.fv-content div\[class\*="_body_"\]\{font-size:var\(--fv-font-size,13px\);line-height:1\.65\}/)
+  // Only views that render text offer it.
+  assert.match(source, /const textish = meta !== null/)
+})
+
+test('Tooltip bubbles adapt text color in light and dark mode so hints never blend into light backgrounds', () => {
+  const source = read('lib/client.js')
+  assert.match(source, /span\[class\*="_bubble_"\]/)
+  assert.match(source, /color:var\(--dsw-alias-label-primary,#0f1115\)!important/)
 })

@@ -41,17 +41,6 @@ window.__ModuleLoader__.load({
     const IconRefreshOutline16 = primitives.IconRefreshOutline16 || primitives.IconRefreshOutlineRegular;
 
     // 统一风格的矢量线性图标 (16x16, 统一 currentColor 与线条粗细)
-    function SvgIconWrap({ size = 15 }) {
-      return react.createElement("svg", {
-        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
-        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
-      },
-        react.createElement("path", { d: "M2.5 4h11" }),
-        react.createElement("path", { d: "M2.5 8h7.5a2.5 2.5 0 0 1 2.5 2.5v0a2.5 2.5 0 0 1-2.5 2.5H5" }),
-        react.createElement("path", { d: "M7 10.5L4.5 13 7 15.5" })
-      );
-    }
-
     /** Outline / table-of-contents glyph: short bars stepping in by level. */
     function SvgIconOutline({ size = 15 }) {
       return react.createElement("svg", {
@@ -219,9 +208,19 @@ window.__ModuleLoader__.load({
     // Host ReadBlock/JsonTree now require localized copy for banners, copy
     // buttons and expand/collapse. Missing these throws during render:
     // "Cannot read properties of undefined (reading 'copy'|'window')".
+    // The host's ReadBlock banner renders a wrap toggle beside the copy button
+    // and names it from `labels.wrapLabel` / `labels.unwrapLabel`. Those two
+    // keys are easy to miss, and a blanket "复制" fallback here made the wrap
+    // toggle announce itself as "复制" — the wrong control with the wrong verb.
+    // Every key the banner needs is therefore named explicitly, and an unknown
+    // key now resolves to an empty string instead of borrowing another
+    // control's label.
     const READ_BLOCK_LABELS = new Proxy({
       copy: "复制",
       copied: "已复制",
+      copyFailed: "复制失败",
+      wrapLabel: "自动换行",
+      unwrapLabel: "取消自动换行",
       window: (shown, total) => `第 ${shown} / ${total} 行`,
       collapse: "收起",
       expand: (hidden) => `展开其余 ${hidden} 行`,
@@ -233,7 +232,7 @@ window.__ModuleLoader__.load({
         if (typeof prop === "string" && (prop === "window" || prop === "expand" || prop.endsWith("Aria"))) {
           return (...args) => String(args[0] ?? "");
         }
-        return "复制";
+        return "";
       }
     });
     const JSON_TREE_LABELS = new Proxy({
@@ -261,6 +260,9 @@ window.__ModuleLoader__.load({
     const DIFF_BLOCK_LABELS = new Proxy({
       copy: "复制",
       copied: "已复制",
+      copyFailed: "复制失败",
+      wrapLabel: "自动换行",
+      unwrapLabel: "取消自动换行",
       files: (count) => `${count} 个文件`,
       expand: (hidden) => `展开其余 ${hidden} 行`,
       collapse: "收起",
@@ -272,7 +274,7 @@ window.__ModuleLoader__.load({
         if (typeof prop === "string" && (prop === "files" || prop === "expand" || prop.endsWith("Aria"))) {
           return (...args) => String(args[0] ?? "");
         }
-        return "复制";
+        return "";
       }
     });
 
@@ -367,6 +369,15 @@ window.__ModuleLoader__.load({
     const DEFAULT_GIT_CHANGES_HEIGHT = 180;
     const MIN_GIT_CHANGES_HEIGHT = 64;
     const MAX_GIT_CHANGES_HEIGHT = 800;
+    // Reading size for the preview. A file's own text is what the reader spends
+    // their time on, so it gets its own, remembered size instead of inheriting
+    // the chat's. Bounded so the control cannot produce an unreadable pane in
+    // either direction, and stored per browser like every other view pref.
+    const FONT_SIZE_KEY = "dsh-file-viewer.font-size";
+    const DEFAULT_FONT_SIZE = 13;
+    const MIN_FONT_SIZE = 11;
+    const MAX_FONT_SIZE = 20;
+    const FONT_SIZE_STEP = 1;
     /**
      * Smallest width the drawer may be dragged to.
      *
@@ -568,6 +579,24 @@ window.__ModuleLoader__.load({
       .fv-sheet-tabs-end{display:inline-flex;align-items:center;gap:8px;margin-left:auto;flex:none}
       .fv-sheet-tabs .fv-btn-back{width:26px;height:26px;font-size:16px;line-height:24px;border-radius:6px;margin-right:2px}
       .fv-main-size{font-size:11px;color:var(--dsw-alias-label-caption);white-space:nowrap}
+      /* Reading-size stepper. Deliberately a compact group: the range is 11–20px,
+         so a slider would be all friction and no precision. */
+      .fv-font-size{display:inline-flex;align-items:center;gap:0;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff));overflow:hidden;flex:none}
+      .fv-font-size-btn{display:inline-flex;align-items:center;justify-content:center;height:100%;min-width:30px;padding:0 8px;border:none;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;font-weight:600;line-height:1;cursor:pointer;transition:background-color .12s,color .12s}
+      .fv-font-size-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-font-size-btn:disabled{opacity:.38;cursor:default}
+      .fv-font-size-value{min-width:38px;padding:0 2px;text-align:center;color:var(--dsw-alias-label-caption);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}
+      /* The size reaches the preview through one custom property, so every
+         viewer that renders text picks it up without repeating the value.
+         The host's code card declares the font shorthand, which resets both size
+         and line height; the structural selectors below carry one element plus
+         one attribute, so they outrank that single class and win regardless of
+         sheet order. Line height is re-declared beside the size, otherwise the
+         host's fixed value would make larger text overlap. */
+      .fv-content,.fv-content-wrap{font-size:var(--fv-font-size,13px)}
+      .fv-content div[class*="_card_"],.fv-content div[class*="_body_"]{font-size:var(--fv-font-size,13px);line-height:1.65}
+      .fv-content div[class*="_line_"]{font-size:var(--fv-font-size,13px);line-height:1.65}
+      .fv-content div[class*="_line_"] span[class*="_content_"]{font-size:inherit;line-height:inherit}
       .fv-content .fv-sheet-tabs{position:sticky;top:0;margin:-12px -12px 10px;padding:12px 12px 8px}
       .fv-tab{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
       .fv-tab[aria-selected="true"]{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}
@@ -591,7 +620,7 @@ window.__ModuleLoader__.load({
       .fv-diff-view{display:flex;flex-direction:column;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-base,#fff);overflow:hidden;font-family:var(--dsw-font-code,monospace);margin:4px 0}
       .fv-diff-toolbar{display:flex;align-items:center;padding:8px 12px;background:var(--dsw-alias-bg-layer-1,rgba(0,0,0,.02));border-bottom:1px solid var(--dsw-alias-border-l1);font-family:var(--dsw-font-family);font-size:12px}
       .fv-diff-source-tag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 12%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe)}
-      .fv-diff-table{display:flex;flex-direction:column;overflow-x:auto;min-width:0;font-size:12px;line-height:20px;font-family:var(--dsw-font-code,monospace)}
+      .fv-diff-table{display:flex;flex-direction:column;overflow-x:auto;min-width:0;font-size:var(--fv-font-size,12px);line-height:1.65;font-family:var(--dsw-font-code,monospace)}
       .fv-diff-line{display:flex;min-width:max-content;align-items:stretch;transition:background-color .08s}
       .fv-diff-num{flex:none;width:44px;padding:0 6px;text-align:right;user-select:none;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-caption);opacity:.65;font-size:11px}
       .fv-diff-num-new{border-right:1px solid var(--dsw-alias-border-l1)}
@@ -724,6 +753,10 @@ window.__ModuleLoader__.load({
       .fv-content[data-wrap="on"] div[class*="_line_"]{align-items:flex-start}
       .fv-content[data-wrap="on"] span[class*="_gutter_"]{flex:none;white-space:pre}
       .fv-content[data-wrap="on"] span[class*="_content_"]{min-width:0;flex:1 1 auto;white-space:pre-wrap;overflow-wrap:anywhere}
+      /* Tooltip 气泡：浅色模式下防止宿主静态白色文字在浅色背景上隐形 */
+      span[class*="_bubble_"],
+      [data-portal] span[class*="_bubble_"]{color:var(--dsw-alias-label-primary,#0f1115)!important;border:1px solid var(--dsw-alias-border-l2,rgba(0,0,0,.08))!important;box-shadow:var(--dsw-shadow-lv2,0 2px 8px rgba(0,0,0,.12))!important}
+      span[class*="_bubble_"] span[class*="_label_"]{color:inherit!important}
       .fv-context-backdrop{position:fixed;inset:0;z-index:99;background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;touch-action:none}
       /* 菜单是实底卡片，不吃主题的毛玻璃。
          玻璃主题（glass.css）里有一条规则，给 [role="menu"] 套上
@@ -1211,6 +1244,42 @@ window.__ModuleLoader__.load({
           globalThis.localStorage?.removeItem(GIT_CHANGES_HEIGHT_KEY);
         }
       } catch { /* storage is unavailable */ }
+    }
+
+    /**
+     * The preview's reading size, clamped on read.
+     *
+     * Storage survives upgrades and can be hand-edited, so an out-of-range
+     * value falls back to the default rather than producing a pane nobody can
+     * read (or one so large the code never fits).
+     * @returns {number} a font size in px.
+     */
+    function readFontSize() {
+      try {
+        const raw = globalThis.localStorage?.getItem(FONT_SIZE_KEY);
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed) && parsed >= MIN_FONT_SIZE && parsed <= MAX_FONT_SIZE) {
+          return Math.round(parsed);
+        }
+      } catch { /* storage is unavailable */ }
+      return DEFAULT_FONT_SIZE;
+    }
+
+    function writeFontSize(size) {
+      try {
+        if (typeof size === "number" && Number.isFinite(size)) {
+          globalThis.localStorage?.setItem(FONT_SIZE_KEY, String(Math.round(size)));
+        } else {
+          globalThis.localStorage?.removeItem(FONT_SIZE_KEY);
+        }
+      } catch { /* storage is unavailable */ }
+    }
+
+    /** Clamp a requested size onto the supported range. */
+    function clampFontSize(size) {
+      const value = Number(size);
+      if (!Number.isFinite(value)) return DEFAULT_FONT_SIZE;
+      return Math.round(Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, value)));
     }
 
     /**
@@ -2165,6 +2234,10 @@ window.__ModuleLoader__.load({
             total: 0,
             hasMore: false,
           });
+          // The working tree's pending changes belong on screen immediately;
+          // load them alongside the first page of history so the section does
+          // not stay on "loading" waiting for an explicit click.
+          loadChanges();
           // Returned so a caller that awaits loadRepos also observes the first
           // page of history, which is what makes the panel testable end to end.
           return loadCommits(store.get().branch, 0);
@@ -2211,6 +2284,7 @@ window.__ModuleLoader__.load({
           detailStatus: "idle",
           notice: "",
         });
+        loadChanges();
         return loadCommits(store.get().branch, 0);
       };
 
@@ -3759,6 +3833,52 @@ window.__ModuleLoader__.load({
           : null);
     }
 
+    /**
+     * Reading-size stepper for the preview pane.
+     *
+     * A file's own text is what the reader spends their time on, so its size is
+     * adjustable on its own and remembered per browser. The control is a
+     * minus/value/plus group rather than a slider: the useful range is small and
+     * discrete, and a slider at this width would be impossible to hit.
+     *
+     * @param {{value: number, onChange: Function, disabled?: boolean}} props
+     */
+    function FontSizeControl({ value, onChange, disabled }) {
+      const size = clampFontSize(value);
+      const atMin = size <= MIN_FONT_SIZE;
+      const atMax = size >= MAX_FONT_SIZE;
+      const step = (delta) => {
+        const next = clampFontSize(size + delta);
+        if (next !== size) onChange(next);
+      };
+      return react.createElement("div", {
+        className: "fv-font-size",
+        role: "group",
+        "aria-label": "文件内字号",
+      },
+        react.createElement("button", {
+          type: "button",
+          className: "fv-font-size-btn",
+          "aria-label": "减小字号",
+          title: "减小字号",
+          disabled: disabled === true || atMin,
+          onClick: (e) => { e.stopPropagation(); step(-FONT_SIZE_STEP); },
+        }, "A−"),
+        react.createElement("span", {
+          className: "fv-font-size-value",
+          title: "当前字号",
+          "aria-live": "polite",
+        }, size + "px"),
+        react.createElement("button", {
+          type: "button",
+          className: "fv-font-size-btn",
+          "aria-label": "增大字号",
+          title: "增大字号",
+          disabled: disabled === true || atMax,
+          onClick: (e) => { e.stopPropagation(); step(FONT_SIZE_STEP); },
+        }, "A+"));
+    }
+
     function apply(ctx) {
       ensureStyles(typeof document === "undefined" ? null : document);
       // `null` is closed; an object is open. Carrying the requesting session lets
@@ -4254,7 +4374,7 @@ window.__ModuleLoader__.load({
 
       /** Line-numbered diff viewer with dual line number gutters. */
       /** Text, Markdown and JSON: one windowed read, three renderings. */
-      function TextView({ meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl, onToast }) {
+      function TextView({ meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl, onToast, fontSize, onFontSizeChange }) {
         // Callers mount this with a per-file key, so paging state starts fresh
         // for every file instead of leaking the previous file's window into the
         // first request.
@@ -4544,17 +4664,23 @@ window.__ModuleLoader__.load({
           ? react.createElement(PathCopyDropdown, { meta, root, onToast })
           : null;
 
-        const tabs = showTabs || Boolean(backControl || langControl || sizeControl || copyControl)
+        // Reading size belongs with the content it resizes, not in the drawer
+        // header: it applies to this pane, and the stepper is next to the text.
+        const fontControl = react.createElement(FontSizeControl, {
+          value: fontSize,
+          onChange: onFontSizeChange,
+        });
+
+        const tabs = showTabs || Boolean(backControl || langControl || sizeControl || copyControl || fontControl)
           ? react.createElement("div", { className: "fv-sheet-tabs", role: "tablist" },
             react.createElement("div", { className: "fv-sheet-tabs-start" },
               backControl,
               ...tabButtons,
               copyControl),
-            (sizeControl || langControl)
-              ? react.createElement("div", { className: "fv-sheet-tabs-end" },
-                sizeControl,
-                langControl)
-              : null)
+            react.createElement("div", { className: "fv-sheet-tabs-end" },
+              fontControl,
+              sizeControl,
+              langControl))
           : null;
 
 
@@ -4580,7 +4706,13 @@ window.__ModuleLoader__.load({
 
         return react.createElement(react.Fragment, null,
           tabs,
-          react.createElement("div", { className: "fv-content-wrap" },
+          react.createElement("div", {
+            className: "fv-content-wrap",
+            // The size reaches the rendered text through one inherited custom
+            // property, so Markdown, JSON and plain source all follow it without
+            // each view having to know about the setting.
+            style: { "--fv-font-size": fontSize + "px" },
+          },
             react.createElement("div", {
               className: "fv-content",
               "data-wrap": wrapping ? "on" : "off",
@@ -4621,9 +4753,17 @@ window.__ModuleLoader__.load({
       }
 
       /** Pick the viewer for a file and keep unsupported formats useful. */
-      function FileView({ meta, root, api, wrap, lang, onDownload, commit, repo, loading, backControl, sizeControl, langControl, onToast }) {
+      function FileView({ meta, root, api, wrap, lang, onDownload, commit, repo, loading, backControl, sizeControl, langControl, onToast, fontSize, onFontSizeChange }) {
         const copyControl = meta !== null
           ? react.createElement(PathCopyDropdown, { meta, root, onToast })
+          : null;
+        // Only views that render text have a size to adjust; an image or a PDF
+        // has its own zoom, and a sheet's cells are not prose.
+        const textish = meta !== null
+          && !meta.tooLarge
+          && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json");
+        const fontControl = textish
+          ? react.createElement(FontSizeControl, { value: fontSize, onChange: onFontSizeChange })
           : null;
 
         if (meta === null) {
@@ -4672,10 +4812,10 @@ window.__ModuleLoader__.load({
             react.createElement("span", { className: "fv-history-hint" }, "这是历史版本，不是工作区当前内容。"))
           : null;
 
-        const headBar = (backControl || sizeControl || copyControl)
+        const headBar = (backControl || sizeControl || copyControl || fontControl)
           ? react.createElement("div", { className: "fv-sheet-tabs", role: "toolbar" },
             react.createElement("div", { className: "fv-sheet-tabs-start" }, backControl, copyControl),
-            sizeControl ? react.createElement("div", { className: "fv-sheet-tabs-end" }, sizeControl) : null)
+            react.createElement("div", { className: "fv-sheet-tabs-end" }, fontControl, sizeControl))
           : null;
 
         if (fromHistory && meta.kind !== "text" && meta.kind !== "markdown" && meta.kind !== "json") {
@@ -4692,7 +4832,7 @@ window.__ModuleLoader__.load({
           return react.createElement("div", { className: "fv-content" }, headBar, react.createElement(DocView, { key, meta, root }));
         }
         return react.createElement(react.Fragment, null, banner,
-          react.createElement(TextView, { key, meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl, onToast }));
+          react.createElement(TextView, { key, meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl, onToast, fontSize, onFontSizeChange }));
       }
 
 
@@ -5133,9 +5273,22 @@ window.__ModuleLoader__.load({
           setShellWidth(clamped);
           writeShellWidth(clamped);
         };
-        // Soft wrap for source views. Off by default: code is written with
-        // meaningful line breaks and wrapping obscures them.
-        const [wrap, setWrap] = react.useState(false);
+        // Soft wrap is owned entirely by the host ReadBlock banner, which
+        // renders its own toggle beside the copy button and reports the state
+        // through `labels.wrapLabel` / `labels.unwrapLabel`. The viewer used to
+        // keep a second, parallel switch in its header; two controls for one
+        // flag could disagree, so the header's is gone and this flag is no
+        // longer state — there is nothing left to toggle from here.
+        const wrap = false;
+        // Reading size for the preview, remembered per browser. Kept here rather
+        // than inside TextView because the stepper sits in the pane's toolbar
+        // while the text it sizes lives one level down.
+        const [fontSize, setFontSize] = react.useState(readFontSize);
+        const changeFontSize = (next) => {
+          const clamped = clampFontSize(next);
+          setFontSize(clamped);
+          writeFontSize(clamped);
+        };
         // The language override now lives on the tab it applies to (see
         // `localeTagOfActive`), so switching tabs switches the pin with it.
         const [fullscreen, setFullscreen] = react.useState(false);
@@ -5250,10 +5403,9 @@ window.__ModuleLoader__.load({
         // tab, and discovery spawns a git process per candidate repository.
         react.useEffect(() => {
           if (!open || side !== "git" || root === "") return;
-          git.ensure();
-          // The working-tree list is part of the panel's first paint, not a
-          // second click: "what is uncommitted" is the first thing to look at.
-          git.loadChanges();
+          git.ensure().then(() => {
+            git.loadChanges();
+          }).catch(() => {});
         }, [open, side, root]);
         const [toast, setToast] = react.useState(null);
         const toastTimer = react.useRef(null);
@@ -5773,30 +5925,12 @@ window.__ModuleLoader__.load({
           }).catch(() => {});
         };
 
-        /**
-         * The top toolbar's refresh: the tree, the Git panel, and the tab on
-         * screen.
-         *
-         * The tab is refreshed too because that is what the reader is looking
-         * at — refreshing the tree around a stale preview would leave the file
-         * they care about unchanged.
-         */
-        const refresh = () => {
-          reloadWorkingTree();
-          if (side === "git") {
-            const state = git.store.get();
-            // The commit to come back to belongs to the tab on screen, not to
-            // whichever detail the controller happens to hold.
-            const keepSha = activeTab !== null && activeTab.kind === "commit"
-              ? activeTab.id.slice("commit:".length)
-              : "";
-            if (state.root !== root) git.reset(root);
-            git.loadRepos().then(() => {
-              if (keepSha !== "") git.openCommit(keepSha);
-            });
-          }
-          if (activeTabId !== "") refreshTab(activeTabId);
-        };
+        // Refreshing is offered per subject now: the tab's own context menu
+        // re-reads the file/commit on screen, the Git panel has its own
+        // "refresh working tree" control, and the sidebar re-lists a directory
+        // when it is reopened. The old header button duplicated all three at
+        // once, which made a single click re-read things the reader was not
+        // looking at.
 
         /** Open one commit in its own tab, or activate the tab already showing it. */
         const openCommit = (commit) => {
@@ -6205,18 +6339,10 @@ window.__ModuleLoader__.load({
               // file's path instead of navigable breadcrumbs.
               react.createElement("div", { className: "fv-crumbs fv-file-path", title: showCommit ? "" : (meta === null ? "" : meta.path) },
                 showCommit ? "" : (meta === null ? "" : meta.path)),
-              // Only offered where it changes anything: images, PDFs, sheets and
-              // documents do not scroll sideways the way source lines do.
-              !showCommit && meta !== null && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
-                ? react.createElement("button", {
-                  type: "button",
-                  className: "fv-icon-button",
-                  "aria-pressed": wrap ? "true" : "false",
-                  "aria-label": wrap ? "取消自动换行" : "自动换行",
-                  title: wrap ? "取消自动换行" : "自动换行",
-                  onClick: () => setWrap((current) => !current),
-                }, react.createElement(SvgIconWrap, { size: 15 }))
-                : null,
+              // Soft wrap is offered by the code banner itself (next to its copy
+              // button), so the header no longer carries a second toggle for the
+              // same setting — two switches for one flag only invited them to
+              // drift apart. Refresh lives in the tab's context menu likewise.
               !showCommit && meta !== null && meta.kind !== "directory"
                 ? react.createElement("button", {
                   type: "button",
@@ -6226,9 +6352,6 @@ window.__ModuleLoader__.load({
                   onClick: () => handleDownloadItem(meta),
                 }, react.createElement(SvgIconDownload, { size: 15 }))
                 : null,
-              react.createElement("button", {
-                type: "button", className: "fv-icon-button", "aria-label": "刷新", title: "刷新", onClick: refresh,
-              }, react.createElement(SvgIconRefresh, { size: 15 })),
               react.createElement("button", {
                 type: "button",
                 className: "fv-icon-button",
@@ -6412,6 +6535,8 @@ window.__ModuleLoader__.load({
                           sizeControl,
                           langControl,
                           onToast: showToast,
+                          fontSize,
+                          onFontSizeChange: changeFontSize,
                         })
                         : react.createElement(FileView, {
                           meta,
@@ -6431,6 +6556,8 @@ window.__ModuleLoader__.load({
                           sizeControl,
                           langControl,
                           onToast: showToast,
+                          fontSize,
+                          onFontSizeChange: changeFontSize,
                         })))),
             contextMenu !== null
               ? react.createElement(ContextMenu, {
@@ -6770,6 +6897,7 @@ window.__ModuleLoader__.load({
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
       triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconCopy, PathCopyDropdown, resolveAbsPath, extractRelativeAndAbsolutePaths, isAbsolutePath, SvgIconBranch, SvgIconCommit,
+      FONT_SIZE_KEY, DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE, FONT_SIZE_STEP, readFontSize, writeFontSize, clampFontSize, FontSizeControl,
       // Git panel: controller, views and the small formatters they share.
       GIT_PAGE_SIZE, createGitController, GitSidebar, CommitDetail, WorkspaceChangeDetail, DiffView, kindOfPath,
       formatCommitDate, formatCommitTimestamp,
