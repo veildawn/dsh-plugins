@@ -1284,17 +1284,35 @@ window.__ModuleLoader__.load({
       doc.addEventListener('pointerup', onPointerUp, { passive: true })
 
       const root = doc.getElementById('root')
-      // 帧合并：mutation 风暴期间每帧最多跑一次 sync/syncViewport，
-      // 避免 React 渲染产生的密集 DOM 变化把主线程占满（移动端卡死）。
+      // 帧合并与防自激：
+      // 1. 处于桌面端视口且已完成桌面态重置时，彻底忽略后续 DOM 突变，杜绝桌面端无效轮转与高 CPU/内存；
+      // 2. isSyncing 防重入锁确保 sync() 内部改动 DOM 产生的微任务突变全部被 takeRecords 清理，避免陷入无限 RAF 递归风暴。
       let syncQueued = false
       let viewportQueued = false
+      let isSyncing = false
+      let desktopSettled = false
       const requestSync = () => {
-        if (syncQueued) return
+        if (isSyncing || syncQueued) return
+        if (!media.matches && desktopSettled) return
         syncQueued = true
-        win.requestAnimationFrame(() => { syncQueued = false; sync() })
+        win.requestAnimationFrame(() => {
+          syncQueued = false
+          if (isSyncing) return
+          try {
+            isSyncing = true
+            sync()
+            desktopSettled = !media.matches
+          } finally {
+            if (typeof observer?.takeRecords === 'function') {
+              observer.takeRecords()
+            }
+            isSyncing = false
+          }
+        })
       }
       const requestViewport = () => {
         if (viewportQueued) return
+        if (!media.matches && desktopSettled) return
         viewportQueued = true
         win.requestAnimationFrame(() => { viewportQueued = false; syncViewport() })
       }
@@ -1307,6 +1325,7 @@ window.__ModuleLoader__.load({
         attributeFilter: ['data-sidebar-collapsed', 'data-phase', 'aria-label', 'aria-selected', 'placeholder', 'disabled', 'data-sidebar-right-open'],
       })
       const onMedia = () => {
+        desktopSettled = false
         requestSync()
         requestViewport()
       }

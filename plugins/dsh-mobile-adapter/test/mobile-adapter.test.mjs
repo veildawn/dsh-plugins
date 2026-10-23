@@ -1359,3 +1359,41 @@ test('移动端顶栏 3 层融合成 1 层：隐藏宿主冗余 Tabs 与 Header 
   assert.equal(cornerBtn.getAttribute('aria-label'), '切换右侧面板')
   assert.equal(fullscreenToggle.className, 'dsh-mobile-fullscreen-toggle')
 })
+
+test('桌面端模式下 DOM 突变不会反复触发无效同步且 sync 具备防重入保护', (t) => {
+  const f = fixture()
+  const previous = {
+    document: globalThis.document,
+    window: globalThis.window,
+    MutationObserver: globalThis.MutationObserver,
+  }
+  globalThis.document = f.doc
+  globalThis.window = f.win
+  let takeRecordsCalled = 0
+  class SpyingObserver extends f.Observer {
+    takeRecords() {
+      takeRecordsCalled++
+      return []
+    }
+  }
+  globalThis.MutationObserver = SpyingObserver
+  t.after(() => {
+    globalThis.document = previous.document
+    globalThis.window = previous.window
+    globalThis.MutationObserver = previous.MutationObserver
+  })
+
+  // 1. 在桌面端启动
+  f.media.matches = false
+  client.apply(f.ctx)
+
+  assert.equal(takeRecordsCalled >= 1, true, 'sync 执行结束时调用了 takeRecords 清理自身引起的微任务')
+
+  // 2. 在桌面端触发多次 DOM 突变，验证不会反复触发无意义的 DOM 重算
+  const initialToggles = f.toggles()
+  f.doc.notifyMutation?.()
+  f.doc.notifyMutation?.()
+  f.doc.notifyMutation?.()
+  assert.equal(f.toggles(), initialToggles, '桌面端 settled 后连续突变不再触发无效重算')
+})
+
