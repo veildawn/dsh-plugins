@@ -387,7 +387,7 @@ window.__ModuleLoader__.load({
       body>div[role="presentation"]:has(.fv-scrim)>[aria-hidden="true"]{display:none!important}
       .fv-scrim[role="dialog"]{position:absolute!important;inset:0!important;width:auto!important;max-width:none!important;max-height:none!important;min-height:0!important;margin:0!important;border:none!important;border-radius:0!important;box-shadow:none!important;background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;overflow:visible!important}
       .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:transparent;pointer-events:auto;animation:fv-fade .16s ease-out}
-      .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1);transition:width .2s cubic-bezier(.2,.8,.2,1)}
+      .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1);transition:width .2s cubic-bezier(.2,.8,.2,1)}
       .fv-shell[data-fullscreen="true"]{width:100vw;border-left:none}
       /* The leading edge is the drawer's own resize handle. It is positioned
          over the border rather than beside it so the panel does not shift when
@@ -544,7 +544,11 @@ window.__ModuleLoader__.load({
       .fv-image-canvas.fv-image-dragging{cursor:grabbing}
       .fv-image-element{max-width:calc(100% - 32px);max-height:calc(100% - 32px);object-fit:contain;transition:transform .05s ease-out;pointer-events:none;box-shadow:var(--dsw-shadow-lv2,0 4px 12px rgba(0,0,0,.08))}
       .fv-frame{width:100%;height:100%;min-height:420px;border:none;background:var(--dsw-alias-bg-layer-1,#fff)}
-      .fv-sheet-tabs{display:flex;flex-wrap:wrap;flex:none;align-items:center;gap:6px;padding:8px 12px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff));border-bottom:1px solid var(--dsw-alias-border-l1);z-index:2}
+      .fv-sheet-tabs{display:flex;flex-wrap:wrap;flex:none;align-items:center;justify-content:space-between;gap:6px;padding:6px 12px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff));border-bottom:1px solid var(--dsw-alias-border-l1);z-index:2;min-height:38px}
+      .fv-sheet-tabs-start{display:inline-flex;align-items:center;gap:6px;min-width:0;flex:1 1 auto}
+      .fv-sheet-tabs-end{display:inline-flex;align-items:center;gap:8px;margin-left:auto;flex:none}
+      .fv-sheet-tabs .fv-btn-back{width:26px;height:26px;font-size:16px;line-height:24px;border-radius:6px;margin-right:2px}
+      .fv-main-size{font-size:11px;color:var(--dsw-alias-label-caption);white-space:nowrap}
       .fv-content .fv-sheet-tabs{position:sticky;top:0;margin:-12px -12px 10px;padding:12px 12px 8px}
       .fv-tab{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
       .fv-tab[aria-selected="true"]{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}
@@ -2608,7 +2612,7 @@ window.__ModuleLoader__.load({
      *
      * @param {{state: object, path: string}} props - panel snapshot and the file to diff.
      */
-    function WorkspaceChangeDetail({ state, path: filePath, request, repo }) {
+    function WorkspaceChangeDetail({ state, path: filePath, request, repo, backControl }) {
       const [diff, setDiff] = react.useState({ status: "idle", data: null, error: null });
       // A change can be staged, unstaged, or both. The reader picks which side
       // to look at instead of the pane guessing.
@@ -2660,6 +2664,7 @@ window.__ModuleLoader__.load({
 
       return react.createElement("div", { className: "fv-commit" },
         react.createElement("div", { className: "fv-commit-head" },
+          backControl ? react.createElement("div", { style: { marginBottom: "6px" } }, backControl) : null,
           react.createElement("span", { className: "fv-commit-subject" }, filePath || "工作区改动"),
           react.createElement("span", { className: "fv-commit-meta" },
             row !== null
@@ -2687,7 +2692,7 @@ window.__ModuleLoader__.load({
      * second viewer; a row that lands outside the current root stays visible
      * but disabled rather than silently disappearing.
      */
-    function CommitDetail({ state, selectedPath, onSelectFile, view, onSwitchView, onLoadDiff }) {
+    function CommitDetail({ state, selectedPath, onSelectFile, view, onSwitchView, onLoadDiff, backControl }) {
       if (state.detailStatus === "loading" || state.detailStatus === "idle") {
         return react.createElement("div", { className: "fv-note" }, "正在读取提交详情…");
       }
@@ -2733,27 +2738,29 @@ window.__ModuleLoader__.load({
       // Two views of one commit: which files changed, and what changed inside
       // them. Both come from the same revision pair, so they cannot disagree.
       const tabs = react.createElement("div", { className: "fv-sheet-tabs", role: "tablist" },
-        react.createElement("button", {
-          type: "button", className: "fv-tab", "aria-selected": view !== "diff" ? "true" : "false",
-          onClick: () => onSwitchView("files"),
-        }, "变更文件", react.createElement("span", { className: "fv-git-count" }, String(files.length))),
-        react.createElement("button", {
-          type: "button", className: "fv-tab fv-tab-diff", "aria-selected": view === "diff" ? "true" : "false",
-          onClick: () => {
-            onSwitchView("diff");
-            if (onLoadDiff !== undefined) onLoadDiff();
-          },
-        }, "改动内容",
-          state.commitDiff !== null && state.commitDiff !== undefined && state.commitDiff.summary !== undefined
-            ? react.createElement("span", { className: "fv-diff-stat" },
-              state.commitDiff.summary.added > 0
-                ? react.createElement("span", { className: "fv-diff-add" }, "+" + state.commitDiff.summary.added)
-                : null,
-              state.commitDiff.summary.added > 0 && state.commitDiff.summary.removed > 0 ? " " : "",
-              state.commitDiff.summary.removed > 0
-                ? react.createElement("span", { className: "fv-diff-del" }, "-" + state.commitDiff.summary.removed)
-                : null)
-            : null));
+        react.createElement("div", { className: "fv-sheet-tabs-start" },
+          backControl,
+          react.createElement("button", {
+            type: "button", className: "fv-tab", "aria-selected": view !== "diff" ? "true" : "false",
+            onClick: () => onSwitchView("files"),
+          }, "变更文件", react.createElement("span", { className: "fv-git-count" }, String(files.length))),
+          react.createElement("button", {
+            type: "button", className: "fv-tab fv-tab-diff", "aria-selected": view === "diff" ? "true" : "false",
+            onClick: () => {
+              onSwitchView("diff");
+              if (onLoadDiff !== undefined) onLoadDiff();
+            },
+          }, "改动内容",
+            state.commitDiff !== null && state.commitDiff !== undefined && state.commitDiff.summary !== undefined
+              ? react.createElement("span", { className: "fv-diff-stat" },
+                state.commitDiff.summary.added > 0
+                  ? react.createElement("span", { className: "fv-diff-add" }, "+" + state.commitDiff.summary.added)
+                  : null,
+                state.commitDiff.summary.added > 0 && state.commitDiff.summary.removed > 0 ? " " : "",
+                state.commitDiff.summary.removed > 0
+                  ? react.createElement("span", { className: "fv-diff-del" }, "-" + state.commitDiff.summary.removed)
+                  : null)
+              : null)));
 
       let patchBody;
       if (state.commitDiffStatus === "loading" || state.commitDiffStatus === "idle") {
@@ -3938,7 +3945,7 @@ window.__ModuleLoader__.load({
 
       /** Line-numbered diff viewer with dual line number gutters. */
       /** Text, Markdown and JSON: one windowed read, three renderings. */
-      function TextView({ meta, root, wrap, lang, commit, repo }) {
+      function TextView({ meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl }) {
         // Callers mount this with a per-file key, so paging state starts fresh
         // for every file instead of leaking the previous file's window into the
         // first request.
@@ -4218,11 +4225,22 @@ window.__ModuleLoader__.load({
           }, "源码")
           : null;
 
-        const tabs = showTabs
+        const tabButtons = showTabs
+          ? [...(fromCommit && diffTab !== null
+            ? [diffTab, contentTab, sourceTab]
+            : [contentTab, sourceTab, diffTab])].filter((tab) => tab !== null)
+          : [];
+
+        const tabs = showTabs || Boolean(backControl || langControl || sizeControl)
           ? react.createElement("div", { className: "fv-sheet-tabs", role: "tablist" },
-            ...(fromCommit && diffTab !== null
-              ? [diffTab, contentTab, sourceTab]
-              : [contentTab, sourceTab, diffTab]).filter((tab) => tab !== null))
+            react.createElement("div", { className: "fv-sheet-tabs-start" },
+              backControl,
+              ...tabButtons),
+            (sizeControl || langControl)
+              ? react.createElement("div", { className: "fv-sheet-tabs-end" },
+                sizeControl,
+                langControl)
+              : null)
           : null;
 
 
@@ -4289,32 +4307,38 @@ window.__ModuleLoader__.load({
       }
 
       /** Pick the viewer for a file and keep unsupported formats useful. */
-      function FileView({ meta, root, api, wrap, lang, onDownload, commit, repo, loading }) {
+      function FileView({ meta, root, api, wrap, lang, onDownload, commit, repo, loading, backControl, sizeControl, langControl }) {
         if (meta === null) {
           // A tab exists but its metadata is still in flight. Saying "pick a
           // file" there would be a lie, and the reader would click again.
-          return react.createElement("div", { className: "fv-note" },
-            loading === true ? "正在读取文件…" : "从左侧选择一个文件。");
+          return react.createElement("div", { className: "fv-empty-pane" },
+            backControl ? react.createElement("div", { className: "fv-sheet-tabs", role: "toolbar" }, backControl) : null,
+            react.createElement("div", { className: "fv-note" },
+              loading === true ? "正在读取文件…" : "从左侧选择一个文件。"));
         }
         if (meta.tooLarge || meta.kind === "binary") {
-          return react.createElement("div", { className: "fv-note" },
-            react.createElement("strong", null, meta.name),
-            react.createElement("span", null, meta.tooLarge
-              ? `文件大小 ${formatBytes(meta.size)}，超过查看器上限 ${formatBytes(meta.limit)}。`
-              : "这是二进制文件，查看器无法显示其内容。"),
-            react.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "4px" } },
-              api && api.host
-                ? react.createElement("button", {
+          return react.createElement("div", { className: "fv-binary-pane" },
+            backControl ? react.createElement("div", { className: "fv-sheet-tabs", role: "toolbar" },
+              react.createElement("div", { className: "fv-sheet-tabs-start" }, backControl),
+              sizeControl ? react.createElement("div", { className: "fv-sheet-tabs-end" }, sizeControl) : null) : null,
+            react.createElement("div", { className: "fv-note" },
+              react.createElement("strong", null, meta.name),
+              react.createElement("span", null, meta.tooLarge
+                ? `文件大小 ${formatBytes(meta.size)}，超过查看器上限 ${formatBytes(meta.limit)}。`
+                : "这是二进制文件，查看器无法显示其内容。"),
+              react.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "4px" } },
+                api && api.host
+                  ? react.createElement("button", {
+                    type: "button",
+                    className: "fv-button",
+                    onClick: () => api.host.openPath({ path: meta.displayPath }),
+                  }, "用本地程序打开")
+                  : null,
+                react.createElement("button", {
                   type: "button",
-                  className: "fv-button",
-                  onClick: () => api.host.openPath({ path: meta.displayPath }),
-                }, "用本地程序打开")
-                : null,
-              react.createElement("button", {
-                type: "button",
-                className: "fv-button fv-btn-download-note",
-                onClick: () => onDownload && onDownload(meta),
-              }, "下载到本地")));
+                  className: "fv-button fv-btn-download-note",
+                  onClick: () => onDownload && onDownload(meta),
+                }, "下载到本地"))));
         }
         // The key remounts each viewer per file so no per-file state (paging,
         // active sheet, blob URL) survives a switch.
@@ -4329,21 +4353,28 @@ window.__ModuleLoader__.load({
               "以下内容来自提交 " + commit.slice(0, 7) + (meta.change ? "，该文件本次为「" + meta.change + "」" : "")),
             react.createElement("span", { className: "fv-history-hint" }, "这是历史版本，不是工作区当前内容。"))
           : null;
+
+        const headBar = (backControl || sizeControl)
+          ? react.createElement("div", { className: "fv-sheet-tabs", role: "toolbar" },
+            react.createElement("div", { className: "fv-sheet-tabs-start" }, backControl),
+            sizeControl ? react.createElement("div", { className: "fv-sheet-tabs-end" }, sizeControl) : null)
+          : null;
+
         if (fromHistory && meta.kind !== "text" && meta.kind !== "markdown" && meta.kind !== "json") {
-          return react.createElement(react.Fragment, null, banner,
+          return react.createElement(react.Fragment, null, headBar, banner,
             react.createElement("div", { className: "fv-note" },
               "该提交中的文件是 " + meta.kind + " 格式，历史版本暂不支持预览。"));
         }
-        if (meta.kind === "image") return react.createElement(ImageView, { key, meta, root });
-        if (meta.kind === "pdf") return react.createElement(BinaryView, { key, meta, root });
+        if (meta.kind === "image") return react.createElement(react.Fragment, null, headBar, react.createElement(ImageView, { key, meta, root }));
+        if (meta.kind === "pdf") return react.createElement(react.Fragment, null, headBar, react.createElement(BinaryView, { key, meta, root }));
         if (meta.kind === "sheet") {
-          return react.createElement("div", { className: "fv-content" }, react.createElement(SheetView, { key, meta, root }));
+          return react.createElement("div", { className: "fv-content" }, headBar, react.createElement(SheetView, { key, meta, root }));
         }
         if (meta.kind === "doc") {
-          return react.createElement("div", { className: "fv-content" }, react.createElement(DocView, { key, meta, root }));
+          return react.createElement("div", { className: "fv-content" }, headBar, react.createElement(DocView, { key, meta, root }));
         }
         return react.createElement(react.Fragment, null, banner,
-          react.createElement(TextView, { key, meta, root, wrap, lang, commit, repo }));
+          react.createElement(TextView, { key, meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl }));
       }
 
 
@@ -5747,6 +5778,36 @@ window.__ModuleLoader__.load({
           performDownload(request, root, targetPath, targetName, showToast);
         };
 
+        const originKind = previewOrigin === null || previewOrigin === undefined ? null : previewOrigin.kind;
+        const backTarget = originKind === "commit"
+          ? "返回变更文件列表"
+          : (originKind === "changes" ? "返回工作区改动列表" : "返回文件列表");
+        const canGoBack = isMobile || pane === "content"
+          ? (previewOrigin !== null || meta !== null || showCommit)
+          : false;
+        const backControl = react.createElement("button", {
+          type: "button",
+          className: "fv-icon-button fv-btn-back",
+          "aria-label": backTarget,
+          title: backTarget,
+          disabled: !canGoBack,
+          onClick: goBack,
+        }, react.createElement("span", { "aria-hidden": "true" }, "‹"));
+
+        const sizeControl = meta !== null && !showCommit && typeof meta.size === "number"
+          ? react.createElement("span", { className: "fv-main-size" }, formatBytes(meta.size))
+          : null;
+
+        const langControl = meta !== null && !showCommit && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
+          ? react.createElement(LanguagePicker, {
+            choice: localeTagOfActive,
+            catalog: languageCatalog,
+            source: meta.langSource,
+            resolved: meta.lang,
+            onChange: chooseLang,
+          })
+          : null;
+
         return react.createElement("div", {
           className: "fv-scrim",
           role: "dialog",
@@ -5934,51 +5995,6 @@ window.__ModuleLoader__.load({
                   onContextMenu: (menu) => setTabMenu(menu),
                   menuFor: tabMenu === null || tabMenu === undefined ? "" : tabMenu.tabId,
                 }),
-                react.createElement("div", { className: "fv-main-head" },
-                  (() => {
-                    // The control returns one step, so it names that step and
-                    // is disabled when there is nowhere to go — a button that
-                    // silently does nothing reads as broken.
-                    const originKind = previewOrigin === null || previewOrigin === undefined ? null : previewOrigin.kind;
-                    const backTarget = originKind === "commit"
-                      ? "返回变更文件列表"
-                      : (originKind === "changes" ? "返回工作区改动列表" : "返回文件列表");
-                    // On a phone the panes are exclusive, so leaving the content
-                    // pane is always meaningful; on desktop the sidebar is
-                    // already visible and only an origin is worth returning to.
-                    const canGoBack = isMobile || pane === "content"
-                      ? (previewOrigin !== null || meta !== null || showCommit)
-                      : false;
-                    return react.createElement("button", {
-                      type: "button",
-                      className: "fv-icon-button fv-btn-back",
-                      "aria-label": backTarget,
-                      title: backTarget,
-                      disabled: !canGoBack,
-                      onClick: goBack,
-                    }, react.createElement("span", { "aria-hidden": "true" }, "‹"));
-                  })(),
-                  react.createElement("span", { className: "fv-main-name" },
-                    commitHeadline !== ""
-                      ? commitHeadline
-                      : (activeTab === null
-                        ? "未选择文件"
-                        : (meta === null ? activeTab.title : meta.name))),
-                  meta !== null && !showCommit && typeof meta.size === "number"
-                    ? react.createElement("span", null, formatBytes(meta.size))
-                    : null,
-                  // The language picker sits with the file it applies to, and
-                  // is offered only for source views: an image, sheet or
-                  // document has no grammar to choose.
-                  meta !== null && !showCommit && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
-                    ? react.createElement(LanguagePicker, {
-                      choice: localeTagOfActive,
-                      catalog: languageCatalog,
-                      source: meta.langSource,
-                      resolved: meta.lang,
-                      onChange: chooseLang,
-                    })
-                    : null),
                 error !== null && meta === null && !showCommit && activeTab === null
                   ? react.createElement("div", { className: "fv-note fv-error" },
                     react.createElement("span", null, messageOf(error)),
@@ -6021,6 +6037,7 @@ window.__ModuleLoader__.load({
                           path: previewChangePath,
                           request,
                           repo: gitState.repoId,
+                          backControl,
                         })
                         : react.createElement(CommitDetail, {
                           state: gitState,
@@ -6036,6 +6053,7 @@ window.__ModuleLoader__.load({
                             const sha = commitSha;
                             if (sha !== "") git.loadCommitDiff(sha);
                           },
+                          backControl,
                         }))
                       : react.createElement(ErrorBoundary, {
                         // One viewer per tab (and per refresh epoch), so no
@@ -6053,6 +6071,9 @@ window.__ModuleLoader__.load({
                           onDownload: handleDownloadItem,
                           commit: "",
                           repo: gitState.repoId,
+                          backControl,
+                          sizeControl,
+                          langControl,
                         })
                         : react.createElement(FileView, {
                           meta,
@@ -6068,6 +6089,9 @@ window.__ModuleLoader__.load({
                           // A tab is created before its metadata arrives, so the
                           // pane has to say "reading" instead of "pick a file".
                           loading: activeTab.status === "loading",
+                          backControl,
+                          sizeControl,
+                          langControl,
                         })))),
             contextMenu !== null
               ? react.createElement(ContextMenu, {

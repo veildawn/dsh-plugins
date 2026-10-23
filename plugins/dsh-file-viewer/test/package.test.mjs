@@ -312,6 +312,7 @@ test('the viewer opens as a right-hand drawer with no sidebar entry', () => {
   assert.doesNotMatch(source, /\.fv-scrim\{[^}]*justify-content:center/)
   assert.match(source, /\.fv-shell\{[^}]*width:min\(64vw,1100px\)/)
   assert.match(source, /\.fv-shell\{[^}]*border-left:1px solid/)
+  assert.match(source, /\.fv-shell\{[^}]*backdrop-filter:blur\(24px\)/)
   assert.doesNotMatch(source, /\.fv-shell\{[^}]*border-radius:14px/)
 
   // It slides in from the right, and honours reduced-motion.
@@ -3709,4 +3710,17 @@ test('the tab set is dropped when the drawer reopens or the root changes', () =>
   const resets = source.match(/tabsRef\.current = null;/g) || []
   assert(resets.length >= 2, 'both the open path and the root path must drop the tabs')
   assert.match(source, /tabsRef\.current = null;\s*\n\s*setTabs\(null\);\s*\n\s*activeTabIdRef\.current = "";\s*\n\s*setActiveTabId\(""\);/)
+})
+
+test('the content toolbar merges back navigation and language picker into the tab bar', () => {
+  const source = read('lib/client.js')
+
+  // Redundant fv-main-head line is removed from the content area.
+  assert.doesNotMatch(source, /className:\s*"fv-main-head"/)
+
+  // Back button and language picker are seated directly inside fv-sheet-tabs.
+  assert.match(source, /className:\s*"fv-sheet-tabs-start"/)
+  assert.match(source, /className:\s*"fv-sheet-tabs-end"/)
+  assert.match(source, /\.fv-sheet-tabs-start\{display:inline-flex/)
+  assert.match(source, /\.fv-sheet-tabs-end\{display:inline-flex/)
 })
