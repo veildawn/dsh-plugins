@@ -312,7 +312,7 @@ test('the viewer opens as a right-hand drawer with no sidebar entry', () => {
   assert.doesNotMatch(source, /\.fv-scrim\{[^}]*justify-content:center/)
   assert.match(source, /\.fv-shell\{[^}]*width:min\(64vw,1100px\)/)
   assert.match(source, /\.fv-shell\{[^}]*border-left:1px solid/)
-  assert.match(source, /\.fv-shell\{[^}]*backdrop-filter:blur\(24px\)/)
+  assert.doesNotMatch(source, /\.fv-shell\{[^}]*backdrop-filter/, 'fv-shell must not declare backdrop-filter to prevent hijacking fixed context-menu containing blocks')
   assert.doesNotMatch(source, /\.fv-shell\{[^}]*border-radius:14px/)
 
   // It slides in from the right, and honours reduced-motion.
@@ -3723,4 +3723,130 @@ test('the content toolbar merges back navigation and language picker into the ta
   assert.match(source, /className:\s*"fv-sheet-tabs-end"/)
   assert.match(source, /\.fv-sheet-tabs-start\{display:inline-flex/)
   assert.match(source, /\.fv-sheet-tabs-end\{display:inline-flex/)
+})
+
+test('Git sidebar provides a draggable horizontal resizer with a distinct handle button between changes and commits', () => {
+  const { internals } = loadClient()
+  const source = read('lib/client.js')
+
+  // Storage key and boundaries are exported and bounded.
+  assert.equal(typeof internals.GIT_CHANGES_HEIGHT_KEY, 'string')
+  assert(internals.DEFAULT_GIT_CHANGES_HEIGHT >= internals.MIN_GIT_CHANGES_HEIGHT)
+  assert(internals.DEFAULT_GIT_CHANGES_HEIGHT <= internals.MAX_GIT_CHANGES_HEIGHT)
+  assert.equal(typeof internals.readGitChangesHeight, 'function')
+  assert.equal(typeof internals.writeGitChangesHeight, 'function')
+
+  // Storage reads and bounds check
+  const originalStorage = globalThis.localStorage
+  try {
+    const memory = new Map()
+    globalThis.localStorage = {
+      getItem: (k) => memory.get(k) ?? null,
+      setItem: (k, v) => memory.set(k, String(v)),
+      removeItem: (k) => memory.delete(k),
+    }
+
+    // Default when unset
+    assert.equal(internals.readGitChangesHeight(), internals.DEFAULT_GIT_CHANGES_HEIGHT)
+
+    // Valid height is stored and read back
+    internals.writeGitChangesHeight(260)
+    assert.equal(internals.readGitChangesHeight(), 260)
+
+    // Out-of-bounds or malformed values clamp or fall back to default
+    internals.writeGitChangesHeight(10) // below MIN
+    assert.equal(internals.readGitChangesHeight(), internals.DEFAULT_GIT_CHANGES_HEIGHT)
+    internals.writeGitChangesHeight(9999) // above MAX
+    assert.equal(internals.readGitChangesHeight(), internals.DEFAULT_GIT_CHANGES_HEIGHT)
+  } finally {
+    globalThis.localStorage = originalStorage
+  }
+
+  // Styles define the resizer, its line, its distinct handle button and grip
+  assert.match(source, /\.fv-git-v-resizer\{[^}]*cursor:row-resize/)
+  assert.match(source, /\.fv-git-v-resizer-line\{/)
+  assert.match(source, /\.fv-git-v-resizer-btn\{[^}]*cursor:row-resize/)
+  assert.match(source, /\.fv-git-v-resizer-grip\{/)
+  assert.match(source, /\.fv-git-panel\[data-v-resizing="true"\]/)
+
+  // Render tree verifies the resizer presence and its handle button
+  const state = {
+    root: '/repo',
+    repos: [gitRepo()],
+    reposStatus: 'ready',
+    reposError: null,
+    repoId: '.',
+    branches: [{ name: 'main', current: true }],
+    current: 'main',
+    detached: false,
+    branch: 'main',
+    commits: [gitCommit(GIT_SHA_A, '初始提交')],
+    commitsStatus: 'ready',
+    commitsError: null,
+    total: 1,
+    hasMore: false,
+    detail: null,
+    detailStatus: 'idle',
+    detailError: null,
+    busy: false,
+    notice: '',
+    changes: { staged: [], unstaged: [], untracked: [], conflicted: [], total: 0, outside: 0 },
+    changesStatus: 'ready',
+    changesError: null,
+  }
+  const handlers = {
+    onPickRepo() {}, onPickBranch() {}, onCheckout() {}, onSelectCommit() {}, onLoadMore() {}, onRetry() {},
+    onSelectChange() {}, onRefreshChanges() {},
+  }
+  const tree = internals.GitSidebar({ state, width: 280, header: null, selectedSha: '', ...handlers })
+
+  const findNode = (node, predicate) => {
+    if (!node) return null
+    if (predicate(node)) return node
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        const found = findNode(child, predicate)
+        if (found) return found
+      }
+      return null
+    }
+    if (node.children) return findNode(node.children, predicate)
+    return null
+  }
+
+  const vResizer = findNode(tree, (n) => n.props?.className === 'fv-git-v-resizer')
+  assert(vResizer, 'GitSidebar must render .fv-git-v-resizer')
+  assert.equal(vResizer.props.role, 'separator')
+  assert.equal(vResizer.props['aria-orientation'], 'horizontal')
+
+  const handleBtn = findNode(vResizer, (n) => n.props?.className === 'fv-git-v-resizer-btn')
+  assert(handleBtn, 'resizer must contain a prominent handle button .fv-git-v-resizer-btn')
+
+  const changesEl = findNode(tree, (n) => n.props?.className === 'fv-git-changes')
+  assert(changesEl, 'GitSidebar must render .fv-git-changes')
+  assert(changesEl.props.style?.height, 'fv-git-changes must have an explicit height style')
+})
+
+test('no hook is declared after an early return in ViewerOverlay', () => {
+  const source = read('lib/client.js')
+  const start = source.indexOf('function ViewerOverlay(')
+  assert(start > 0, 'ViewerOverlay must exist')
+  const end = source.indexOf('\n      /**\n       * Conversation header entry.', start)
+  assert(end > start, 'ViewerOverlay body must be delimited')
+  const lines = source.slice(start, end).split('\n')
+
+  const earlyReturn = /^\s*if \(!open\) return null;/
+  const hookCall = /react\.(useState|useEffect|useMemo|useCallback|useRef|useContext|useReducer)\(/
+  let afterReturn = false
+  const violations = []
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
+    if (earlyReturn.test(line)) afterReturn = true
+    if (afterReturn && hookCall.test(line)) {
+      violations.push(`line ${index + 1}: ${line.trim()}`)
+    }
+  }
+
+  assert.deepEqual(violations, [], 'hooks must not be declared below if (!open) return in ViewerOverlay')
 })

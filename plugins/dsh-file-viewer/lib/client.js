@@ -348,6 +348,10 @@ window.__ModuleLoader__.load({
     const DEFAULT_TREE_WIDTH = 280;
     const MIN_TREE_WIDTH = 160;
     const MAX_TREE_WIDTH = 700;
+    const GIT_CHANGES_HEIGHT_KEY = "dsh-file-viewer.git-changes-height";
+    const DEFAULT_GIT_CHANGES_HEIGHT = 180;
+    const MIN_GIT_CHANGES_HEIGHT = 64;
+    const MAX_GIT_CHANGES_HEIGHT = 800;
     /**
      * Smallest width the drawer may be dragged to.
      *
@@ -387,7 +391,7 @@ window.__ModuleLoader__.load({
       body>div[role="presentation"]:has(.fv-scrim)>[aria-hidden="true"]{display:none!important}
       .fv-scrim[role="dialog"]{position:absolute!important;inset:0!important;width:auto!important;max-width:none!important;max-height:none!important;min-height:0!important;margin:0!important;border:none!important;border-radius:0!important;box-shadow:none!important;background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;overflow:visible!important}
       .fv-scrim{position:absolute;inset:0;z-index:40;display:flex;align-items:stretch;justify-content:flex-end;background:transparent;pointer-events:auto;animation:fv-fade .16s ease-out}
-      .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1);transition:width .2s cubic-bezier(.2,.8,.2,1)}
+      .fv-shell{display:flex;flex-direction:column;width:min(64vw,1100px);min-width:0;min-height:0;overflow:hidden;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);animation:fv-slide .2s cubic-bezier(.2,.8,.2,1);transition:width .2s cubic-bezier(.2,.8,.2,1)}
       .fv-shell[data-fullscreen="true"]{width:100vw;border-left:none}
       /* The leading edge is the drawer's own resize handle. It is positioned
          over the border rather than beside it so the panel does not shift when
@@ -635,7 +639,19 @@ window.__ModuleLoader__.load({
       .fv-commit-tag{flex:none;padding:1px 6px;border-radius:6px;background:var(--dsw-alias-bg-layer-3,rgba(0,0,0,.05));color:var(--dsw-alias-label-caption);font-family:var(--dsw-font-family);font-size:10px}
       /* Working-tree changes and a commit's patch share the commit-row visuals
          so the two panels read as one surface. */
-      .fv-git-changes{display:flex;flex:none;flex-direction:column;gap:1px;max-height:38%;overflow-y:auto;overscroll-behavior:contain;border-bottom:1px solid var(--dsw-alias-border-l1);padding-bottom:4px}
+      .fv-git-changes{display:flex;flex:none;flex-direction:column;gap:1px;min-height:48px;overflow-y:auto;overscroll-behavior:contain;padding-bottom:2px}
+      .fv-git-panel[data-v-resizing="true"]{cursor:row-resize!important;user-select:none!important}
+      .fv-git-panel[data-v-resizing="true"] *{pointer-events:none!important}
+      .fv-git-panel[data-v-resizing="true"] .fv-git-v-resizer,
+      .fv-git-panel[data-v-resizing="true"] .fv-git-v-resizer *{pointer-events:auto!important}
+      .fv-git-v-resizer{position:relative;flex:none;display:flex;align-items:center;justify-content:center;height:14px;margin:2px 0;cursor:row-resize;user-select:none;touch-action:none;z-index:3}
+      .fv-git-v-resizer-line{position:absolute;left:0;right:0;top:50%;height:1px;background:var(--dsw-alias-border-l1);transform:translateY(-50%);transition:background-color .15s ease;pointer-events:none}
+      .fv-git-v-resizer-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:44px;height:13px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:0 1px 3px rgba(0,0,0,.08);cursor:row-resize;pointer-events:auto;transition:background-color .15s ease,border-color .15s ease,box-shadow .15s ease;z-index:2}
+      .fv-git-v-resizer-grip{display:block;width:14px;height:2px;border-radius:1px;background:var(--dsw-alias-label-caption);box-shadow:0 -3px 0 0 var(--dsw-alias-label-caption);pointer-events:none}
+      .fv-git-v-resizer:hover .fv-git-v-resizer-line,.fv-git-v-resizer[data-dragging="true"] .fv-git-v-resizer-line{background:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .fv-git-v-resizer:hover .fv-git-v-resizer-btn,.fv-git-v-resizer[data-dragging="true"] .fv-git-v-resizer-btn,.fv-git-v-resizer-btn:hover{border-color:var(--dsw-alias-brand-primary,#4d6bfe);background:var(--dsw-alias-bg-layer-1,#fff);box-shadow:0 1px 6px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 35%,transparent)}
+      .fv-git-v-resizer:hover .fv-git-v-resizer-grip,.fv-git-v-resizer[data-dragging="true"] .fv-git-v-resizer-grip,.fv-git-v-resizer-btn:hover .fv-git-v-resizer-grip{background:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 -3px 0 0 var(--dsw-alias-brand-primary,#4d6bfe)}
+      .fv-git-v-resizer:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:-1px}
       .fv-git-change-group{display:flex;flex-direction:column;gap:1px}
       .fv-git-refresh{width:22px;height:22px;margin-left:auto}
       .fv-commit-diff{display:flex;flex:1 1 auto;flex-direction:column;gap:2px;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 6px}
@@ -841,7 +857,8 @@ window.__ModuleLoader__.load({
         .fv-git-more{height:38px!important;font-size:13px!important}
         .fv-commit-file{min-height:42px!important;font-size:13.5px!important}
         .fv-commit-path{font-size:12px!important}
-        .fv-git-changes{max-height:none!important}
+        .fv-git-changes{height:auto!important;max-height:none!important}
+        .fv-git-v-resizer{display:none!important}
         .fv-commit-diff-file .fv-diff-table{font-size:12px!important}
       }
     `;
@@ -1144,6 +1161,27 @@ window.__ModuleLoader__.load({
       try {
         if (typeof width === "number" && Number.isFinite(width)) {
           globalThis.localStorage?.setItem(TREE_WIDTH_KEY, String(Math.round(width)));
+        }
+      } catch { /* storage is unavailable */ }
+    }
+
+    function readGitChangesHeight() {
+      try {
+        const raw = globalThis.localStorage?.getItem(GIT_CHANGES_HEIGHT_KEY);
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed) && parsed >= MIN_GIT_CHANGES_HEIGHT && parsed <= MAX_GIT_CHANGES_HEIGHT) {
+          return Math.round(parsed);
+        }
+      } catch { /* storage is unavailable */ }
+      return DEFAULT_GIT_CHANGES_HEIGHT;
+    }
+
+    function writeGitChangesHeight(height) {
+      try {
+        if (typeof height === "number" && Number.isFinite(height)) {
+          globalThis.localStorage?.setItem(GIT_CHANGES_HEIGHT_KEY, String(Math.round(height)));
+        } else {
+          globalThis.localStorage?.removeItem(GIT_CHANGES_HEIGHT_KEY);
         }
       } catch { /* storage is unavailable */ }
     }
@@ -2310,10 +2348,72 @@ window.__ModuleLoader__.load({
       const canCheckout = repo !== null && viewingBranch !== "" && viewingBranch !== current
         && checkoutable && state.busy !== true;
 
+      const [changesHeight, setChangesHeight] = react.useState(readGitChangesHeight);
+      const [isResizingChanges, setIsResizingChanges] = react.useState(false);
+      const changesResizeRef = react.useRef(null);
+      const changesHeightRef = react.useRef(changesHeight);
+      changesHeightRef.current = changesHeight;
+
+      const onChangesResizerPointerDown = (event) => {
+        if (event.button !== 0 && event.button !== undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const startY = event.clientY;
+        const startH = changesHeightRef.current;
+        changesResizeRef.current = { startY, startH };
+        setIsResizingChanges(true);
+        try { event.currentTarget.setPointerCapture(event.pointerId); } catch (_) {}
+      };
+
+      const onChangesResizerPointerMove = (event) => {
+        if (!changesResizeRef.current) return;
+        const { startY, startH } = changesResizeRef.current;
+        const deltaY = event.clientY - startY;
+        const panelEl = event.currentTarget.closest(".fv-git-panel");
+        const panelHeight = panelEl ? panelEl.clientHeight : 600;
+        const maxBound = Math.max(MIN_GIT_CHANGES_HEIGHT, panelHeight - 140);
+        const nextH = Math.round(Math.min(Math.min(MAX_GIT_CHANGES_HEIGHT, maxBound), Math.max(MIN_GIT_CHANGES_HEIGHT, startH + deltaY)));
+        setChangesHeight(nextH);
+      };
+
+      const onChangesResizerPointerUp = (event) => {
+        if (!changesResizeRef.current) return;
+        changesResizeRef.current = null;
+        setIsResizingChanges(false);
+        try { event.currentTarget.releasePointerCapture(event.pointerId); } catch (_) {}
+        writeGitChangesHeight(changesHeightRef.current);
+      };
+
+      const onChangesResizerDoubleClick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setChangesHeight(DEFAULT_GIT_CHANGES_HEIGHT);
+        writeGitChangesHeight(DEFAULT_GIT_CHANGES_HEIGHT);
+      };
+
+      const onChangesResizerKeyDown = (event) => {
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          const nextH = Math.max(MIN_GIT_CHANGES_HEIGHT, changesHeightRef.current - 16);
+          setChangesHeight(nextH);
+          writeGitChangesHeight(nextH);
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          const nextH = Math.min(MAX_GIT_CHANGES_HEIGHT, changesHeightRef.current + 16);
+          setChangesHeight(nextH);
+          writeGitChangesHeight(nextH);
+        } else if (event.key === "Home" || event.key === "Enter") {
+          event.preventDefault();
+          setChangesHeight(DEFAULT_GIT_CHANGES_HEIGHT);
+          writeGitChangesHeight(DEFAULT_GIT_CHANGES_HEIGHT);
+        }
+      };
+
       const wrap = (...children) => react.createElement("div", {
         className: "fv-tree fv-git-panel",
         role: "group",
         "aria-label": "Git 面板",
+        "data-v-resizing": isResizingChanges ? "true" : "false",
         style: typeof width === "number" ? { width: width + "px" } : undefined,
       }, header, ...children);
 
@@ -2451,7 +2551,14 @@ window.__ModuleLoader__.load({
             : null);
       }
 
-      const changesSection = react.createElement("div", { className: "fv-git-changes" },
+      const changesSection = react.createElement("div", {
+        className: "fv-git-changes",
+        style: {
+          height: changesHeight + "px",
+          maxHeight: "none",
+          flex: "none",
+        },
+      },
         react.createElement("div", { className: "fv-git-section" },
           react.createElement("span", null, "工作区改动"),
           react.createElement("span", { className: "fv-git-count" },
@@ -2464,6 +2571,37 @@ window.__ModuleLoader__.load({
             onClick: onRefreshChanges,
           }, react.createElement(SvgIconRefresh, { size: 13 }))),
         changesBody);
+
+      const vResizer = react.createElement("div", {
+        className: "fv-git-v-resizer",
+        role: "separator",
+        tabIndex: 0,
+        "aria-orientation": "horizontal",
+        "aria-label": "调整工作区改动与提交记录高度",
+        "aria-valuenow": changesHeight,
+        "aria-valuemin": MIN_GIT_CHANGES_HEIGHT,
+        "aria-valuemax": MAX_GIT_CHANGES_HEIGHT,
+        title: "拖动调整区域高度，双击恢复默认",
+        "data-dragging": isResizingChanges ? "true" : "false",
+        onPointerDown: onChangesResizerPointerDown,
+        onPointerMove: onChangesResizerPointerMove,
+        onPointerUp: onChangesResizerPointerUp,
+        onPointerCancel: onChangesResizerPointerUp,
+        onDoubleClick: onChangesResizerDoubleClick,
+        onKeyDown: onChangesResizerKeyDown,
+      },
+        react.createElement("div", { className: "fv-git-v-resizer-line" }),
+        react.createElement("button", {
+          type: "button",
+          tabIndex: -1,
+          className: "fv-git-v-resizer-btn",
+          "aria-label": "拖动手柄",
+          title: "按住拖动调整高度，双击恢复默认",
+          "data-dragging": isResizingChanges ? "true" : "false",
+        },
+          react.createElement("span", { className: "fv-git-v-resizer-grip" })
+        )
+      );
 
       const commitRows = commits.map((commit) => react.createElement("button", {
         key: commit.sha,
@@ -2511,6 +2649,7 @@ window.__ModuleLoader__.load({
 
       return wrap(toolbar,
         changesSection,
+        vResizer,
         react.createElement("div", { className: "fv-git-section" },
           react.createElement("span", null, "提交记录"),
           react.createElement("span", { className: "fv-git-count" }, state.total > 0 ? String(state.total) : "")),
@@ -3350,7 +3489,20 @@ window.__ModuleLoader__.load({
       return react.createElement(react.Fragment, null,
         react.createElement("div", {
           className: "fv-context-backdrop",
+          onPointerDown: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (Date.now() - mountTimeRef.current < 400) return;
+            onClose();
+          },
+          onMouseDown: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (Date.now() - mountTimeRef.current < 400) return;
+            onClose();
+          },
           onClick: (event) => {
+            event.preventDefault();
             event.stopPropagation();
             if (Date.now() - mountTimeRef.current < 400) return;
             onClose();
@@ -4452,7 +4604,20 @@ window.__ModuleLoader__.load({
         return react.createElement(react.Fragment, null,
           react.createElement("div", {
             className: "fv-context-backdrop",
+            onPointerDown: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (Date.now() - mountTimeRef.current < 400) return;
+              onClose();
+            },
+            onMouseDown: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (Date.now() - mountTimeRef.current < 400) return;
+              onClose();
+            },
             onClick: (e) => {
+              e.preventDefault();
               e.stopPropagation();
               if (Date.now() - mountTimeRef.current < 400) return;
               onClose();
@@ -4867,6 +5032,15 @@ window.__ModuleLoader__.load({
         // it. Kept apart from the tree's `contextMenu`: the two menus describe
         // different subjects and must never be confused for one another.
         const [tabMenu, setTabMenu] = react.useState(null);
+        const lastMenuClosedAtRef = react.useRef(0);
+        const closeContextMenu = react.useCallback(() => {
+          lastMenuClosedAtRef.current = Date.now();
+          setContextMenu(null);
+        }, []);
+        const closeTabMenu = react.useCallback(() => {
+          lastMenuClosedAtRef.current = Date.now();
+          setTabMenu(null);
+        }, []);
         const tabsRef = react.useRef(null);
         tabsRef.current = tabs;
         const activeTabIdRef = react.useRef("");
@@ -5816,6 +5990,8 @@ window.__ModuleLoader__.load({
           onMouseDown: (event) => {
             if (event.target !== event.currentTarget) return;
             if (Date.now() - openedAtRef.current < 400) return;
+            if (contextMenu !== null || tabMenu !== null) return;
+            if (Date.now() - lastMenuClosedAtRef.current < 400) return;
             openStore.set(null);
           },
         },
@@ -6097,7 +6273,7 @@ window.__ModuleLoader__.load({
               ? react.createElement(ContextMenu, {
                 menu: contextMenu,
                 rootPath: activeRoot ? (activeRoot.path || activeRoot.id) : root,
-                onClose: () => setContextMenu(null),
+                onClose: closeContextMenu,
                 onMention: mention,
                 onToast: showToast,
                 onDownload: handleDownloadItem,
@@ -6110,7 +6286,7 @@ window.__ModuleLoader__.load({
               ? react.createElement(TabContextMenu, {
                 menu: tabMenu,
                 tabs,
-                onClose: () => setTabMenu(null),
+                onClose: closeTabMenu,
                 onAction: onTabAction,
               })
               : null,
@@ -6424,6 +6600,7 @@ window.__ModuleLoader__.load({
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
       TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
+      GIT_CHANGES_HEIGHT_KEY, DEFAULT_GIT_CHANGES_HEIGHT, MIN_GIT_CHANGES_HEIGHT, MAX_GIT_CHANGES_HEIGHT, readGitChangesHeight, writeGitChangesHeight,
       SHELL_WIDTH_KEY, MIN_SHELL_WIDTH, readShellWidth, writeShellWidth, clampShellWidth,
       LANG_OVERRIDES_KEY, LANG_OVERRIDES_MAX, readLangOverrides, writeLangOverrides, readLangOverride, writeLangOverride,
       langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
