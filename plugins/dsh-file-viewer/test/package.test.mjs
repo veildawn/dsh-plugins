@@ -3850,3 +3850,33 @@ test('no hook is declared after an early return in ViewerOverlay', () => {
 
   assert.deepEqual(violations, [], 'hooks must not be declared below if (!open) return in ViewerOverlay')
 })
+
+test('content area toolbar provides a path copy dropdown button for copying relative and absolute paths', () => {
+  const { internals } = loadClient()
+  const source = read('lib/client.js')
+
+  // resolveAbsPath helper
+  assert.equal(typeof internals.resolveAbsPath, 'function')
+  assert.equal(internals.resolveAbsPath('/repo', 'src/app.js'), '/repo/src/app.js')
+  assert.equal(internals.resolveAbsPath('/repo/', 'src/app.js'), '/repo/src/app.js')
+  assert.equal(internals.resolveAbsPath('C:\\repo', 'src\\app.js'), 'C:\\repo\\src\\app.js')
+  assert.equal(internals.resolveAbsPath('C:\\repo\\', 'src/app.js'), 'C:\\repo\\src\\app.js')
+  assert.equal(internals.resolveAbsPath('', 'src/app.js'), 'src/app.js')
+
+  // Dropdown component
+  assert.equal(typeof internals.PathCopyDropdown, 'function')
+
+  // Styles define button, arrow, menu and items
+  assert.match(source, /\.fv-tab\.fv-tab-copy-path\{/)
+  assert.match(source, /\.fv-path-copy-menu\{/)
+  assert.match(source, /\.fv-path-copy-item\{/)
+  assert.match(source, /\.fv-path-copy-item-preview\{/)
+
+  // Render PathCopyDropdown
+  const meta = { path: 'docs/guide.md', displayPath: 'docs/guide.md', name: 'guide.md' }
+  const root = '/workspace/project'
+  const dropdown = internals.PathCopyDropdown({ meta, root, onToast: () => {} })
+
+  assert(dropdown, 'PathCopyDropdown must render')
+  assert.equal(dropdown.props.className, 'fv-path-copy-wrap')
+})

@@ -163,6 +163,21 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function SvgIconCopy({ size = 13 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round", strokeLinejoin: "round",
+        style: { flex: "none" },
+      },
+        react.createElement("rect", {
+          x: "5", y: "5", width: "8.5", height: "8.5", rx: "1.5",
+        }),
+        react.createElement("path", {
+          d: "M3.5 10.5H2.75C2.05964 10.5 1.5 9.94036 1.5 9.25V2.75C1.5 2.05964 2.05964 1.5 2.75 1.5H9.25C9.94036 1.5 10.5 2.05964 10.5 2.75V3.5",
+        })
+      );
+    }
+
     const Component = react.Component || class Component { constructor(props) { this.props = props; this.state = {}; } setState(s) { Object.assign(this.state, typeof s === "function" ? s(this.state) : s); } };
     class ErrorBoundary extends Component {
       constructor(props) {
@@ -557,6 +572,18 @@ window.__ModuleLoader__.load({
       .fv-tab{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
       .fv-tab[aria-selected="true"]{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}
       .fv-tab-diff{display:inline-flex;align-items:center;gap:4px}
+      .fv-path-copy-wrap{position:relative;display:inline-flex;align-items:center}
+      .fv-tab.fv-tab-copy-path{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff));color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;cursor:pointer;user-select:none;transition:all .15s ease}
+      .fv-tab.fv-tab-copy-path:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-l2))}
+      .fv-tab.fv-tab-copy-path[aria-expanded="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-brand-primary,#4d6bfe);border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .fv-tab-copy-path .fv-tab-arrow{font-size:9px;margin-left:2px;opacity:.75}
+      .fv-path-copy-menu{position:absolute;top:calc(100% + 5px);left:0;z-index:60;min-width:210px;max-width:380px;padding:5px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);animation:fv-menu-in .12s cubic-bezier(.2,.8,.2,1)}
+      .fv-path-copy-item{display:flex;flex-direction:column;gap:2px;width:100%;padding:6px 10px;border:none;border-radius:8px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;user-select:none;transition:background-color .12s ease}
+      .fv-path-copy-item:hover{background:var(--dsw-alias-interactive-bg-hover)}
+      .fv-path-copy-item-head{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500}
+      .fv-path-copy-item-icon{flex:none;font-size:13px}
+      .fv-path-copy-item-label{flex:1 1 auto;white-space:nowrap}
+      .fv-path-copy-item-preview{font-size:11px;color:var(--dsw-alias-label-tertiary);font-family:var(--dsw-font-code,monospace);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:21px;line-height:1.35}
       .fv-diff-stat{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;margin-left:2px}
       .fv-diff-add{color:var(--dsw-alias-state-success-primary,#10b981)}
       .fv-diff-del{color:var(--dsw-alias-state-error-primary,#ef4444)}
@@ -3602,6 +3629,102 @@ window.__ModuleLoader__.load({
           : null);
     }
 
+    function resolveAbsPath(rootPath, relPath) {
+      if (!rootPath) return relPath || "";
+      const cleanRel = (relPath || "").replace(/^[\\/]+/, "");
+      if (rootPath.includes("\\")) {
+        return rootPath.replace(/[\\/]+$/, "") + "\\" + cleanRel.replace(/\//g, "\\");
+      }
+      return rootPath.replace(/[\\/]+$/, "") + "/" + cleanRel.replace(/\\/g, "/");
+    }
+
+    /** Path copy dropdown menu on viewer toolbar. */
+    function PathCopyDropdown({ meta, root, onToast }) {
+      const [open, setOpen] = react.useState(false);
+      const containerRef = react.useRef(null);
+
+      react.useEffect(() => {
+        if (!open) return undefined;
+        const handlePointerDown = (e) => {
+          if (containerRef.current && !containerRef.current.contains(e.target)) {
+            setOpen(false);
+          }
+        };
+        const handleKeyDown = (e) => {
+          if (e.key === "Escape") setOpen(false);
+        };
+        window.addEventListener("pointerdown", handlePointerDown);
+        window.addEventListener("keydown", handleKeyDown);
+        return () => {
+          window.removeEventListener("pointerdown", handlePointerDown);
+          window.removeEventListener("keydown", handleKeyDown);
+        };
+      }, [open]);
+
+      if (!meta || (!meta.path && !meta.displayPath)) return null;
+
+      const relPath = meta.displayPath || meta.path || "";
+      const absPath = resolveAbsPath(root, relPath);
+
+      const handleCopy = (e, text, label) => {
+        e.preventDefault();
+        e.stopPropagation();
+        copyToClipboard(text).then((ok) => {
+          if (onToast) onToast(ok ? "已复制" + label : "复制失败");
+          setOpen(false);
+        });
+      };
+
+      return react.createElement("div", {
+        ref: containerRef,
+        className: "fv-path-copy-wrap",
+      },
+        react.createElement("button", {
+          type: "button",
+          className: "fv-tab fv-tab-copy-path",
+          "aria-expanded": open ? "true" : "false",
+          "aria-label": "路径复制",
+          title: "点击选择复制相对路径或绝对路径",
+          onClick: (e) => {
+            e.stopPropagation();
+            setOpen((curr) => !curr);
+          },
+        },
+          react.createElement(SvgIconCopy, { size: 12 }),
+          react.createElement("span", { className: "fv-tab-text" }, "复制路径"),
+          react.createElement("span", { className: "fv-tab-arrow" }, open ? "▴" : "▾")),
+        open
+          ? react.createElement("div", {
+            className: "fv-path-copy-menu",
+            role: "menu",
+            "aria-label": "路径复制选项",
+          },
+            react.createElement("button", {
+              type: "button",
+              className: "fv-path-copy-item",
+              role: "menuitem",
+              title: relPath,
+              onClick: (e) => handleCopy(e, relPath, "相对路径"),
+            },
+              react.createElement("div", { className: "fv-path-copy-item-head" },
+                react.createElement("span", { className: "fv-path-copy-item-icon" }, "📋"),
+                react.createElement("span", { className: "fv-path-copy-item-label" }, "复制相对路径")),
+              react.createElement("span", { className: "fv-path-copy-item-preview" }, relPath)),
+            react.createElement("div", { className: "fv-context-divider" }),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-path-copy-item",
+              role: "menuitem",
+              title: absPath,
+              onClick: (e) => handleCopy(e, absPath, "绝对路径"),
+            },
+              react.createElement("div", { className: "fv-path-copy-item-head" },
+                react.createElement("span", { className: "fv-path-copy-item-icon" }, "📁"),
+                react.createElement("span", { className: "fv-path-copy-item-label" }, "复制绝对路径")),
+              react.createElement("span", { className: "fv-path-copy-item-preview" }, absPath)))
+          : null);
+    }
+
     function apply(ctx) {
       ensureStyles(typeof document === "undefined" ? null : document);
       // `null` is closed; an object is open. Carrying the requesting session lets
@@ -4097,7 +4220,7 @@ window.__ModuleLoader__.load({
 
       /** Line-numbered diff viewer with dual line number gutters. */
       /** Text, Markdown and JSON: one windowed read, three renderings. */
-      function TextView({ meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl }) {
+      function TextView({ meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl, onToast }) {
         // Callers mount this with a per-file key, so paging state starts fresh
         // for every file instead of leaking the previous file's window into the
         // first request.
@@ -4383,11 +4506,16 @@ window.__ModuleLoader__.load({
             : [contentTab, sourceTab, diffTab])].filter((tab) => tab !== null)
           : [];
 
-        const tabs = showTabs || Boolean(backControl || langControl || sizeControl)
+        const copyControl = meta !== null
+          ? react.createElement(PathCopyDropdown, { meta, root, onToast })
+          : null;
+
+        const tabs = showTabs || Boolean(backControl || langControl || sizeControl || copyControl)
           ? react.createElement("div", { className: "fv-sheet-tabs", role: "tablist" },
             react.createElement("div", { className: "fv-sheet-tabs-start" },
               backControl,
-              ...tabButtons),
+              ...tabButtons,
+              copyControl),
             (sizeControl || langControl)
               ? react.createElement("div", { className: "fv-sheet-tabs-end" },
                 sizeControl,
@@ -4459,7 +4587,11 @@ window.__ModuleLoader__.load({
       }
 
       /** Pick the viewer for a file and keep unsupported formats useful. */
-      function FileView({ meta, root, api, wrap, lang, onDownload, commit, repo, loading, backControl, sizeControl, langControl }) {
+      function FileView({ meta, root, api, wrap, lang, onDownload, commit, repo, loading, backControl, sizeControl, langControl, onToast }) {
+        const copyControl = meta !== null
+          ? react.createElement(PathCopyDropdown, { meta, root, onToast })
+          : null;
+
         if (meta === null) {
           // A tab exists but its metadata is still in flight. Saying "pick a
           // file" there would be a lie, and the reader would click again.
@@ -4470,8 +4602,8 @@ window.__ModuleLoader__.load({
         }
         if (meta.tooLarge || meta.kind === "binary") {
           return react.createElement("div", { className: "fv-binary-pane" },
-            backControl ? react.createElement("div", { className: "fv-sheet-tabs", role: "toolbar" },
-              react.createElement("div", { className: "fv-sheet-tabs-start" }, backControl),
+            (backControl || copyControl) ? react.createElement("div", { className: "fv-sheet-tabs", role: "toolbar" },
+              react.createElement("div", { className: "fv-sheet-tabs-start" }, backControl, copyControl),
               sizeControl ? react.createElement("div", { className: "fv-sheet-tabs-end" }, sizeControl) : null) : null,
             react.createElement("div", { className: "fv-note" },
               react.createElement("strong", null, meta.name),
@@ -4506,9 +4638,9 @@ window.__ModuleLoader__.load({
             react.createElement("span", { className: "fv-history-hint" }, "这是历史版本，不是工作区当前内容。"))
           : null;
 
-        const headBar = (backControl || sizeControl)
+        const headBar = (backControl || sizeControl || copyControl)
           ? react.createElement("div", { className: "fv-sheet-tabs", role: "toolbar" },
-            react.createElement("div", { className: "fv-sheet-tabs-start" }, backControl),
+            react.createElement("div", { className: "fv-sheet-tabs-start" }, backControl, copyControl),
             sizeControl ? react.createElement("div", { className: "fv-sheet-tabs-end" }, sizeControl) : null)
           : null;
 
@@ -4526,7 +4658,7 @@ window.__ModuleLoader__.load({
           return react.createElement("div", { className: "fv-content" }, headBar, react.createElement(DocView, { key, meta, root }));
         }
         return react.createElement(react.Fragment, null, banner,
-          react.createElement(TextView, { key, meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl }));
+          react.createElement(TextView, { key, meta, root, wrap, lang, commit, repo, backControl, sizeControl, langControl, onToast }));
       }
 
 
@@ -4562,11 +4694,7 @@ window.__ModuleLoader__.load({
         if (!menu) return null;
         const { x, y, entry } = menu;
         const relPath = entry.displayPath || entry.path;
-        const absPath = rootPath
-          ? (rootPath.includes("\\")
-            ? (rootPath.replace(/[\\/]+$/, "") + "\\" + relPath.replace(/\//g, "\\"))
-            : (rootPath.replace(/[\\/]+$/, "") + "/" + relPath.replace(/\\/g, "/")))
-          : relPath;
+        const absPath = resolveAbsPath(rootPath, relPath);
 
         const handleCopyRel = (e) => {
           e.stopPropagation();
@@ -6250,6 +6378,7 @@ window.__ModuleLoader__.load({
                           backControl,
                           sizeControl,
                           langControl,
+                          onToast: showToast,
                         })
                         : react.createElement(FileView, {
                           meta,
@@ -6268,6 +6397,7 @@ window.__ModuleLoader__.load({
                           backControl,
                           sizeControl,
                           langControl,
+                          onToast: showToast,
                         })))),
             contextMenu !== null
               ? react.createElement(ContextMenu, {
@@ -6606,7 +6736,7 @@ window.__ModuleLoader__.load({
       langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
-      triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconBranch, SvgIconCommit,
+      triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconCopy, PathCopyDropdown, resolveAbsPath, SvgIconBranch, SvgIconCommit,
       // Git panel: controller, views and the small formatters they share.
       GIT_PAGE_SIZE, createGitController, GitSidebar, CommitDetail, WorkspaceChangeDetail, DiffView, kindOfPath,
       formatCommitDate, formatCommitTimestamp,
