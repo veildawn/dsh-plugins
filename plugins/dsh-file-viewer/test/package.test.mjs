@@ -3549,6 +3549,10 @@ test('the outline is only offered for a rendered markdown preview', () => {
   assert.match(source, /host\.scrollTo\(\{ top: host\.scrollTop \+ offset - 8/)
   // And the current section is measured on scroll, not guessed.
   assert.match(source, /if \(elements\[index\]\.getBoundingClientRect\(\)\.top - top <= 24\) current = row\.key;/)
+  // The outline must have higher stacking precedence than code-block sticky headers (z-index: 6),
+  // and content scrolling area must isolate its stacking context.
+  assert.match(source, /\.fv-content\{[^}]*isolation:isolate/)
+  assert.match(source, /\.fv-outline\{[^}]*z-index:10/)
 })
 
 test('the tab strip renders and marks the active tab', () => {

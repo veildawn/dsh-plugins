@@ -483,14 +483,14 @@ window.__ModuleLoader__.load({
       .fv-lang-select{box-sizing:border-box;max-width:132px;height:24px;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:22px;cursor:pointer}
       .fv-lang-select:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-l2))}
       .fv-lang-select:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
-      .fv-content{flex:1 1 auto;min-height:0;overflow:auto;padding:12px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+      .fv-content{flex:1 1 auto;min-height:0;overflow:auto;padding:12px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;isolation:isolate}
       .fv-content>*{max-width:100%}
       /* The Markdown outline: a rail pinned to the reading area's trailing edge.
          The wrapper is the positioning context, so the rail stays put while the
          text inside .fv-content scrolls. */
       .fv-content-wrap{position:relative;flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
       .fv-content-wrap>.fv-content{flex:1 1 auto}
-      .fv-outline{position:absolute;top:8px;right:8px;z-index:5;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-height:calc(100% - 16px);pointer-events:none}
+      .fv-outline{position:absolute;top:8px;right:8px;z-index:10;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-height:calc(100% - 16px);pointer-events:none}
       .fv-outline>*{pointer-events:auto}
       .fv-outline-toggle{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv2,0 2px 8px rgba(0,0,0,.08));color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none;transition:color .12s,background-color .12s}
       .fv-outline-toggle:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
@@ -677,7 +677,7 @@ window.__ModuleLoader__.load({
       .fv-content[data-wrap="on"] div[class*="_line_"]{align-items:flex-start}
       .fv-content[data-wrap="on"] span[class*="_gutter_"]{flex:none;white-space:pre}
       .fv-content[data-wrap="on"] span[class*="_content_"]{min-width:0;flex:1 1 auto;white-space:pre-wrap;overflow-wrap:anywhere}
-      .fv-context-backdrop{position:fixed;inset:0;z-index:99;background:transparent;touch-action:none}
+      .fv-context-backdrop{position:fixed;inset:0;z-index:99;background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;touch-action:none}
       /* 菜单是实底卡片，不吃主题的毛玻璃。
          玻璃主题（glass.css）里有一条规则，给 [role="menu"] 套上
          background:var(--color-menu) 和 backdrop-filter:blur(...)；我们的菜单正好
