@@ -158,3 +158,9 @@ test('文件查看插件的侧边抽屉（.fv-shell）在玻璃主题下使用�
   assert.match(glassCss, /\.fv-shell[^{]*\{[^}]*backdrop-filter:\s*none\s*!important/)
 })
 
+test('Tooltip 气泡在浅色与深色模式下均保持文字高对比度可读', () => {
+  const modalCss = readStyleFile('modal.css')
+  assert.match(modalCss, /html\[data-theme-studio\] span\[class\*="_bubble_"\]/)
+  assert.match(modalCss, /color:\s*var\(--color-foreground,\s*var\(--dsw-alias-label-primary\)\)\s*!important/)
+})
+

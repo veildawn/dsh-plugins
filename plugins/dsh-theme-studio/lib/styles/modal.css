@@ -91,3 +91,17 @@ html[data-theme-studio] [class*="Drawer"] [class*="Handle"] {
   background: var(--color-secondary);
   border-radius: 999px;
 }
+
+/* Tooltip 气泡提示：文字颜色自适应当前主题，浅色模式下使用深色前景，深色模式下使用亮色前景 */
+html[data-theme-studio] span[class*="_bubble_"],
+html[data-theme-studio] [data-portal] span[class*="_bubble_"],
+html[data-theme-studio] [role="tooltip"] {
+  color: var(--color-foreground, var(--dsw-alias-label-primary)) !important;
+  border: 1px solid var(--color-border-hover, var(--dsw-alias-border-l2));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+html[data-theme-studio] span[class*="_bubble_"] span[class*="_label_"],
+html[data-theme-studio] [data-portal] span[class*="_bubble_"] span[class*="_label_"] {
+  color: inherit !important;
+}
