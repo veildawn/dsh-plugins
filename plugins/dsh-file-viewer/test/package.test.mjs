@@ -3863,6 +3863,38 @@ test('content area toolbar provides a path copy dropdown button for copying rela
   assert.equal(internals.resolveAbsPath('C:\\repo\\', 'src/app.js'), 'C:\\repo\\src\\app.js')
   assert.equal(internals.resolveAbsPath('', 'src/app.js'), 'src/app.js')
 
+  // extractRelativeAndAbsolutePaths helper: verifies relative is to workspace and absolute is full path
+  assert.equal(typeof internals.extractRelativeAndAbsolutePaths, 'function')
+  const root = '/workspace/project'
+  // Case 1: content area meta with host absolute displayPath
+  const metaDoc = {
+    path: 'docs/guide.md',
+    displayPath: '/workspace/project/docs/guide.md',
+    name: 'guide.md',
+  }
+  const r1 = internals.extractRelativeAndAbsolutePaths(metaDoc, root)
+  assert.equal(r1.relPath, 'docs/guide.md', 'relative path must be relative to workspace root')
+  assert.equal(r1.absPath, '/workspace/project/docs/guide.md', 'absolute path must be the full file path')
+
+  // Case 2: tree row entry with only relative path
+  const treeEntry = {
+    path: 'README.md',
+    name: 'README.md',
+  }
+  const r2 = internals.extractRelativeAndAbsolutePaths(treeEntry, root)
+  assert.equal(r2.relPath, 'README.md')
+  assert.equal(r2.absPath, '/workspace/project/README.md')
+
+  // Case 3: Windows drive root
+  const winEntry = {
+    path: 'src/index.ts',
+    displayPath: 'D:\\repo\\src\\index.ts',
+    name: 'index.ts',
+  }
+  const r3 = internals.extractRelativeAndAbsolutePaths(winEntry, 'D:\\repo')
+  assert.equal(r3.relPath, 'src/index.ts')
+  assert.equal(r3.absPath, 'D:\\repo\\src\\index.ts')
+
   // Dropdown component
   assert.equal(typeof internals.PathCopyDropdown, 'function')
 
@@ -3873,9 +3905,7 @@ test('content area toolbar provides a path copy dropdown button for copying rela
   assert.match(source, /\.fv-path-copy-item-preview\{/)
 
   // Render PathCopyDropdown
-  const meta = { path: 'docs/guide.md', displayPath: 'docs/guide.md', name: 'guide.md' }
-  const root = '/workspace/project'
-  const dropdown = internals.PathCopyDropdown({ meta, root, onToast: () => {} })
+  const dropdown = internals.PathCopyDropdown({ meta: metaDoc, root, onToast: () => {} })
 
   assert(dropdown, 'PathCopyDropdown must render')
   assert.equal(dropdown.props.className, 'fv-path-copy-wrap')

@@ -3629,13 +3629,48 @@ window.__ModuleLoader__.load({
           : null);
     }
 
+    function isAbsolutePath(p) {
+      if (typeof p !== "string" || p === "") return false;
+      return /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith("/") || p.startsWith("\\\\");
+    }
+
     function resolveAbsPath(rootPath, relPath) {
       if (!rootPath) return relPath || "";
-      const cleanRel = (relPath || "").replace(/^[\\/]+/, "");
+      const cleanRel = (relPath || "").replace(/^\.[\\/]+/, "").replace(/^[\\/]+/, "");
+      if (isAbsolutePath(cleanRel)) return cleanRel;
       if (rootPath.includes("\\")) {
         return rootPath.replace(/[\\/]+$/, "") + "\\" + cleanRel.replace(/\//g, "\\");
       }
       return rootPath.replace(/[\\/]+$/, "") + "/" + cleanRel.replace(/\\/g, "/");
+    }
+
+    function extractRelativeAndAbsolutePaths(item, rootPath) {
+      if (!item) return { relPath: "", absPath: "" };
+      let rel = item.path || "";
+      if (isAbsolutePath(rel)) {
+        // 如果 path 意外传了绝对路径，且位于 rootPath 之下，提取相对路径
+        const normRoot = rootPath ? rootPath.replace(/\\/g, "/").replace(/\/+$/, "") : "";
+        const normRel = rel.replace(/\\/g, "/");
+        if (normRoot && (normRel.toLowerCase().startsWith(normRoot.toLowerCase() + "/") || normRel.startsWith(normRoot + "/"))) {
+          rel = normRel.slice(normRoot.length + 1);
+        }
+      }
+      if (!rel) {
+        rel = item.name || "";
+      }
+      const cleanRel = String(rel).replace(/^\.[\\/]+/, "").replace(/^[\\/]+/, "");
+
+      // 绝对路径：优先考虑真实宿主路径 displayPath，或由 rootPath 与相对路径拼接
+      let abs = "";
+      if (isAbsolutePath(item.displayPath)) {
+        abs = item.displayPath;
+      } else if (isAbsolutePath(item.path)) {
+        abs = item.path;
+      } else {
+        abs = resolveAbsPath(rootPath, cleanRel);
+      }
+
+      return { relPath: cleanRel, absPath: abs };
     }
 
     /** Path copy dropdown menu on viewer toolbar. */
@@ -3661,10 +3696,9 @@ window.__ModuleLoader__.load({
         };
       }, [open]);
 
-      if (!meta || (!meta.path && !meta.displayPath)) return null;
+      if (!meta || (!meta.path && !meta.displayPath && !meta.name)) return null;
 
-      const relPath = meta.displayPath || meta.path || "";
-      const absPath = resolveAbsPath(root, relPath);
+      const { relPath, absPath } = extractRelativeAndAbsolutePaths(meta, root);
 
       const handleCopy = (e, text, label) => {
         e.preventDefault();
@@ -4693,8 +4727,7 @@ window.__ModuleLoader__.load({
 
         if (!menu) return null;
         const { x, y, entry } = menu;
-        const relPath = entry.displayPath || entry.path;
-        const absPath = resolveAbsPath(rootPath, relPath);
+        const { relPath, absPath } = extractRelativeAndAbsolutePaths(entry, rootPath);
 
         const handleCopyRel = (e) => {
           e.stopPropagation();
@@ -6736,7 +6769,7 @@ window.__ModuleLoader__.load({
       langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
-      triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconCopy, PathCopyDropdown, resolveAbsPath, SvgIconBranch, SvgIconCommit,
+      triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconCopy, PathCopyDropdown, resolveAbsPath, extractRelativeAndAbsolutePaths, isAbsolutePath, SvgIconBranch, SvgIconCommit,
       // Git panel: controller, views and the small formatters they share.
       GIT_PAGE_SIZE, createGitController, GitSidebar, CommitDetail, WorkspaceChangeDetail, DiffView, kindOfPath,
       formatCommitDate, formatCommitTimestamp,
