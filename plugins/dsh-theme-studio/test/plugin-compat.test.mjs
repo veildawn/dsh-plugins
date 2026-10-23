@@ -152,9 +152,9 @@ test('文件查看插件的右键菜单背景层（.fv-context-backdrop）保持
   )
 })
 
-test('文件查看插件的侧边抽屉（.fv-shell）在玻璃主题下使用厚重防穿透材质', () => {
+test('文件查看插件的侧边抽屉（.fv-shell）在玻璃主题下使用厚重防穿透材质且禁用模糊以保护右键菜单定位', () => {
   const glassCss = readStyleFile('glass.css')
   assert.match(glassCss, /\.fv-shell[^{]*\{[^}]*background:\s*var\(--color-drawer\)\s*!important/)
-  assert.match(glassCss, /\.fv-shell[^{]*\{[^}]*backdrop-filter:\s*blur/)
+  assert.match(glassCss, /\.fv-shell[^{]*\{[^}]*backdrop-filter:\s*none\s*!important/)
 })
 

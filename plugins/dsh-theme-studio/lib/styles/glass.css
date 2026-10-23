@@ -250,13 +250,26 @@ html[data-theme-studio="glass-color"] .fv-modal {
 }
 
 /* ---------------------------------------------------------------------------
-   四点一、大面板与抽屉：厚重防穿透毛玻璃
+   四点一、大面板与抽屉：厚重防穿透材质
    ---------------------------------------------------------------------------
    文件查看器（.fv-shell）、终端抽屉等侧边大面板滑出在主会话长文与代码流之上。
-   若透明度过高或缺少毛玻璃模糊，底层的高对比对话文字会清晰穿透造成视错觉与阅读障碍。
-   因此使用厚重材质：94%~95% 高不透明度底色 + 强力模糊（blur 1.8x）+ 左缘高光微光 + 侧边纵深投影。 */
-:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .fv-shell,
-:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [class*="drawer"]:not([class*="handle"]):not([class*="btn"]) {
+   若透明度过高，底层的高对比对话文字会清晰穿透造成视错觉与阅读障碍。
+   因此使用厚重材质：94%~95% 高不透明度底色 + 左缘高光微光 + 侧边纵深投影。
+   注意：.fv-shell 抽屉内部包含右键菜单与标签操作等 fixed 浮层，绝对不可声明非 none 的
+   backdrop-filter，否则会触发 CSS 规范中 backdrop-filter 创建 fixed 包含块特性，
+   导致右键菜单与弹窗定位基准错位飘移。 */
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) .fv-shell {
+  background: var(--color-drawer) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border-left: 1px solid var(--ts-glass-edge) !important;
+  box-shadow:
+    inset 1px 0 0 var(--ts-glass-highlight),
+    -16px 0 48px rgba(0, 0, 0, 0.36),
+    var(--dsw-shadow-lv3) !important;
+}
+
+:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) [class*="drawer"]:not([class*="handle"]):not([class*="btn"]):not(.fv-shell) {
   background: var(--color-drawer) !important;
   -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 1.8)) saturate(var(--ts-saturate)) !important;
   backdrop-filter: blur(calc(var(--ts-blur) * 1.8)) saturate(var(--ts-saturate)) !important;
