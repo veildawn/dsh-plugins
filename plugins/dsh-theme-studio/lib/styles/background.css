@@ -142,11 +142,31 @@ html[data-ts-bg] [class*="_terminal"] {
 
    这里把模糊降到 8px：足以柔化照片让上层文字保持可读，又保留照片的可辨识度。
    这是「用户明确选择了自己的图」时的合理让步——主题的材质不该压过用户的素材。
-   饱和度同样收窄（280% 会把照片推到失真的艳丽）。 */
-html[data-ts-bg][data-theme-studio="glass"] .pI_x6G_centerCol,
-html[data-ts-bg][data-theme-studio="glass"] ._LS25G_centerCol,
-html[data-ts-bg][data-theme-studio="glass-color"] .pI_x6G_centerCol,
-html[data-ts-bg][data-theme-studio="glass-color"] ._LS25G_centerCol {
+   饱和度同样收窄（280% 会把照片推到失真的艳丽）。
+
+   ## 为什么改到 ::before 上
+
+   与 glass.css 的侧栏同理：`backdrop-filter` 会把元素变成后代 `position: fixed`
+   的包含块，而 `.centerCol` 是 `conversation.input.*` 等槽位的宿主，文件查看器
+   `.fv-modal-scrim`、历史记录浮层都挂在这里。材质留在本体上，用户一设背景图，
+   那些全屏浮层就重新缩进会话区、再被 `overflow: hidden` 裁掉。
+   材质下沉到 ::before 后，本体的 `background` 仍按上面的 38% 规则走，
+   两者互不干扰。 */
+html[data-ts-bg][data-theme-studio="glass"] .pI_x6G_centerCol::before,
+html[data-ts-bg][data-theme-studio="glass"] ._LS25G_centerCol::before,
+html[data-ts-bg][data-theme-studio="glass-color"] .pI_x6G_centerCol::before,
+html[data-ts-bg][data-theme-studio="glass-color"] ._LS25G_centerCol::before,
+/* 极光主题同样要让位：它的 ::before 铺的是 38% 主区底色（`--ts-canvas-alpha`），
+   与本体那条 38% 规则叠加会把照片冲淡；且极光自带的光斑层已被
+   `aurora.css` 在 `html[data-ts-bg]` 下整体隐藏，这里只处理剩下的模糊层。 */
+html[data-ts-bg][data-theme-studio="aurora"] .pI_x6G_centerCol::before,
+html[data-ts-bg][data-theme-studio="aurora"] ._LS25G_centerCol::before {
+  /* 底色归零，只留模糊。
+     glass.css 给 ::before 铺的是 `var(--color-background)`（玻璃下是 82% 不透明），
+     而本文件已在 `centerCol` 本体写了 38% 的让位底色。两层叠加会把用户照片
+     冲成一片灰白（实测背景图几乎消失）。用户设了背景图时，底色一律由本体那条
+     38% 规则承担，伪元素只负责它独占的职责——模糊，且是降档后的 8px。 */
+  background: none;
   -webkit-backdrop-filter: blur(8px) saturate(120%);
   backdrop-filter: blur(8px) saturate(120%);
 }

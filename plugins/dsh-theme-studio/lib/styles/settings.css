@@ -1,0 +1,1483 @@
+/* ============================================================================
+   settings.css —— 宿主设置页与系统浮层的组件级覆盖（所有主题共用）
+
+   职责：接管 DeepSeek Harness（Web / Desktop）全部设置页面与系统级组件——
+   设置弹窗（左导航 + 右内容）、外观设置、模型管理、账户区、插件与插件清单、
+   子代理、网络搜索、会话日志、命令审批浮层、`/` 命令面板、`@` 引用菜单、
+   模型选择器与权限预设下拉——让 zcode / zcode-mono / glass / glass-color /
+   aurora 五款主题都能完整接管它们。
+
+   为什么需要这份样式表：宿主设置页的大部分表面读 `--dsw-alias-*` Token，
+   主题在 tokens.js 里已把整套别名映射到 `--color-*`；但其中不少组件
+   （设置弹窗的左导航、模型管理的卡片与字号步进器、命令面板的激活行……）
+   在各自的 CSS Modules 里**自绘**了卡片底色、描边与状态色，Token 映射管不到
+   它们。没有这一层，结果就是「会话区已经换上主题，设置页还是原生灰」的
+   观感断裂。这份样式表逐模块把自绘表面收敛回 `--color-*` 语义色。
+
+   约定（与 test/host-selectors.test.mjs 对齐）：
+   - 所有规则以 `html[data-theme-studio]` 开头，不写具体主题值——五款主题共用；
+   - 只用 `--color-*` / `--dsw-*` / `--ts-*` 变量，不写死色值；
+   - 每个宿主 CSS Modules 类名同时写 Web 与桌面两套哈希
+     （对照仓库根 test/fixtures/host-classes.json 的 modules 段）；
+   - 只覆盖视觉（背景 / 边框 / 颜色 / 圆角 / 阴影 / 描边），不动布局尺寸；
+   - 不写 @keyframes / animation（那是 aurora.css 动效层的职责）；
+   - 禁用态由 states.css 统一处理（只降 opacity + pointer-events:none），
+     这里不再改写禁用色。
+   ============================================================================ */
+
+/* ---------------------------------------------------------------------------
+   一、宿主通用表单控件（settings-* 各页与系统浮层共用）
+   ---------------------------------------------------------------------------
+   宿主原生 input/select/textarea 自带灰底灰边，先在这一层统一接管，
+   各模块再按需追加。一律包 :where() 压低特异性，避免盖过社区插件自写的
+   单类规则（见 host-selectors.test.mjs 的特异性护栏）。 */
+html[data-theme-studio] :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):hover {
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
+  border-color: var(--color-input-border-focused);
+}
+
+/* 占位符压到最弱一级前景 */
+html[data-theme-studio] :where(input, textarea)::placeholder {
+  color: var(--color-foreground-subtlest);
+}
+
+/* 原生 select 的下拉列表只认系统色，把 option 表面指到主题菜单色 */
+html[data-theme-studio] :where(select) :where(option) {
+  background: var(--color-menu);
+  color: var(--color-foreground);
+}
+
+/* 勾选控件用主题主色上墨 */
+html[data-theme-studio] :where(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--color-primary);
+}
+
+/* 开关轨道：关闭态 input 底、开启态主色；拇指色由模块级规则
+   （如模型管理页的 switchThumb）走 --dsw-alias-switch-thumb。 */
+html[data-theme-studio] :where([role="switch"]) {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+}
+
+html[data-theme-studio] :where([role="switch"][aria-checked="true"]) {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* ---------------------------------------------------------------------------
+   二、settings-general / SettingsRoot.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：设置弹窗根（头像 → 设置，或快捷键呼出），左侧导航 + 右侧内容。
+   overlay 是定位容器不动视觉；mask 遮罩已由 modal.css 统一接管
+   （半透明黑 + 磨砂）；railRow / navList / hiddenLabel 是纯结构件，
+   视觉由 rail / nav / navCell 承担。 */
+
+/* 弹窗外壳 */
+html[data-theme-studio] .VOzbGW_panel,
+html[data-theme-studio] ._97McFa_panel {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-lg);
+  box-shadow: var(--dsw-elevation-prominent);
+  color: var(--color-foreground);
+}
+
+/* 左侧导航栏：比内容区低一档的 panel 底，右缘分隔线 */
+html[data-theme-studio] .VOzbGW_rail,
+html[data-theme-studio] ._97McFa_rail {
+  background: var(--color-panel);
+  border-right: 1px solid var(--color-border);
+}
+
+html[data-theme-studio] .VOzbGW_nav,
+html[data-theme-studio] ._97McFa_nav {
+  background: var(--color-panel);
+}
+
+/* 导航项：默认次级前景，悬停 surface-hover；
+   激活项再加左侧 2px 主色指示条（inset 阴影实现，不占布局）。
+
+   **必须显式写 `background: transparent`**：这些导航项是 `<button>`，
+   浏览器给 button 的默认底色（灰）会透出来——只写 color 不写 background 时，
+   未选中项在真实界面上是一块浏览器灰，与主题完全不搭（实测确认）。 */
+html[data-theme-studio] .VOzbGW_navCell,
+html[data-theme-studio] ._97McFa_navCell {
+  background: transparent;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground-subtle);
+  font-family: var(--dsw-font-family);
+}
+
+html[data-theme-studio] .VOzbGW_navCell:hover,
+html[data-theme-studio] ._97McFa_navCell:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .VOzbGW_navCell.VOzbGW_active,
+html[data-theme-studio] ._97McFa_navCell._97McFa_active {
+  background: var(--color-surface-hover);
+  box-shadow: inset 2px 0 0 var(--color-primary);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .VOzbGW_navIcon,
+html[data-theme-studio] ._97McFa_navIcon {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .VOzbGW_navCell.VOzbGW_active .VOzbGW_navIcon,
+html[data-theme-studio] ._97McFa_navCell._97McFa_active ._97McFa_navIcon {
+  color: var(--color-primary);
+}
+
+/* navLabel 文字色随 navCell，不单独覆写；分组标题压到最弱前景 */
+html[data-theme-studio] .VOzbGW_navTitle,
+html[data-theme-studio] ._97McFa_navTitle {
+  color: var(--color-foreground-subtlest);
+}
+
+/* 右侧内容区（玻璃主题下由 glass.css 再透明化，透出弹窗毛玻璃底） */
+html[data-theme-studio] .VOzbGW_content,
+html[data-theme-studio] ._97McFa_content {
+  background: var(--color-card);
+  color: var(--color-foreground);
+}
+
+/* 头部与底部操作区的分隔线 */
+html[data-theme-studio] .VOzbGW_header,
+html[data-theme-studio] ._97McFa_header {
+  border-bottom: 1px solid var(--color-border);
+}
+
+html[data-theme-studio] .VOzbGW_close,
+html[data-theme-studio] ._97McFa_close {
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .VOzbGW_close:hover,
+html[data-theme-studio] ._97McFa_close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .VOzbGW_actions,
+html[data-theme-studio] ._97McFa_actions {
+  border-top: 1px solid var(--color-border);
+}
+
+/* 选项区容器：不铺底色，让 content 底色统一透出 */
+html[data-theme-studio] .VOzbGW_options,
+html[data-theme-studio] ._97McFa_options {
+  background: transparent;
+  color: var(--color-foreground);
+}
+
+/* 触发器行（主题 / 语言等选择）：触发器给输入框风格 */
+html[data-theme-studio] .VOzbGW_triggerRow,
+html[data-theme-studio] ._97McFa_triggerRow {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .VOzbGW_trigger,
+html[data-theme-studio] ._97McFa_trigger {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .VOzbGW_trigger:hover,
+html[data-theme-studio] ._97McFa_trigger:hover {
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] .VOzbGW_triggerLabel,
+html[data-theme-studio] ._97McFa_triggerLabel {
+  color: var(--color-foreground);
+}
+
+/* ---------------------------------------------------------------------------
+   三、theme / AppearanceRow.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：设置 → 通用 → 外观，主题预览立方体选择器。
+   选中态用主色描边 + 一圈主色光晕。 */
+html[data-theme-studio] ._8HJdBW_themeCube,
+html[data-theme-studio] .z7ZUZq_themeCube {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-md);
+}
+
+html[data-theme-studio] ._8HJdBW_themeCube:hover,
+html[data-theme-studio] .z7ZUZq_themeCube:hover {
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] ._8HJdBW_themeCube._8HJdBW_selected,
+html[data-theme-studio] .z7ZUZq_themeCube.z7ZUZq_selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+html[data-theme-studio] ._8HJdBW_title,
+html[data-theme-studio] .z7ZUZq_title {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] ._8HJdBW_group,
+html[data-theme-studio] .z7ZUZq_group {
+  color: var(--color-foreground-subtle);
+}
+
+/* ---------------------------------------------------------------------------
+   四、theme / FontSizeRow.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：设置 → 通用 → 外观，字号步进器（± 箭头 + 数值）。
+   FontSettingsGroup.module.css 的映射表是 i18n 文案而非类名，
+   无选择器可引，跳过。 */
+html[data-theme-studio] .bVCLcG_stepper,
+html[data-theme-studio] .p9miCq_stepper,
+html[data-theme-studio] .bVCLcG_control,
+html[data-theme-studio] .p9miCq_control {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+}
+
+html[data-theme-studio] .bVCLcG_arrow,
+html[data-theme-studio] .p9miCq_arrow {
+  border-radius: var(--dsw-radius-xs);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .bVCLcG_arrow:hover,
+html[data-theme-studio] .p9miCq_arrow:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .bVCLcG_value,
+html[data-theme-studio] .p9miCq_value,
+html[data-theme-studio] .bVCLcG_title,
+html[data-theme-studio] .p9miCq_title {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .bVCLcG_unit,
+html[data-theme-studio] .p9miCq_unit,
+html[data-theme-studio] .bVCLcG_desc,
+html[data-theme-studio] .p9miCq_desc {
+  color: var(--color-foreground-subtle);
+}
+
+/* ---------------------------------------------------------------------------
+   五、settings-models / ModelsSection.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：设置 → 模型，供应商/模型卡片列表 + 添加卡 + 编辑面板。
+   rows / modelRow 是列表结构件，视觉由 rowCard 承担。 */
+
+/* 卡片家族：模型行卡、编辑面板、初始化引导卡
+   （注意：ModelsSection 没有裸 card 部件，卡片视觉由 rowCard 承担） */
+html[data-theme-studio] .zGbnIq_rowCard,
+html[data-theme-studio] .HrU_ra_rowCard,
+html[data-theme-studio] .zGbnIq_setupCard,
+html[data-theme-studio] .HrU_ra_setupCard,
+html[data-theme-studio] .zGbnIq_editor,
+html[data-theme-studio] .HrU_ra_editor {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-md);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .zGbnIq_rowCard:hover,
+html[data-theme-studio] .HrU_ra_rowCard:hover {
+  border-color: var(--color-border-hover);
+}
+
+/* 添加卡：虚线描边 + 空底，可感知的大点击区域 */
+html[data-theme-studio] .zGbnIq_addCard,
+html[data-theme-studio] .HrU_ra_addCard {
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--dsw-radius-md);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .zGbnIq_addCard:hover,
+html[data-theme-studio] .HrU_ra_addCard:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .zGbnIq_addButton,
+html[data-theme-studio] .HrU_ra_addButton {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-primary-foreground);
+}
+
+/* 字段标签与输入框 */
+html[data-theme-studio] .zGbnIq_fieldLabel,
+html[data-theme-studio] .HrU_ra_fieldLabel {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .zGbnIq_input,
+html[data-theme-studio] .HrU_ra_input,
+html[data-theme-studio] .zGbnIq_keyInput,
+html[data-theme-studio] .HrU_ra_keyInput,
+html[data-theme-studio] .zGbnIq_selectInput,
+html[data-theme-studio] .HrU_ra_selectInput {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .zGbnIq_input:focus,
+html[data-theme-studio] .HrU_ra_input:focus,
+html[data-theme-studio] .zGbnIq_keyInput:focus,
+html[data-theme-studio] .HrU_ra_keyInput:focus,
+html[data-theme-studio] .zGbnIq_selectInput:focus,
+html[data-theme-studio] .HrU_ra_selectInput:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+/* 按钮三态：主按钮品牌色、次级按钮 input 底、危险按钮 destructive 系 */
+html[data-theme-studio] .zGbnIq_primaryButton,
+html[data-theme-studio] .HrU_ra_primaryButton {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .zGbnIq_primaryButton:hover,
+html[data-theme-studio] .HrU_ra_primaryButton:hover {
+  box-shadow: var(--dsw-shadow-lv1);
+}
+
+html[data-theme-studio] .zGbnIq_primaryButton:active,
+html[data-theme-studio] .HrU_ra_primaryButton:active {
+  transform: scale(0.98);
+}
+
+html[data-theme-studio] .zGbnIq_secondaryButton,
+html[data-theme-studio] .HrU_ra_secondaryButton {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .zGbnIq_secondaryButton:hover,
+html[data-theme-studio] .HrU_ra_secondaryButton:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] .zGbnIq_dangerButton,
+html[data-theme-studio] .HrU_ra_dangerButton {
+  background: var(--color-destructive);
+  border: 1px solid var(--color-destructive);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-destructive-foreground);
+}
+
+html[data-theme-studio] .zGbnIq_dangerButton:active,
+html[data-theme-studio] .HrU_ra_dangerButton:active {
+  transform: scale(0.98);
+}
+
+/* 开关拇指：走宿主开关拇指别名（tokens.js 已映射到主题前景） */
+html[data-theme-studio] .zGbnIq_switchThumb,
+html[data-theme-studio] .HrU_ra_switchThumb {
+  background: var(--dsw-alias-switch-thumb);
+}
+
+/* 提示条与「已保存」回执 */
+html[data-theme-studio] .zGbnIq_notice,
+html[data-theme-studio] .HrU_ra_notice {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .zGbnIq_savedNotice,
+html[data-theme-studio] .HrU_ra_savedNotice {
+  background: var(--color-success-surface);
+  border: 1px solid var(--color-success);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-success-surface-foreground);
+}
+
+/* 凭据配置状态圆点：已配置 success、未配置最弱前景 */
+html[data-theme-studio] .zGbnIq_credentialDotConfigured,
+html[data-theme-studio] .HrU_ra_credentialDotConfigured {
+  background: var(--color-success);
+}
+
+html[data-theme-studio] .zGbnIq_credentialDot,
+html[data-theme-studio] .HrU_ra_credentialDot,
+html[data-theme-studio] .zGbnIq_credentialDotMissing,
+html[data-theme-studio] .HrU_ra_credentialDotMissing {
+  background: var(--color-foreground-subtlest);
+}
+
+/* ---------------------------------------------------------------------------
+   六、settings-account / AccountSection + AccountMenu + AccountNotice
+   ---------------------------------------------------------------------------
+   宿主界面：设置 → 账户（资料卡、余额卡、头像菜单触发器、账户公告条）。 */
+html[data-theme-studio] .LcmJYa_card,
+html[data-theme-studio] .QwMgFa_card,
+html[data-theme-studio] .LcmJYa_balanceCard,
+html[data-theme-studio] .QwMgFa_balanceCard {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-md);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .LcmJYa_avatar,
+html[data-theme-studio] .QwMgFa_avatar,
+html[data-theme-studio] .yHnPSG_avatar,
+html[data-theme-studio] .rCM3fq_avatar {
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-pill);
+}
+
+html[data-theme-studio] .LcmJYa_name,
+html[data-theme-studio] .QwMgFa_name,
+html[data-theme-studio] .LcmJYa_amount,
+html[data-theme-studio] .QwMgFa_amount {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .LcmJYa_status,
+html[data-theme-studio] .QwMgFa_status,
+html[data-theme-studio] .LcmJYa_identityCopy,
+html[data-theme-studio] .QwMgFa_identityCopy {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .LcmJYa_divider,
+html[data-theme-studio] .QwMgFa_divider {
+  background: var(--color-border);
+}
+
+html[data-theme-studio] .LcmJYa_primary,
+html[data-theme-studio] .QwMgFa_primary,
+html[data-theme-studio] .LcmJYa_signInButton,
+html[data-theme-studio] .QwMgFa_signInButton {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .LcmJYa_secondary,
+html[data-theme-studio] .QwMgFa_secondary {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+/* 头像菜单触发器与未登录下拉 */
+html[data-theme-studio] .yHnPSG_trigger,
+html[data-theme-studio] .rCM3fq_trigger {
+  border-radius: var(--dsw-radius-pill);
+}
+
+html[data-theme-studio] .yHnPSG_trigger:hover,
+html[data-theme-studio] .rCM3fq_trigger:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .yHnPSG_signedOutMenu,
+html[data-theme-studio] .rCM3fq_signedOutMenu {
+  background: var(--color-menu);
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--dsw-radius-md);
+  box-shadow: var(--dsw-elevation-panel);
+}
+
+/* 账户公告条 */
+html[data-theme-studio] .zwW4-W_card,
+html[data-theme-studio] .HG_vPG_card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-md);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .zwW4-W_icon,
+html[data-theme-studio] .HG_vPG_icon {
+  color: var(--color-brand);
+}
+
+html[data-theme-studio] .zwW4-W_title,
+html[data-theme-studio] .HG_vPG_title {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .zwW4-W_copy,
+html[data-theme-studio] .HG_vPG_copy {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .zwW4-W_close,
+html[data-theme-studio] .HG_vPG_close {
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .zwW4-W_close:hover,
+html[data-theme-studio] .HG_vPG_close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+}
+
+/* ---------------------------------------------------------------------------
+   七、settings-plugins / PluginsSettingsSection.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：设置 → 插件，顶部页签 + 插件卡片网格。
+   panel / section / cards 是结构容器，视觉由页签与卡片承担。 */
+html[data-theme-studio] .pbvGtq_tabs,
+html[data-theme-studio] .Q4im7G_tabs {
+  border-bottom: 1px solid var(--color-border);
+}
+
+html[data-theme-studio] .pbvGtq_tab,
+html[data-theme-studio] .Q4im7G_tab {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .pbvGtq_tab:hover,
+html[data-theme-studio] .Q4im7G_tab:hover {
+  color: var(--color-foreground);
+}
+
+/* 激活页签：主色下划指示（inset 阴影实现，不占布局） */
+html[data-theme-studio] .pbvGtq_tab[aria-selected="true"],
+html[data-theme-studio] .Q4im7G_tab[aria-selected="true"] {
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .pbvGtq_heading,
+html[data-theme-studio] .Q4im7G_heading {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .pbvGtq_intro,
+html[data-theme-studio] .Q4im7G_intro {
+  color: var(--color-foreground-subtle);
+}
+
+/* 空态：虚线描边的占位卡 */
+html[data-theme-studio] .pbvGtq_empty,
+html[data-theme-studio] .Q4im7G_empty {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--dsw-radius-md);
+  color: var(--color-foreground-subtle);
+}
+
+/* ---------------------------------------------------------------------------
+   八、settings-plugin-inventory / PluginInventorySettingsTab.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：设置 → 插件 → 插件清单页（搜索框、分组标题、插件条目卡、状态点）。 */
+html[data-theme-studio] .qSYn7G_card,
+html[data-theme-studio] .EwNRFq_card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-md);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .qSYn7G_card:hover,
+html[data-theme-studio] .EwNRFq_card:hover {
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] .qSYn7G_cardTitle,
+html[data-theme-studio] .EwNRFq_cardTitle {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .qSYn7G_cardDescription,
+html[data-theme-studio] .EwNRFq_cardDescription,
+html[data-theme-studio] .qSYn7G_cardMeta,
+html[data-theme-studio] .EwNRFq_cardMeta {
+  color: var(--color-foreground-subtle);
+}
+
+/* 搜索框可能是容器（内部套 input），聚焦态用 :focus-within 兜底 */
+html[data-theme-studio] .qSYn7G_search,
+html[data-theme-studio] .EwNRFq_search {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .qSYn7G_search:focus-within,
+html[data-theme-studio] .EwNRFq_search:focus-within {
+  border-color: var(--color-input-border-focused);
+}
+
+html[data-theme-studio] .qSYn7G_groupTitle,
+html[data-theme-studio] .EwNRFq_groupTitle,
+html[data-theme-studio] .qSYn7G_status,
+html[data-theme-studio] .EwNRFq_status,
+html[data-theme-studio] .qSYn7G_statusWithDot,
+html[data-theme-studio] .EwNRFq_statusWithDot {
+  color: var(--color-foreground-subtle);
+}
+
+/* 阶段圆点：就绪语义统一用 success */
+html[data-theme-studio] .qSYn7G_phaseDot,
+html[data-theme-studio] .EwNRFq_phaseDot {
+  background: var(--color-success);
+}
+
+/* 视图切换器 */
+html[data-theme-studio] .qSYn7G_switcher,
+html[data-theme-studio] .EwNRFq_switcher {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground-subtle);
+}
+
+/* ---------------------------------------------------------------------------
+   九、settings-subagent / 三个模块
+   ---------------------------------------------------------------------------
+   宿主界面：设置 → 子代理（SubagentCard 卡片、SubagentLimitsFields 深度
+   限制表、SubagentModelSelectionFields 模型路由与冲突提示）。 */
+html[data-theme-studio] .AZSXYW_section,
+html[data-theme-studio] .B8w8gG_section {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-md);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .AZSXYW_heading,
+html[data-theme-studio] .B8w8gG_heading {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .hF0LTq_depthTable,
+html[data-theme-studio] .L8bz4W_depthTable {
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+}
+
+html[data-theme-studio] .hF0LTq_limit,
+html[data-theme-studio] .L8bz4W_limit {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .UPHdGa_notice,
+html[data-theme-studio] .JOXEia_notice {
+  background: var(--color-surface);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .UPHdGa_hint,
+html[data-theme-studio] .JOXEia_hint,
+html[data-theme-studio] .UPHdGa_unavailable,
+html[data-theme-studio] .JOXEia_unavailable {
+  color: var(--color-foreground-subtlest);
+}
+
+html[data-theme-studio] .UPHdGa_conflict,
+html[data-theme-studio] .JOXEia_conflict,
+html[data-theme-studio] .UPHdGa_invalid,
+html[data-theme-studio] .JOXEia_invalid,
+html[data-theme-studio] .UPHdGa_catalogError,
+html[data-theme-studio] .JOXEia_catalogError {
+  color: var(--color-destructive);
+}
+
+html[data-theme-studio] .UPHdGa_toggleRow,
+html[data-theme-studio] .JOXEia_toggleRow {
+  color: var(--color-foreground);
+}
+
+/* ---------------------------------------------------------------------------
+   十、settings-web-search / WebSearchCard + settings-session-log / UploadRow
+   ---------------------------------------------------------------------------
+   宿主界面：设置 → 网络搜索（功能卡 + 开关行）、设置 → 会话日志（上传行）。 */
+html[data-theme-studio] .ebPkbG_feature,
+html[data-theme-studio] .b_T_Rq_feature {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-md);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .ebPkbG_toggleRow,
+html[data-theme-studio] .b_T_Rq_toggleRow {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .ebPkbG_hint,
+html[data-theme-studio] .b_T_Rq_hint {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .ebPkbG_link,
+html[data-theme-studio] .b_T_Rq_link {
+  color: var(--color-brand);
+}
+
+html[data-theme-studio] .gi5gtW_row,
+html[data-theme-studio] .KjEMTG_row {
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .gi5gtW_title,
+html[data-theme-studio] .KjEMTG_title {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .gi5gtW_description,
+html[data-theme-studio] .KjEMTG_description {
+  color: var(--color-foreground-subtle);
+}
+
+/* ---------------------------------------------------------------------------
+   十一、approval / ApprovalPanel.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：命令审批浮层（工具执行前的人工确认卡片）。
+   root 是定位容器、body 是内容容器，视觉由 card 承担。 */
+html[data-theme-studio] .mna1RW_card,
+html[data-theme-studio] .SyEXMW_card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-md);
+  box-shadow: var(--dsw-elevation-panel);
+  color: var(--color-foreground);
+}
+
+/* 顶部警示色条：审批是警告语义 */
+html[data-theme-studio] .mna1RW_strip,
+html[data-theme-studio] .SyEXMW_strip {
+  background: var(--color-warning);
+}
+
+html[data-theme-studio] .mna1RW_headline,
+html[data-theme-studio] .SyEXMW_headline {
+  color: var(--color-foreground);
+}
+
+/* 待审批命令：等宽字体 + 凹陷表面 */
+html[data-theme-studio] .mna1RW_command,
+html[data-theme-studio] .SyEXMW_command {
+  background: var(--color-surface);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+  font-family: var(--dsw-font-family-mono);
+}
+
+html[data-theme-studio] .mna1RW_actionRow,
+html[data-theme-studio] .SyEXMW_actionRow {
+  border-top: 1px solid var(--color-border);
+}
+
+/* 拒绝按钮：destructive 系 */
+html[data-theme-studio] .mna1RW_reject,
+html[data-theme-studio] .SyEXMW_reject {
+  background: var(--color-destructive);
+  border: 1px solid var(--color-destructive);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-destructive-foreground);
+}
+
+html[data-theme-studio] .mna1RW_reject:active,
+html[data-theme-studio] .SyEXMW_reject:active {
+  transform: scale(0.98);
+}
+
+/* ---------------------------------------------------------------------------
+   十二、commands / PopupSelectView.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：输入框键入 `/` 呼出的命令弹出面板。
+   viewport 是滚动区，不套视觉外框。 */
+html[data-theme-studio] .mufS8W_card,
+html[data-theme-studio] .A3dMJa_card {
+  background: var(--color-menu);
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--dsw-radius-md);
+  box-shadow: var(--dsw-elevation-panel);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .mufS8W_search,
+html[data-theme-studio] .A3dMJa_search {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .mufS8W_row,
+html[data-theme-studio] .A3dMJa_row {
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .mufS8W_row:hover,
+html[data-theme-studio] .A3dMJa_row:hover {
+  background: var(--color-surface-hover);
+}
+
+/* 键盘选中行：surface-hover 底 + 左侧 2px 主色指示条 */
+html[data-theme-studio] .mufS8W_row.mufS8W_rowActive,
+html[data-theme-studio] .A3dMJa_row.A3dMJa_rowActive {
+  background: var(--color-surface-hover);
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}
+
+html[data-theme-studio] .mufS8W_badge,
+html[data-theme-studio] .A3dMJa_badge {
+  background: var(--color-secondary);
+  border-radius: var(--dsw-radius-xs);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .mufS8W_detail,
+html[data-theme-studio] .A3dMJa_detail,
+html[data-theme-studio] .mufS8W_status,
+html[data-theme-studio] .A3dMJa_status {
+  color: var(--color-foreground-subtle);
+}
+
+/* ---------------------------------------------------------------------------
+   十三、input-trigger / MenuView.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：输入框键入 `@` 呼出的引用菜单（分组条目、面包屑、可下钻）。
+   viewport 是滚动区，不套视觉外框。 */
+html[data-theme-studio] ._3e4SsG_menu,
+html[data-theme-studio] .ODvoVa_menu {
+  background: var(--color-menu);
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--dsw-radius-md);
+  box-shadow: var(--dsw-elevation-panel);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] ._3e4SsG_sectionTitle,
+html[data-theme-studio] .ODvoVa_sectionTitle,
+html[data-theme-studio] ._3e4SsG_groupTitle,
+html[data-theme-studio] .ODvoVa_groupTitle {
+  color: var(--color-foreground-subtlest);
+}
+
+html[data-theme-studio] ._3e4SsG_item,
+html[data-theme-studio] .ODvoVa_item {
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] ._3e4SsG_item:hover,
+html[data-theme-studio] .ODvoVa_item:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] ._3e4SsG_item._3e4SsG_active,
+html[data-theme-studio] .ODvoVa_item.ODvoVa_active {
+  background: var(--color-surface-hover);
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}
+
+html[data-theme-studio] ._3e4SsG_itemIcon,
+html[data-theme-studio] .ODvoVa_itemIcon {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] ._3e4SsG_itemName,
+html[data-theme-studio] .ODvoVa_itemName {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] ._3e4SsG_itemDescription,
+html[data-theme-studio] .ODvoVa_itemDescription,
+html[data-theme-studio] ._3e4SsG_itemAlias,
+html[data-theme-studio] .ODvoVa_itemAlias {
+  color: var(--color-foreground-subtlest);
+}
+
+/* 面包屑：历史级次级前景、当前级主前景 */
+html[data-theme-studio] ._3e4SsG_crumb,
+html[data-theme-studio] .ODvoVa_crumb {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] ._3e4SsG_crumbCurrent,
+html[data-theme-studio] .ODvoVa_crumbCurrent {
+  color: var(--color-foreground);
+}
+
+/* 下钻入口与底部提示条 */
+html[data-theme-studio] ._3e4SsG_drill,
+html[data-theme-studio] .ODvoVa_drill {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] ._3e4SsG_drillHint,
+html[data-theme-studio] .ODvoVa_drillHint {
+  border-top: 1px solid var(--color-border);
+  color: var(--color-foreground-subtlest);
+}
+
+/* ---------------------------------------------------------------------------
+   十四、model-selection / ModelSelect.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：输入卡与设置页里的模型 / 思考强度选择器。
+   触发器在输入卡场景已由 composer.css 做成透明胶囊，这里只把
+   **设置弹窗内**（[data-shortcut-modal="settings"]）的触发器抬成输入框风格；
+   menu 与 groups 是内外两层——menu 是容器、groups 是滚动区，
+   滚动区不描边不圆角（对齐 glass.css「菜单内层滚动区」一节）。 */
+html[data-theme-studio] [data-shortcut-modal="settings"] ._7KE1Ra_trigger,
+html[data-theme-studio] [data-shortcut-modal="settings"] .WqxjfG_trigger {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] [data-shortcut-modal="settings"] ._7KE1Ra_trigger:hover:not(:disabled),
+html[data-theme-studio] [data-shortcut-modal="settings"] .WqxjfG_trigger:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] ._7KE1Ra_triggerIcon,
+html[data-theme-studio] .WqxjfG_triggerIcon {
+  color: var(--color-foreground-subtlest);
+}
+
+/* 外层菜单容器：菜单材质 + 圆角 + 阴影 */
+html[data-theme-studio] ._7KE1Ra_menu,
+html[data-theme-studio] .WqxjfG_menu {
+  background: var(--color-menu);
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--dsw-radius-md);
+  box-shadow: var(--dsw-elevation-panel);
+  color: var(--color-foreground);
+}
+
+/* 内层滚动区：只保滚动职责。宿主给它也标了 role="menu"，会被
+   modal.css 的 [role="menu"] 规则误加底色与描边——这里用更高的
+   特异性把它们调掉，并清掉容器规则可能叠上的圆角与阴影。 */
+html[data-theme-studio] [role="menu"] ._7KE1Ra_groups,
+html[data-theme-studio] [role="menu"] .WqxjfG_groups,
+html[data-theme-studio] ._7KE1Ra_menu ._7KE1Ra_groups,
+html[data-theme-studio] .WqxjfG_menu .WqxjfG_groups {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 搜索行：输入框 + 底部分隔线 */
+html[data-theme-studio] ._7KE1Ra_searchRow,
+html[data-theme-studio] .WqxjfG_searchRow {
+  border-bottom: 1px solid var(--color-border);
+}
+
+html[data-theme-studio] ._7KE1Ra_search,
+html[data-theme-studio] .WqxjfG_search {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] ._7KE1Ra_search:focus,
+html[data-theme-studio] .WqxjfG_search:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+/* 选项行：悬停 surface-hover；选中行加左侧 2px 主色指示条 */
+html[data-theme-studio] ._7KE1Ra_option,
+html[data-theme-studio] .WqxjfG_option,
+html[data-theme-studio] ._7KE1Ra_modelOption,
+html[data-theme-studio] .WqxjfG_modelOption {
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] ._7KE1Ra_option:hover,
+html[data-theme-studio] .WqxjfG_option:hover,
+html[data-theme-studio] ._7KE1Ra_modelOption:hover,
+html[data-theme-studio] .WqxjfG_modelOption:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] ._7KE1Ra_option._7KE1Ra_optionActive,
+html[data-theme-studio] .WqxjfG_option.WqxjfG_optionActive {
+  background: var(--color-surface-hover);
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}
+
+html[data-theme-studio] ._7KE1Ra_check,
+html[data-theme-studio] .WqxjfG_check {
+  color: var(--color-primary);
+}
+
+/* 思考强度单元格：input 底，选中态用 selected 底 + 主色描边 */
+html[data-theme-studio] ._7KE1Ra_cell,
+html[data-theme-studio] .WqxjfG_cell {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] ._7KE1Ra_cell:hover,
+html[data-theme-studio] .WqxjfG_cell:hover {
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] ._7KE1Ra_cell._7KE1Ra_selected,
+html[data-theme-studio] .WqxjfG_cell.WqxjfG_selected {
+  background: var(--color-selected);
+  border-color: var(--color-primary);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] ._7KE1Ra_cellLabel,
+html[data-theme-studio] .WqxjfG_cellLabel {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] ._7KE1Ra_cellValue,
+html[data-theme-studio] .WqxjfG_cellValue,
+html[data-theme-studio] ._7KE1Ra_status,
+html[data-theme-studio] .WqxjfG_status {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] ._7KE1Ra_warning,
+html[data-theme-studio] .WqxjfG_warning {
+  color: var(--color-warning);
+}
+
+/* ---------------------------------------------------------------------------
+   十五、permission-presets / PermissionSelect.module.css + PermissionRow.module.css
+   ---------------------------------------------------------------------------
+   宿主界面：权限预设下拉（出现在权限行与设置页）。
+   触发器在输入卡场景已由 composer.css 做成透明胶囊（透明底 + 语义色文字），
+   这里只把 PermissionRow 的 selector 槽内的触发器抬成输入框风格。 */
+html[data-theme-studio] .oY77xG_selector .iWlSmW_trigger,
+html[data-theme-studio] .ml8M5a_selector .qVH09a_trigger {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .oY77xG_selector .iWlSmW_trigger:hover:not(:disabled),
+html[data-theme-studio] .ml8M5a_selector .qVH09a_trigger:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] .iWlSmW_badge,
+html[data-theme-studio] .qVH09a_badge {
+  background: var(--color-secondary);
+  border-radius: var(--dsw-radius-xs);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .iWlSmW_chevron,
+html[data-theme-studio] .qVH09a_chevron {
+  color: var(--color-foreground-subtlest);
+}
+
+html[data-theme-studio] .oY77xG_row,
+html[data-theme-studio] .ml8M5a_row {
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .oY77xG_row:hover,
+html[data-theme-studio] .ml8M5a_row:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .oY77xG_title,
+html[data-theme-studio] .ml8M5a_title {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .oY77xG_desc,
+html[data-theme-studio] .ml8M5a_desc {
+  color: var(--color-foreground-subtle);
+}
+
+/* ===========================================================================
+   十五、宿主通用交互控件：按部件名模式统一接管
+   ===========================================================================
+
+   宿主有 **144 个**「用户会点」的控件分散在 40 多个模块里：图标按钮、下拉触发器、
+   选项行、页签、步进器、开关……它们各自写死了 `background` / `border` / `color`，
+   而且很多是 `<button>`——浏览器给 button 的**默认灰底**（rgb(107,107,107)）
+   会直接透出来，在深色主题上格外刺眼。
+
+   逐个列 144 个类名是不可维护的（宿主每次构建都换哈希，新组件还在不断出现）。
+   这里改用**属性子串匹配** `[class*="_iconButton"]` 这类写法：CSS Modules 生成的
+   类名格式固定是 `<hash>_<part>`，所以 `[class*="_<part>"]` 能跨构建、跨版本命中
+   同一类部件。这也是 dsh-mobile-adapter 采用的四层契约里的「去哈希兜底」策略。
+
+   ## 为什么用 :where() 包裹
+
+   这一层是**兜底**，特异性必须足够低（:where() 归零），这样任何一处更具体的
+   主题规则（如 `.zGbnIq_primaryButton` 的主色底）都能压过它。反过来写会让
+   兜底把精心调过的组件配色一起吃掉——那是比「没接管」更糟的结果。
+
+   ## 分组依据
+
+   按「控件在界面上的角色」分四组，每组的默认外观不同：
+     1. 图标按钮：透明底，hover 才出底色（最常见，占七成）
+     2. 文本按钮：透明底 + 次级前景
+     3. 选项/页签/单元格：透明底，选中用 surface-hover
+     4. 开关/步进器：需要实体外观，用 input 层
+   =========================================================================== */
+
+/* ---- 1. 图标按钮：透明底，hover 才出底色 ----
+   宿主类名形如 `IW6AQa_iconButton`、`cX-2eG_iconButton`、`xzv4MW_actionIcon`。
+   buttons.css 已按具体类名覆盖了其中几个，这里补剩下的全部（含未来新增的）。 */
+html[data-theme-studio] :where(button)[class*="_iconButton"],
+html[data-theme-studio] :where(button)[class*="_actionIcon"],
+html[data-theme-studio] :where(button)[class*="_iconButton"] {
+  background: transparent;
+  border: none;
+  color: var(--color-foreground-subtle);
+  border-radius: var(--dsw-radius-sm);
+}
+
+html[data-theme-studio] :where(button)[class*="_iconButton"]:hover:not(:disabled),
+html[data-theme-studio] :where(button)[class*="_actionIcon"]:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* ---- 2. 文本按钮：透明底 + 次级前景 ----
+   `helpButton` / `linkButton` / `clearButton` / `searchButton` / `openButton` 等。
+   注意排除主按钮与危险按钮（它们有自己的实心底）。 */
+html[data-theme-studio] :where(button):is(
+  [class*="_helpButton"],
+  [class*="_linkButton"],
+  [class*="_clearButton"],
+  [class*="_searchButton"],
+  [class*="_openButton"],
+  [class*="_infoButton"],
+  [class*="_zoomButton"],
+  [class*="_historyLoadButton"],
+  [class*="_laterAction"]
+):not([class*="primary"]):not([class*="Primary"]):not([class*="danger"]):not([class*="Danger"]) {
+  background: transparent;
+  border: none;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] :where(button):is(
+  [class*="_helpButton"],
+  [class*="_linkButton"],
+  [class*="_clearButton"],
+  [class*="_searchButton"],
+  [class*="_openButton"],
+  [class*="_infoButton"],
+  [class*="_zoomButton"],
+  [class*="_historyLoadButton"]
+):hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* ---- 3. 选项行 / 页签 / 单元格：透明底，选中态用 surface-hover ----
+   `option` / `optionLine` / `optionCopy` / `cell` / `tab` / `entryCell` /
+   `registryOption` / `modelOption` 等。 */
+html[data-theme-studio] :where(button, [role="option"], [role="tab"]):is(
+  [class*="_option"],
+  [class*="_cell"],
+  [class*="_tab"],
+  [class*="_sourceTab"],
+  [class*="_detailTab"],
+  [class*="_filterTab"],
+  [class*="_entryCell"]
+):not([class*="_options"]):not([class*="_optionsRow"]):not([class*="_optionLabel"]):not([class*="_optionCopy"]) {
+  background: transparent;
+  border: none;
+  color: var(--color-foreground-subtle);
+  border-radius: var(--dsw-radius-sm);
+}
+
+html[data-theme-studio] :where(button, [role="option"], [role="tab"]):is(
+  [class*="_option"],
+  [class*="_cell"],
+  [class*="_tab"],
+  [class*="_sourceTab"],
+  [class*="_detailTab"],
+  [class*="_filterTab"],
+  [class*="_entryCell"]
+):hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] :where(button, [role="option"], [role="tab"]):is(
+  [class*="_optionSelected"],
+  [class*="_optionActive"],
+  [class*="_cellSelected"],
+  [class*="_selected"]
+):not([class*="_options"]) {
+  background: var(--color-selected);
+  color: var(--color-foreground);
+}
+
+/* 页签选中：用底部 2px 主色指示条（与宿主的 tab 语言一致） */
+html[data-theme-studio] :where([role="tab"])[aria-selected="true"],
+html[data-theme-studio] :where(button):is([class*="_sourceTab"], [class*="_detailTab"], [class*="_filterTab"])[data-active="true"] {
+  color: var(--color-foreground);
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+
+/* ---- 4. 开关 / 步进器：需要实体外观 ----
+   `switch` / `switcher` / `toggle` / `stepper` / `keyToggle` / `groupToggle` 等。 */
+html[data-theme-studio] :where(button, [role="switch"]):is(
+  [class*="_switch"],
+  [class*="_switcher"],
+  [class*="_toggle"],
+  [class*="_stepper"]
+):not([class*="_switchThumb"]):not([class*="_toggleLabel"]):not([class*="_toggleRow"]) {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground);
+  border-radius: var(--dsw-radius-sm);
+}
+
+html[data-theme-studio] :where(button, [role="switch"]):is(
+  [class*="_switch"],
+  [class*="_switcher"],
+  [class*="_toggle"],
+  [class*="_stepper"]
+):hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-hover);
+}
+
+/* ---- 5. 触发式下拉按钮：透明底 + 悬停底色 ----
+   `trigger` / `pickerTrigger` / `switcherTrigger` / `cardWorkspaceTrigger` 等。
+   注意排除已经是输入卡内的（composer.css 已把它们做成透明胶囊，且那份规则
+   特异性更高，这里的 :where() 归零后不会影响它）。 */
+html[data-theme-studio] :where(button)[class*="_trigger"]:not([class*="_triggerLabel"]):not([class*="_triggerRow"]):not([class*="_triggerIcon"]) {
+  background: transparent;
+  border: none;
+  color: var(--color-foreground-subtle);
+  border-radius: var(--dsw-radius-sm);
+}
+
+html[data-theme-studio] :where(button)[class*="_trigger"]:not([class*="_triggerLabel"]):not([class*="_triggerRow"]):not([class*="_triggerIcon"]):hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* ---- 6. 徽标 / 胶囊：小尺寸语义标签 ----
+   `badge` / `pill` / `chip` 属于展示元素，用 secondary 底 + 次级前景。 */
+html[data-theme-studio] :where([class*="_badge"], [class*="_pill"], [class*="_chip"]):not([class*="_badgeCount"]):not([class*="_badgeLabel"]):not([class*="_chipIcon"]):not([class*="_chipLabel"]) {
+  background: var(--color-secondary);
+  border: none;
+  color: var(--color-foreground-subtle);
+}
+
+/* ---- 7. 危险与主操作按钮：必须保持实心底（不能被上面的透明兜底吃掉）----
+   这些规则的特异性高于 :where() 兜底，所以放在最后并显式写死。
+
+   注意 `border` 必须写成与底色同色而不是 `none`：宿主有些危险按钮
+   （如 `.zGbnIq_dangerButton`）在前面已被赋予 destructive 描边，
+   这里写 `none` 会把那条描边吃掉，实测表现为「粉色边框变成白色」。 */
+html[data-theme-studio] :where(button):is([class*="dangerButton"], [class*="DangerButton"], [class*="_deleteButton"], [class*="_deleteAction"]) {
+  background: var(--color-destructive);
+  border: 1px solid var(--color-destructive);
+  color: var(--color-destructive-foreground);
+}
+
+html[data-theme-studio] :where(button):is([class*="dangerButton"], [class*="DangerButton"], [class*="_deleteButton"], [class*="_deleteAction"]):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-destructive) 88%, var(--color-foreground));
+}
+
+/* 桌面版孪生：相同部件的桌面构建哈希（双构建成对是硬契约）。 */
+html[data-theme-studio] :where(button):is(.HrU_ra_dangerButton):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-destructive) 88%, var(--color-foreground));
+}
+
+html[data-theme-studio] :where(button):is([class*="primaryButton"], [class*="PrimaryButton"], [class*="_signInButton"], [class*="_addModelButton"], [class*="_marketButton"], [class*="_waitButton"]) {
+  background: var(--color-primary);
+  border: none;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] :where(button):is([class*="primaryButton"], [class*="PrimaryButton"], [class*="_signInButton"], [class*="_addModelButton"], [class*="_marketButton"], [class*="_waitButton"]):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 88%, var(--color-foreground));
+}
+
+/* 桌面版孪生（双构建成对契约）。 */
+html[data-theme-studio] :where(button):is(.HrU_ra_primaryButton):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 88%, var(--color-foreground));
+}
+
+html[data-theme-studio] :where(button):is([class*="secondaryButton"], [class*="SecondaryButton"]) {
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground);
+}
+
+/* ---- 8. 仍会漏出的按钮：显式补名（容器类不列，它们不该有底色）----
+   上一轮的属性模式已经覆盖七成，这些是因为命名不含通用词根而漏掉的
+   （`creatorButton` 的 "creator"、`fileAction` 的 "file"、`modalAction` 等）。
+   逐个列出是必要的——属性模式无法穷举「业务前缀 + 通用后缀」的所有组合。 */
+html[data-theme-studio] :where(button):is(
+  .rtSEdW_creatorButton,
+  .SdL5yW_creatorButton,
+  .Sixlwa_compactionButton,
+  .P9wcjW_compactionButton,
+  .vVQ6WG_fileAction,
+  .ZkiH0q_fileAction,
+  .EvIC1a_modalAction,
+  ._6nxh1G_modalAction,
+  .pXSMma_modalAction,
+  .dTwcZW_modalAction,
+  .Nqubda_actionButton,
+  .uwuGrG_actionButton,
+  .gNWCoW_inspectButton,
+  .tvOLFq_inspectButton,
+  .TyOMZG_selectorButton,
+  .ZDDmpq_selectorButton,
+  .ZuhsRW_showHiddenToggle,
+  .djLTgW_showHiddenToggle,
+  .ZuhsRW_footerAction,
+  .djLTgW_footerAction,
+  .Qt4Hga_cardWorkspaceTrigger,
+  .uV2eYG_cardWorkspaceTrigger,
+  .Q51KRG_trigger,
+  .Fr1X9a_trigger,
+  .JObwrW_trigger,
+  .e1PTRq_trigger
+):not([class*="primary"]):not([class*="Primary"]):not([class*="danger"]):not([class*="Danger"]) {
+  background: transparent;
+  border: none;
+  color: var(--color-foreground-subtle);
+  border-radius: var(--dsw-radius-sm);
+}
+
+html[data-theme-studio] :where(button):is(
+  .rtSEdW_creatorButton,
+  .SdL5yW_creatorButton,
+  .Sixlwa_compactionButton,
+  .P9wcjW_compactionButton,
+  .vVQ6WG_fileAction,
+  .ZkiH0q_fileAction,
+  .EvIC1a_modalAction,
+  ._6nxh1G_modalAction,
+  .pXSMma_modalAction,
+  .dTwcZW_modalAction,
+  .Nqubda_actionButton,
+  .uwuGrG_actionButton,
+  .gNWCoW_inspectButton,
+  .tvOLFq_inspectButton,
+  .TyOMZG_selectorButton,
+  .ZDDmpq_selectorButton,
+  .ZuhsRW_showHiddenToggle,
+  .djLTgW_showHiddenToggle,
+  .ZuhsRW_footerAction,
+  .djLTgW_footerAction,
+  .Qt4Hga_cardWorkspaceTrigger,
+  .uV2eYG_cardWorkspaceTrigger,
+  .Q51KRG_trigger,
+  .Fr1X9a_trigger,
+  .JObwrW_trigger,
+  .e1PTRq_trigger
+):hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 桌面版孪生：同一个部件在桌面构建里的哈希必须成对写，少写一侧那一端不生效。 */
+html[data-theme-studio] :where(button):is(
+  ._93YTAG_inspect,
+  ._0fgEta_inspect,
+  .TS9iAW_actions,
+  .w1Dv9W_actions
+):not([class*="primary"]) {
+  background: transparent;
+}
+
+/* ---- 9. 最后一批漏网：`iconBtn` 简写与 `addButton` ----
+   `iconBtn` 不含 "iconButton" 子串（属性模式匹配不到），
+   `addButton` 在插件清单页是「添加」入口，宿主给了实心底。 */
+html[data-theme-studio] :where(button):is(
+  [class*="_iconBtn"],
+  [class*="_addButton"]
+):not([class*="primary"]):not([class*="Primary"]) {
+  background: transparent;
+  border: none;
+  color: var(--color-foreground-subtle);
+  border-radius: var(--dsw-radius-sm);
+}
+
+html[data-theme-studio] :where(button):is(
+  [class*="_iconBtn"],
+  [class*="_addButton"]
+):hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 折叠/分区开关（`sectionToggle` / `detailsToggle` / `guideToggle` / `registryToggle`）：
+   宿主把它们做成带底色的方块，这里统一成「标题右侧的小圆形指示」语言——
+   与主题工作室面板里的折叠按钮一致。 */
+html[data-theme-studio] :where(button):is(
+  [class*="_sectionToggle"],
+  [class*="_detailsToggle"],
+  [class*="_guideToggle"],
+  [class*="_registryToggle"],
+  [class*="_groupToggle"]
+) {
+  background: transparent;
+  border: none;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] :where(button):is(
+  [class*="_sectionToggle"],
+  [class*="_detailsToggle"],
+  [class*="_guideToggle"],
+  [class*="_registryToggle"],
+  [class*="_groupToggle"]
+):hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}

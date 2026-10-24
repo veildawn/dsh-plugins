@@ -180,6 +180,57 @@ export const FIELD_COLOR_ROLES = Object.freeze([
 export const FIELD_COLOR_KEYS = Object.freeze(FIELD_COLOR_ROLES.map((role) => role.key))
 
 /**
+ * 运行状态条（Status Bar）的特效档位。
+ *
+ * **默认 `none`（dsh 原生，无任何特效）**——这是刻意的默认值：状态条是每轮
+ * 对话都出现的高频元素，动效应该由用户主动选择，而不是安装主题就强制接受。
+ * 想体验动效时，在设置面板用卡片选择一档即可。
+ *
+ * 档位与实现（`lib/styles/status.css`）：
+ *
+ *   | id | 名称 | 动效 |
+ *   | :--- | :--- | :--- |
+ *   | `none` | 原生 | 完全不动，保持宿主默认观感 |
+ *   | `shimmer` | 流光文字 | 状态文字有一道高光扫过 |
+ *   | `pulse` | 呼吸光环 | 胶囊外扩散呼吸波纹 |
+ *   | `whale` | 鲸尾摇曳 | 鲸尾图标上下游动 |
+ *   | `flow` | 极光流动 | 以上全部 + 分隔线流光 |
+ *   | `neon` | 霓虹脉冲 | 双色发光文字 + 边框外发光呼吸 |
+ *   | `terminal` | 终端扫描 | 等宽字体 + 光标闪烁 + 扫描线 |
+ *   | `candy` | 糖果气泡 | 圆润弹跳 + 柔和高光 |
+ *   | `glitch` | 故障闪烁 | RGB 分离 + 随机抖动 |
+ *   | `ring` | 环形进度 | 状态图标外旋转光环 |
+ *   | `bar` | 条形律动 | 底部三段式音量条跳动 |
+ *
+ * 档位设计参考 dsh-status-rotator 的五套外观（经典/霓虹/终端/糖果/故障风），
+ * 但**只取视觉与动画**，不做文案替换、打字机、弹幕、词库等配置化功能——
+ * 本插件是主题插件，接管的是「观感」，文案归宿主。
+ *
+ * 为什么是「整档切换」而不是逐项开关：状态条面积很小，多个动效同时出现的
+ * 视觉收益递减，但设置项数量会线性增长。整档切换用一个值覆盖全部动效，
+ * 服务端只校验一个字段，首屏注入也只需写一个属性。
+ */
+export const STATUS_EFFECTS = Object.freeze([
+  { id: 'none', label: '原生', description: 'DSH 默认观感，无任何特效。' },
+  { id: 'shimmer', label: '流光文字', description: '状态文字有一道高光缓缓扫过。' },
+  { id: 'pulse', label: '呼吸光环', description: '胶囊向外扩散柔和的呼吸波纹。' },
+  { id: 'whale', label: '鲸尾摇曳', description: '鲸尾图标上下游动，像在游动。' },
+  { id: 'flow', label: '极光流动', description: '流光文字 + 呼吸光环 + 鲸尾 + 分隔线流光。' },
+  { id: 'neon', label: '霓虹脉冲', description: '双色霓虹发光文字，边框随呼吸明暗起伏。' },
+  { id: 'terminal', label: '终端扫描', description: '等宽字体、闪烁光标与横向扫描线，复古终端感。' },
+  { id: 'candy', label: '糖果气泡', description: '胶囊轻轻弹跳，文字带糖果色柔光。' },
+  { id: 'glitch', label: '故障闪烁', description: 'RGB 色散与随机抖动，赛博故障风。' },
+  { id: 'ring', label: '环形进度', description: '状态图标外旋转的极光光环。' },
+  { id: 'bar', label: '条形律动', description: '胶囊下方三段音量条错峰跳动。' },
+])
+
+/** 状态条特效档位 id 列表（校验用）。 */
+export const STATUS_EFFECT_IDS = Object.freeze(STATUS_EFFECTS.map((item) => item.id))
+
+/** 状态条特效的默认档位：原生无特效。 */
+export const DEFAULT_STATUS_EFFECT = 'none'
+
+/**
  * 某个语义键在宿主层对应的 `--dsw-*` 名单。
  *
  * 从 `HOST_TOKEN_MAP` 反查，不手抄：新增映射时自动跟随。
@@ -315,6 +366,9 @@ export function normalizeBackground(raw) {
 export function defaultSettings() {
   return {
     theme: undefined,
+    // 状态条特效默认「原生」：不落盘（undefined），与 normalizeSettings 的
+    // 丢弃规则一致——全默认值的设置不写噪音字段。
+    statusEffect: undefined,
     background: { mode: 'none', value: '', file: null, fit: 'cover', opacity: 100 },
     fonts: { text: '', code: '' },
     fontSizes: {},
@@ -340,6 +394,11 @@ export function normalizeSettings(raw, options = {}) {
 
   if (typeof source.theme === 'string' && (!isThemeId || isThemeId(source.theme))) {
     out.theme = source.theme
+  }
+
+  // 状态条特效档位：必须是合法 id，否则回落默认（原生无特效）。
+  if (typeof source.statusEffect === 'string' && STATUS_EFFECT_IDS.includes(source.statusEffect)) {
+    out.statusEffect = source.statusEffect
   }
 
   const background = normalizeBackground(source.background)

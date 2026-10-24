@@ -152,6 +152,6 @@ test('主题 id 规范化', () => {
 })
 
 test('内置主题 id 与顺序稳定', () => {
-  assert.deepEqual([...THEME_IDS], ['none', 'zcode', 'zcode-mono', 'glass', 'glass-color'])
-  assert.equal(BUILTIN_THEMES.length, 5)
+  assert.deepEqual([...THEME_IDS], ['none', 'zcode', 'zcode-mono', 'glass', 'glass-color', 'aurora'])
+  assert.equal(BUILTIN_THEMES.length, 6)
 })

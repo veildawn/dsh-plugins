@@ -7,11 +7,12 @@
  *   2. `themeVars`  —— 当前主题的 `--color-*` / `--dsw-*` / `--ts-*` 变量；
  *   3. `styles`     —— 组件级规则（frame / chat / composer …），引用上面的变量；
  *   4. `glass`      —— 玻璃材质层，只在玻璃主题下命中；
- *   5. `custom`     —— 用户自定义（背景、字体、字段色），**必须最后**，
+ *   5. `aurora`     —— 极光动效层，只在极光主题下命中（必须排在 4 之后）；
+ *   6. `custom`     —— 用户自定义（背景、字体、字段色），**必须最后**，
  *                      这样它才能压过主题内置值。
  *
  * 把顺序写死在 `composeThemeCss()` 里，任何新增样式表只能插到 3（组件层），
- * 不能越过 5——否则「用户设置优先级最高」这条契约就破了。
+ * 不能越过 6——否则「用户设置优先级最高」这条契约就破了。
  *
  * @module dsh-theme-studio/css
  */
@@ -44,16 +45,32 @@ export const STYLE_FILES = [
   'chat.css',
   'composer.css',
   'buttons.css',
+  'plugins.css',
   'chips.css',
   'code.css',
   'terminal.css',
   'modal.css',
+  'settings.css',
   'states.css',
+  'status.css',
   'motion.css',
 ]
 
 /** 玻璃材质层单独一份：它只在玻璃主题下命中，不该混进组件层。 */
 export const GLASS_STYLE_FILE = 'glass.css'
+
+/**
+ * 极光流光的动效层。
+ *
+ * 与玻璃同属「主题专属样式」：只在 `html[data-theme-studio="aurora"]` 下命中，
+ * 因此可以像玻璃层一样**始终包含**在产物里——切换主题只是换 html 上的属性值，
+ * 不需要重新注入整份样式表。这是本插件「切换零成本」契约的一部分。
+ *
+ * 为什么不能塞进 `STYLE_FILES`：那一层是**所有主题共用**的组件样式，
+ * 每款主题都会加载。把 `@keyframes` 与 `body::before` 光斑放进去，
+ * ZCode 用户也会白白下载 200 行永不命中的规则。
+ */
+export const AURORA_STYLE_FILE = 'aurora.css'
 
 /**
  * 用户自定义背景的让位层。
@@ -72,6 +89,7 @@ export const BACKGROUND_STYLE_FILE = 'background.css'
 export const ALL_STYLE_FILES = Object.freeze([
   ...STYLE_FILES,
   GLASS_STYLE_FILE,
+  AURORA_STYLE_FILE,
   BACKGROUND_STYLE_FILE,
 ])
 
@@ -184,7 +202,7 @@ export function legacyVarsCss(theme) {
  * 首屏直出每次请求都要拼一份完整样式表，不缓存的话每次都要重新读 16 个文件并做
  * 一遍正则改写。宿主映射在进程生命周期内不变（换构建必然重启），所以缓存安全。
  *
- * @returns {{ files: string[], glass: string }}
+ * @returns {{ files: string[], glass: string, aurora: string, background: string }}
  */
 function adaptedStyleLayers() {
   if (styleFilesCache === undefined) {
@@ -192,6 +210,7 @@ function adaptedStyleLayers() {
     styleFilesCache = {
       files: STYLE_FILES.map((name) => adaptStyleCss(readStyleFile(name), index)),
       glass: adaptStyleCss(readStyleFile(GLASS_STYLE_FILE), index),
+      aurora: adaptStyleCss(readStyleFile(AURORA_STYLE_FILE), index),
       background: adaptStyleCss(readStyleFile(BACKGROUND_STYLE_FILE), index),
     }
   }
@@ -217,6 +236,7 @@ export function composeThemeCss(themeId, options = {}) {
   const layers = adaptedStyleLayers()
   const files = layers.files
   const glass = layers.glass
+  const aurora = layers.aurora
   // shiki 基础声明并入主题变量块，避免产出两个同名的 html[attr] 选择器块。
   const base = baseToneDeclarations()
 
@@ -233,6 +253,7 @@ export function composeThemeCss(themeId, options = {}) {
       vars,
       files.join('\n'),
       glass,
+      aurora,
       layers.background,
       options.custom ?? '',
     ].join('\n')
@@ -245,6 +266,10 @@ export function composeThemeCss(themeId, options = {}) {
     // 玻璃材质层始终包含：它在选择器里自带主题限定，非玻璃主题下不命中任何元素。
     // 这样避免「先选 ZCode 再切玻璃」时需要重新注入整份样式表。
     glass,
+    // 极光动效层同理：只在 `html[data-theme-studio="aurora"]` 下命中。
+    // 它必须排在玻璃层**之后**——极光沿用玻璃的表面结构，但把其中几条
+    // （内容卡填充、顶栏材质）改写成自己的取值；反过来排会被玻璃压回去。
+    aurora,
     // 让位层同样始终包含：它由 `html[data-ts-bg]` 开关，没设背景时不命中。
     layers.background,
     options.custom ?? '',

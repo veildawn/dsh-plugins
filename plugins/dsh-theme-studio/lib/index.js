@@ -33,14 +33,17 @@
  * @module dsh-theme-studio
  */
 
-import { BACKGROUND_ATTR, LEGACY_THEME_ATTR, THEME_ATTR, STYLE_ID, themeVarsCss } from './tokens.js'
+import { BACKGROUND_ATTR, LEGACY_THEME_ATTR, STATUS_ATTR, THEME_ATTR, STYLE_ID, themeVarsCss } from './tokens.js'
 import { BUILTIN_THEMES, DEFAULT_THEME_ID, THEME_IDS, getTheme, normalizeThemeId } from './themes/index.js'
 import { fullThemeCss } from './css.js'
 import {
   BACKGROUND_MIME,
   CODE_FONT_OPTIONS,
+  DEFAULT_STATUS_EFFECT,
   FIELD_COLOR_ROLES,
   MAX_BACKGROUND_BYTES,
+  STATUS_EFFECTS,
+  STATUS_EFFECT_IDS,
   TEXT_FONT_OPTIONS,
   activeBackgroundMode,
   backgroundDir,
@@ -176,7 +179,24 @@ export function themeScopeScript(themeId, settings = {}) {
         `document.documentElement.setAttribute('data-dsh-theme', ${JSON.stringify(
           getTheme(id)?.legacyId ?? id,
         )});`
-  return attrPart + setBackgroundFlagScript(settings.background)
+  return attrPart + setStatusEffectScript(settings.statusEffect) + setBackgroundFlagScript(settings.background)
+}
+
+/**
+ * 生成「状态条特效档位」的开关脚本。
+ *
+ * **默认（`none`）时移除属性**：状态条是每轮对话都出现的高频元素，动效必须由
+ * 用户在设置面板主动选择，安装主题不应强制改变它。`status.css` 的全部规则
+ * 都以 `html[data-ts-status="<档位>"]` 开头，没有该属性时一条都不命中。
+ *
+ * @param {string} [effect] 档位 id（`none` / `shimmer` / `pulse` / `whale` / `flow`）
+ * @returns {string}
+ */
+export function setStatusEffectScript(effect) {
+  const id = typeof effect === 'string' && effect !== '' ? effect : DEFAULT_STATUS_EFFECT
+  return id === DEFAULT_STATUS_EFFECT
+    ? `document.documentElement.removeAttribute('${STATUS_ATTR}');`
+    : `document.documentElement.setAttribute('${STATUS_ATTR}', ${JSON.stringify(id)});`
 }
 
 /**
@@ -247,20 +267,25 @@ export function themeInjections(themeId, settings = {}) {
  */
 export function withThemeAttribute(tag, themeId, settings = {}) {
   const id = normalizeThemeId(themeId, DEFAULT_THEME_ID)
-  // 两个根属性都由本插件独占，重写前统一剥掉，避免重复或残留旧值。
+  // 三个根属性都由本插件独占，重写前统一剥掉，避免重复或残留旧值。
   const stripped = tag
     .replace(ATTR_RE, '')
     .replace(new RegExp(`\\s*${BACKGROUND_ATTR}\\s*=\\s*(['"]).*?\\1`, 'gi'), '')
+    .replace(new RegExp(`\\s*${STATUS_ATTR}\\s*=\\s*(['"]).*?\\1`, 'gi'), '')
   const mode = activeBackgroundMode(settings.background)
   const bgAttr = mode === 'none' ? '' : ` ${BACKGROUND_ATTR}="${mode}"`
+  // 状态条特效：默认 none 不写属性（保持 DSH 原生观感，零侵入）。
+  const effect = settings.statusEffect ?? DEFAULT_STATUS_EFFECT
+  const statusAttr = effect === DEFAULT_STATUS_EFFECT ? '' : ` ${STATUS_ATTR}="${effect}"`
   if (id === 'none') {
-    return bgAttr === '' ? stripped : stripped.replace(/<html/i, `<html${bgAttr}`)
+    const extra = `${statusAttr}${bgAttr}`
+    return extra === '' ? stripped : stripped.replace(/<html/i, `<html${extra}`)
   }
   const theme = getTheme(id)
   const legacy = theme?.legacyId ?? id
   return stripped.replace(
     /<html/i,
-    `<html ${THEME_ATTR}="${id}" data-dsh-theme="${legacy}"${bgAttr}`,
+    `<html ${THEME_ATTR}="${id}" data-dsh-theme="${legacy}"${statusAttr}${bgAttr}`,
   )
 }
 
@@ -297,6 +322,7 @@ export function patchIndex(html, options = {}) {
 export function buildSettingsView(settings, settingsPath) {
   const effective = {
     theme: normalizeThemeId(settings.theme, DEFAULT_THEME_ID),
+    statusEffect: settings.statusEffect ?? DEFAULT_STATUS_EFFECT,
     background: { mode: 'none', value: '', file: null, fit: 'cover', opacity: 100, ...(settings.background ?? {}) },
     fonts: { text: '', code: '', ...(settings.fonts ?? {}) },
     fontSizes: { ...(settings.fontSizes ?? {}) },
@@ -318,6 +344,8 @@ export function buildSettingsView(settings, settingsPath) {
       text: TEXT_FONT_OPTIONS,
       code: CODE_FONT_OPTIONS,
     },
+    // 状态条特效档位清单：面板用小卡片渲染，默认「原生」。
+    statusEffects: STATUS_EFFECTS,
     backgroundUrl: backgroundUrl(settings.background?.file),
     backgroundDir: backgroundDir(settingsPath),
     settingsFile: settingsPath,

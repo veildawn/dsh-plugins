@@ -74,14 +74,19 @@ html[data-theme-studio="glass-color"] body {
    二、三栏框架：面板本身成为一块玻璃
    ---------------------------------------------------------------------------
    基座 frame.css 把主区画成「窗口底色上的内缩圆角卡片」。玻璃主题沿用这个
-   结构（它是 DSH 的骨架，不该被主题改写），但把卡片的填充换成玻璃材质。 */
+   结构（它是 DSH 的骨架，不该被主题改写），但把卡片的填充换成玻璃材质。
+
+   与侧栏同理（详见下方侧栏段落的长注释）：`backdrop-filter` 会把元素变成后代
+   `position: fixed` 的包含块**并**建立一个层叠上下文，两个副作用都会让
+   全屏浮层缩进本栏、或被兄弟栏压住。centerCol 是 `conversation.input.*` 等槽位的
+   宿主，文件查看器 `.fv-modal-scrim`、历史记录浮层、终端抽屉等 `fixed` 浮层都
+   挂在这里。所以材质同样下沉到 ::before，本体只留描边与投影。 */
 html[data-theme-studio="glass"] .pI_x6G_centerCol,
 html[data-theme-studio="glass"] ._LS25G_centerCol,
 html[data-theme-studio="glass-color"] .pI_x6G_centerCol,
 html[data-theme-studio="glass-color"] ._LS25G_centerCol {
-  background: var(--color-background);
-  -webkit-backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
-  backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  background: transparent;
+  position: relative;
   border: 1px solid var(--ts-glass-edge);
   box-shadow:
     inset 0 1px 0 var(--ts-glass-highlight),
@@ -89,16 +94,80 @@ html[data-theme-studio="glass-color"] ._LS25G_centerCol {
     0 8px 24px -12px rgba(0, 0, 0, 0.12);
 }
 
+html[data-theme-studio="glass"] .pI_x6G_centerCol::before,
+html[data-theme-studio="glass"] ._LS25G_centerCol::before,
+html[data-theme-studio="glass-color"] .pI_x6G_centerCol::before,
+html[data-theme-studio="glass-color"] ._LS25G_centerCol::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--color-background);
+  -webkit-backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  pointer-events: none;
+}
+
 /* 侧栏：玻璃比主区更「薄」——透明度更高、模糊略低，形成前后景深。
-   这是 macOS 上「侧栏在后、内容在前」的观感来源。 */
+   这是 macOS 上「侧栏在后、内容在前」的观感来源。
+
+   ## 材质必须挂在 ::before 上，不能挂在 sidebarCol 本体
+
+   `backdrop-filter` 除了画出材质，还会同时触发两个副作用，任意一个都足以让
+   全屏浮层「跑到会话区下面」：
+
+   **① 把元素变成后代 `position: fixed` 的包含块。**（Filter Effects 中
+   `filter` 有此规定；`backdrop-filter` 的包含块行为 Chromium 与 Safari 并不
+   完全一致，因此这里按「会」处理——把材质移出本体的写法对两种实现都安全，
+   不必赌某个浏览器的差异。）
+   侧栏是 `sidebar.footer.action` 槽位的宿主容器，社区插件（归档箱
+   `.dam-backdrop`、插件管理 `.dm-modal-scrim` 等）把全屏遮罩以
+   `position: fixed; inset: 0` 挂在这里。材质写在 sidebarCol 本体上，那个
+   `fixed` 就不再相对视口，而是缩成侧栏那一栏，再被侧栏自带的
+   `overflow: hidden` 裁掉。
+
+   **② 建立层叠上下文（stacking context）**，把本栏内所有后代的 `z-index`
+   锁进这一栏。于是 `.dam-backdrop` 的 `z-index: 2147483640` 只在侧栏内部
+   有意义，整栏作为一个整体参与兄弟排序——而 centerCol 在 DOM 中靠后、
+   默认层叠更高，直接把该栏连同其内部的遮罩一起压住。
+
+   实测（Chromium，侧栏 250px / 视口 1000px）：
+   - 本体带 backdrop-filter：`elementFromPoint(视口中心)` → 命中 `center`
+     （会话区，遮罩被压在下面）；后代 fixed 尺寸 250×493（被裁进侧栏）。
+   - 材质移到 ::before：命中 `m1`（遮罩本身）；后代 fixed 尺寸 780×493（视口）。
+
+   两个副作用都由「元素自身带 backdrop-filter」引起，把材质换成伪元素即可一并
+   消除。**但不要顺手加 `isolation: isolate`**：它同样会建立层叠上下文，把整栏
+   锁成一个层叠容器，遮罩反而被压在 centerCol 之下，弹窗依旧不可见（实测复现）。
+   这里让 ::before 用 `z-index: -1` 落在内容下方即可，不需要 isolation，
+   也不需要给子元素加 z-index。
+
+   `backdrop-filter` 只在玻璃主题命中是问题「只在玻璃出现」的直接原因：
+   系统默认与 ZCode 主题的侧栏没有这个属性，fixed 遮罩始终相对视口。
+
+   副作用检查：::before 是绝对定位，必须让 sidebarCol 成为它的定位参照，
+   因此保留 `position: relative`（宿主原本就是 static，补上不改变布局）。 */
 html[data-theme-studio="glass"] .pI_x6G_sidebarCol,
 html[data-theme-studio="glass"] ._LS25G_sidebarCol,
 html[data-theme-studio="glass-color"] .pI_x6G_sidebarCol,
 html[data-theme-studio="glass-color"] ._LS25G_sidebarCol {
+  background: transparent;
+  position: relative;
+  border-right: 1px solid var(--color-border);
+}
+
+html[data-theme-studio="glass"] .pI_x6G_sidebarCol::before,
+html[data-theme-studio="glass"] ._LS25G_sidebarCol::before,
+html[data-theme-studio="glass-color"] .pI_x6G_sidebarCol::before,
+html[data-theme-studio="glass-color"] ._LS25G_sidebarCol::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
   background: var(--color-sidebar);
   -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.7)) saturate(var(--ts-saturate));
   backdrop-filter: blur(calc(var(--ts-blur) * 0.7)) saturate(var(--ts-saturate));
-  border-right: 1px solid var(--color-border);
+  pointer-events: none;
 }
 
 /* 侧边栏「+ 新会话」按钮：半透明微光胶囊，消除突兀纯白长条与生硬闭合框线 */
@@ -474,64 +543,20 @@ html[data-theme-studio="glass-color"] button[class*="_secondary_"] {
 }
 
 /* ---------------------------------------------------------------------------
-   八、动态呼吸光效：思考求索中与停止生成按钮
+   八、停止生成按钮：能量呼吸光圈脉冲
    ---------------------------------------------------------------------------
-   在玻璃主题下，呼吸光晕使用主题强调色（var(--color-primary)），模拟 Apple
-   Intelligence / Siri 的能量脉动质感。两套构建哈希成对书写：
-   - 深度求索中：Web 为 EvIC1a_runningContent / EvIC1a_runningIcon，
-     桌面端为 _6nxh1G_runningContent / _6nxh1G_runningIcon；
-   - 停止按钮：Web 为 uV2eYG_primary，桌面端为 Qt4Hga_primary。
+   **运行状态条（深度求索中 / 鲸尾 / 分隔线 / 状态文字）的动效已全部移出主题层**，
+   统一由 `status.css` 的档位开关（`html[data-ts-status]`）负责——
+   状态条有独立设置项，主题不该再各自实现一套，否则用户关掉特效后
+   仍会被主题强制加动画。
+
+   这里只保留「停止生成按钮」：它不是状态条的一部分，而是输入卡上的
+   实时控件，且只在生成中才出现，属于主题对自身材质的表达。
+
+   两套构建哈希成对：Web 为 uV2eYG_primary，桌面端为 Qt4Hga_primary。
    --------------------------------------------------------------------------- */
 
-/* 1. 深度求索中（Reasoning Row / Running Status）呼吸光环胶囊 */
-:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
-  .EvIC1a_runningContent,
-  ._6nxh1G_runningContent
-) {
-  border-radius: 999px !important;
-  padding: 4px 14px !important;
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--color-primary) 28%, transparent) !important;
-  box-shadow:
-    inset 0 1px 0 var(--ts-glass-highlight),
-    0 0 12px 0 color-mix(in srgb, var(--color-primary) 18%, transparent) !important;
-  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate)) !important;
-  backdrop-filter: blur(calc(var(--ts-blur) * 0.4)) saturate(var(--ts-saturate)) !important;
-  animation: ts-glass-running-breathe 2.4s ease-in-out infinite alternate !important;
-}
-
-@keyframes ts-glass-running-breathe {
-  0% {
-    opacity: 0.85;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.85;
-  }
-}
-
-/* 思考中图标微动 */
-:is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
-  .EvIC1a_runningIcon,
-  ._6nxh1G_runningIcon
-) {
-  animation: ts-glass-icon-pulse 2.4s ease-in-out infinite !important;
-}
-
-@keyframes ts-glass-icon-pulse {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.85;
-  }
-  50% {
-    transform: scale(1.08);
-    opacity: 1;
-  }
-}
-
-/* 2. 停止生成按钮（Stop Button）：能量呼吸光圈脉冲 */
+/* 停止生成按钮（Stop Button）：能量呼吸光圈脉冲 */
 :is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
   .uV2eYG_primary,
   .Qt4Hga_primary,
@@ -614,11 +639,9 @@ html[data-theme-studio="glass-color"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* 状态条（runningContent / runningIcon）的降级已移到 status.css，
+     主题层只管自己引入的停止按钮脉冲。 */
   :is(html[data-theme-studio="glass"], html[data-theme-studio="glass-color"]) :is(
-    .EvIC1a_runningContent,
-    ._6nxh1G_runningContent,
-    .EvIC1a_runningIcon,
-    ._6nxh1G_runningIcon,
     .uV2eYG_primary,
     .Qt4Hga_primary,
     button[data-variant="primary"],

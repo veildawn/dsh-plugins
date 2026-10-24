@@ -25,3 +25,35 @@ html[data-theme-studio] :where(:disabled, [aria-disabled="true"]) {
   opacity: 0.65;
   pointer-events: none;
 }
+
+/* ---------------------------------------------------------------------------
+   开关 / 复选 / 单选 / 滑块：表单控件的语义接管
+   ---------------------------------------------------------------------------
+   宿主给开关拇指定义了 `--dsw-alias-switch-thumb`（已映射到 primary-foreground），
+   但**轨道色从未定义**——原生 `[role="switch"]` 在各主题下保持默认灰，
+   设置页里一排开关完全不跟随主题。这里补齐轨道与拇指的双端配色。
+
+   checkbox / radio 用 `accent-color` 一行接管——浏览器原生渲染，
+   不需要接管内部结构。特异性靠 :where() 归零，插件自绘可压过。 */
+html[data-theme-studio] :where(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--color-primary);
+}
+
+html[data-theme-studio] :where([role="switch"]) {
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border-hover);
+}
+
+html[data-theme-studio] :where([role="switch"][aria-checked="true"]) {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+html[data-theme-studio] :where([role="switch"]) :where([class*="_thumb"], [class*="Thumb"]) {
+  background: var(--color-primary-foreground);
+}
+
+/* 滑块（range）轨道与拇指 */
+html[data-theme-studio] :where(input[type="range"]) {
+  accent-color: var(--color-primary);
+}

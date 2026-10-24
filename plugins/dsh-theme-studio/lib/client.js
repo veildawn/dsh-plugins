@@ -36,6 +36,24 @@ window.__ModuleLoader__.load({
     const LEGACY_ATTR = 'data-dsh-theme'
     // 与服务端 tokens.js 的 BACKGROUND_ATTR 一致：设了背景时用它让骨架层让位。
     const BACKGROUND_ATTR = 'data-ts-bg'
+    // 与服务端 tokens.js 的 STATUS_ATTR 一致：状态条特效档位。
+    // **默认不写这个属性**（= 原生无特效），只有用户在面板里选了一档才出现。
+    const STATUS_ATTR = 'data-ts-status'
+    // 与服务端 settings.js 的 STATUS_EFFECTS / DEFAULT_STATUS_EFFECT 一致（测试守护）。
+    const DEFAULT_STATUS_EFFECT = 'none'
+    const STATUS_EFFECTS = [
+      { id: 'none', label: '原生', description: 'DSH 默认观感，无任何特效。' },
+      { id: 'shimmer', label: '流光文字', description: '状态文字有一道高光缓缓扫过。' },
+      { id: 'pulse', label: '呼吸光环', description: '胶囊向外扩散柔和的呼吸波纹。' },
+      { id: 'whale', label: '鲸尾摇曳', description: '鲸尾图标上下游动，像在游动。' },
+      { id: 'flow', label: '极光流动', description: '流光文字 + 呼吸光环 + 鲸尾 + 分隔线流光。' },
+      { id: 'neon', label: '霓虹脉冲', description: '双色霓虹发光文字，边框随呼吸明暗起伏。' },
+      { id: 'terminal', label: '终端扫描', description: '等宽字体、闪烁光标与横向扫描线，复古终端感。' },
+      { id: 'candy', label: '糖果气泡', description: '胶囊轻轻弹跳，文字带糖果色柔光。' },
+      { id: 'glitch', label: '故障闪烁', description: 'RGB 色散与随机抖动，赛博故障风。' },
+      { id: 'ring', label: '环形进度', description: '状态图标外旋转的极光光环。' },
+      { id: 'bar', label: '条形律动', description: '胶囊下方三段音量条错峰跳动。' },
+    ]
     const STYLE_ID = 'dsh-theme-studio'
     const CUSTOM_STYLE_ID = 'dsh-theme-studio-custom'
     const PANEL_CSS_ID = 'dsh-theme-studio-panel-css'
@@ -440,6 +458,11 @@ window.__ModuleLoader__.load({
       if (mode === 'none') root.removeAttribute(BACKGROUND_ATTR)
       else root.setAttribute(BACKGROUND_ATTR, mode)
 
+      // 状态条特效档位：默认（none）移除属性，保持 DSH 原生观感零侵入。
+      const effect = input?.settings?.statusEffect ?? DEFAULT_STATUS_EFFECT
+      if (effect === DEFAULT_STATUS_EFFECT) root.removeAttribute(STATUS_ATTR)
+      else root.setAttribute(STATUS_ATTR, effect)
+
       const css = customLayerCss(input?.settings ?? {}, input?.backgroundUrl)
       let style = document.getElementById(CUSTOM_STYLE_ID)
       if (css === '') {
@@ -494,6 +517,22 @@ window.__ModuleLoader__.load({
 .ts-status.err{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);color:var(--dsw-alias-state-error-primary)}
 .ts-bg-preview{height:88px;border-radius:var(--dsw-radius-sm);border:1px solid var(--dsw-alias-border-l1);background-color:var(--dsw-alias-bg-layer-2);background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary);font-size:12px}
 .ts-colors{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+/* 状态条效果卡片：小尺寸网格，选中态用品牌色描边（与主题卡同一视觉语言）。 */
+.ts-effects{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.ts-effect{display:flex;flex-direction:column;gap:3px;padding:9px 11px;border:1.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2);cursor:pointer;text-align:left;font-family:inherit;transition:border-color .15s ease,transform .15s ease}
+.ts-effect:hover{border-color:var(--dsw-alias-border-l3);transform:translateY(-1px)}
+.ts-effect[aria-pressed="true"]{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary)}
+.ts-effect-name{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.ts-effect-desc{font-size:11px;line-height:15px;color:var(--dsw-alias-label-tertiary)}
+/* 可折叠分区：标题行整体可点，右侧一个小圆形图标按钮做展开/收起指示。
+   刻意不用 <button> 承载整行——那会被浏览器画成原生按钮（黑框 + 灰底），
+   与面板其它分区完全不像。这里用 div[role=button] + 自绘圆形指示器。 */
+.ts-section-title--toggle{cursor:pointer;user-select:none;border-radius:var(--dsw-radius-sm);margin:-4px;padding:4px;transition:background .15s ease}
+.ts-section-title--toggle:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.ts-section-title--toggle:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.ts-toggle-icon{display:inline-grid;place-items:center;flex:none;width:20px;height:20px;border-radius:50%;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:1;transform:rotate(0deg);transition:transform .18s ease,color .15s ease,border-color .15s ease}
+.ts-section-title--toggle:hover .ts-toggle-icon{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3)}
+.ts-toggle-icon[data-open="true"]{transform:rotate(90deg)}
 .ts-color{display:flex;align-items:center;gap:8px}
 .ts-color .ts-input[type=text]{flex:1 1 auto;min-width:0}
 .ts-color .ts-input[type=color]{flex:0 0 34px;width:34px;height:34px;padding:2px;cursor:pointer;border-radius:var(--dsw-radius-sm)}
@@ -689,6 +728,9 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
       const [loading, setLoading] = react.useState(true)
       const [busy, setBusy] = react.useState(false)
       const [status, setStatus] = react.useState(null)
+      // 「字段颜色」区默认折叠：它有 11 个色卡，展开会占掉大半屏，
+      // 而大多数用户只是路过看看。需要时点标题展开。
+      const [colorsOpen, setColorsOpen] = react.useState(false)
       const fileRef = react.useRef(null)
 
       const syncDocument = (nextView) => {
@@ -767,6 +809,10 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
         patch((prev) => ({ ...prev, glass: { ...(prev.glass ?? {}), [key]: value } }))
       }
 
+      const patchStatusEffect = (value) => {
+        patch((prev) => ({ ...prev, statusEffect: value }))
+      }
+
       const patchColor = (key, value) => {
         patch((prev) => {
           const next = { ...(prev.fieldColors ?? {}) }
@@ -831,7 +877,9 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
       const sizes = draft?.fontSizes ?? {}
       const glass = draft?.glass ?? {}
       const fieldColors = draft?.fieldColors ?? {}
-      const isGlass = activeTheme === 'glass' || activeTheme === 'glass-color'
+      // 极光沿用玻璃的材质机制（同为半透明表面 + backdrop-filter），
+      // 模糊与饱和度对它同样生效，因此面板要与玻璃一同展示。
+      const isGlass = activeTheme === 'glass' || activeTheme === 'glass-color' || activeTheme === 'aurora'
 
       // —— 背景类型控件 ——
       const modeControl = field('类型', segmented(
@@ -972,6 +1020,19 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
         ? h('div', { className: `ts-status ${status.ok ? 'ok' : 'err'}` }, status.msg)
         : null
 
+      // —— 状态条效果：整档切换的小卡片，默认「原生」——
+      const activeEffect = draft?.statusEffect ?? DEFAULT_STATUS_EFFECT
+      const effectGrid = h('div', { className: 'ts-effects' },
+        STATUS_EFFECTS.map((item) => h('button', {
+          key: item.id,
+          type: 'button',
+          className: 'ts-effect',
+          'aria-pressed': activeEffect === item.id ? 'true' : 'false',
+          onClick: () => patchStatusEffect(item.id),
+        },
+          h('span', { className: 'ts-effect-name' }, item.label),
+          h('span', { className: 'ts-effect-desc' }, item.description))))
+
       return h('div', { className: 'ts-wrap' },
         h('h2', null, '主题工作室'),
         h('p', { className: 'ts-intro' },
@@ -983,6 +1044,12 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
             '每款主题都同时带明暗两套色板，跟随宿主的明暗偏好自动切换。'),
           h('div', { className: 'ts-themes' },
             themes.map((theme) => themeCard(theme, activeTheme, (id) => patch((prev) => ({ ...prev, theme: id })))))),
+
+        h('div', { className: 'ts-section' },
+          h('div', { className: 'ts-section-title' }, '状态条效果'),
+          h('p', { className: 'ts-section-hint' },
+            '默认「原生」不添加任何特效。选择一档后，运行中的状态条会获得对应的动态效果。'),
+          effectGrid),
 
         h('div', { className: 'ts-section' },
           h('div', { className: 'ts-section-title' }, '背景'),
@@ -1001,16 +1068,38 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
           mobileHint),
 
         h('div', { className: 'ts-section' },
-          h('div', { className: 'ts-section-title' }, '字段颜色'),
+          // 折叠标题行：标题文字本身也是可点区域（方便触屏），右侧配一个小圆形
+          // 图标按钮作为明确的「展开/收起」指示。不用整行 <button>——
+          // 那会把整个标题行渲染成浏览器原生按钮（黑框 + 默认底色），
+          // 与面板其它分区完全不像（用户实测截图报障）。
+          h('div', {
+            className: 'ts-section-title ts-section-title--toggle',
+            role: 'button',
+            tabIndex: 0,
+            'aria-expanded': colorsOpen ? 'true' : 'false',
+            onClick: () => setColorsOpen((prev) => !prev),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                setColorsOpen((prev) => !prev)
+              }
+            },
+          },
+            h('span', null, '字段颜色'),
+            h('span', {
+              className: 'ts-toggle-icon',
+              'data-open': colorsOpen ? 'true' : 'false',
+              'aria-hidden': 'true',
+            }, '›')),
           h('p', { className: 'ts-section-hint' },
             '留空表示使用主题配色。改动同时作用于宿主组件与所有社区插件。'),
-          colorGrid),
+          colorsOpen ? colorGrid : null),
 
         glassRow
           ? h('div', { className: 'ts-section' },
               h('div', { className: 'ts-section-title' }, '玻璃材质'),
               h('p', { className: 'ts-section-hint' },
-                '只在苹果玻璃主题下生效。模糊越强越「毛」，饱和度越高色相越鲜明。'),
+                '在玻璃与极光主题下生效。模糊越强越「毛」，饱和度越高色相越鲜明。'),
               glassRow)
           : null,
 
@@ -1054,10 +1143,23 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
         h('circle', { cx: '5.1', cy: '9.4', r: '.85' }))
     }
 
-    /** 注入一段只加一次的样式。 */
+    /**
+     * 注入一段样式。
+     *
+     * **必须每次都更新 textContent，不能「已存在就跳过」。**
+     * 踩过的坑：面板升级后新增了 `.ts-effect` / `.ts-section-toggle` 等类，
+     * 但页面里已有一份旧版 `<style>`，`ensureStyle` 直接 return 掉新内容——
+     * 新加的卡片退化成无样式的纯文本、折叠按钮退化成原生黑框按钮，
+     * 而刷新页面后一切正常（因为那时才第一次注入）。这种「改完看不见效果、
+     * 刷一下就好」的问题最难排查，所以这里无条件覆盖。
+     */
     function ensureStyle(id, css) {
       if (typeof document === 'undefined') return
-      if (document.getElementById(id)) return
+      const existing = document.getElementById(id)
+      if (existing) {
+        if (existing.textContent !== css) existing.textContent = css
+        return
+      }
       const style = document.createElement('style')
       style.id = id
       style.textContent = css

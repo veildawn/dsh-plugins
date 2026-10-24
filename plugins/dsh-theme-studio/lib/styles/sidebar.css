@@ -73,17 +73,61 @@ html[data-theme-studio] .ixJ31a_panelActive {
 
 html[data-theme-studio] .IW6AQa_iconButton,
 html[data-theme-studio] .cX-2eG_iconButton,
-html[data-theme-studio] .IW6AQa_iconButton,
-html[data-theme-studio] .cX-2eG_iconButton {
+html[data-theme-studio] .hHd-Xa_toggle,
+html[data-theme-studio] .ixJ31a_toggle {
+  background: transparent;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
   color: var(--color-foreground-subtle);
 }
 
 html[data-theme-studio] .IW6AQa_iconButton:hover,
 html[data-theme-studio] .cX-2eG_iconButton:hover,
-html[data-theme-studio] .IW6AQa_iconButton:hover,
-html[data-theme-studio] .cX-2eG_iconButton:hover {
+html[data-theme-studio] .hHd-Xa_toggle:hover,
+html[data-theme-studio] .ixJ31a_toggle:hover {
   background: var(--color-surface);
   color: var(--color-foreground);
+}
+
+/* 侧栏收起按钮（`.toggle`，右上角那个方框图标）：
+   宿主给它一块不透明方底 + 描边，在主题下会显成「白底黑框」。
+   这里统一成透明图标按钮——它和旁边的品牌区、插件行是同一视觉层级。 */
+html[data-theme-studio] .hHd-Xa_toggle,
+html[data-theme-studio] .ixJ31a_toggle {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme-studio] .hHd-Xa_toggle:hover,
+html[data-theme-studio] .ixJ31a_toggle:hover {
+  background: var(--color-surface) !important;
+}
+
+/* 侧栏底部「归档箱」按钮（社区插件 dsh-archive-manager 的 `.dam-btn.dam-btn-wide`）：
+   它是侧栏 footer 里的常驻列表项，视觉层级与上方的会话行一致。
+   平时必须保持完全透明与无边框（杜绝突兀的实心膏药块），
+   仅在 hover / active 时浮现轻量柔和的 surface-hover。 */
+html[data-theme-studio] .dam-btn.dam-btn-wide {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: var(--dsw-radius-md);
+  color: var(--color-foreground);
+  transition: background-color 0.15s ease;
+}
+
+html[data-theme-studio] .dam-btn.dam-btn-wide:hover,
+html[data-theme-studio] .dam-btn.dam-btn-wide:active {
+  background: var(--color-surface-hover) !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dam-btn.dam-btn-wide .dam-btn-label {
+  color: var(--color-foreground);
+  font-weight: 500;
 }
 
 /* 工作区 / 会话行：圆角与悬停抬升沿用宿主，仅把选中态从品牌色换成官方 surface-hover。 */

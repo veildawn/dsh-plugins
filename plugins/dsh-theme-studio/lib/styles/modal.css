@@ -55,6 +55,50 @@ html[data-theme-studio] [role="menu"] {
   border: 1px solid var(--color-border-hover);
 }
 
+/* ---------------------------------------------------------------------------
+   菜单与下拉面板的内部结构（选项行 / 搜索框 / 选中态 / 分组标题）
+   ---------------------------------------------------------------------------
+   输入框上的权限、模型、附件、命令等按钮点开后弹出的面板，宿主只给容器刷了
+   `--dsw-alias-bg-*`，内部的行、搜索框、选中高亮、分组标题走的是组件自绘色。
+   这里把内部结构全部接管到语义层，否则菜单容器是主题色、行却是原生灰。 */
+html[data-theme-studio] [role="menu"] :where([role="menuitem"], [role="option"], [class*="_option"], [class*="_item"], [class*="_row"]),
+html[data-theme-studio] [role="listbox"] :where([role="option"], [class*="_option"], [class*="_item"], [class*="_row"]) {
+  color: var(--color-foreground);
+  border-radius: var(--dsw-radius-sm);
+}
+
+html[data-theme-studio] [role="menu"] :where([role="menuitem"], [role="option"], [class*="_option"], [class*="_item"], [class*="_row"]):hover,
+html[data-theme-studio] [role="listbox"] :where([role="option"], [class*="_option"], [class*="_item"], [class*="_row"]):hover {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] [role="menu"] :where([aria-selected="true"], [class*="_selected"], [class*="_optionActive"], [class*="_rowActive"], [class*="_active"]),
+html[data-theme-studio] [role="listbox"] :where([aria-selected="true"], [class*="_selected"], [class*="_optionActive"], [class*="_rowActive"], [class*="_active"]) {
+  background: var(--color-selected);
+  color: var(--color-foreground);
+}
+
+/* 菜单内搜索框与次级文字 */
+html[data-theme-studio] [role="menu"] :where(input[type="search"], input[type="text"], [class*="_search"] input),
+html[data-theme-studio] [role="listbox"] :where(input[type="search"], input[type="text"], [class*="_search"] input) {
+  background: var(--color-input);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] [role="menu"] :where([class*="_sectionTitle"], [class*="_groupTitle"], [class*="_label"], [class*="_hint"], [class*="_description"]),
+html[data-theme-studio] [role="listbox"] :where([class*="_sectionTitle"], [class*="_groupTitle"], [class*="_label"], [class*="_hint"], [class*="_description"]) {
+  color: var(--color-foreground-subtlest);
+}
+
+/* 菜单内的勾选/选中标记与徽标 */
+html[data-theme-studio] [role="menu"] :where([class*="_check"], [class*="_badge"]),
+html[data-theme-studio] [role="listbox"] :where([class*="_check"], [class*="_badge"]) {
+  color: var(--color-primary);
+}
+
 /* 会话头部工具栏菜单与下拉浮层 (如 open-in-app 本地打开、session-log-export 下载日志更多操作等)：
    确保下拉浮层 z-index 处于正常层级，且定位不被父级或移动端规则截断 */
 html[data-theme-studio] ._7yHdaG_header [role="menu"],

@@ -1,0 +1,1249 @@
+/**
+ * plugins.css —— 社区插件自绘 UI 的主题接管层（视觉层）。
+ *
+ * 职责：
+ *   本仓库的社区插件（dsh-archive-manager、dsh-plugin-manager、dsh-file-viewer、
+ *   dsh-task-models 等）各自内联了一份自绘样式，底色/描边/文字色大量引用宿主
+ *   别名 Token（--dsw-alias-*），个别插件（dsh-terminal）甚至硬编码深色字面量。
+ *   本文件把这些表面统一改写到主题语义变量（--color-* / --dsw-* / --ts-*），
+ *   让 zcode / zcode-mono / glass / glass-color / aurora 全部主题都能接管插件的
+ *   卡片、按钮、设置面板、下拉面板、状态标识。
+ *
+ * 契约来源：
+ *   - test/plugin-compat.test.mjs 会扫描仓库内每个插件真实引用的 --dsw-* 变量，
+ *     保证主题侧定义齐全（Token 层）；本文件负责**视觉层**：插件类名到变量的映射。
+ *   - 插件类名是稳定 kebab 类名（不是宿主 CSS Modules 哈希），可直接书写。
+ *   - 所有规则以 html[data-theme-studio] 开头，不写具体主题 id。
+ *   - 颜色只许引用变量；唯一例外是压暗遮罩（rgba(0,0,0,0.45) + blur(4px)）——
+ *     各主题都需要把下层内容压暗，与 modal.css 既有写法一致。
+ *   - 不写关键帧动画（动效归 aurora.css / glass.css / motion.css）；
+ *     不覆盖布局尺寸；禁用态不改写 color（states.css 已统一处理）。
+ *
+ * 与 buttons.css / modal.css / glass.css 的分工：
+ *   - buttons.css 已兜底 button[class~="primary"]（命中 dm-action-btn.primary
+ *     这类双类命名）与各插件普通按钮的 input 层底色（button.dam-btn /
+ *     button.dm-action-btn / button.fv-button / button.jev-btn / button.mr-button /
+ *     button.tm-button / button.term-btn）。本文件不重复这些等价规则，只接管
+ *     它们盖不住的：dam-action-primary / fv-btn-primary / jev-btn-primary /
+ *     mr-primary / tm-primary / spe-btn-primary 这类「primary 不在独立词元」的
+ *     主按钮、危险按钮、图标按钮，以及卡片 / 面板 / 菜单 / 状态标识。
+ *   - modal.css 已覆盖 .dam-modal-card / .dam-card / .dm-modal-card / .fv-modal
+ *     的卡片面与各插件遮罩；这里只补文字前景，不重复底色。
+ *   - .fv-shell（文件查看器抽屉）本体的玻璃态由 glass.css 负责——本体带
+ *     backdrop-filter 会把右键菜单的 fixed 定位裁进抽屉，这里绝不重复声明。
+ */
+
+/* ============================================================
+ * dsh-archive-manager（dam-）：会话归档箱
+ * 覆盖：列表行/卡片项、搜索框、工具栏、徽标、空态、遮罩、主/危险按钮。
+ * ============================================================ */
+
+/* 模态卡文字前景（卡片面 modal.css 已统一） */
+html[data-theme-studio] .dam-modal-card,
+html[data-theme-studio] .dam-card,
+html[data-theme-studio] .dam-head,
+html[data-theme-studio] .dam-title {
+  color: var(--color-foreground);
+}
+
+/* 列表行与卡片项：卡片面 + 描边，hover 抬边线 */
+html[data-theme-studio] .dam-card-item {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dam-card-item:hover {
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] .dam-row {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dam-row:hover {
+  background: var(--color-surface);
+}
+
+/* 搜索框：输入层面 */
+html[data-theme-studio] .dam-search {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dam-search:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+/* 工具栏与次级信息栏 */
+html[data-theme-studio] .dam-toolbar {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dam-sub-bar {
+  color: var(--color-foreground-subtle);
+}
+
+/* 计数/状态徽标：柔和低调的小圆角胶囊，融入侧栏与工具栏 */
+html[data-theme-studio] .dam-badge {
+  background: var(--color-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground-subtle);
+}
+
+/* 空态 */
+html[data-theme-studio] .dam-empty {
+  color: var(--color-foreground-subtle);
+}
+
+/* 遮罩：压暗 + 轻微磨砂（与 modal.css 同一配方） */
+html[data-theme-studio] .dam-modal-scrim,
+html[data-theme-studio] .dam-backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* 主按钮：dam-action-primary 的 primary 不在独立词元，buttons.css 兜不住 */
+html[data-theme-studio] .dam-action-primary {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .dam-action-primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .dam-action-primary:active {
+  transform: scale(0.98);
+}
+
+/* 危险按钮：destructive 实心 */
+html[data-theme-studio] .dam-action-danger {
+  background: var(--color-destructive);
+  border-color: transparent;
+  color: var(--color-destructive-foreground);
+}
+
+html[data-theme-studio] .dam-action-danger:hover {
+  opacity: 0.9;
+}
+
+/* 行内操作：恢复走主色，删除走危险色 */
+html[data-theme-studio] .dam-op-restore {
+  color: var(--color-primary);
+}
+
+html[data-theme-studio] .dam-op-danger {
+  color: var(--color-destructive);
+}
+
+/* 弹窗内提示文字 */
+html[data-theme-studio] .dam-modal-warn-text {
+  color: var(--color-warning);
+}
+
+html[data-theme-studio] .dam-modal-highlight {
+  color: var(--color-foreground);
+}
+
+/* ============================================================
+ * dsh-plugin-manager（dm-）：插件管理器
+ * 覆盖：插件卡片、徽标、安装日志、升级横幅、页签/筛选/图标按钮。
+ * .dm-action-btn / .dm-chip 的按钮底色与 .dm-action-btn.primary 主按钮
+ * 已由 buttons.css 兜底，这里不重复。
+ * ============================================================ */
+
+html[data-theme-studio] .dm-card {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dm-card:hover {
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] .dm-card-head,
+html[data-theme-studio] .dm-card-title,
+html[data-theme-studio] .dm-card-title-row {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dm-card-icon {
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .dm-card-desc,
+html[data-theme-studio] .dm-card-meta-text,
+html[data-theme-studio] .dm-card-body,
+html[data-theme-studio] .dm-card-footer,
+html[data-theme-studio] .dm-card-actions {
+  color: var(--color-foreground-subtle);
+}
+
+/* 版本/来源徽标：表面层 + 次级文字 */
+html[data-theme-studio] .dm-badge {
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
+}
+
+/* 废弃提示：警告色 */
+html[data-theme-studio] .dm-card-deprecated-note {
+  color: var(--color-warning);
+}
+
+/* 安装日志：等宽字体 + 画布底 */
+html[data-theme-studio] .dm-install-log {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--color-foreground-subtle);
+  font-family: var(--dsw-font-family-mono, monospace);
+}
+
+/* 宿主升级提示横幅：警告面 */
+html[data-theme-studio] .dm-dsh-banner {
+  background: var(--color-warning-surface);
+  border-color: var(--color-warning);
+  color: var(--color-warning-surface-foreground);
+}
+
+/* 空态与提示 */
+html[data-theme-studio] .dm-empty,
+html[data-theme-studio] .dm-hint,
+html[data-theme-studio] .dm-subtitle {
+  color: var(--color-foreground-subtle);
+}
+
+/* 输入框 */
+html[data-theme-studio] .dm-input {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dm-input:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+/* 页签与筛选按钮：透明文字按钮，hover 给表面，激活回前景 */
+html[data-theme-studio] .dm-tab-btn,
+html[data-theme-studio] .dm-filter-btn {
+  background: transparent;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .dm-tab-btn:hover,
+html[data-theme-studio] .dm-filter-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dm-tab-btn.active,
+html[data-theme-studio] .dm-tab-btn[aria-selected="true"],
+html[data-theme-studio] .dm-filter-btn.active {
+  color: var(--color-foreground);
+}
+
+/* 图标小按钮 */
+html[data-theme-studio] .dm-close-btn,
+html[data-theme-studio] .dm-icon-mini-btn {
+  background: transparent;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .dm-close-btn:hover,
+html[data-theme-studio] .dm-icon-mini-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* ============================================================
+ * dsh-file-viewer（fv-）：文件查看器
+ * 覆盖：帧容器、面包屑、按钮族、右键菜单、diff、Git 面板、字号控件。
+ * .fv-shell 抽屉本体的玻璃态归 glass.css，这里不声明它的 backdrop-filter。
+ * ============================================================ */
+
+/* 整帧容器与头部栏 */
+html[data-theme-studio] .fv-frame {
+  background: var(--color-header);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .fv-head {
+  background: var(--color-header);
+  border-bottom-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+/* 面包屑 */
+html[data-theme-studio] .fv-crumbs {
+  color: var(--color-foreground-subtle);
+}
+
+/* 主按钮 */
+html[data-theme-studio] .fv-btn-primary {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .fv-btn-primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .fv-btn-primary:active {
+  transform: scale(0.98);
+}
+
+/* 图标按钮族：透明底 + hover 表面 */
+html[data-theme-studio] .fv-btn-close,
+html[data-theme-studio] .fv-btn-back,
+html[data-theme-studio] .fv-btn-fullscreen,
+html[data-theme-studio] .fv-icon-button,
+html[data-theme-studio] .fv-font-size-btn {
+  background: transparent;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .fv-btn-close:hover,
+html[data-theme-studio] .fv-btn-back:hover,
+html[data-theme-studio] .fv-btn-fullscreen:hover,
+html[data-theme-studio] .fv-icon-button:hover,
+html[data-theme-studio] .fv-font-size-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 删除是危险操作：文字危险色，hover 给危险面 */
+html[data-theme-studio] .fv-btn-del {
+  background: transparent;
+  color: var(--color-destructive);
+}
+
+html[data-theme-studio] .fv-btn-del:hover {
+  background: var(--color-destructive-surface);
+  color: var(--color-destructive-surface-foreground);
+}
+
+/* 右键菜单：菜单面 + 抬升描边 + 三级阴影 */
+html[data-theme-studio] .fv-context-menu {
+  background: var(--color-menu);
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--dsw-radius-md);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .fv-context-item {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .fv-context-item:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .fv-context-divider {
+  border-color: var(--color-border);
+}
+
+html[data-theme-studio] .fv-context-head,
+html[data-theme-studio] .fv-context-path {
+  color: var(--color-foreground-subtle);
+}
+
+/* 状态徽标：新增 success 系，修改 warning 系 */
+html[data-theme-studio] .fv-badge {
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .fv-badge-add {
+  background: var(--color-success-surface);
+  color: var(--color-success-surface-foreground);
+}
+
+html[data-theme-studio] .fv-badge-mod {
+  background: var(--color-warning-surface);
+  color: var(--color-warning-surface-foreground);
+}
+
+/* Diff 视图 */
+html[data-theme-studio] .fv-diff-add-line {
+  background: var(--color-code-diff-added);
+}
+
+html[data-theme-studio] .fv-diff-del-line {
+  background: var(--color-code-diff-deleted);
+}
+
+html[data-theme-studio] .fv-diff-num {
+  color: var(--color-foreground-subtlest);
+}
+
+html[data-theme-studio] .fv-diff-hunk {
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
+}
+
+/* Git 面板与提交详情 */
+html[data-theme-studio] .fv-git-panel {
+  background: var(--color-panel);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .fv-commit-head {
+  border-bottom-color: var(--color-border);
+}
+
+html[data-theme-studio] .fv-commit-subject,
+html[data-theme-studio] .fv-commit-path,
+html[data-theme-studio] .fv-commit-file {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .fv-commit-sha,
+html[data-theme-studio] .fv-commit-meta,
+html[data-theme-studio] .fv-commit-tag,
+html[data-theme-studio] .fv-git-sha,
+html[data-theme-studio] .fv-git-meta,
+html[data-theme-studio] .fv-git-note,
+html[data-theme-studio] .fv-git-hint {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .fv-git-warn {
+  color: var(--color-warning);
+}
+
+/* 字号控件读数 */
+html[data-theme-studio] .fv-font-size-value {
+  color: var(--color-foreground-subtle);
+}
+
+/* 输入与下拉 */
+html[data-theme-studio] .fv-input,
+html[data-theme-studio] .fv-select,
+html[data-theme-studio] .fv-root-select,
+html[data-theme-studio] .fv-lang-select {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .fv-input:focus,
+html[data-theme-studio] .fv-select:focus,
+html[data-theme-studio] .fv-root-select:focus,
+html[data-theme-studio] .fv-lang-select:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+/* 文件标签（sheet tabs） */
+html[data-theme-studio] .fv-tab {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .fv-tab:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 查看器内 toast */
+html[data-theme-studio] .fv-toast {
+  background: var(--color-toast);
+  border-color: var(--color-border-hover);
+  color: var(--color-foreground);
+}
+
+/* ============================================================
+ * dsh-prompt-history（dsh-ph-）：提示词历史面板
+ * ============================================================ */
+
+html[data-theme-studio] .dsh-ph-backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+html[data-theme-studio] .dsh-ph-popover {
+  background: var(--color-menu);
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--dsw-radius-lg);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dsh-ph-popover-header {
+  border-bottom-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dsh-ph-item,
+html[data-theme-studio] .dsh-ph-item-text {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dsh-ph-item:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .dsh-ph-empty {
+  color: var(--color-foreground-subtle);
+}
+
+/* 工具/操作图标按钮 */
+html[data-theme-studio] .dsh-ph-btn,
+html[data-theme-studio] .dsh-ph-toolbar-btn,
+html[data-theme-studio] .dsh-ph-action-btn {
+  background: transparent;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .dsh-ph-btn:hover,
+html[data-theme-studio] .dsh-ph-toolbar-btn:hover,
+html[data-theme-studio] .dsh-ph-action-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 移动端抽屉把手 */
+html[data-theme-studio] .dsh-ph-sheet-handle {
+  background: var(--color-secondary);
+}
+
+/* ============================================================
+ * dsh-task-models（tm-）：任务模型配置与工作流可视化
+ * ============================================================ */
+
+html[data-theme-studio] .tm-card {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .tm-card-head,
+html[data-theme-studio] .tm-title {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .tm-input,
+html[data-theme-studio] .tm-textarea,
+html[data-theme-studio] .tm-select {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .tm-input:focus,
+html[data-theme-studio] .tm-textarea:focus,
+html[data-theme-studio] .tm-select:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+/* 主按钮 / 危险按钮 */
+html[data-theme-studio] .tm-primary {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .tm-primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .tm-primary:active {
+  transform: scale(0.98);
+}
+
+html[data-theme-studio] .tm-danger {
+  background: var(--color-destructive);
+  border-color: transparent;
+  color: var(--color-destructive-foreground);
+}
+
+html[data-theme-studio] .tm-danger:hover {
+  opacity: 0.9;
+}
+
+/* 徽标：默认表面层，ok/warn 走状态面 */
+html[data-theme-studio] .tm-badge {
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .tm-badge-ok {
+  background: var(--color-success-surface);
+  color: var(--color-success-surface-foreground);
+}
+
+html[data-theme-studio] .tm-badge-warn {
+  background: var(--color-warning-surface);
+  color: var(--color-warning-surface-foreground);
+}
+
+/* 状态行与块状提示 */
+html[data-theme-studio] .tm-status {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .tm-ok {
+  color: var(--color-success);
+}
+
+html[data-theme-studio] .tm-warn {
+  background: var(--color-warning-surface);
+  color: var(--color-warning-surface-foreground);
+}
+
+html[data-theme-studio] .tm-error {
+  background: var(--color-destructive-surface);
+  color: var(--color-destructive-surface-foreground);
+}
+
+/* 工作流可视化：状态 chip 用对应语义色的淡面 + 描边；
+   运行中只用主色静态标识（呼吸动效归主题动效层，这里不写关键帧） */
+html[data-theme-studio] .tm-wf-completed {
+  background: var(--color-success-surface);
+  border-color: var(--color-success);
+  color: var(--color-success-surface-foreground);
+}
+
+html[data-theme-studio] .tm-wf-failed {
+  background: var(--color-destructive-surface);
+  border-color: var(--color-destructive);
+  color: var(--color-destructive-surface-foreground);
+}
+
+html[data-theme-studio] .tm-wf-running {
+  background: transparent;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+html[data-theme-studio] .tm-wf-cancelled,
+html[data-theme-studio] .tm-wf-interrupted,
+html[data-theme-studio] .tm-wf-model-pending {
+  color: var(--color-foreground-subtle);
+}
+
+/* ============================================================
+ * dsh-model-roles（mr-）：模型角色配置
+ * ============================================================ */
+
+html[data-theme-studio] .mr-card {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .mr-card-head,
+html[data-theme-studio] .mr-title {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .mr-input,
+html[data-theme-studio] .mr-select {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .mr-input:focus,
+html[data-theme-studio] .mr-select:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+html[data-theme-studio] .mr-primary {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .mr-primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .mr-danger {
+  background: var(--color-destructive);
+  border-color: transparent;
+  color: var(--color-destructive-foreground);
+}
+
+html[data-theme-studio] .mr-danger:hover {
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .mr-status,
+html[data-theme-studio] .mr-detail,
+html[data-theme-studio] .mr-feedback,
+html[data-theme-studio] .mr-intro {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .mr-warning {
+  background: var(--color-warning-surface);
+  color: var(--color-warning-surface-foreground);
+}
+
+html[data-theme-studio] .mr-error {
+  background: var(--color-destructive-surface);
+  color: var(--color-destructive-surface-foreground);
+}
+
+/* ============================================================
+ * dsh-jev（jev-）：Jev 决策面板
+ * ============================================================ */
+
+html[data-theme-studio] .jev-settings {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .jev-card {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .jev-input {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .jev-input:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+html[data-theme-studio] .jev-btn-primary {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .jev-btn-primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .jev-status,
+html[data-theme-studio] .jev-intro {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .jev-hint {
+  color: var(--color-foreground-subtlest);
+}
+
+html[data-theme-studio] .jev-tag {
+  background: var(--color-tag);
+  color: var(--color-foreground-subtle);
+}
+
+/* ============================================================
+ * dsh-remote-control（dsh-remote-）：远程控制与网络设置
+ * 遮罩 .dsh-remote-gate-mask 已由 modal.css 统一接管，这里补卡片/输入/按钮。
+ * ============================================================ */
+
+html[data-theme-studio] .dsh-remote-card,
+html[data-theme-studio] .dsh-remote-gate-card,
+html[data-theme-studio] .dsh-remote-network-card {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dsh-remote-card-header,
+html[data-theme-studio] .dsh-remote-card-title,
+html[data-theme-studio] .dsh-remote-network-title {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dsh-remote-input {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dsh-remote-input:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+/* 普通按钮走输入层，主按钮（含密钥验证 gate-button）走主色实心 */
+html[data-theme-studio] .dsh-remote-button {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dsh-remote-button:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .dsh-remote-button-primary,
+html[data-theme-studio] .dsh-remote-gate-button {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .dsh-remote-button-primary:hover,
+html[data-theme-studio] .dsh-remote-gate-button:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .dsh-remote-tag {
+  background: var(--color-tag);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .dsh-remote-status,
+html[data-theme-studio] .dsh-remote-status-banner {
+  background: var(--color-panel);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .dsh-remote-error {
+  color: var(--color-destructive);
+}
+
+html[data-theme-studio] .dsh-remote-meta,
+html[data-theme-studio] .dsh-remote-intro,
+html[data-theme-studio] .dsh-remote-port-hint {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .dsh-remote-copy-btn,
+html[data-theme-studio] .dsh-remote-host-btn {
+  background: transparent;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .dsh-remote-copy-btn:hover,
+html[data-theme-studio] .dsh-remote-host-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* ============================================================
+ * dsh-system-prompt-editor（spe-）：系统提示词编辑器
+ * ============================================================ */
+
+html[data-theme-studio] .spe-card {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .spe-head,
+html[data-theme-studio] .spe-title,
+html[data-theme-studio] .spe-card-head,
+html[data-theme-studio] .spe-card-title {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .spe-input,
+html[data-theme-studio] .spe-textarea,
+html[data-theme-studio] .spe-select {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .spe-input:focus,
+html[data-theme-studio] .spe-textarea:focus,
+html[data-theme-studio] .spe-select:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+/* spe-btn 是普通按钮（buttons.css 没有它的兜底），给输入层配方 */
+html[data-theme-studio] .spe-btn {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .spe-btn:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .spe-btn-primary {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .spe-btn-primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .spe-btn-danger {
+  background: var(--color-destructive);
+  border-color: transparent;
+  color: var(--color-destructive-foreground);
+}
+
+html[data-theme-studio] .spe-btn-danger:hover {
+  opacity: 0.9;
+}
+
+/* 搜索结果列表 */
+html[data-theme-studio] .spe-result {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .spe-result:hover {
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] .spe-result-name,
+html[data-theme-studio] .spe-result-cat {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .spe-status,
+html[data-theme-studio] .spe-hint,
+html[data-theme-studio] .spe-empty {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .spe-badge {
+  background: var(--color-surface);
+  color: var(--color-foreground-subtle);
+}
+
+/* 命中文本片段：等宽 + 表面层 */
+html[data-theme-studio] .spe-snippet,
+html[data-theme-studio] .spe-code {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+  font-family: var(--dsw-font-family-mono, monospace);
+}
+
+/* ============================================================
+ * dsh-terminal（term-）：终端抽屉
+ * 插件内联样式硬编码了一组深色字面量（近黑抽屉底、深灰头部），整体接管到变量。
+ * ============================================================ */
+
+html[data-theme-studio] .term-drawer {
+  background: var(--color-drawer);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .term-head {
+  background: var(--color-header);
+  border-bottom-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+/* 标签页：默认透明，激活用官方 tab-active 面 */
+html[data-theme-studio] .term-tab {
+  background: transparent;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .term-tab:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .term-tab[aria-selected="true"] {
+  background: var(--color-tab-active);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .term-tab-add,
+html[data-theme-studio] .term-tab-close {
+  background: transparent;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .term-tab-add:hover,
+html[data-theme-studio] .term-tab-close:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 头部/键盘图标按钮：插件原设计是透明底（background:none），而 buttons.css 的
+   button.term-btn 兜底（特异性 0,2,2）把它抬成了 input 实底。双写类名把特异性
+   抬到 0,3,2 还原透明底，与相邻图标按钮视觉一致。 */
+html[data-theme-studio] button.term-btn.term-btn,
+html[data-theme-studio] .term-header-btn,
+html[data-theme-studio] .term-key-btn {
+  background: transparent;
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] button.term-btn.term-btn:hover,
+html[data-theme-studio] .term-header-btn:hover,
+html[data-theme-studio] .term-key-btn:hover {
+  background: var(--color-surface);
+  color: var(--color-foreground);
+}
+
+/* 工具菜单：同右键菜单配方 */
+html[data-theme-studio] .term-tools-menu {
+  background: var(--color-menu);
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--dsw-radius-md);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .term-tools-item {
+  background: transparent;
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .term-tools-item:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .term-tools-divider {
+  border-color: var(--color-border);
+}
+
+/* 遮罩 */
+html[data-theme-studio] .term-tools-backdrop,
+html[data-theme-studio] .term-scrim {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* 移动端工具条：头部面 + 上边线 */
+html[data-theme-studio] .term-mobile-bar {
+  background: var(--color-header);
+  border-top-color: var(--color-border);
+}
+
+/* ============================================================
+ * dsh-ai-proxy（ai-proxy-）：AI 代理设置
+ * UI 面很小，但卡片/输入/按钮是自绘类名，按同一配方接管。
+ * ============================================================ */
+
+html[data-theme-studio] .ai-proxy-settings,
+html[data-theme-studio] .ai-proxy-callback-box {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .ai-proxy-input,
+html[data-theme-studio] .ai-proxy-select {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .ai-proxy-input:focus,
+html[data-theme-studio] .ai-proxy-select:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+html[data-theme-studio] .ai-proxy-button {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .ai-proxy-button:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .ai-proxy-button-primary {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .ai-proxy-button-primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .ai-proxy-endpoint-tag {
+  background: var(--color-tag);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .ai-proxy-status,
+html[data-theme-studio] .ai-proxy-details,
+html[data-theme-studio] .ai-proxy-intro {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .ai-proxy-error {
+  color: var(--color-destructive);
+}
+
+/* ============================================================
+ * dsh-image-gen（img-）：图像生成设置
+ * ============================================================ */
+
+html[data-theme-studio] .img-card,
+html[data-theme-studio] .img-settings {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .img-input {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .img-input:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+html[data-theme-studio] .img-btn {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .img-btn:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .img-btn-primary {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .img-btn-primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .img-tag {
+  background: var(--color-tag);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .img-status,
+html[data-theme-studio] .img-hint,
+html[data-theme-studio] .img-intro {
+  color: var(--color-foreground-subtle);
+}
+
+/* ============================================================
+ * dsh-im-bot（imb-）：IM 机器人桥接设置
+ * ============================================================ */
+
+html[data-theme-studio] .imb-card,
+html[data-theme-studio] .imb-channel-card {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .imb-channel-card:hover {
+  border-color: var(--color-border-hover);
+}
+
+html[data-theme-studio] .imb-card-head,
+html[data-theme-studio] .imb-card-title,
+html[data-theme-studio] .imb-channel-name {
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .imb-channel-desc,
+html[data-theme-studio] .imb-channel-meta,
+html[data-theme-studio] .imb-item-sub {
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .imb-input,
+html[data-theme-studio] .imb-textarea {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .imb-input:focus,
+html[data-theme-studio] .imb-textarea:focus {
+  border-color: var(--color-input-border-focused);
+}
+
+html[data-theme-studio] .imb-btn {
+  background: var(--color-input);
+  border-color: var(--color-border);
+  color: var(--color-foreground);
+}
+
+html[data-theme-studio] .imb-btn:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .imb-btn-primary {
+  background: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-primary-foreground);
+}
+
+html[data-theme-studio] .imb-btn-primary:hover {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .imb-btn-danger {
+  background: var(--color-destructive);
+  border-color: transparent;
+  color: var(--color-destructive-foreground);
+}
+
+html[data-theme-studio] .imb-btn-danger:hover {
+  opacity: 0.9;
+}
+
+html[data-theme-studio] .imb-item:hover {
+  background: var(--color-surface-hover);
+}
+
+html[data-theme-studio] .imb-tag {
+  background: var(--color-tag);
+  color: var(--color-foreground-subtle);
+}
+
+html[data-theme-studio] .imb-status,
+html[data-theme-studio] .imb-hint,
+html[data-theme-studio] .imb-empty,
+html[data-theme-studio] .imb-intro {
+  color: var(--color-foreground-subtle);
+}
+
+/* ============================================================
+ * dsh-mobile-adapter（dsh-mobile-）
+ * 布局插件：条带与菜单已由 aurora.css 的 .dsh-mobile-* 规则及宿主 Token
+ * 接管，本文件不重复声明，避免与移动端布局规则打架。
+ * ============================================================ */

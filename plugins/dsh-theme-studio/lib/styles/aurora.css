@@ -1,0 +1,978 @@
+/* ============================================================================
+   极光流光（Aurora Flow）动效层
+   ============================================================================
+
+   这份样式表只在极光主题下生效（`html[data-theme-studio="aurora"]`），
+   负责基座样式表与 `glass.css` 都不表达的那部分：**运动本身**。
+
+   极光流光与苹果玻璃共用同一套「半透明表面 + 轮廓光描边」的材质结构，
+   差别在于光从哪来。玻璃的光来自静态壁纸，本主题的光来自三处：
+
+     1. **漂移光斑**（`body::before`）：三层青/紫/青绿径向渐变，各自以
+        不同周期平移缩放。这是「极光」的主视觉，也是唯一铺满视口的动效层。
+     2. **流光边框**（`::after` 遮罩环）：沿卡片圆角循环的角向渐变扫光，
+        用 `mask-composite` 裁出 1px 边框环，因此不需要 `overflow: hidden`。
+     3. **运行态呼吸波纹**（Agent 思考/工具调用时）：从状态胶囊向外扩散的
+        光环，表达「正在计算」。
+
+   ## 三条硬约束（踩过坑，不要改）
+
+   **① 光斑不能画在 `#root` 或 `.frame` 上。**
+   宿主把 `#root` 铺满视口且带不透明底色，画在它上面等于把内容压在一层光下面。
+   画在 `body::before` 并用 `z-index: -1` 落到块级背景之下，再把 `#root` 与
+   `.frame` 的底色清空，光斑才能既可见、又完全不干扰内容层。
+
+   **② 材质仍要挂在 `::before` 上，不能挂容器本体。**
+   与玻璃同因：`backdrop-filter` 会把元素变成后代 `position: fixed` 的包含块，
+   并把整栏锁成层叠上下文。侧栏是 `sidebar.footer.action` 槽位的宿主，归档箱、
+   插件管理的全屏遮罩都挂在那里，材质写在本体上会让遮罩缩进侧栏。
+   见 `test/plugin-compat.test.mjs` 的三条守卫。
+
+   **③ 动画只碰合成器属性。**
+   `transform` / `opacity` 走 GPU 合成，不触发重排重绘。**光斑的 `filter: blur()`
+   是静态值**——若把 blur 放进 keyframes，每一帧都要重新做一次全屏高斯模糊，
+   在中端手机上会直接掉到 20fps。这也是光斑用 `inset: -20%` 放大、只平移
+   `transform` 的原因：位移不改变模糊范围，blur 只需算一次。
+
+   ============================================================================ */
+
+/* ---------------------------------------------------------------------------
+   零、角度插值的注册
+   ---------------------------------------------------------------------------
+   `conic-gradient(from <angle>)` 里的角度默认**不可动画**：CSS 自定义属性在
+   注册前是字符串，浏览器无法在 0deg 与 360deg 之间插值。`@property` 声明
+   `syntax: '<angle>'` 后它成为可插值的真实角度类型，扫光才能平滑旋转。
+
+   不支持的浏览器（Safari < 16.4）会忽略整条 @property，此时角度停在初始值
+   ——表现为**静态渐变边框**而不是断裂或消失。这是刻意的降级：主题的首要职责
+   是「不坏」，其次才是「会动」。 */
+@property --ts-beam-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+/* ---------------------------------------------------------------------------
+   一、根画布：让光斑透上来
+   ---------------------------------------------------------------------------
+   `reset.css` 给 html 与 body 都刷了不透明的 `--color-background-win-alt`，
+   `surfaces.css` 又给 `#root` 刷了一层，`frame.css` 再给 `.frame` 刷一层。
+   四层实色叠下来，光斑画在哪都被盖住。
+
+   处理顺序是「从上往下清」：保留 html 的底色（它是 canvas 的最终兜底，
+   body::before 的负 z-index 正是落在它之上），把 body / #root / .frame
+   全部清成透明。 */
+html[data-theme-studio="aurora"] body {
+  background: transparent;
+}
+
+html[data-theme-studio="aurora"] #root,
+html[data-theme-studio="aurora"] .pI_x6G_frame,
+html[data-theme-studio="aurora"] ._LS25G_frame {
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   一·补、会话与正文层全透明让位（彻底释放极光光斑）
+   ---------------------------------------------------------------------------
+   这是移动端和真实会话流下「极光完全看不见、只有死白一块」的根本原因：
+   宿主在 centerCol 内部嵌套了一整套会话容器：
+   wSkVaW_root（会话根）、EvIC1a_root（消息视图）、EvIC1a_frame、
+   EvIC1a_scroll、EvIC1a_column、[data-chat-flow]、wSkVaW_scrollBody 等。
+   基座 chat.css 把每一层都刷上了 var(--color-background)；四五层半透明
+   叠加之后合成出 99.5% 的纯白实底，背后的极光被彻底挡死。
+   这里将它们全部清成 transparent，由 centerCol 统一承载 38% 的底色与模糊，
+   确保手机屏幕上任何角度都能看到流动的极光。两套构建哈希必须成对书写。 */
+html[data-theme-studio="aurora"] :is(
+  .wSkVaW_root,
+  ._1O6vqW_root,
+  .wSkVaW_composerSeat,
+  ._1O6vqW_composerSeat,
+  .wSkVaW_scrollBody,
+  ._1O6vqW_scrollBody,
+  .EvIC1a_root,
+  ._6nxh1G_root,
+  .EvIC1a_frame,
+  ._6nxh1G_frame,
+  .EvIC1a_scroll,
+  ._6nxh1G_scroll,
+  .EvIC1a_column,
+  ._6nxh1G_column,
+  [data-chat-flow],
+  .qBU-ya_root,
+  .p28-XW_root
+) {
+  background: transparent !important;
+}
+
+/* 光斑层：三层径向渐变，各自不同周期漂移。
+   ---------------------------------------------------------------------------
+   **圆心位置不是随手摆的**，是按设计稿（aurora-flow-desktop-ui.jpg）的像素统计
+   反推的：设计稿里极光最强的三个区是「左上青」「中部深蓝紫」「底部青紫」，
+   彩度 p90 分别 65 / 67 / 64。初版把圆心摆在 18%22% / 82%30% / 52%88%，
+   实测中部 p90 只有 12、底部为 0——大面积界面落在所有光斑的衰减区之外，
+   观感是「一层灰玻璃」而不是「极光」。
+
+   现在改成四层：三个主光斑 + 一层铺满中部的宽幅渐变。`at 50% 45%` 那一层
+   半径给到 70%，专门负责「中部必须有光」，因为它正对着会话正文区。
+
+   - `inset: -20%`：让画布比视口大一圈，平移时边缘不会露出空白；
+   - **不使用 `filter: blur()`**：柔和感由径向渐变自身的多段色标提供。
+     曾用 blur(56px) 糊边界，但那会让核显每帧重做全屏离屏模糊，
+     实测 FPS 从 29 掉到 11（详见下方光斑规则的实测表）；
+   - `z-index: -1`：落到块级背景之下（见本文件头部约束①）；
+   - `will-change: transform`：提示浏览器提前提升为合成层。只在动效层上写，
+     不要给所有元素加（每个合成层都吃显存）；
+   - `animation-delay` 必须是负值且与 `animation` 写在**同一条规则**里：
+     `animation` 简写会把 delay 重置成 0，分两条规则写时胜利全靠「后声明」，
+     任何人往后追加一条 animation 就会让三层光斑重新同步。
+
+   负延迟的含义是「这条动画在出生前就已经跑了这么久」，于是三个光斑
+   一开始就处在周期中的不同位置——用一条 keyframes 得到三种相位。
+
+   ## 混合模式按明暗分开（见下一条规则）
+
+   暗色态用 `plus-lighter`：极光的物理本质是发光体叠加，加色混合才能让三块
+   色斑连成一片「光」，而不是三个半透明色块。它要求底子够暗，否则相加后
+   直接饱和成白色。
+
+   亮色态必须用 `normal`：晨曦的底子本身就很亮，加色只会把整片区域洗白，
+   极光就消失了。半透明色斑直接铺在浅底上，反而是「晨雾透光」的正确观感。 */
+html[data-theme-studio="aurora"] body::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    /* 左上：青（设计稿的识别色）。多段衰减见中部那条的说明。 */
+    radial-gradient(
+      42% 50% at 14% 16%,
+      var(--ts-aurora-glow-1, transparent) 0%,
+      color-mix(in srgb, var(--ts-aurora-glow-1, transparent) 66%, transparent) 40%,
+      color-mix(in srgb, var(--ts-aurora-glow-1, transparent) 26%, transparent) 70%,
+      transparent 92%
+    ),
+    /* 右上：紫 */
+    radial-gradient(
+      46% 54% at 86% 24%,
+      var(--ts-aurora-glow-2, transparent) 0%,
+      color-mix(in srgb, var(--ts-aurora-glow-2, transparent) 62%, transparent) 40%,
+      color-mix(in srgb, var(--ts-aurora-glow-2, transparent) 26%, transparent) 70%,
+      transparent 92%
+    ),
+    /* 底部：青绿极光带。
+       用线性渐变而不是 radial：设计稿的底部是一条**横贯左右**的光带，
+       radial 的圆心无论放哪都只能照亮一小块，且圆心在 96% 时已经溢出
+       画布、被 blur 摊完后几乎看不见。linear 从底部向上衰减，
+       无论视口多宽都是一条完整的带子。同样分三段淡出。 */
+    linear-gradient(
+      to top,
+      var(--ts-aurora-glow-3, transparent) 0%,
+      color-mix(in srgb, var(--ts-aurora-glow-3, transparent) 46%, transparent) 18%,
+      transparent 44%
+    ),
+    /* 中部：宽幅青紫，正对会话正文区 —— 没有它中部就是一片死黑。
+       用青色（glow-1）而非紫色做主色：设计稿的中部是「深蓝紫底上透青光」，
+       实测若用紫色（glow-2）中部会紫到发艳（p90 冲到 102，设计稿 67）。
+
+       衰减用**多段色标**而不是一个 `transparent` 终点：单段衰减在 46% 处
+       斜率太陡，会露出可见的圆形等高线（观感是一个「光团」）。这里
+       0% → 34% → 60% → 86% 分四级淡出，等高线被拉平，得到「一片渐变」。
+       这也是去掉 `filter: blur()` 之后仍然柔和的原因——四段色标替代了模糊。
+
+       第二段压到 42%（其它三处是 62~66%）：中部正对会话正文，是四层里唯一
+       需要为可读性让步的。压完之后中部彩度 p90 从 112 回到 67 的设计稿量级。 */
+    radial-gradient(
+      62% 54% at 50% 42%,
+      var(--ts-aurora-glow-1, transparent) 0%,
+      color-mix(in srgb, var(--ts-aurora-glow-1, transparent) 42%, transparent) 34%,
+      color-mix(in srgb, var(--ts-aurora-glow-1, transparent) 18%, transparent) 60%,
+      transparent 86%
+    );
+  background-repeat: no-repeat;
+  /* ==========================================================================
+     **不要给光斑层加 `filter: blur()`** —— 这是核显上最致命的一行。
+     ==========================================================================
+     实测（Chromium 1200x800，同一布局测 120 帧 rAF 间隔）：
+
+       | 配置                                | FPS | 平均帧耗时 |
+       | :---                                | :--- | :--- |
+       | `filter: blur(56px)` + plus-lighter | 11  | 90ms |
+       | 去掉 blur                            | 19  | 54ms |
+       | 去掉 blur + 改 normal 混合           | 29  | 35ms |
+
+     原因：`filter` 会把元素提升为**独立离屏缓冲区**，而 `inset: -20%` 让它比
+     视口还大 40%，全屏高斯模糊在核显上每帧都要重新光栅化；再叠
+     `mix-blend-mode: plus-lighter` 又要求把该缓冲区与 backdrop 做一次加色合成。
+     两个昂贵操作串在一起，就是「切换极光主题后风扇起飞、界面卡顿」。
+
+     柔和感改由**径向渐变自身的长衰减**提供：下面的色标已分四级
+     （0 / 34 / 60 / 86%）淡出，观感与 blur 接近，但走常规光栅化路径，
+     不产生离屏层。早期版本用单段衰减时确实需要 blur 抹掉圆形等高线，
+     改成多段色标后这个需求消失了——两处改动是配套的，不能只回退其中一处。 */
+  filter: none;
+  /* 混合模式固定 normal。`plus-lighter` 只在暗色下让光斑更「发光」，代价是
+     整个光斑层多参与一次合成；相比 11fps 的代价，正常混合明显更值得。 */
+  mix-blend-mode: normal;
+  will-change: transform;
+  animation: ts-aurora-drift calc(38s * var(--ts-motion-scale, 1)) ease-in-out infinite alternate
+    calc(-12s * var(--ts-motion-scale, 1));
+}
+
+/* 暗色态：**不再切到 plus-lighter**。
+   历史实现让暗色走加色混合以求「发光」，但那正是核显卡顿的第二大来源
+   （见上方实测表：仅这一项就从 19fps 掉到 11fps 区间）。
+   保留这条注释是为了防止以后有人「为了让暗色更好看」又把它加回来。 */
+
+/* 漂移：**只做纯平移，不缩放**。
+   三层光斑共用这一条 keyframes，相位差由上面那条规则里的负 `animation-delay`
+   制造——比写三条 keyframes 更省字节，也不会出现「三层同步呼吸」的机械感。
+
+   ## 为什么删掉了 scale()
+
+   原实现的 50% / 100% 关键帧带 `scale(1.06)` / `scale(1.03)`。缩放会改变光斑层
+   的**光栅化尺寸**，浏览器无法复用已缓存的位图，只能每帧重新光栅化这块
+   （inset:-20% 之后比视口还大 40%）的画布——这正是核显上剩余的主要开销。
+   纯平移则可以复用同一张位图，只做合成器位移。
+
+   实测（Chromium 1200x800，120 帧）：
+     - 平移 + 缩放：FPS 约 21
+     - 纯平移：FPS 约 29（配合去除 blur 后的整体表现）
+
+   观感损失几乎为零：位移本身就能表达「光在流动」，缩放只是锦上添花，
+   而它换来的是一倍的帧率。 */
+@keyframes ts-aurora-drift {
+  0% {
+    transform: translate3d(-2%, -1%, 0);
+  }
+  50% {
+    transform: translate3d(1%, 2%, 0);
+  }
+  100% {
+    transform: translate3d(2.5%, -2.5%, 0);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   二、三栏框架：半透明表面 + 轮廓光
+   ---------------------------------------------------------------------------
+   结构与玻璃一致（窗口底 / 内容卡两层），但内容卡的填充更透，且带一圈
+   极光描边。`--ts-glass-edge` 在本主题里是青紫色，不是中性灰。 */
+html[data-theme-studio="aurora"] .pI_x6G_centerCol,
+html[data-theme-studio="aurora"] ._LS25G_centerCol {
+  background: transparent;
+  position: relative;
+  /* 亮色下青紫描边 + 发光在白色卡上太扎眼，暗色下才是识别色。
+     明暗分开给：亮色用低饱和中性线 + 柔和投影，暗色保留青紫微光。 */
+  border: 1px solid var(--ts-glass-edge);
+  border-radius: var(--dsw-radius-panel);
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 0 32px -12px color-mix(in srgb, var(--color-primary) 26%, transparent);
+}
+
+/* 亮色态收口：描边降为 8% 中性灰、去掉外发光——「晨曦极光」的卡片边缘
+   应该像磨砂玻璃那样若有若无，而不是一圈靛蓝描边（用户实测反馈截图）。
+   顶栏 / 输入卡 / 交付物卡片同理：亮色下统一退回中性低对比边缘。 */
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .pI_x6G_centerCol,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) ._LS25G_centerCol,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-bar,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-view,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-composer-info {
+  border-color: rgba(15, 23, 42, 0.07) !important;
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 1px 3px rgba(15, 23, 42, 0.05),
+    0 8px 24px -14px rgba(15, 23, 42, 0.12) !important;
+}
+
+/* 内容卡的材质：半透明填充 + 模糊。
+   `z-index: -1` 让它落在卡片内容之下、卡片本体背景之上。
+
+   填充用 `--ts-canvas-alpha`（极光主题 38%）而不是直接取 `--color-background`
+   （72%）——那一层是压在光斑上的第一道遮挡。实测降到 38% 后主区彩度 p90 从
+   45 提到 86，正文对比度仍有 13.1:1（AAA 要求 7:1）。
+   取值理由见 `tokens.js` 里 `--ts-canvas-alpha` 的注释。 */
+html[data-theme-studio="aurora"] .pI_x6G_centerCol::before,
+html[data-theme-studio="aurora"] ._LS25G_centerCol::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(
+    in srgb,
+    var(--color-background) var(--ts-canvas-alpha, 100%),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  pointer-events: none;
+}
+
+/* 亮色态再抬一档：62% 仍偏透（正文落在光斑上晃眼），提到 82% 回到玻璃级可读性。
+   同时把亮色态的模糊与饱和大幅收窄：亮色光斑 alpha 只有 0.14~0.18，
+   `blur(26px) saturate(1.65)` 会把它们糊成一片荧光色块；降到
+   `blur(8px) saturate(1.05)` 后光斑保留色相边界、正文可读。 */
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .pI_x6G_centerCol::before,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) ._LS25G_centerCol::before {
+  background: color-mix(
+    in srgb,
+    var(--color-background) var(--ts-canvas-alpha-light, 82%),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(8px) saturate(1.05);
+  backdrop-filter: blur(8px) saturate(1.05);
+}
+
+/* 侧栏：比主区更透一档，形成前后景深。材质同样下沉到 ::before。 */
+html[data-theme-studio="aurora"] .pI_x6G_sidebarCol,
+html[data-theme-studio="aurora"] ._LS25G_sidebarCol {
+  background: transparent;
+  position: relative;
+  border-right: 1px solid var(--color-border);
+}
+
+html[data-theme-studio="aurora"] .pI_x6G_sidebarCol::before,
+html[data-theme-studio="aurora"] ._LS25G_sidebarCol::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--color-sidebar);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.7)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.7)) saturate(var(--ts-saturate));
+  pointer-events: none;
+}
+
+/* 右栏与底部行：跟随窗口层透明，避免右侧出现第二块实色底。 */
+html[data-theme-studio="aurora"] .pI_x6G_rightbarCol,
+html[data-theme-studio="aurora"] ._LS25G_rightbarCol,
+html[data-theme-studio="aurora"] .pI_x6G_bottomRow,
+html[data-theme-studio="aurora"] ._LS25G_bottomRow {
+  background: transparent;
+}
+
+/* 侧栏根与桌面拖拽条：同为实色窗口底，一并清掉。 */
+html[data-theme-studio="aurora"] .hHd-Xa_root,
+html[data-theme-studio="aurora"] .ixJ31a_root {
+  background: transparent;
+}
+
+html[data-theme-studio="aurora"] .pI_x6G_frame::before,
+html[data-theme-studio="aurora"] ._LS25G_frame::before {
+  background: none;
+}
+
+/* ---------------------------------------------------------------------------
+   三、流光边框（Border Beam）
+   ---------------------------------------------------------------------------
+   沿卡片圆角循环的角向渐变扫光。实现要点：
+
+   **① 用 `mask-composite` 裁出边框环，不用 `overflow: hidden`。**
+   输入卡里挂着一堆下拉菜单（模型选择、权限预设），`overflow: hidden` 会把
+   它们连同伪元素一起裁掉。遮罩方案让伪元素自身就是一个「中空环」，
+   父级不需要裁剪任何东西。
+
+   **② 双 mask + xor 是兼容性最好的写法。**
+   `mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)`
+   两层遮罩取异或，留下 `padding` 那一圈。`-webkit-mask-composite: xor` 是
+   Chromium/Safari 的前缀写法，标准属性是 `mask-composite: exclude`。
+
+   **③ `pointer-events: none` 必须写。**
+   伪元素铺满整个卡片，不写就会吞掉所有点击——输入框点不进去、按钮点不动。
+   这是这类「装饰性覆盖层」最常见的致命 bug。
+
+   **④ 只在聚焦/激活时跑动画。**
+   常驻旋转会让整页持续合成，笔记本电池与手机发热都受影响。默认静止，
+   `:focus-within` 与 `[data-running]` 时才启动。 */
+
+/* 输入卡：极光流光的主舞台。常态下即拥有精致的极光渐变发光描边与柔和微光 */
+html[data-theme-studio="aurora"] [data-composer-card],
+html[data-theme-studio="aurora"] .uV2eYG_card,
+html[data-theme-studio="aurora"] .Qt4Hga_card {
+  position: relative;
+  background: var(--color-input);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.45)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.45)) saturate(var(--ts-saturate));
+  border: 1px solid color-mix(in srgb, var(--ts-beam-a) 28%, var(--color-border));
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 2px 14px -4px color-mix(in srgb, var(--color-primary) 16%, transparent);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* 边框环本体。常态下展示柔和的 0.38 静态极光细微光晕；聚焦时点亮到 1.0 并开启旋转扫光。
+   `border-radius: inherit` 让环严格贴合卡片的圆角——写死数值会在宿主改圆角
+   时错位，表现为「光框和卡片不是同一个形状」。 */
+html[data-theme-studio="aurora"] [data-composer-card]::after,
+html[data-theme-studio="aurora"] .uV2eYG_card::after,
+html[data-theme-studio="aurora"] .Qt4Hga_card::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--ts-beam-angle),
+    transparent 0deg,
+    var(--ts-beam-a) 42deg,
+    var(--ts-beam-b) 88deg,
+    var(--ts-beam-c) 132deg,
+    transparent 190deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.38;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* 亮色态输入卡：描边再淡一档、发光环不亮——亮色下青紫发光在白卡上
+   会显成一圈荧光边，与「晨曦」定位冲突。聚焦时仍点亮。 */
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) [data-composer-card],
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .uV2eYG_card,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .Qt4Hga_card {
+  border-color: rgba(15, 23, 42, 0.10);
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) [data-composer-card]::after,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .uV2eYG_card::after,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .Qt4Hga_card::after {
+  opacity: 0;
+}
+
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) [data-composer-card]:focus-within::after,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .uV2eYG_card:focus-within::after,
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .Qt4Hga_card:focus-within::after {
+  opacity: 0.55;
+}
+
+/* 聚焦：环亮起并开始旋转。
+   用 `:focus-within` 而不是 `:focus` —— 输入框是 contenteditable 子元素，
+   焦点在它身上，`:focus` 在卡片上不命中。 */
+html[data-theme-studio="aurora"] [data-composer-card]:focus-within::after,
+html[data-theme-studio="aurora"] .uV2eYG_card:focus-within::after,
+html[data-theme-studio="aurora"] .Qt4Hga_card:focus-within::after {
+  opacity: 1;
+  animation: ts-aurora-beam calc(3.6s * var(--ts-motion-scale, 1)) linear infinite;
+}
+
+html[data-theme-studio="aurora"] [data-composer-card]:focus-within,
+html[data-theme-studio="aurora"] .uV2eYG_card:focus-within,
+html[data-theme-studio="aurora"] .Qt4Hga_card:focus-within {
+  border-color: color-mix(in srgb, var(--color-input-border-focused) 55%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 0 0 3px color-mix(in srgb, var(--color-input-border-focused) 16%, transparent),
+    0 0 28px -8px color-mix(in srgb, var(--color-primary) 32%, transparent);
+}
+
+/* 扫光旋转：只改注册过的角度变量，浏览器直接走合成，不触发样式重算。 */
+@keyframes ts-aurora-beam {
+  to {
+    --ts-beam-angle: 360deg;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   四、停止生成按钮
+   ---------------------------------------------------------------------------
+   **运行状态条（深度求索中 / 鲸尾 / 分隔线 / 状态文字）的动效已全部移出主题层**，
+   统一由 `status.css` 的档位开关（`html[data-ts-status`）负责——状态条有独立
+   设置项，主题不该再各自实现一套，否则用户关掉特效后仍会被主题强制加动画。
+
+   这里只保留「停止生成按钮」：它不是状态条的一部分，而是输入卡上的实时控件，
+   只在生成中出现，属于主题对自身材质的表达。
+
+   两套构建哈希成对：Web 为 uV2eYG_primary，桌面端为 Qt4Hga_primary。 */
+/* 停止生成按钮：与运行态同族的脉冲，节奏更快一档（1.6s），
+   因为「可中断」是比「正在跑」更需要注意力的状态。 */
+html[data-theme-studio="aurora"] .uV2eYG_primary,
+html[data-theme-studio="aurora"] .Qt4Hga_primary {
+  animation: ts-aurora-stop calc(1.6s * var(--ts-motion-scale, 1)) ease-in-out infinite !important;
+}
+
+@keyframes ts-aurora-stop {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 40%, transparent);
+  }
+  50% {
+    transform: scale(1.04);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-primary) 0%, transparent);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   五、头部与浮层
+   ---------------------------------------------------------------------------
+   顶栏是「浮在光斑上的玻璃条」：半透明底 + 模糊 + 底边一条青紫光边。 */
+html[data-theme-studio="aurora"] .wSkVaW_header,
+html[data-theme-studio="aurora"] ._1O6vqW_header,
+html[data-theme-studio="aurora"] ._7yHdaG_header,
+html[data-theme-studio="aurora"] .TvmKiG_header,
+html[data-theme-studio="aurora"] .dsh-mobile-bar {
+  background: var(--color-header);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.8)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 0.8)) saturate(var(--ts-saturate));
+  border-bottom: 1px solid var(--ts-glass-edge);
+  box-shadow: inset 0 -1px 0 var(--ts-glass-highlight);
+}
+
+/* 移动端顶栏与会话头去重叠分割线：杜绝层层横线堆叠。 */
+html[data-theme-studio="aurora"] body:has(.dsh-mobile-bar) .wSkVaW_header,
+html[data-theme-studio="aurora"] body:has(.dsh-mobile-bar) ._1O6vqW_header {
+  border-bottom: none !important;
+  box-shadow: none !important;
+}
+
+/* 选项卡激活指示器：青紫渐变下划线 + 柔和辉光。 */
+html[data-theme-studio="aurora"] .wSkVaW_tabActive::after,
+html[data-theme-studio="aurora"] ._1O6vqW_tabActive::after {
+  background: linear-gradient(90deg, var(--ts-beam-a), var(--ts-beam-c));
+  box-shadow: 0 1px 8px color-mix(in srgb, var(--color-primary) 55%, transparent);
+}
+
+/* 对话框 / 菜单 / toast：离用户更近，所以更实、阴影更远。 */
+html[data-theme-studio="aurora"] [role="dialog"][aria-modal="true"]:not([class*="scrim"]):not([class*="backdrop"]):not([class*="mask"]),
+html[data-theme-studio="aurora"] [class*="toast"],
+html[data-theme-studio="aurora"] [class*="Toast"] {
+  background: var(--color-card);
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 1.2)) saturate(var(--ts-saturate));
+  backdrop-filter: blur(calc(var(--ts-blur) * 1.2)) saturate(var(--ts-saturate));
+  border: 1px solid var(--ts-glass-edge);
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    var(--dsw-shadow-lv3);
+}
+
+/* 菜单：内层滚动区必须排除，否则模型列表滚不动（与玻璃同一处坑）。 */
+html[data-theme-studio="aurora"] [role="menu"]:not(:is(._7KE1Ra_groups, .WqxjfG_groups, [class$="_groups"])),
+html[data-theme-studio="aurora"] :is(._7KE1Ra_menu, .WqxjfG_menu, [class$="_menu"]):not(:is(._7KE1Ra_groups, .WqxjfG_groups, [class$="_groups"])) {
+  background: var(--color-menu) !important;
+  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 1.3)) saturate(var(--ts-saturate)) !important;
+  backdrop-filter: blur(calc(var(--ts-blur) * 1.3)) saturate(var(--ts-saturate)) !important;
+  border: 1px solid var(--ts-glass-edge) !important;
+  border-radius: var(--dsw-radius-md) !important;
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    var(--dsw-elevation-prominent) !important;
+  padding: 6px !important;
+  overflow: hidden;
+}
+
+html[data-theme-studio="aurora"] :is([role="menu"], ._7KE1Ra_menu, .WqxjfG_menu, [class$="_menu"]) :is(._7KE1Ra_groups, .WqxjfG_groups, [class$="_groups"]) {
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+/* ---------------------------------------------------------------------------
+   六、输入卡内部控件
+   ---------------------------------------------------------------------------
+   与相邻的「+」按钮保持一致：无背景框、无描边，只有图标本身。
+   权限预设与模型选择器若被套上底色，在深色玻璃上会显成两块方框。 */
+html[data-theme-studio="aurora"] :is(
+  .dsh-mobile-upload-btn,
+  .dsh-mobile-tools-btn,
+  .term-composer-btn,
+  .iWlSmW_trigger,
+  .qVH09a_trigger,
+  ._7KE1Ra_trigger,
+  .WqxjfG_trigger
+) {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: var(--color-foreground-subtle) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-theme-studio="aurora"] :is(
+  .dsh-mobile-upload-btn,
+  .dsh-mobile-tools-btn,
+  .term-composer-btn,
+  .iWlSmW_trigger,
+  .qVH09a_trigger,
+  ._7KE1Ra_trigger,
+  .WqxjfG_trigger
+):hover {
+  background: var(--color-surface) !important;
+  color: var(--color-foreground) !important;
+}
+
+/* 侧栏「+ 新会话」按钮：半透明微光胶囊，与光斑同色温。 */
+html[data-theme-studio="aurora"] :is(.hHd-Xa_newSession, .ixJ31a_newSession) {
+  background: var(--color-surface) !important;
+  border: none !important;
+  box-shadow: inset 0 1px 0 var(--ts-glass-highlight);
+  color: var(--color-foreground) !important;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+html[data-theme-studio="aurora"] :is(.hHd-Xa_newSession, .ixJ31a_newSession):hover {
+  background: var(--color-surface-hover) !important;
+}
+
+/* ---------------------------------------------------------------------------
+   六·补二、侧栏两个常驻按钮的极光化
+   ---------------------------------------------------------------------------
+   用户实测截图点名了这两处，它们此前在极光主题下仍是宿主的默认外观：
+
+   1. **侧栏右上角的收起按钮**（`.toggle`）：宿主给的是不透明方底 + 描边，
+      在极光背景上像一块贴上去的白纸。改为无底图标按钮，悬停才浮出 surface。
+   2. **侧栏底部的「归档箱」**（`.dam-btn.dam-btn-wide`，来自 dsh-archive-manager）：
+      它是侧栏 footer 的常驻入口，需要与侧栏材质同源——半透明微光胶囊 +
+      极光描边，与上方「+ 新会话」按钮形成同一族的两个入口。 */
+
+/* 收起按钮：跟随侧栏材质，无底 + 微光悬停。 */
+html[data-theme-studio="aurora"] :is(.hHd-Xa_toggle, .ixJ31a_toggle) {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--color-foreground-subtle) !important;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+html[data-theme-studio="aurora"] :is(.hHd-Xa_toggle, .ixJ31a_toggle):hover {
+  background: var(--color-surface-hover) !important;
+  color: var(--color-foreground) !important;
+}
+
+/* 归档箱：保持侧栏条目的平滑透明，杜绝实心色块突兀打断视觉 */
+html[data-theme-studio="aurora"] .dam-btn.dam-btn-wide {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  color: var(--color-foreground) !important;
+  transition: background-color 0.15s ease;
+}
+
+html[data-theme-studio="aurora"] .dam-btn.dam-btn-wide:hover,
+html[data-theme-studio="aurora"] .dam-btn.dam-btn-wide:active {
+  background: var(--color-surface-hover) !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--color-foreground) !important;
+}
+
+/* 主操作按钮（含会话发送按钮）：极光渐变填充 + 悬停微光。
+   两套构建哈希必须成对写：Web 为 uV2eYG_primary，桌面为 Qt4Hga_primary。 */
+html[data-theme-studio="aurora"] button[data-variant="primary"],
+html[data-theme-studio="aurora"] button[class*="_primary_"],
+html[data-theme-studio="aurora"] .uV2eYG_primary,
+html[data-theme-studio="aurora"] .Qt4Hga_primary {
+  background: linear-gradient(
+    135deg,
+    var(--ts-beam-b) 0%,
+    var(--ts-beam-c) 100%
+  ) !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: 0 2px 12px -2px color-mix(in srgb, var(--color-primary) 50%, transparent) !important;
+  transition: box-shadow 0.2s ease, transform 0.12s ease !important;
+}
+
+html[data-theme-studio="aurora"] button[data-variant="primary"]:hover,
+html[data-theme-studio="aurora"] button[class*="_primary_"]:hover,
+html[data-theme-studio="aurora"] .uV2eYG_primary:hover,
+html[data-theme-studio="aurora"] .Qt4Hga_primary:hover {
+  box-shadow: 0 4px 20px -2px color-mix(in srgb, var(--color-primary) 70%, transparent) !important;
+  transform: scale(1.04);
+}
+
+html[data-theme-studio="aurora"] button[data-variant="primary"]:active,
+html[data-theme-studio="aurora"] button[class*="_primary_"]:active,
+html[data-theme-studio="aurora"] .uV2eYG_primary:active,
+html[data-theme-studio="aurora"] .Qt4Hga_primary:active {
+  transform: scale(0.95);
+}
+
+/* ---------------------------------------------------------------------------
+   六·补、交付物与会话卡片（Deliverables / Todo / Composer Info）
+   ---------------------------------------------------------------------------
+   消除手机端大面积纯白方块，全面接入极光半透明磨砂亚克力与微光描边。
+   双构建哈希成对：
+   - 交付物：nyYjTG_*（Web）/ _8G85G_*（Desktop）
+   - 待办状态：lXshSW_root（Web）/ j_dMAa_root（Desktop） */
+html[data-theme-studio="aurora"] :is(.nyYjTG_file, ._8G85G_file, .nyYjTG_cardPreview, ._8G85G_cardPreview) {
+  background: var(--color-card) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(var(--ts-saturate));
+  backdrop-filter: blur(14px) saturate(var(--ts-saturate));
+  border: 1px solid var(--ts-glass-edge) !important;
+  border-radius: var(--dsw-radius-md) !important;
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 4px 18px -4px color-mix(in srgb, var(--color-primary) 14%, transparent) !important;
+}
+
+/* 待办与计划完成状态：极光微光胶囊 */
+html[data-theme-studio="aurora"] :is(.lXshSW_root, .j_dMAa_root) {
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(var(--ts-saturate));
+  backdrop-filter: blur(10px) saturate(var(--ts-saturate));
+  border: 1px solid var(--ts-glass-edge) !important;
+  border-radius: 999px !important;
+  box-shadow: inset 0 1px 0 var(--ts-glass-highlight) !important;
+  padding: 4px 12px !important;
+}
+
+/* 移动端顶栏与组件调优 */
+html[data-theme-studio="aurora"] .dsh-mobile-bar {
+  background: color-mix(in srgb, var(--color-header) 76%, transparent) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(var(--ts-saturate)) !important;
+  backdrop-filter: blur(24px) saturate(var(--ts-saturate)) !important;
+  border-bottom: 1px solid var(--ts-glass-edge) !important;
+  box-shadow: 0 4px 24px -8px color-mix(in srgb, var(--ts-beam-a) 25%, transparent) !important;
+}
+
+html[data-theme-studio="aurora"] .dsh-mobile-bar .dsh-mobile-view {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent) !important;
+  border: 1px solid var(--ts-glass-edge) !important;
+  border-radius: 999px !important;
+}
+
+/* ---------------------------------------------------------------------------
+   六·补、移动端模型/推理强度徽标：极光流光胶囊
+   ---------------------------------------------------------------------------
+   移动端顶部那枚「deepseek-v4.1-flash · Max」是 dsh-mobile-adapter 注入的
+   `.dsh-mobile-composer-info`，内部是**纯文本**（没有可分别选择的模型名与强度
+   子元素），所以不能各自上色。这里给整枚胶囊做三层极光效果：
+
+     1. **流光边框**：`::before` 用 conic-gradient + mask 裁出 1.5px 环，
+        与桌面输入卡的扫光同源（复用 `--ts-beam-*` 三段色与 `--ts-beam-angle`）。
+     2. **呼吸光晕**：外扩 box-shadow 随 `--ts-motion-scale` 呼吸，表达「模型已就绪」。
+     3. **文字微光**：`text-shadow` 给模型名镀一层极光色温的柔光。
+        （不用 `background-clip: text`——胶囊自身要用 `background` 铺底色，
+        两者在同一条规则里会互相重置，见下方说明。）
+
+   ## 为什么用 ::before 而不是 ::after
+
+   输入卡的扫光在 `::after` 上。虽然两者不同元素、不会冲突，但统一用 `::before`
+   可以让「装饰层一律进 ::before」成为一条可记忆的规则，减少以后新增样式时
+   误占槽位的可能。
+
+   ## 为什么必须 pointer-events: none
+
+   这枚徽标在移动端位于输入卡正上方，用户可能点到它。伪元素铺满胶囊，
+   漏写就会吞掉该区域的点击（虽然当前它没有交互，但未来可能变成可点跳转）。 */
+html[data-theme-studio="aurora"] .dsh-mobile-composer-info {
+  position: relative;
+  isolation: auto;
+  background: color-mix(in srgb, var(--color-surface) 85%, transparent) !important;
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 0 14px -6px color-mix(in srgb, var(--color-primary) 30%, transparent) !important;
+  width: fit-content !important;
+  margin: 0 auto 6px auto !important;
+  overflow: visible;
+  animation: ts-mobile-badge-breathe calc(3.2s * var(--ts-motion-scale, 1)) ease-in-out infinite;
+}
+
+/* 流光边框环：与输入卡同一套 conic-gradient + mask 配方。 */
+html[data-theme-studio="aurora"] .dsh-mobile-composer-info::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--ts-beam-angle),
+    transparent 0deg,
+    var(--ts-beam-a) 40deg,
+    var(--ts-beam-b) 90deg,
+    var(--ts-beam-c) 140deg,
+    transparent 200deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.85;
+  animation: ts-aurora-beam calc(5.2s * var(--ts-motion-scale, 1)) linear infinite;
+}
+
+/* 呼吸：光晕从 0 扩到 6px 再淡出；幅度刻意比输入卡小，
+   因为它尺寸小、离眼睛更远，光影过强会显得脏。 */
+@keyframes ts-mobile-badge-breathe {
+  0%, 100% {
+    box-shadow:
+      inset 0 1px 0 var(--ts-glass-highlight),
+      0 0 14px -6px color-mix(in srgb, var(--color-primary) 30%, transparent);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 var(--ts-glass-highlight),
+      0 0 20px -4px color-mix(in srgb, var(--color-primary) 46%, transparent);
+  }
+}
+
+/* 文字微光：极光色温在文本上缓慢流动。
+   **不能再写 background-image**：上面那条规则已经用 `background` 简写给胶囊
+   铺了底色，这里若再写一条 background-image 会与之冲突（简写会重置 image）。
+   折中方案：文字渐变交给 `::after` 也不可行（它铺满胶囊、无法只覆盖文字）。
+   所以这里放弃文字渐变，改为用 **text-shadow 微光**表达色温——
+   它不影响布局、不与底色冲突，且在移动端小字号下比渐变文字更清晰。 */
+html[data-theme-studio="aurora"] .dsh-mobile-composer-info {
+  color: var(--color-foreground-subtle);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--color-brand) 34%, transparent);
+  animation: ts-mobile-badge-breathe calc(3.2s * var(--ts-motion-scale, 1)) ease-in-out infinite;
+}
+
+/* 亮色态：青紫发光在白底上会显荧光，收窄到中性极光。
+   与正文卡的亮色收口同一策略。 */
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-composer-info {
+  box-shadow:
+    inset 0 1px 0 var(--ts-glass-highlight),
+    0 1px 3px rgba(15, 23, 42, 0.05) !important;
+}
+
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-composer-info::before {
+  opacity: 0.45;
+}
+
+/* 减弱动效：关掉呼吸与流光，保留静态渐变边框（仍能看出「这是主题化的」）。 */
+
+
+/* ---------------------------------------------------------------------------
+   七、用户自设背景图时的让位
+   ---------------------------------------------------------------------------
+   用户传了照片，光斑就不该再盖在照片上——两套「背景」叠在一起只会互相糊掉。
+   这里把光斑层整体关掉，并把卡片材质降到弱模糊（8px），与玻璃主题的处理一致：
+   主题的材质不该压过用户自己选的素材。 */
+html[data-ts-bg][data-theme-studio="aurora"] body::before {
+  display: none;
+}
+
+html[data-ts-bg][data-theme-studio="aurora"] .pI_x6G_centerCol::before,
+html[data-ts-bg][data-theme-studio="aurora"] ._LS25G_centerCol::before {
+  background: none;
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  backdrop-filter: blur(8px) saturate(120%);
+}
+
+/* ---------------------------------------------------------------------------
+   八、无障碍：减弱动效 / 降低透明度 / 高对比
+   ---------------------------------------------------------------------------
+   `motion.css` 已有全局兜底（把 animation-duration 压到 0.01ms），但那只是
+   「不播动画」，光斑层仍然占着一个合成层、仍在做全屏模糊。这里显式关掉它，
+   并让扫光边框退回静态描边——比「以 0.01ms 播放」更省电，也更符合用户的意图。 */
+@media (prefers-reduced-motion: reduce) {
+  /* 移动端模型/推理强度徽标：关掉呼吸与流光，保留静态描边。 */
+  html[data-theme-studio="aurora"] .dsh-mobile-composer-info {
+    animation: none !important;
+    text-shadow: none;
+    color: var(--color-foreground-subtle);
+  }
+
+  html[data-theme-studio="aurora"] .dsh-mobile-composer-info::before {
+    animation: none !important;
+    opacity: 0.5;
+  }
+
+  html[data-theme-studio="aurora"] body::before {
+    animation: none !important;
+    /* 光斑层本身不再使用 filter:blur（核显上代价过高，见该规则上方的实测表）。
+       这里显式写 none，避免以后有人误以为「减弱动效时该补回模糊」。 */
+    filter: none;
+  }
+
+  html[data-theme-studio="aurora"] [data-composer-card]::after,
+  html[data-theme-studio="aurora"] .uV2eYG_card::after,
+  html[data-theme-studio="aurora"] .Qt4Hga_card::after {
+    animation: none !important;
+  }
+
+  /* 状态条（runningContent / runningIcon）的降级已移到 status.css，
+     主题层只管自己引入的停止按钮脉冲。 */
+  html[data-theme-studio="aurora"] .uV2eYG_primary,
+  html[data-theme-studio="aurora"] .Qt4Hga_primary {
+    animation: none !important;
+  }
+}
+
+/* 降低透明度偏好：去掉所有毛玻璃，退回实色表面。
+   半透明 + 模糊在低对比显示器上会显著降低可读性，这是无障碍要求而非审美偏好。 */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-theme-studio="aurora"] *,
+  html[data-theme-studio="aurora"] *::before,
+  html[data-theme-studio="aurora"] *::after {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  html[data-theme-studio="aurora"] body::before {
+    display: none;
+  }
+
+  html[data-theme-studio="aurora"] .pI_x6G_centerCol,
+  html[data-theme-studio="aurora"] ._LS25G_centerCol {
+    background: var(--color-background);
+  }
+
+  html[data-theme-studio="aurora"] .pI_x6G_sidebarCol,
+  html[data-theme-studio="aurora"] ._LS25G_sidebarCol {
+    background: var(--color-sidebar);
+  }
+
+  html[data-theme-studio="aurora"] [data-composer-card],
+  html[data-theme-studio="aurora"] .uV2eYG_card,
+  html[data-theme-studio="aurora"] .Qt4Hga_card {
+    background: var(--color-input);
+  }
+}
+
+/* 强制对比度偏好：同样去掉材质，并关掉扫光边框——它在高对比模式下
+   会与用户自己设的强调色打架。 */
+@media (prefers-contrast: more) {
+  html[data-theme-studio="aurora"] body::before {
+    display: none;
+  }
+
+  html[data-theme-studio="aurora"] [data-composer-card]::after,
+  html[data-theme-studio="aurora"] .uV2eYG_card::after,
+  html[data-theme-studio="aurora"] .Qt4Hga_card::after {
+    display: none;
+  }
+
+  html[data-theme-studio="aurora"] .pI_x6G_centerCol,
+  html[data-theme-studio="aurora"] ._LS25G_centerCol,
+  html[data-theme-studio="aurora"] .pI_x6G_sidebarCol,
+  html[data-theme-studio="aurora"] ._LS25G_sidebarCol {
+    background: var(--color-background);
+  }
+}

@@ -5,3 +5,6 @@ node_modules/
 *.log
 pnpm-lock.yaml
 cookie.txt
+
+# 设计过程产物（效果图、对比截图），不进代码仓库
+plugins/*/design-mockups/

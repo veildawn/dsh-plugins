@@ -42,6 +42,16 @@ export const BACKGROUND_ATTR = 'data-ts-bg'
 /** 主题 CSS 与客户端脚本共用的稳定 id。 */
 export const STYLE_ID = 'dsh-theme-studio'
 
+/**
+ * 「状态条特效档位」的根属性，值为 `none` / `shimmer` / `pulse` / `whale` / `flow`。
+ *
+ * **默认不写这个属性**（等价于 `none`）——状态条动效必须由用户在设置面板主动
+ * 选择，安装主题不应强制改变每轮对话都出现的高频元素。`status.css` 的全部规则
+ * 都以 `html[data-ts-status="<档位>"]` 开头，没有该属性时一条都不命中，
+ * 状态条保持 DSH 原生观感。
+ */
+export const STATUS_ATTR = 'data-ts-status'
+
 /** overrideTokens 的层标识（一个 source 对应一层，重复调用即替换）。 */
 export const TOKEN_SOURCE = 'dsh-theme-studio'
 
@@ -354,6 +364,58 @@ export const MATERIAL_DEFAULTS = {
   // 「壁纸」：玻璃主题的根画布径向渐变。非玻璃主题留空即不绘制。
   '--ts-wallpaper-1': 'transparent',
   '--ts-wallpaper-2': 'transparent',
+  // —— 极光流光（Aurora Flow）专属材质 ——
+  //
+  // 这三层是「流动的光斑」，与壁纸（静态径向渐变）分工不同：壁纸铺底，
+  // 光斑在其上缓慢漂移、缩放，形成有机的呼吸感。值必须是**半透明色**，
+  // 因为 aurora.css 会以 `filter: blur()` + `mix-blend-mode` 叠加它们。
+  '--ts-aurora-glow-1': 'transparent',
+  '--ts-aurora-glow-2': 'transparent',
+  '--ts-aurora-glow-3': 'transparent',
+  // 流光边框（Border Beam）的三段色：conic-gradient 的起、中、止。
+  // 用三个色相而非两个，是为了让扫光经过时出现「青 → 蓝 → 紫」的过渡，
+  // 两个色相在 360° 循环处会出现生硬跳变。
+  '--ts-beam-a': 'transparent',
+  '--ts-beam-b': 'transparent',
+  '--ts-beam-c': 'transparent',
+  // Agent 运行态呼吸波纹的颜色与扩散半径。
+  '--ts-pulse-color': 'transparent',
+  '--ts-pulse-spread': '12px',
+  // 动效速度倍率：1 为默认。用户可在「减弱动效」时整体降档，
+  // 而不是逐条覆盖 animation-duration（那样每新增一条动画都要改一次）。
+  '--ts-motion-scale': '1',
+  // 主内容区（`.centerCol`）底色的不透明度。
+  //
+  // **这是极光可见度的决定性变量**：光斑画在 body 上，而 centerCol 的半透明底
+  // 是压在它上面的第一层。实测（Chromium，1200x800）：
+  //
+  //   | alpha | 主区彩度 p90 | 正文对比度 |
+  //   | :---  | :---         | :---       |
+  //   | 0.72  | 45           | 15.7:1     |
+  //   | 0.50  | 45→(改分布后) | 14.0:1     |
+  //   | 0.38  | 86           | 13.1:1     |
+  //
+  // 玻璃主题用 82%，因为它的「壁纸」是静态低饱和渐变，不需要透上来。
+  // 极光的价值全在「光透上来」，所以必须更低。降到 0.38 仍有 13:1 的正文对比度
+  // （WCAG AAA 要求 7:1），余量充足——观感的损失远小于极光本身的收益。
+  //
+  // 只影响 centerCol：侧栏（sidebar）与卡片（card）仍用自己的 Token，
+  // 它们承载列表与代码，需要更实。
+  '--ts-canvas-alpha': '100%',
+  /* 亮色态主区底色不透明度。
+     亮色光斑 alpha 只有 0.14~0.18，62% 的底色仍会让正文落在光斑上晃眼；
+     提到 82% 回到玻璃级可读性，同时保留晨雾透光的观感。 */
+  '--ts-canvas-alpha-light': '82%',
+  // 流光边框的当前旋转角度。
+  //
+  // 它由 `aurora.css` 的 `@property` 注册成可插值的 `<angle>` 类型——普通
+  // 自定义属性是字符串，浏览器无法在 0deg 与 360deg 之间插值，扫光只会跳变。
+  // 这里登记默认值有两个作用：让「主题 CSS 只引用已定义变量」这条守卫成立，
+  // 以及在 `@property` 不被支持时（Safari < 16.4）提供一个可读的角度。
+  //
+  // 注意 `@property` 声明了 `inherits: false`，所以写在 `html[attr]` 块里的
+  // 值**不会继承**到伪元素上——伪元素取的是 initial-value。两者一致即可。
+  '--ts-beam-angle': '0deg',
 }
 
 /** 主题 CSS 可引用的材质键（测试用于校验主题没有写未知材质）。 */

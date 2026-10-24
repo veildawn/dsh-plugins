@@ -165,6 +165,59 @@ test('buildSettingsView 提供稳定的 effective 结构', () => {
   assert.equal(view.effective.fonts.text, '')
   assert.deepEqual(view.effective.fieldColors, {})
   assert.deepEqual(view.effective.fontSizes, {})
+  // 状态条特效默认「原生」：安装主题不应强制改变每轮对话都出现的高频元素
+  assert.equal(view.effective.statusEffect, 'none')
+})
+
+/**
+ * 状态条特效：默认原生（无属性），选档后才写 html 属性。
+ *
+ * 这条契约守的是「零侵入」——用户没主动选特效时，`data-ts-status` 必须**不出现**
+ * 在 html 标签上。写了（哪怕值是 "none"）就等于声明了「状态条归我管」，
+ * 与「默认保持 DSH 原生观感」的产品决策冲突。
+ */
+test('状态条特效默认不写属性（原生零侵入），选档后才写', () => {
+  // 默认：无 statusEffect → 标签上没有 data-ts-status
+  const bare = withThemeAttribute('<html lang="zh">', 'zcode', {})
+  assert.equal(/data-ts-status/.test(bare), false, '默认不应出现 data-ts-status')
+
+  // 显式 none：同样不写（与默认同义，避免两种写法）
+  const explicit = withThemeAttribute('<html lang="zh">', 'zcode', { statusEffect: 'none' })
+  assert.equal(/data-ts-status/.test(explicit), false, '显式 none 也不应写属性')
+
+  // 选档：写属性，且与主题属性共存
+  const picked = withThemeAttribute('<html lang="zh">', 'aurora', { statusEffect: 'flow' })
+  assert.match(picked, /data-ts-status="flow"/)
+  assert.match(picked, /data-theme-studio="aurora"/)
+
+  // 主题为 none 时也独立生效（状态条与主题解耦）
+  const noTheme = withThemeAttribute('<html lang="zh">', 'none', { statusEffect: 'whale' })
+  assert.match(noTheme, /data-ts-status="whale"/)
+  assert.equal(/data-theme-studio/.test(noTheme), false)
+
+  // 重写幂等：不会残留旧档位
+  const rewritten = withThemeAttribute(picked, 'zcode', { statusEffect: 'shimmer' })
+  assert.match(rewritten, /data-ts-status="shimmer"/)
+  assert.equal((rewritten.match(/data-ts-status/g) ?? []).length, 1, '属性重复')
+})
+
+test('状态条特效档位清单与 scope 脚本一致', () => {
+  const view = buildSettingsView({}, '/tmp/theme/settings.json')
+  assert.ok(view.statusEffects.length >= 4, '档位太少，面板没有选择意义')
+  assert.equal(view.statusEffects[0].id, 'none', '第一项必须是「原生」')
+  // scope 脚本与面板清单同源
+  const script = themeScopeScript('zcode', { statusEffect: 'pulse' })
+  assert.match(script, /data-ts-status', "pulse"/)
+  const clean = themeScopeScript('zcode', {})
+  assert.match(clean, /removeAttribute\('data-ts-status'\)/)
+})
+
+test('非法状态条档位被丢弃，回落默认', async () => {
+  const { normalizeSettings } = await import('../lib/settings.js')
+  const out = normalizeSettings({ statusEffect: 'nope' }, {})
+  assert.equal(out.statusEffect, undefined, '非法档位必须丢弃（不落盘噪音）')
+  const ok = normalizeSettings({ statusEffect: 'whale' }, {})
+  assert.equal(ok.statusEffect, 'whale')
 })
 
 test('buildSettingsView 的 effective 不覆盖用户已设的值', () => {

@@ -164,3 +164,152 @@ test('Tooltip 气泡在浅色与深色模式下均保持文字高对比度可读
   assert.match(modalCss, /color:\s*var\(--color-foreground,\s*var\(--dsw-alias-label-primary\)\)\s*!important/)
 })
 
+
+/**
+ * 回归：布局容器的玻璃材质必须挂在 ::before 上，不能挂在容器本体。
+ *
+ * 事故背景（2026-10-23）：用户报告「归档箱打开后跑到了会话区下面」，
+ * 且**只在玻璃主题出现**，系统默认与 ZCode 主题正常。
+ *
+ * 根因不是归档箱插件，而是 `backdrop-filter` 的规范副作用：任何非 none 的
+ * filter / backdrop-filter 都会把元素变成后代 `position: fixed` 的**包含块**。
+ * 侧栏是 `sidebar.footer.action` 槽位的宿主，归档箱的全屏遮罩
+ * （`.dam-backdrop{position:fixed;inset:0}`）就挂在这里。材质写在
+ * sidebarCol 本体上时，遮罩不再相对视口，而是缩成侧栏那一栏、再被
+ * 侧栏自带的 `overflow:hidden` 裁掉——看上去就是「弹窗跑到会话区下面」。
+ *
+ * 实测（Chromium，侧栏 250px / 视口 780px）：
+ *   - 本体带 backdrop-filter  → 后代 fixed 250×493（被裁到侧栏）
+ *   - 材质移到 ::before       → 后代 fixed 780×493（恢复视口）
+ *
+ * 另有一条必须同时守住的约束：**不能加 `isolation:isolate`**。
+ * 它虽然也建立层叠上下文，但会把整栏锁成一个层叠容器，`z-index` 巨大的遮罩
+ * 反而被压在 centerCol 之下，弹窗同样不可见（实测变体 3 复现）。
+ */
+test('玻璃主题的布局容器把 backdrop-filter 挂在 ::before，本体不得携带（否则后代 fixed 浮层被裁进侧栏）', () => {
+  const glassCss = readStyleFile(GLASS_STYLE_FILE)
+
+  // 取出所有「选择器块」，逐个检查：凡命中 sidebarCol / centerCol 的规则，
+  // 只要声明了非 none 的 backdrop-filter，选择器就必须带 ::before。
+  const ruleRe = /([^{}]+)\{([^{}]*)\}/g
+  let m
+  const offenders = []
+  while ((m = ruleRe.exec(glassCss)) !== null) {
+    const selector = m[1]
+    const body = m[2]
+    if (!/(^|[\s,>])[^{]*_(sidebarCol|centerCol)\b/.test(selector)) continue
+    // 只要有一条非 none 的 backdrop-filter 声明（含 -webkit-）
+    const hasMaterial = /(?:^|[;\s])-?(?:webkit-)?backdrop-filter\s*:\s*(?!none)[^;]+/.test(body)
+    if (!hasMaterial) continue
+    // 该条规则的选择器里若出现没有 ::before 的容器选择器，就是漏网
+    const bare = selector
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => /_(sidebarCol|centerCol)\b/.test(s) && !/::?before/.test(s))
+    if (bare.length > 0) offenders.push(bare.join(', '))
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `这些规则把材质写在了容器本体上，会让后代 fixed 浮层被裁进容器：\n${offenders.join('\n')}`,
+  )
+
+  // 正例必须存在：材质确实下沉到了伪元素，而不是被整体删掉。
+  assert.match(
+    glassCss,
+    /_(?:sidebarCol|centerCol)[^{,]*::before[^{]*\{[^}]*backdrop-filter:\s*blur\(/s,
+    '玻璃主题必须把容器材质放在 ::before 上',
+  )
+})
+
+test('玻璃主题的布局容器不得用 isolation 建立层叠上下文（会把 fixed 遮罩压到 centerCol 之下）', () => {
+  const glassCss = readStyleFile(GLASS_STYLE_FILE)
+  // 只针对承载 fixed 浮层的两个容器。
+  const blocks = [...glassCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  const bad = []
+  for (const [, selector, body] of blocks) {
+    if (!/_(sidebarCol|centerCol)\b/.test(selector)) continue
+    if (/isolation\s*:\s*isolate/.test(body)) bad.push(selector.trim().slice(0, 120))
+  }
+  assert.deepEqual(bad, [], `这些容器不能加 isolation:isolate：\n${bad.join('\n')}`)
+})
+
+test('用户设了背景图时，减弱后的材质同样挂在 ::before 上', () => {
+  const bgCss = readStyleFile('background.css')
+  const blocks = [...bgCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  const bad = []
+  for (const [, selector, body] of blocks) {
+    if (!/_(sidebarCol|centerCol)\b/.test(selector)) continue
+    if (!/(?:^|[;\s])-?(?:webkit-)?backdrop-filter\s*:\s*(?!none)[^;]+/.test(body)) continue
+    const bare = selector
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => /_(sidebarCol|centerCol)\b/.test(s) && !/::?before/.test(s))
+    if (bare.length > 0) bad.push(bare.join(', '))
+  }
+  assert.deepEqual(bad, [], `背景图让位层不得把材质写回容器本体：\n${bad.join('\n')}`)
+})
+
+/**
+ * 同一事故的第二个机制：`backdrop-filter` 还会建立层叠上下文。
+ *
+ * 即便假设包含块那关被绕过（例如 fixed 尺寸已正确），只要容器本体的
+ * backdrop-filter 还在，它就是一个层叠上下文——栏内所有 z-index 被锁在这一栏，
+ * 整栏再作为一个整体与兄弟比较。centerCol 在 DOM 中靠后、默认层叠更高，
+ * 于是 `.dam-backdrop` 里 `z-index: 2147483640` 的遮罩依然被压在下面。
+ *
+ * 实测对照（`elementFromPoint(视口中心)`）：
+ *   - 本体现在带 backdrop-filter → 命中会话区（遮罩不可见）
+ *   - 材质在 ::before            → 命中遮罩本身（正确）
+ */
+test('玻璃主题的布局容器本体不得直接携带 backdrop-filter（同时触发包含块与层叠上下文两个问题）', () => {
+  const glassCss = readStyleFile(GLASS_STYLE_FILE)
+  const blocks = [...glassCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  const bad = []
+  for (const [, selector, body] of blocks) {
+    if (!/_(?:sidebarCol|centerCol)\b/.test(selector)) continue
+    // 只有伪元素上的材质是安全的
+    if (/::?before/.test(selector)) continue
+    if (!/(?:^|[;\s])-?(?:webkit-)?backdrop-filter\s*:\s*(?!none)[^;]+/.test(body)) continue
+    bad.push(selector.trim().split('\n')[0].slice(0, 100))
+  }
+  assert.deepEqual(
+    bad,
+    [],
+    `容器本体出现 backdrop-filter 会建立层叠上下文并锁定后代 z-index：\n${bad.join('\n')}`,
+  )
+})
+
+/**
+ * 用户设了背景图时，::before 不得再铺一层底色。
+ *
+ * 材质下沉到伪元素后，glass.css 的 `::before` 会带上 `var(--color-background)`
+ * （玻璃主题下是 82% 不透明）。而 background.css 已经在 `centerCol` 本体写了
+ * 38% 的让位底色。两层叠加 → 合成接近实色，用户照片被冲成一片灰白。
+ * 实测：背景图几乎完全消失，退回「设置了却没有效果」的老问题。
+ *
+ * 约定：用户设了背景图时，底色只由本体那条 38% 规则承担；
+ * 伪元素只负责降档后的模糊（8px）。
+ */
+test('用户设背景图时，centerCol 的 ::before 只承载模糊、不再铺底色（否则照片被冲成灰白）', () => {
+  const bgCss = readStyleFile('background.css')
+  const blocks = [...bgCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  const bad = []
+  let seen = false
+  for (const [, selector, body] of blocks) {
+    if (!/_(?:sidebarCol|centerCol)\b/.test(selector)) continue
+    if (!/::?before/.test(selector)) continue
+    if (!/backdrop-filter/.test(body)) continue
+    seen = true
+    // 必须显式把底色清零
+    if (!/background\s*:\s*none/.test(body)) {
+      bad.push(selector.trim().split('\n')[0].slice(0, 90))
+    }
+  }
+  assert.ok(seen, 'background.css 必须接管伪元素上的降档模糊')
+  assert.deepEqual(
+    bad,
+    [],
+    `这些伪元素规则必须声明 background: none，否则与本体 38% 底色叠加：\n${bad.join('\n')}`,
+  )
+})
