@@ -759,17 +759,23 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   client.apply(f.ctx)
   const bar = f.doc.body.children.find((node) => node.className === 'dsh-mobile-bar')
   const backdrop = f.doc.body.children.find((node) => node.className === 'dsh-mobile-backdrop')
-  const [menu, titleBox, view, actionsBtn, cornerBtn, fullscreenToggle] = bar.children
+  // 顶栏结构：☰（标题左侧）/ 标题 / 下拉 / 全屏 四项可见；
+  // 轨迹、会话操作、右侧面板三项保留在 DOM 中但 hidden（作为面板的点击代理）。
+  const [menu, titleBox, menuToggle, fullscreenToggle, view, actionsBtn, cornerBtn] = bar.children
   const [title, status] = titleBox.children
   assert.equal(bar.hidden, false)
   assert.equal(title.textContent, '移动端适配会话')
   assert.equal(status.textContent, '就绪 · 只读')
   assert.equal(status.dataset.plan, 'false')
-  assert.equal(view.textContent, '⌁ 轨迹')
+  assert.equal(menuToggle.getAttribute('aria-label'), '更多操作')
   assert.equal(view.getAttribute('aria-label'), '查看轨迹')
-  assert.equal(view.hidden, false)
   assert.equal(actionsBtn.getAttribute('aria-label'), '会话操作')
   assert.equal(cornerBtn.getAttribute('aria-label'), '切换右侧面板')
+  // ☰ 必须可见（最高频的导航动作保留在顶栏），其余三项隐藏
+  assert.equal(menu.hidden, false, '☰ 会话侧栏按钮必须保留在顶栏')
+  for (const node of [view, actionsBtn, cornerBtn]) {
+    assert.equal(node.hidden, true, `${node.className} 必须标记 hidden`)
+  }
   assert.equal(backdrop.hidden, true)
   assert.equal(f.doc.sidebarColumn.inert, true)
   assert.equal(f.doc.documentElement.style.getPropertyValue('--dsh-keyboard-inset'), '0px')
@@ -789,7 +795,6 @@ test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work to
   view.emit('click')
   assert.equal(f.doc.trajectoryTab.getAttribute('aria-selected'), 'true')
   assert.equal(view.textContent, '← 对话')
-  assert.equal(view.getAttribute('aria-label'), '关闭轨迹，返回对话')
   f.doc.emit('keydown', { key: 'Escape' })
   assert.equal(f.doc.chatTab.getAttribute('aria-selected'), 'true')
   assert.equal(view.textContent, '⌁ 轨迹')
@@ -1116,7 +1121,8 @@ test('mobile right sidebar is adapted with top offset and back-to-conversation b
 
     client.apply(f.ctx)
     const bar = f.doc.body.children.find((node) => node.className === 'dsh-mobile-bar')
-    const [, , view] = bar.children
+    // 顶栏顺序：menu / titleBox / menuToggle / fullscreenToggle / view / actionsBtn / cornerBtn
+    const view = bar.children[4]
 
     // 此时右栏打开，顶部导航右上角按钮应显示 '← 对话'
     assert.equal(view.textContent, '← 对话')
@@ -1351,13 +1357,42 @@ test('移动端顶栏 3 层融合成 1 层：隐藏宿主冗余 Tabs 与 Header 
   client.apply(f.ctx)
   const bar = f.doc.body.children.find((node) => node.className === 'dsh-mobile-bar')
   assert.ok(bar)
-  assert.equal(bar.children.length, 6, '单层顶栏容纳全部 6 项功能')
-  const [menu, titleBox, view, actionsBtn, cornerBtn, fullscreenToggle] = bar.children
+
+  // 顶栏可见项收口为 3 个：标题区 + 操作下拉 + 全屏。
+  // 「会话侧栏 / 轨迹 / 会话操作 / 右侧面板」四个入口收进下拉面板，
+  // 但它们作为点击代理仍留在 bar 里（hidden，不占位）。
+  // 理由：52px 高的顶栏在 360px 窄屏上塞不下 6 项，标题会被挤成三个字加省略号。
+  assert.equal(bar.children.length, 7, '顶栏 = 4 可见项 + 3 个隐藏代理')
+  const [menu, titleBox, menuToggle, fullscreenToggle, view, actionsBtn, cornerBtn] = bar.children
+  assert.equal(menu.hidden, false, '☰ 必须留在顶栏（标题左侧）')
   assert.equal(menu.textContent, '☰')
-  assert.equal(view.textContent, '⌁ 轨迹')
-  assert.equal(actionsBtn.getAttribute('aria-label'), '会话操作')
-  assert.equal(cornerBtn.getAttribute('aria-label'), '切换右侧面板')
+  for (const node of [view, actionsBtn, cornerBtn]) {
+    assert.equal(node.hidden, true, `${node.className} 必须 hidden`)
+  }
+  assert.equal(titleBox.className, 'dsh-mobile-titlebox')
+  assert.equal(menuToggle.className, 'dsh-mobile-menu-toggle')
+  assert.equal(menuToggle.getAttribute('aria-label'), '更多操作')
+  assert.equal(menuToggle.getAttribute('aria-haspopup'), 'menu')
   assert.equal(fullscreenToggle.className, 'dsh-mobile-fullscreen-toggle')
+
+  // 四个入口必须在下拉面板里，且面板初始隐藏
+  const panel = f.doc.body.children.find((node) => node.className === 'dsh-mobile-menu-panel')
+  assert.ok(panel, '缺少顶栏操作下拉面板')
+  assert.equal(panel.hidden, true, '面板初始必须隐藏')
+  assert.equal(panel.getAttribute('role'), 'menu')
+  const labels = panel.children
+    .filter((node) => node.className === 'dsh-mobile-menu-item')
+    .map((node) => node.getAttribute('data-label'))
+  // 面板只放「顶栏上没有的」入口：
+  // 会话侧栏已由顶栏左侧的 ☰ 承担，不该在面板里重复出现；
+  // 会话操作没有独立可用的原生入口，也暂不列入。
+  assert.deepEqual(labels, ['查看轨迹', '新建工作区', '右侧面板'], '面板须容纳三个二级入口')
+
+  // 隐藏节点必须不占位（否则顶栏被撑开、标题再被挤扁）。
+  // 规则是跨行选择器列表，所以只断言「三组隐藏选择器 + display:none」都存在。
+  assert.match(css, /\.dsh-mobile-bar>\.dsh-mobile-icon\[hidden\]/, '缺少 icon 隐藏选择器')
+  assert.match(css, /\.dsh-mobile-bar>\.dsh-mobile-view\[hidden\]/, '缺少 view 隐藏选择器')
+  assert.match(css, /\.dsh-mobile-bar>\.dsh-mobile-btn\[hidden\]\{display:none!important\}/, '隐藏入口必须 display:none')
 })
 
 test('桌面端模式下 DOM 突变不会反复触发无效同步且 sync 具备防重入保护', (t) => {

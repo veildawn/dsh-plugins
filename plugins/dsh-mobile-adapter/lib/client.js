@@ -43,6 +43,28 @@ window.__ModuleLoader__.load({
         [data-slot="conversation"] :is(.wSkVaW_tabs,[data-conversation-tabs],[role="tablist"]),
         [data-slot="conversation.session.header"] [role="tablist"]{display:none!important}
         :is(.wSkVaW_header,header[class$="_header"]:has(>[class*="_titleRow"])){position:fixed!important;top:var(--dsh-sat,0px)!important;right:0!important;left:0!important;height:calc(52px + var(--dsh-sat))!important;min-height:0!important;padding:0!important;border-bottom:none!important;pointer-events:none!important;opacity:0!important;z-index:-1!important;overflow:hidden!important}
+        /* 顶部操作下拉面板：把「☰ 会话侧栏 / ⌁ 轨迹 / ⋯ 会话操作 / ◫ 右侧面板」
+           四个入口收进一个下拉，顶栏只留「下拉 + 全屏」两个按钮。
+           理由：52px 高的顶栏里塞四个图标 + 一个药丸 + 标题，在 360px 窄屏上
+           标题被挤成三个字加省略号，可用性比「多点一次」差得多。
+           面板用 fixed 定位（锚点由脚本按按钮实际位置写入），避免被顶栏裁切。 */
+        /* 顶栏里被收进下拉面板的原始入口：保留在 DOM 中作为点击代理，
+           但必须完全不占位（否则顶栏会被撑开、标题再次被挤扁）。 */
+        .dsh-mobile-bar>.dsh-mobile-icon[hidden],
+        .dsh-mobile-bar>.dsh-mobile-view[hidden],
+        .dsh-mobile-bar>.dsh-mobile-btn[hidden]{display:none!important}
+        .dsh-mobile-menu-toggle{box-sizing:border-box;width:36px;min-width:36px;height:36px;flex:none;border:0;border-radius:10px;background:transparent;color:inherit;display:inline-grid;place-items:center;cursor:pointer;padding:0}
+        .dsh-mobile-menu-toggle:hover,.dsh-mobile-menu-toggle:active,.dsh-mobile-menu-toggle[aria-expanded="true"]{background:var(--dsw-alias-interactive-bg-hover)}
+        .dsh-mobile-menu-backdrop{position:fixed;inset:0;z-index:1340;background:transparent}
+        .dsh-mobile-menu-panel:not([hidden]){display:flex!important;position:fixed!important;top:var(--dsh-menu-anchor-top,auto)!important;left:var(--dsh-menu-anchor-left,auto)!important;right:auto!important;bottom:auto!important;z-index:1360!important;min-width:196px!important;max-width:calc(100vw - 20px)!important;width:max-content;padding:6px!important;border:1px solid var(--dsw-alias-border-l2)!important;border-radius:14px!important;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-base)))!important;box-shadow:var(--dsw-shadow-lv3)!important;color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:14px;flex-direction:column!important;gap:2px;overflow:visible!important;animation:dsh-mobile-menu-pop .14s cubic-bezier(0.2,0.8,0.2,1)}
+        .dsh-mobile-menu-panel{display:none}
+        @keyframes dsh-mobile-menu-pop{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+        .dsh-mobile-menu-item{display:flex;align-items:center;gap:10px;width:100%;height:42px;padding:0 10px;border:none;border-radius:10px;background:none;color:inherit;font:inherit;font-weight:500;text-align:left;cursor:pointer;user-select:none;white-space:nowrap;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+        .dsh-mobile-menu-item:hover,.dsh-mobile-menu-item:active{background:var(--dsw-alias-interactive-bg-hover)}
+        .dsh-mobile-menu-item[hidden]{display:none}
+        .dsh-mobile-menu-item-icon{display:inline-grid;place-items:center;width:20px;height:20px;flex:none;opacity:.9}
+        .dsh-mobile-menu-item-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+        .dsh-mobile-menu-sep{height:1px;margin:4px 6px;background:var(--dsw-alias-border-l2);opacity:.6}
         /* 全屏切换：只收起浏览器自身的地址栏与底部工具栏，应用自己的导航
            一律保留。全屏后视口变高，根容器与滚动区跟随 100dvh 重铺。 */
         .dsh-mobile-fullscreen-toggle{box-sizing:border-box;width:40px;min-width:40px;height:36px;flex:none;border:0;border-radius:10px;background:transparent;color:inherit;display:inline-grid;place-items:center;cursor:pointer;padding:0}
@@ -660,6 +682,101 @@ window.__ModuleLoader__.load({
       view.type = 'button'
       view.className = 'dsh-mobile-view'
 
+      // 顶栏右侧的「操作下拉」按钮：把原本平铺在顶栏上的四个入口收进来。
+      const menuToggle = doc.createElement('button')
+      menuToggle.type = 'button'
+      menuToggle.className = 'dsh-mobile-menu-toggle'
+      menuToggle.setAttribute('aria-label', '更多操作')
+      menuToggle.setAttribute('aria-haspopup', 'menu')
+      menuToggle.setAttribute('aria-expanded', 'false')
+      menuToggle.title = '更多操作'
+      menuToggle.innerHTML = '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+
+      const menuBackdrop = doc.createElement('div')
+      menuBackdrop.className = 'dsh-mobile-menu-backdrop'
+      menuBackdrop.hidden = true
+
+      const menuPanel = doc.createElement('div')
+      menuPanel.className = 'dsh-mobile-menu-panel'
+      menuPanel.setAttribute('role', 'menu')
+      menuPanel.setAttribute('aria-label', '更多操作')
+      menuPanel.hidden = true
+
+      const closeMenuPanel = () => {
+        if (menuPanel.hidden) return
+        menuPanel.hidden = true
+        menuBackdrop.hidden = true
+        menuToggle.setAttribute('aria-expanded', 'false')
+      }
+
+      // 面板的全局关闭：Esc、页面滚动、视口变化都要收起。
+      // 面板是 fixed 定位、锚点写死像素值，页面一滚就会与按钮错位，
+      // 那时它既不在按钮下方、又挡着内容——必须关掉而不是跟随。
+      // 用可选调用（?.）而不是直接调用：单测的 window 桩只有部分方法，
+      // 直接写 win.addEventListener 会在沙箱里抛 TypeError，让整条用例失败。
+      doc.addEventListener?.('keydown', (e) => {
+        if (e.key === 'Escape' && !menuPanel.hidden) closeMenuPanel()
+      }, true)
+      win.addEventListener?.('scroll', () => closeMenuPanel(), { passive: true, capture: true })
+      win.addEventListener?.('resize', () => closeMenuPanel(), { passive: true })
+
+      /** 造一个面板条目：图标 + 文案 + 点击回调。 */
+      const menuItem = (iconSvg, label, onClick) => {
+        const item = doc.createElement('button')
+        item.type = 'button'
+        item.className = 'dsh-mobile-menu-item'
+        item.setAttribute('role', 'menuitem')
+        item.innerHTML = `<span class="dsh-mobile-menu-item-icon">${iconSvg}</span><span class="dsh-mobile-menu-item-label">${label}</span>`
+        // data-label 同时是测试断言点与无障碍兜底：DOM 桩可能没实现 lastChild，
+        // 但属性读取在所有实现里都可靠。
+        item.setAttribute('data-label', label)
+        // 按下只拦冒泡、不做动作——与工具箱同一套手势约定：
+        // 若在 pointerdown 就关面板，手指抬起时的 click 会落到下面的输入框上。
+        const hold = (e) => e.stopPropagation()
+        item.addEventListener('pointerdown', hold)
+        item.addEventListener('touchstart', hold, { passive: true })
+        item.addEventListener('click', (e) => {
+          e?.stopPropagation?.()
+          closeMenuPanel()
+          onClick()
+        })
+        return item
+      }
+
+      // 面板内的三个入口（可见性由 sync 统一维护）
+      const menuItemView = menuItem(
+        '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h3l2-4 2 8 2-4h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+        '查看轨迹',
+        () => view.click(),
+      )
+
+      const menuItemCorner = menuItem(
+        '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M10 2v12"/></svg>',
+        '右侧面板',
+        () => cornerBtn.click(),
+      )
+
+      // 「新建工作区」：宿主把入口放在侧栏「工作区」标题行的 + 按钮上，
+      // 该按钮没有稳定的 CSS Module 部件名（fixture 里查不到），
+      // 因此按 aria-label / title 语义定位——这是宿主写死的属性，跨构建稳定。
+      const menuItemNewWorkspace = menuItem(
+        '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 5.5A1.5 1.5 0 0 1 3.5 4h2.6l1.2 1.5h5.2A1.5 1.5 0 0 1 14 7v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12z" stroke="currentColor" stroke-width="1.3"/><path d="M8 8.2v3.2M6.4 9.8h3.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+        '新建工作区',
+        () => {
+          const target = doc.querySelector(
+            'button[aria-label*="新建工作区"], button[title*="新建工作区"], button[aria-label*="New workspace" i], button[title*="New workspace" i], button[aria-label*="添加工作区"], button[title*="添加工作区"]',
+          )
+          if (target && typeof target.click === 'function') target.click()
+        },
+      )
+
+      const menuSep = doc.createElement('div')
+      menuSep.className = 'dsh-mobile-menu-sep'
+
+      // 面板条目：轨迹与对话切换 / 新建工作区 / 右侧侧边栏。
+      // 「会话侧栏」不在这里——它已经是顶栏左侧的 ☰，重复入口只是噪音。
+      menuPanel.append(menuItemView, menuItemNewWorkspace, menuItemCorner)
+
       const actionsBtn = doc.createElement('button')
       actionsBtn.type = 'button'
       actionsBtn.className = 'dsh-mobile-btn dsh-mobile-actions-btn'
@@ -682,7 +799,18 @@ window.__ModuleLoader__.load({
       fullscreenToggle.className = 'dsh-mobile-fullscreen-toggle'
       fullscreenToggle.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 5.6V2.6h3M14 5.6V2.6h-3M2 10.4v3h3M14 10.4v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 
-      bar.append(menu, titleBox, view, actionsBtn, cornerBtn, fullscreenToggle)
+      // 顶栏可见项：☰ 侧栏（标题左侧） + 标题 + 操作下拉 + 全屏。
+      // 轨迹 / 会话操作 / 右侧面板三项收进下拉面板，但它们的原始节点仍挂在
+      // bar 里并标记 hidden——作为面板的**点击代理目标**，让 sync() 继续维护
+      // 文案与可用性，不必改动任何既有的事件与状态契约。CSS 里统一 display:none。
+      //
+      // ☰ 之所以保留在顶栏而不收进面板：它是「打开会话侧栏」这个最高频的
+      // 导航动作，藏进二级菜单会让每次切换会话都多两次点击。
+      menu.hidden = false
+      view.hidden = true
+      actionsBtn.hidden = true
+      cornerBtn.hidden = true
+      bar.append(menu, titleBox, menuToggle, fullscreenToggle, view, actionsBtn, cornerBtn)
 
       titleBox.addEventListener('click', () => {
         const target = doc.querySelector('.wSkVaW_crumbCurrent, [class*="_crumbCurrent"], [data-slot="conversation.session.header.lineage"] button, [class*="_crumb"]:last-of-type')
@@ -826,6 +954,39 @@ window.__ModuleLoader__.load({
         invokeOpen(win.__dsh_open_prompt_history)
       }
 
+      /** 打开/关闭顶栏「更多操作」下拉面板。 */
+      const toggleMenuPanel = (e) => {
+        e?.stopPropagation()
+        if (!menuPanel.hidden) {
+          closeMenuPanel()
+          return
+        }
+        // 可见性**不再**在这里重算。
+        //
+        // 曾经的写法是 `menuItemView.hidden = view.hidden`，但 view / actionsBtn /
+        // cornerBtn 这三个代理节点已被 sync() 永久设为 hidden（它们不在顶栏上显示），
+        // 于是每次打开面板都会把全部条目一起隐藏——用户看到的就是「面板里
+        // 三个按钮都没加载，只剩一个多余的会话侧栏」。
+        //
+        // 正确做法：条目可见性由 sync() 独立维护（见那边的 menuItem* 赋值），
+        // 这里只负责打开面板。轨迹项的文案也由 sync() 同步，避免两处各写一份。
+        menuSep.hidden = menuItemNewWorkspace.hidden && menuItemCorner.hidden
+
+        // 定位：贴在按钮正下方、右边缘对齐，并钳制在视口内
+        const rect = menuToggle.getBoundingClientRect()
+        menuPanel.style.setProperty('--dsh-menu-anchor-top', `${Math.round(rect.bottom + 6)}px`)
+        const panelWidth = 220
+        const left = Math.min(Math.max(8, rect.right - panelWidth), (win.innerWidth || 360) - panelWidth - 8)
+        menuPanel.style.setProperty('--dsh-menu-anchor-left', `${Math.round(left)}px`)
+
+        menuPanel.hidden = false
+        menuBackdrop.hidden = false
+        menuToggle.setAttribute('aria-expanded', 'true')
+      }
+
+      menuToggle.addEventListener('click', toggleMenuPanel)
+      menuBackdrop.addEventListener('click', () => closeMenuPanel())
+
       const toggleToolsMenu = (e) => {
         e?.stopPropagation()
         const hasFv = typeof win.__dsh_open_file_viewer === 'function' || doc.querySelector('button[aria-label="查看项目文件"], button[title="查看项目文件"]') != null
@@ -931,7 +1092,7 @@ window.__ModuleLoader__.load({
       toolsBackdrop.addEventListener('click', closeToolsMenu)
 
       doc.head.append(style)
-      doc.body.append(bar, backdrop, fileInput, toolsBackdrop, toolsMenu)
+      doc.body.append(bar, backdrop, fileInput, toolsBackdrop, toolsMenu, menuBackdrop, menuPanel)
 
       const media = win.matchMedia(MOBILE_QUERY)
       const frameOf = () => doc.querySelector('[data-slot="root"]>div')
@@ -961,15 +1122,44 @@ window.__ModuleLoader__.load({
         status.dataset.preset = state.preset || ''
         localizeDomPermissions(doc)
         const inRightbar = isRightbarOpen()
-        view.hidden = !mobile || (trajectory == null && !inRightbar)
+        // 这些节点已不在顶栏上显示（仅作为面板的点击代理），始终保持隐藏。
+        view.hidden = true
         const nextViewText = inRightbar ? '← 对话' : inTrajectory ? '← 对话' : '⌁ 轨迹'
         if (view.textContent !== nextViewText) view.textContent = nextViewText
         const nextViewLabel = inRightbar ? '收起右侧面板，返回对话' : inTrajectory ? '关闭轨迹，返回对话' : '查看轨迹'
         if (view.getAttribute('aria-label') !== nextViewLabel) view.setAttribute('aria-label', nextViewLabel)
-        const nativeActions = doc.querySelector('.wSkVaW_headerUtilities button, [class*="_headerUtilities"] button, .wSkVaW_headerActions button, [class*="_headerActions"] button')
-        actionsBtn.hidden = !mobile || nativeActions == null
+        // —— 下拉面板条目的可见性与文案，全部在这里统一维护 ——
+        //
+        // 这是**唯一**维护点。toggleMenuPanel 只负责开关面板，不再重算可见性
+        // （曾经两处各算一份，结果一边把代理节点的 hidden 当成「不可用」，
+        // 打开面板时把所有条目一起隐藏了）。
+        //
+        // 轨迹项：宿主存在轨迹页签即可用；在轨迹里时文案变「返回对话」。
+        const hasTrajectory = trajectory != null || inRightbar
+        menuItemView.hidden = !mobile || !hasTrajectory
+        const nextPanelViewLabel = inRightbar || inTrajectory ? '返回对话' : '查看轨迹'
+        if (menuItemView.getAttribute('data-label') !== nextPanelViewLabel) {
+          menuItemView.setAttribute('data-label', nextPanelViewLabel)
+          if (menuItemView.lastChild) menuItemView.lastChild.textContent = nextPanelViewLabel
+        }
+
+        // 新建工作区：宿主有对应入口按钮时才显示（按 aria-label 语义定位）。
+        const nativeNewWorkspace = doc.querySelector(
+          'button[aria-label*="新建工作区"], button[title*="新建工作区"], button[aria-label*="New workspace" i], button[title*="New workspace" i], button[aria-label*="添加工作区"], button[title*="添加工作区"]',
+        )
+        menuItemNewWorkspace.hidden = !mobile || nativeNewWorkspace == null
+
+        // 右侧侧边栏：宿主有 headerCorner 按钮时才显示。
         const nativeCorner = doc.querySelector('.wSkVaW_headerCorner button, [class*="_headerCorner"] button, [data-conversation-header-corner] button')
-        cornerBtn.hidden = !mobile || nativeCorner == null
+        cornerBtn.hidden = true
+        menuItemCorner.hidden = !mobile || nativeCorner == null
+
+        // 会话操作仍是代理节点（面板里不再列它），sync 继续维护它的可用性。
+        const nativeActions = doc.querySelector('.wSkVaW_headerUtilities button, [class*="_headerUtilities"] button, .wSkVaW_headerActions button, [class*="_headerActions"] button')
+        actionsBtn.hidden = true
+        void nativeActions
+
+        menuSep.hidden = menuItemNewWorkspace.hidden && menuItemCorner.hidden
         backdrop.hidden = !open
         menu.setAttribute('aria-expanded', String(open))
         const nextMenuLabel = open ? '关闭会话侧栏' : '打开会话侧栏'
