@@ -443,8 +443,22 @@ window.__ModuleLoader__.load({
          header controls could never be clicked. Start the drawer below the
          strip instead, which also leaves the strip free to drag the window.
          The host sets data-fullscreen while the window is fullscreen and the
-         strip is hidden, so the offset has to drop then. */
-      html[data-windows-titlebar]:not([data-fullscreen]) .fv-scrim{top:var(--dsh-windows-titlebar-height,40px)}
+         strip is hidden, so the offset has to drop then.
+
+         The declaration carries !important on purpose. It is not defensive
+         padding: the drawer's own opt-out above neutralises the host's
+         modal-card treatment with an important inset, and the longhand top that
+         shorthand expands to outranks any normal declaration — including this
+         one. Without !important the strip wins and the drawer slides back under
+         the caption buttons, which is exactly the regression this rule was
+         written for (fixed in 0.2.8, broken again once 0.3.6 added the
+         important inset, because the guard test only checked that the rule
+         exists rather than that it wins the cascade).
+
+         The role="dialog" qualifier keeps this at least as specific as the inset
+         rule it has to beat, so the outcome is decided by the important flag and
+         the attribute count rather than by sheet order. */
+      html[data-windows-titlebar]:not([data-fullscreen]) .fv-scrim[role="dialog"]{top:var(--dsh-windows-titlebar-height,40px)!important}
       @keyframes fv-fade{from{opacity:0}to{opacity:1}}
       @keyframes fv-slide{from{transform:translateX(100%)}to{transform:translateX(0)}}
       @media(prefers-reduced-motion:reduce){.fv-scrim,.fv-shell{animation:none}}
@@ -5656,18 +5670,16 @@ window.__ModuleLoader__.load({
           treeGeneration.current += 1;
           setNodes(new Map());
           if (rootChanged) {
-            // Tabs describe paths inside the root that opened them; carrying
-            // one across a root switch would point it at a different file with
-            // the same name, so the whole set is dropped with the old tree.
-            // (The open path already cleared them; this covers a root switched
-            // from the picker while the drawer stays open.)
-            tabsRef.current = null;
-            setTabs(null);
-            activeTabIdRef.current = "";
-            setActiveTabId("");
-            setTabMenu(null);
+            // Only the tree is rebuilt here. Tabs are deliberately NOT touched:
+            // this effect re-runs on the very commit that resolved `root`, i.e.
+            // *after* the roots effect above has already cleared the previous
+            // visit's tabs and opened the one the arrival path asked for.
+            // Clearing them here wiped that brand-new tab, so the first click on
+            // a file in a conversation (a path or a changes card) opened an empty
+            // pane and only the second click — now that `treeBuiltForRef` and
+            // `visitContextRef` both already name this root — loaded anything.
+            // A root switched from the picker resets tabs in `chooseRoot`.
             setExpanded(new Set());
-            setPane("tree");
           }
           const chain = revealChanged && reveal !== "" ? [...ancestorsOf(reveal), reveal] : [];
           if (chain.length > 0) {
@@ -5818,6 +5830,35 @@ window.__ModuleLoader__.load({
               && detail.commit.sha === sha;
             if (!loaded) git.openCommit(sha);
           }
+        };
+
+        /**
+         * Switch the root from the header picker.
+         *
+         * A root switch is the one thing that invalidates every open tab: their
+         * ids and paths only mean something inside the root that opened them, so
+         * carrying them over would point at a different file with the same name.
+         * The reset lives here, on the reader's own action, rather than in the
+         * tree-building effect — that effect also re-runs on the commit that
+         * resolves `root` for an arrival, and clearing there wiped the tab the
+         * arrival had just opened (first click on a file did nothing, second one
+         * worked because the guards had caught up by then).
+         */
+        const chooseRoot = (next) => {
+          const resolved = typeof next === "string" ? next : "";
+          if (resolved === "" || resolved === root) return;
+          tabsRef.current = null;
+          setTabs(null);
+          activeTabIdRef.current = "";
+          setActiveTabId("");
+          setTabMenu(null);
+          setPane("tree");
+          setExpanded(new Set());
+          // The arrival context belongs to the root that is being left; naming it
+          // here keeps the next roots response from treating the switch as an
+          // arrival that has to be reset all over again.
+          visitContextRef.current = resolved;
+          setRoot(resolved);
         };
 
         /** Patch one tab by id. Used by asynchronous reads that outlive a switch. */
@@ -6332,7 +6373,7 @@ window.__ModuleLoader__.load({
                   className: "fv-root-select",
                   value: root,
                   "aria-label": "工作区与安全路径",
-                  onChange: (event) => setRoot(event.target.value),
+                  onChange: (event) => chooseRoot(event.target.value),
                 }, ...renderRootOptions(roots))
                 : react.createElement("span", { className: "fv-crumbs" }, activeRoot ? activeRoot.label : ""),
               // The tree shows structure, so the header carries the selected

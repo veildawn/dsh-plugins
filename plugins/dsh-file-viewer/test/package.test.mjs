@@ -508,11 +508,25 @@ test('the drawer clears the Windows caption strip instead of sliding under it', 
   // strip, above every page layer, so a trailing-edge drawer that starts at the
   // frame's top edge has its header controls covered by them. The scrim must
   // therefore start below the strip.
+  //
+  // The offset has to carry !important. The drawer's own opt-out above declares
+  // `inset:0!important` against the host's modal-card treatment, and the `top`
+  // longhand that shorthand expands to is itself important — it beats every
+  // normal declaration, including a plain `top`. A normal offset here looked
+  // right in the source and did nothing in the browser, which is how the 0.2.8
+  // fix regressed after 0.3.6 added the !important inset.
+  const offset = /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.fv-scrim[^{]*\{top:var\(--dsh-windows-titlebar-height,40px\)!important\}/
   assert.match(
     source,
-    /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.fv-scrim\{top:var\(--dsh-windows-titlebar-height,40px\)\}/,
-    'the drawer must offset below the Windows caption strip and publish no offset elsewhere',
+    offset,
+    'the drawer must offset below the Windows caption strip and win the cascade against the important inset',
   )
+
+  // The important flag is the whole point, so it must not be dropped by a later
+  // tidy-up: a normal declaration here silently restores the overlap.
+  const rule = offset.exec(source)
+  assert.ok(rule, 'the caption-strip offset rule must exist')
+  assert.match(rule[0], /!important\}/, 'the caption-strip offset must be important')
 
   // Fullscreen removes the strip, so the rule has to stay scoped away from it;
   // an unconditional offset would leave a dead band above the drawer there.
@@ -521,6 +535,65 @@ test('the drawer clears the Windows caption strip instead of sliding under it', 
   // The offset belongs to the shell overlay seat only: the mobile bottom-sheet
   // context menu and the centred modals are positioned independently.
   assert.doesNotMatch(source, /html\[data-windows-titlebar\][^{]*\.fv-modal-scrim\{[^}]*top:/)
+})
+
+test('no new important declaration may quietly outrank the caption-strip offset', () => {
+  const source = read('lib/client.js')
+
+  // A guard for the guard.
+  //
+  // The 0.3.6 opt-out introduced `inset:0!important` against the host's
+  // modal-card treatment. The `top` longhand that shorthand expands to is itself
+  // important, so it outranked the normal `top` the 0.2.8 fix had added — the
+  // drawer silently slid back under the Windows caption buttons while both rules
+  // sat in the same sheet looking correct.
+  //
+  // So the rule is: anything that sets the drawer's own vertical geometry with
+  // !important must be declared on purpose, and the list below is that decision.
+  // A new entry means someone re-checked the cascade rather than assuming
+  // !important is always safe here.
+  const sheet = /const css = `([\s\S]*?)\n    `;/.exec(source)
+  assert(sheet, 'the bundle must build its stylesheet')
+
+  // Comments are prose, and they quote the very declarations under test.
+  const css = sheet[1].replace(/\/\*[\s\S]*?\*\//g, '')
+  const geometry = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map(([, selector, body]) => ({ selector: selector.trim(), body: body.trim() }))
+    .filter(({ selector, body }) => {
+      if (!body.includes('!important')) return false
+      // Only the drawer's own box, and only its vertical placement — those are
+      // what the caption strip competes for. The selector must end at the box
+      // itself: a descendant rule (`.fv-shell[data-mobile] .fv-row`) sizes a
+      // row inside the drawer and never moves the drawer. Width, colour and
+      // z-index fights are decided by their own rules and are not this test's
+      // business.
+      if (!/\.fv-(scrim|shell)(\[[^\]]*\])*$/.test(selector)) return false
+      return /(^|;)\s*(top|inset|bottom)\s*:/.test(body)
+    })
+
+  // The reviewed set. Each entry is a decision that was made on purpose:
+  //  - the caption-strip offset itself, which must win;
+  //  - the modal-card opt-out, whose inset the offset has to beat;
+  //  - the mobile bottom-sheet, where the whole window is the drawer.
+  const reviewed = [
+    /^html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.fv-scrim\[role="dialog"\]$/,
+    /^\.fv-scrim\[role="dialog"\]$/,
+    /^\.fv-shell\[data-mobile="true"\]$/,
+  ]
+  for (const { selector } of geometry) {
+    assert(
+      reviewed.some((pattern) => pattern.test(selector)),
+      `an unreviewed !important rule now sets the drawer's vertical geometry and may outrank the caption-strip offset: ${selector}`,
+    )
+  }
+
+  // The pair this regression is about must still be present and still opposed:
+  // if either loses its !important the overlap comes back.
+  const offset = geometry.find(({ selector }) => selector.includes('data-windows-titlebar'))
+  assert(offset, 'the caption-strip offset must still be declared')
+  assert.match(offset.body, /top:var\(--dsh-windows-titlebar-height,40px\)!important/)
+  const inset = geometry.find(({ selector }) => selector === '.fv-scrim[role="dialog"]')
+  assert(inset && /inset:0!important/.test(inset.body), 'the modal-card opt-out must still be declared')
 })
 
 test('the Host native open control is intercepted like any other file control', () => {
@@ -3351,14 +3424,54 @@ test('a different root starts over, because paths only mean one thing there', ()
   // The tree keeps its shape across a reopen but not across a root switch.
   assert.match(source, /const rootChanged = built\.root !== root/)
   assert.match(source, /if \(!rootChanged && !filterChanged && !revealChanged\) return/)
-  // A root switch drops the tabs, the expansion set and returns to the tree.
-  const block = /if \(rootChanged\) \{([\s\S]*?)\n\s*\}/.exec(source)
-  assert(block, 'the rootChanged branch must exist')
-  for (const effect of ['setTabs(null)', 'setExpanded(new Set())', 'setPane("tree")']) {
-    assert(block[1].includes(effect), `a root switch must ${effect}`)
+
+  // The reset lives in the picker's own handler, NOT in the tree-building
+  // effect. Both used to reset, and because the tree effect re-runs on the very
+  // commit that resolved `root`, it wiped the tab an arrival had just opened —
+  // the first click on a file in a conversation showed an empty pane and only
+  // the second click loaded anything.
+  const start = source.indexOf('const chooseRoot = (next) => {')
+  assert(start > 0, 'the picker handler must exist')
+  const body = source.slice(start, source.indexOf('};', start))
+  for (const reset of ['setTabs(null)', 'setExpanded(new Set())', 'setPane("tree")']) {
+    assert(body.includes(reset), `a root switch must ${reset}`)
   }
+  // It must also refuse a no-op switch, or merely re-selecting the current root
+  // in the dropdown would throw the reader's tabs away.
+  assert.match(body, /if \(resolved === "" \|\| resolved === root\) return;/)
+  // The header picker routes through it instead of calling setRoot directly.
+  assert.match(source, /onChange: \(event\) => chooseRoot\(event\.target\.value\)/)
+  assert.equal(/onChange: \(event\) => setRoot\(event\.target\.value\)/.test(source), false,
+    'the picker must not bypass the reset handler')
+
   // And the listing is rebuilt for the new root instead of being reused.
   assert.match(source, /for \(const dirPath of listings\) loadDirectory\(dirPath\)/)
+})
+
+test('arriving on a file opens it on the first click, not the second', () => {
+  const source = read('lib/client.js')
+
+  // The tree-building effect re-runs whenever `root` changes — including the
+  // commit that resolves the arrival root — so it runs *after* the roots effect
+  // has cleared the old visit and opened the tab the link asked for. Any tab
+  // clearing in there therefore destroys that brand-new tab.
+  const start = source.indexOf('const built = treeBuiltForRef.current;')
+  assert(start > 0, 'the tree build guard must exist')
+  const body = source.slice(start, source.indexOf('}, [open, root, hidden, reveal]);', start))
+  const rootChanged = /if \(rootChanged\) \{([\s\S]*?)\n\s*\}/.exec(body)
+  assert(rootChanged, 'the rootChanged branch must exist')
+  for (const forbidden of ['setTabs(null)', 'tabsRef.current = null', 'setActiveTabId("")', 'setPane("tree")']) {
+    assert.equal(rootChanged[1].includes(forbidden), false,
+      `the tree rebuild must not ${forbidden}: it would wipe the arrival tab`)
+  }
+
+  // The arrival path still opens the file it was handed, after the reset.
+  const rootsStart = source.indexOf('if (request_ === null) return undefined;')
+  const rootsBody = source.slice(rootsStart, source.indexOf('}, [request_]);', rootsStart))
+  const clear = rootsBody.indexOf('setTabs(null)')
+  const open = rootsBody.indexOf('openFileTab(resolvedRoot, value.selectFile, { activate: true })')
+  assert(clear > 0 && open > clear, 'the arrival tab must be opened after the visit reset')
+  assert.match(rootsBody, /setPane\("content"\)/)
 })
 
 test('a plain file is never read as a history blob', () => {
@@ -3742,14 +3855,22 @@ test('switching tabs switches the file, the language pin and the origin', () => 
   assert.match(source, /patchTab\(activeTab\.id, \(tab\) => \(\{ \.\.\.tab, commitView: next \}\)\);/)
 })
 
-test('the tab set is dropped when the drawer reopens or the root changes', () => {
+test('the tab set is dropped when the visit changes, never on a plain reopen', () => {
   const source = read('lib/client.js')
 
-  // Two resets, both for the same reason: a tab names a path that only means
-  // one thing under the root it was opened in.
+  // A tab names a path that only means one thing under the root it was opened
+  // in, so the two places that genuinely change the visit drop the tabs: the
+  // arrival path (a different root than the last visit) and the header picker.
+  // A plain reopen is NOT one of them — it is a hide, not a new session.
   const resets = source.match(/tabsRef\.current = null;/g) || []
-  assert(resets.length >= 2, 'both the open path and the root path must drop the tabs')
+  assert.equal(resets.length, 2, 'exactly the arrival path and the picker may drop the tabs')
   assert.match(source, /tabsRef\.current = null;\s*\n\s*setTabs\(null\);\s*\n\s*activeTabIdRef\.current = "";\s*\n\s*setActiveTabId\(""\);/)
+
+  // The tree-building effect must not be a third reset site: it re-runs on the
+  // commit that resolves `root`, i.e. after an arrival already opened its tab.
+  const treeStart = source.indexOf('const built = treeBuiltForRef.current;')
+  const treeBody = source.slice(treeStart, source.indexOf('}, [open, root, hidden, reveal]);', treeStart))
+  assert.equal(treeBody.includes('tabsRef.current = null'), false)
 })
 
 test('the content toolbar merges back navigation and language picker into the tab bar', () => {
