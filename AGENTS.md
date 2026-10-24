@@ -44,6 +44,62 @@ dsh plugin --profile web add ./plugins/<plugin>/<plugin>-<version>.tgz
 - 排查“插件加载失败/报错”类问题时，第一步应确认部署目录下的文件是否与仓库
   源码字节级一致（`diff`/`cmp`），而不是先假设代码逻辑有问题。
 
+## 【最高优先级】桌面版兼容：全屏面板必须避让 Windows 原生标题栏
+
+**任何"从窗口顶边开始"的全屏/贴边浮层（抽屉、全屏面板、吸顶工具栏），在 Windows 桌面版上
+必须从原生标题栏按钮（最小化 / 最大化 / 关闭）下方开始，且不得被其遮挡或覆盖。**
+
+Windows 桌面版用 `titleBarOverlay` 把那排原生按钮画在窗口顶部 40px 条带里，**且永远盖在
+页面之上**。宿主的 `shell.overlay` 这类 seat 按 frame 的 padding box 铺满整个窗口，
+所以一个从 `top:0` 开始的面板，头部控件会正好落在那排按钮下面——点不到，也看不见。
+用户看到的就是"插件工具栏和桌面版工具栏重叠"。
+
+### 必须遵守的四条规则
+
+1. **用宿主标记定位，不要用 UA 或窗口尺寸猜平台。**
+   宿主在 `<html>` 上写 `data-windows-titlebar`，并把条带高度发布为
+   `--dsh-windows-titlebar-height`（默认 40px，按 DPI 换算）。写死 `40px` 在
+   125%/150% 缩放下会错位——像 `dsh-theme-studio` 那样始终读宿主变量。
+
+2. **偏移必须写 `!important`，且选择器特异性不能低于它所对抗的规则。**
+   真实事故（2026-10-23，`dsh-file-viewer` v0.2.8 → v0.3.17）：v0.2.8 已加过
+   `html[data-windows-titlebar]:not([data-fullscreen]) .fv-scrim{top:var(...)}`，
+   之后 v0.3.6 为对抗 `dsh-mobile-adapter` 的"居中卡片化"新增
+   `.fv-scrim[role="dialog"]{inset:0!important;...}`。`inset` 简写展开出的
+   `top:0` 本身带 `!important`，**层叠上直接压掉那条普通 `top`**——抽屉重新滑回
+   标题栏下面，而两条规则在源码里看起来都正确无误。
+   修复后的写法：
+
+   ```css
+   html[data-windows-titlebar]:not([data-fullscreen]) .fv-scrim[role="dialog"]{
+     top:var(--dsh-windows-titlebar-height,40px)!important
+   }
+   ```
+
+   同一元素上若同时存在"用 `!important` 声明 `inset`/`top`"的规则，**必须逐个比对
+   选择器特异性**，否则修复会在无声无息中失效。
+
+3. **全屏时偏移必须消失。** 宿主进全屏后会写 `data-fullscreen`，条带随之隐藏，
+   不撤销偏移就会在面板顶部留一条点不到的死区。用
+   `:not([data-fullscreen])` 收口，别用 JS 判断窗口状态。
+
+4. **macOS 是另一套几何，不要混用。** macOS 桌面版没有这排按钮，宿主改用
+   `html[data-platform="darwin"]` 与 `--dsh-frame-top-clearance`（48px）。需要让位的
+   浮层应优先消费 `--dsh-frame-overlay-top`（宿主已按平台和全屏状态算好，含弹窗/菜单
+   额外 20px），而不是自己拼一套平台判断。
+
+### 验证要求（缺一不可）
+
+- **不能只断言"规则文本存在"。** 必须断言它**能赢过层叠**：规则带 `!important`、
+  选择器特异性不低于对抗规则。`dsh-file-viewer` 的守卫测试是范例——
+  `test/package.test.mjs` 中 "the drawer clears the Windows caption strip…" 与
+  "no new important declaration may quietly outrank the caption-strip offset"
+  两条，前者锁死偏移本身，后者把"新出现的、会设置抽屉垂直几何的 `!important` 规则"
+  列为必须人工复核的白名单，防止下一次有人加 `inset:0!important` 时再次悄悄覆盖它。
+- **新增/改动任何 `!important` 规则前，先在桌面版上确认最终几何**，不要只跑单测就认为
+  兼容。本轮用户报告"原来修好了现在又出现"，正是因为测试只看规则在不在。
+- 涉及平台差异的改动，README 需写明三端行为（Web / Windows 桌面版 / 全屏）。
+
 ## Windows 环境不能用 `dsh service restart`
 
 所有插件 README 里写的 `dsh service restart` 依赖宿主打包好的 systemd/launchd 单元。
