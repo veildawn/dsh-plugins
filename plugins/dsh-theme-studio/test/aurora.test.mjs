@@ -506,3 +506,22 @@ test('移动端模型徽标不得常驻运行 conic-gradient 扫光动画', () =
   )
 })
 
+test('移动端顶栏在极光主题下保持原生贯通式，无圆角、无四周缝隙', () => {
+  const barBlocks = blocks().filter((b) => b.selector.includes('.dsh-mobile-bar'))
+  assert.ok(barBlocks.length >= 1, '缺少 .dsh-mobile-bar 规则')
+  for (const block of barBlocks) {
+    if (block.selector.includes('.dsh-mobile-view')) continue
+    const m = block.body.match(/border-radius:\s*([^;!]+)/)
+    if (m) {
+      assert.equal(m[1].trim(), '0', '移动端顶栏圆角必须为 0')
+    }
+  }
+
+  // 必须有重置为 0 的贯通式声明与移动端容器让位
+  assert.match(css, /\.dsh-mobile-bar[^{]*\{[^}]*border-radius:\s*0/s, '移动端顶栏必须显式重置 border-radius: 0')
+  assert.match(
+    css,
+    /body:has\(\.dsh-mobile-bar\)[^{]*_(?:centerCol|sidebarCol)[^{]*\{[^}]*border-radius:\s*0/s,
+    '存在移动端顶栏时主区必须重置 border-radius: 0，避免在顶栏下方和四周留出圆角与缝隙',
+  )
+})

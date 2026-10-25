@@ -277,7 +277,6 @@ html[data-theme-studio="aurora"] ._LS25G_centerCol {
    顶栏 / 输入卡 / 交付物卡片同理：亮色下统一退回中性低对比边缘。 */
 html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .pI_x6G_centerCol,
 html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) ._LS25G_centerCol,
-html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-bar,
 html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-view,
 html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-composer-info {
   border-color: rgba(15, 23, 42, 0.07) !important;
@@ -285,6 +284,36 @@ html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-comp
     inset 0 1px 0 var(--ts-glass-highlight),
     0 1px 3px rgba(15, 23, 42, 0.05),
     0 8px 24px -14px rgba(15, 23, 42, 0.12) !important;
+}
+
+/* 移动端下主内容区贯通式适配：在存在移动端顶栏或小屏视口时消除圆角与外边距，左、右、上不留缝隙 */
+html[data-theme-studio="aurora"] body:has(.dsh-mobile-bar) .pI_x6G_centerCol,
+html[data-theme-studio="aurora"] body:has(.dsh-mobile-bar) ._LS25G_centerCol {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+}
+
+html[data-theme-studio="aurora"] body:has(.dsh-mobile-bar) .pI_x6G_centerCol::before,
+html[data-theme-studio="aurora"] body:has(.dsh-mobile-bar) ._LS25G_centerCol::before {
+  border-radius: 0 !important;
+}
+
+@media (max-width: 768px) {
+  html[data-theme-studio="aurora"] .pI_x6G_centerCol,
+  html[data-theme-studio="aurora"] ._LS25G_centerCol {
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border-top: none !important;
+    border-left: none !important;
+    border-right: none !important;
+  }
+  html[data-theme-studio="aurora"] .pI_x6G_centerCol::before,
+  html[data-theme-studio="aurora"] ._LS25G_centerCol::before {
+    border-radius: 0 !important;
+  }
 }
 
 /* 内容卡的材质：半透明填充 + 模糊。
@@ -750,13 +779,34 @@ html[data-theme-studio="aurora"] :is(.lXshSW_root, .j_dMAa_root) {
   padding: 4px 12px !important;
 }
 
-/* 移动端顶栏与组件调优 */
+/* 移动端顶栏：改回原生贯通式，左、右、上顶边贴合，不留任何缝隙，绝对禁用圆角与四周浮动留白 */
 html[data-theme-studio="aurora"] .dsh-mobile-bar {
-  background: color-mix(in srgb, var(--color-header) 76%, transparent) !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: 1px solid var(--ts-glass-edge) !important;
+  background: color-mix(in srgb, var(--color-header) 88%, transparent) !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
-  border-bottom: 1px solid var(--ts-glass-edge) !important;
-  box-shadow: 0 4px 24px -8px color-mix(in srgb, var(--ts-beam-a) 25%, transparent) !important;
+  box-shadow: inset 0 -1px 0 var(--ts-glass-highlight) !important;
+}
+
+html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .dsh-mobile-bar {
+  border-radius: 0 !important;
+  margin: 0 !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
+  box-shadow: inset 0 -1px 0 var(--ts-glass-highlight) !important;
 }
 
 html[data-theme-studio="aurora"] .dsh-mobile-bar .dsh-mobile-view {

@@ -24,6 +24,16 @@ html[data-theme-studio] ._LS25G_centerCol {
   overflow: hidden;
 }
 
+/* 移动端下主区贴边贯通：消除四周 4px 留白与圆角，左、右、上不留缝隙 */
+html[data-theme-studio] body:has(.dsh-mobile-bar) .pI_x6G_centerCol,
+html[data-theme-studio] body:has(.dsh-mobile-bar) ._LS25G_centerCol {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+}
+
 /* 右栏与主区同层，跟随同一张卡片，避免右侧出现第二块底色。 */
 html[data-theme-studio] .pI_x6G_rightbarCol,
 html[data-theme-studio] ._LS25G_rightbarCol {
