@@ -757,6 +757,60 @@ export function ancestorsOf(path) {
 }
 
 /**
+ * The working-tree path a file tree should highlight, for a given tab set.
+ *
+ * The tab strip and the tree are two views of one fact — "this file is open" —
+ * so the highlight is derived from the active tab instead of from the last row
+ * that was clicked. Deriving it from the tab's own `path` (not from its loaded
+ * metadata) is what makes the row light up the instant the tab opens; a tab
+ * knows where it points before its file has been read.
+ *
+ * Only tabs that describe a working-tree file qualify. A `commit` tab names a
+ * blob inside history, which no tree row shows; a `change` tab names a path
+ * whose diff is on screen; and a `file` tab carrying a commit hash is a
+ * historical version whose path may not exist on disk any more. Highlighting
+ * any of them would claim the tree lists something it does not.
+ *
+ * @param {null | Array<{id: string, kind: string, path?: string, commit?: string}>} tabs - the tab list.
+ * @param {string} activeId - the tab on screen.
+ * @returns {string} root-relative path to highlight, or '' for no highlight.
+ */
+export function pathOfActiveTab(tabs, activeId) {
+  if (!Array.isArray(tabs) || tabs.length === 0) return ''
+  if (typeof activeId !== 'string' || activeId === '') return ''
+  const tab = tabs.find((row) => row !== null && row !== undefined && row.id === activeId)
+  if (tab === undefined || tab.kind !== 'file') return ''
+  if (typeof tab.commit === 'string' && tab.commit !== '') return ''
+  return typeof tab.path === 'string' ? tab.path : ''
+}
+
+/**
+ * How far a scrolling tree has to scroll to bring one row into view.
+ *
+ * Kept pure and host-side testable because the geometry cannot be observed in a
+ * test environment that performs no layout: jsdom reports every rectangle as
+ * zero. The three rules worth locking down are "reveal an off-screen row",
+ * "leave a visible one alone" (so a reader who scrolled deliberately is not
+ * yanked back) and "never produce a negative offset".
+ *
+ * @param {{rowTop: number, rowHeight: number, hostTop: number, hostHeight: number, scrollTop: number}} box
+ *   Viewport-relative rectangles, exactly as `getBoundingClientRect` reports them.
+ * @returns {number | null} the scrollTop to apply, or null when the row is
+ *   already fully visible and nothing should move.
+ */
+export function scrollTargetForRow({ rowTop, rowHeight, hostTop, hostHeight, scrollTop } = {}) {
+  const height = Number.isFinite(rowHeight) ? rowHeight : 0
+  const visibleTop = Number.isFinite(hostTop) ? hostTop : 0
+  const visibleHeight = Number.isFinite(hostHeight) ? hostHeight : 0
+  const fromTop = (Number.isFinite(rowTop) ? rowTop : 0) - visibleTop
+  const fromBottom = fromTop + height
+  if (fromTop >= 0 && fromBottom <= visibleHeight) return null
+  const base = Number.isFinite(scrollTop) ? scrollTop : 0
+  const centred = base + fromTop - Math.max(0, (visibleHeight - height) / 2)
+  return Math.max(0, Math.round(centred))
+}
+
+/**
  * Flatten a lazily-loaded directory tree into render rows.
  *
  * Only expanded directories contribute children, and a directory whose listing

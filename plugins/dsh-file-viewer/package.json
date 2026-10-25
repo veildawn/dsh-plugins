@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-file-viewer",
-  "version": "0.3.18",
+  "version": "0.3.21",
   "description": "Workspace file viewer and Git panel for DeepSeek Harness: file tree, syntax-highlighted code, images, PDF, Excel and Word, plus local/remote branches, paged commit history, commit diffs, working-tree changes and changed-file navigation",
   "type": "module",
   "main": "lib/index.js",

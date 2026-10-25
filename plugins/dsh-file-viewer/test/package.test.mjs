@@ -537,6 +537,34 @@ test('the drawer clears the Windows caption strip instead of sliding under it', 
   assert.doesNotMatch(source, /html\[data-windows-titlebar\][^{]*\.fv-modal-scrim\{[^}]*top:/)
 })
 
+test('the drawer also clears the macOS traffic lights, using the host-computed variable', () => {
+  const source = read('lib/client.js')
+
+  // macOS desktop is a different geometry, not a missing special case: there is
+  // no caption strip, but the window's close/minimise/zoom buttons sit in the
+  // top-left corner and the host publishes the height to clear. Before this
+  // rule the drawer started at the frame's very top edge there and its header
+  // sat under those buttons — the macOS half of the same overlap the Windows
+  // rule was written for.
+  //
+  // The rule consumes --dsh-frame-overlay-top first, as the platform spec
+  // requires: the host has already folded the platform and the fullscreen state
+  // into that value, so re-deriving it here would only give us a second opinion
+  // to keep in sync. The fallbacks handle a host that publishes only the raw
+  // clearance, and a document that publishes neither.
+  const rule = /html\[data-platform="darwin"\]:not\(\[data-fullscreen\]\) \.fv-scrim\[role="dialog"\]\{top:var\(--dsh-frame-overlay-top,var\(--dsh-frame-top-clearance,0px\)\)!important\}/
+  assert.match(source, rule, 'the drawer must clear the macOS traffic lights via --dsh-frame-overlay-top')
+
+  // Same cascade hazard as the Windows rule: the drawer's own important inset
+  // expands to an important `top`, so this has to be important too.
+  assert.match(rule.exec(source)[0], /!important\}/)
+
+  // Fullscreen has no traffic lights to clear, so the offset must drop there.
+  assert.doesNotMatch(source, /html\[data-platform="darwin"\] \.fv-scrim\[role="dialog"\]\{top:/)
+  // And it is a desktop-platform rule, not a blanket one.
+  assert.doesNotMatch(source, /^\s*html \.fv-scrim\[role="dialog"\]\{top:/m)
+})
+
 test('no new important declaration may quietly outrank the caption-strip offset', () => {
   const source = read('lib/client.js')
 
@@ -572,11 +600,15 @@ test('no new important declaration may quietly outrank the caption-strip offset'
     })
 
   // The reviewed set. Each entry is a decision that was made on purpose:
-  //  - the caption-strip offset itself, which must win;
-  //  - the modal-card opt-out, whose inset the offset has to beat;
+  //  - the Windows caption-strip offset, which must win;
+  //  - the macOS traffic-light offset, which must win for the same reason on
+  //    the other desktop platform (the host has no caption strip there, but the
+  //    window's own close/minimise buttons occupy the top-left corner);
+  //  - the modal-card opt-out, whose inset both offsets have to beat;
   //  - the mobile bottom-sheet, where the whole window is the drawer.
   const reviewed = [
     /^html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.fv-scrim\[role="dialog"\]$/,
+    /^html\[data-platform="darwin"\]:not\(\[data-fullscreen\]\) \.fv-scrim\[role="dialog"\]$/,
     /^\.fv-scrim\[role="dialog"\]$/,
     /^\.fv-shell\[data-mobile="true"\]$/,
   ]
@@ -3722,6 +3754,67 @@ test('the tab strip renders and marks the active tab', () => {
   assert.match(source, /未打开文件/)
 })
 
+test('the tree highlight follows the active tab, and its rule can actually match', () => {
+  const { internals } = loadClient()
+  const source = read('lib/client.js')
+
+  // The shared rule lives in the host half too, so the two cannot drift.
+  assert.equal(typeof internals.pathOfActiveTab, 'function')
+  assert.equal(
+    internals.pathOfActiveTab([{ id: 'file:a.ts', kind: 'file', path: 'a.ts' }], 'file:a.ts'),
+    'a.ts',
+  )
+
+  // The tree is fed from the ACTIVE TAB, not from the loaded metadata. Going
+  // through `meta` meant the row only lit up after the read returned, and went
+  // dark again on every tab switch until the next read landed.
+  assert.match(source, /const activeFilePath = pathOfActiveTab\(tabs, activeTabId\)/)
+  assert.match(source, /selected: activeFilePath,/)
+  assert.doesNotMatch(source, /selected: meta === null \? "" : meta\.path,/)
+
+  // The regression that made this a no-op for two releases: the attribute was
+  // rendered on the row SEAT (the wrapper that also holds the @ button) while
+  // the rule only selected the inner `.fv-row`, so it never matched an element
+  // and no row was ever highlighted. Both halves are asserted: where the
+  // attribute goes, and that a rule selects it.
+  assert.match(source, /"aria-current": isCurrent \? "true" : undefined,/)
+  assert.match(source, /"data-active": isCurrent \? "true" : undefined,/)
+  assert.match(source, /className: "fv-row-seat",\s*\n\s*role: "treeitem"/)
+  assert.match(source, /\.fv-row-seat\[aria-current="true"\]>\.fv-row,\.fv-row\[aria-current="true"\]\{/)
+  // A highlight that is only a background tint is easy to miss next to hover,
+  // so the current row also carries an accent bar and stronger text.
+  assert.match(source, /\.fv-row-seat\[aria-current="true"\]>\.fv-row\{box-shadow:inset 2px 0 0 0 var\(--dsw-alias-brand-primary/)
+  assert.match(source, /\.fv-row-seat\[aria-current="true"\]>\.fv-row\{[^}]*font-weight:600/)
+
+  // Opening a tab can name a file whose directory is collapsed or never
+  // listed; the tree has to open the path first or there is no row to light.
+  assert.match(source, /const chain = ancestorsOf\(activeFilePath\);/)
+  assert.match(source, /const row = host\.querySelector\('\[data-active="true"\]'\);/)
+  // The reveal is a one-off per file: re-scrolling on every unrelated listing
+  // would yank the tree away from a reader who scrolled deliberately.
+  assert.match(source, /if \(activeFilePath === "" \|\| treeRevealedForRef\.current === activeFilePath\) return;/)
+  // `scrollTo` is missing outside a visual environment; throwing inside an
+  // effect would take the whole drawer down with it.
+  assert.match(source, /if \(typeof host\.scrollTo === "function"\) \{/)
+
+  // The geometry decision is a pure function precisely so it can be tested at
+  // all: jsdom performs no layout, so a scroll asserted through the DOM would
+  // always look like it did nothing. It is also mirrored in the host half,
+  // where its rules are unit tested.
+  assert.equal(typeof internals.scrollTargetForRow, 'function')
+  assert.match(source, /const target = scrollTargetForRow\(\{/)
+  assert.match(source, /if \(target === null\) return;/)
+
+  // The mobile rules override the row's layout with `!important`, so the
+  // highlight must not depend on anything they reset. They set flex/padding
+  // only — never `background` or `box-shadow` — and this locks that down: a
+  // future `background` there would erase the highlight on every phone.
+  for (const match of source.matchAll(/[^{}\n]*\.fv-row\{[^}]*!important[^}]*\}/g)) {
+    assert.doesNotMatch(match[0], /background/, `a mobile .fv-row rule must not reset the highlight background: ${match[0]}`)
+    assert.doesNotMatch(match[0], /box-shadow/, `a mobile .fv-row rule must not reset the accent bar: ${match[0]}`)
+  }
+})
+
 test('a tab offers refresh, close, close others and close all', () => {
   const source = read('lib/client.js')
 
@@ -4135,6 +4228,28 @@ test('the preview offers its own reading size, bounded and remembered', () => {
   // The host's code card sets `font:` shorthand, which resets size and line
   // height together; both have to be re-declared or larger text overlaps.
   assert.match(source, /div\[class\*="_card_"\],\.fv-content div\[class\*="_body_"\]\{font-size:var\(--fv-font-size,13px\);line-height:1\.65\}/)
+
+  // The two PREVIEW roots pin their own size with a `font:` shorthand too
+  // (`font: var(--dsw-font-markdown-base)` and `font: 12px/16px …`), and a
+  // shorthand on the element itself outranks an inherited font-size. Only the
+  // outer `.fv-content` was covered, so the stepper moved nothing in Markdown
+  // or JSON preview while working in the source view — reported as "the size
+  // button does nothing in the preview". Each root needs its own rule.
+  assert.match(
+    source,
+    /\.fv-content div\[class\*="_markdown_"\]\{font-size:var\(--fv-font-size,13px\);line-height:1\.65\}/,
+    'the Markdown preview root must re-declare the size',
+  )
+  assert.match(
+    source,
+    /\.fv-content div\[class\*="_root_"\]\{font-size:var\(--fv-font-size,12px\)\}/,
+    'the JSON preview root must re-declare the size',
+  )
+  // Headings and code inside a preview carry their own `font:` shorthand, so
+  // they have to be tied to the root's size or the page scales unevenly.
+  assert.match(source, /\.fv-content div\[class\*="_markdown_"\] :where\(h1,h2,h3,h4,h5,h6\)\{font-size:1\.35em/)
+  assert.match(source, /\.fv-content div\[class\*="_markdown_"\] :where\(pre,code\)\{font-size:0\.95em\}/)
+
   // Only views that render text offer it.
   assert.match(source, /const textish = meta !== null/)
 })

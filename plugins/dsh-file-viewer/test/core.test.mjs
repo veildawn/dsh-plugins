@@ -53,9 +53,11 @@ import {
   isSafeCommitSha,
   normalizeCommitPage,
   normalizeGitPath,
+  pathOfActiveTab,
   relativePathWithin,
   resolveLanguage,
   resolveWindow,
+  scrollTargetForRow,
   sortEntries,
   splitLines,
   summarizeDiffs,
@@ -408,6 +410,68 @@ test('ancestors list the directories leading to a path', () => {
 
 const dir = (name, path) => ({ name, path, type: 'directory' })
 const file = (name, path) => ({ name, path, type: 'file', kind: 'text' })
+
+test('the tree highlights the file of the active tab, whatever it is doing', () => {
+  const tabs = [
+    { id: 'file:src/a.ts', kind: 'file', path: 'src/a.ts', meta: null },
+    { id: 'file:src/b.ts', kind: 'file', path: 'src/b.ts', meta: null },
+  ]
+  // The tab on screen is the one the tree marks. `meta` is still null on both
+  // — the reads are in flight — and that must not matter: the highlight is a
+  // fact about the tab, not about how far its file read has got.
+  assert.equal(pathOfActiveTab(tabs, 'file:src/b.ts'), 'src/b.ts')
+  // Closing the active tab moves the highlight with the survivor.
+  assert.equal(pathOfActiveTab(tabs.slice(0, 1), 'file:src/a.ts'), 'src/a.ts')
+  // No tabs at all: nothing is open, so nothing is highlighted.
+  assert.equal(pathOfActiveTab(null, ''), '')
+  assert.equal(pathOfActiveTab([], ''), '')
+  // An id that names no tab is not a path (a tab closed between render and
+  // effect must not leave a stale highlight behind).
+  assert.equal(pathOfActiveTab(tabs, 'file:gone.ts'), '')
+  assert.equal(pathOfActiveTab(tabs, ''), '')
+
+  // Commit and change tabs are not files: their rows do not exist in the tree,
+  // and highlighting a change would claim the reader sees the file rather than
+  // its patch.
+  assert.equal(pathOfActiveTab([{ id: 'commit:abc123', kind: 'commit', path: 'src/a.ts' }], 'commit:abc123'), '')
+  assert.equal(pathOfActiveTab([{ id: 'change:src/a.ts', kind: 'change', path: 'src/a.ts' }], 'change:src/a.ts'), '')
+  // A file tab read from history has the same shape as a working-tree tab, so
+  // the commit hash is what keeps it from marking a row it does not describe.
+  assert.equal(
+    pathOfActiveTab([{ id: 'file:src/a.ts@abc123', kind: 'file', path: 'src/a.ts', commit: 'abc123' }], 'file:src/a.ts@abc123'),
+    '',
+  )
+  // A malformed row cannot throw the drawer.
+  assert.equal(pathOfActiveTab([{ id: 'file:x.ts', kind: 'file' }], 'file:x.ts'), '')
+  assert.equal(pathOfActiveTab([null], 'file:x.ts'), '')
+})
+
+test('revealing a row scrolls only when it is off screen', () => {
+  // A tree 200px tall whose scroller is at the top. The viewport-relative
+  // coordinates are what `getBoundingClientRect` reports: the host starts at
+  // y=100 in the page, so a row is visible when it sits within 100..300.
+  const host = { hostTop: 100, hostHeight: 200, scrollTop: 0 }
+
+  // Fully visible: nothing to do. A no-op is the important case — scrolling a
+  // row that is already on screen fights a reader who scrolled deliberately.
+  assert.equal(scrollTargetForRow({ ...host, rowTop: 150, rowHeight: 32 }), null)
+  // Flush with both edges is still visible.
+  assert.equal(scrollTargetForRow({ ...host, rowTop: 100, rowHeight: 200 }), null)
+
+  // Below the fold: scroll down, centring the row. The row starts 300px below
+  // the host's top and the viewport is 200px, so it is 300px from the top of
+  // the visible area; centring a 32px row leaves (200 - 32) / 2 = 84px above it.
+  assert.equal(scrollTargetForRow({ ...host, rowTop: 400, rowHeight: 32 }), 300 - 84)
+  // Above the fold: scroll back up, and never past the start.
+  assert.equal(scrollTargetForRow({ ...host, scrollTop: 500, rowTop: 60, rowHeight: 32 }), 500 - 40 - 84)
+  assert.equal(scrollTargetForRow({ ...host, rowTop: 40, rowHeight: 32 }), 0)
+
+  // Garbage in must not produce NaN or a negative offset: the tree would either
+  // jump to an undefined position or refuse to move at all.
+  assert.equal(scrollTargetForRow({}), null)
+  assert.equal(scrollTargetForRow({ hostHeight: 200, rowTop: 400, rowHeight: 32, hostTop: 100 }), 216)
+  assert.equal(scrollTargetForRow({ hostHeight: 0, hostTop: 0, rowTop: 10, rowHeight: 0, scrollTop: 0 }), 10)
+})
 
 test('a collapsed tree shows only the root listing', () => {
   const rows = flattenTree({

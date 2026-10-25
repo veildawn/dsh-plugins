@@ -459,6 +459,21 @@ window.__ModuleLoader__.load({
          rule it has to beat, so the outcome is decided by the important flag and
          the attribute count rather than by sheet order. */
       html[data-windows-titlebar]:not([data-fullscreen]) .fv-scrim[role="dialog"]{top:var(--dsh-windows-titlebar-height,40px)!important}
+      /* macOS 桌面版是另一套几何：没有那排 caption 按钮，但窗口左上角有交通灯
+         （关闭/最小化/缩放），宿主用 html[data-platform="darwin"] 标记，并把需要
+         让位的高度发布为 --dsh-frame-top-clearance（48px）。宿主另外提供一个算好
+         的 --dsh-frame-overlay-top（按平台与全屏状态取 max(默认, clearance+20)），
+         规范要求浮层优先消费它，而不是自己拼一套平台判断。
+
+         变量缺失时回落到 clearance，再回落到 0：var() 的第二个参数可以再套一层
+         var()，因此这条规则在只有 clearance、两者都缺失、以及变量都齐全的三种
+         环境下都给出正确结果，不需要额外的媒体查询或 JS 判断。
+
+         同样带 !important，理由与上面那条 Windows 规则完全一致：抽屉自己的
+         .fv-scrim[role="dialog"]{inset:0!important} 展开出的 top 也是重要的，
+         普通声明赢不过它。全屏时宿主会撤销条带（clearance 归 0、overlay-top
+         归默认值），:not([data-fullscreen]) 直接把偏移撤掉，不留死区。 */
+      html[data-platform="darwin"]:not([data-fullscreen]) .fv-scrim[role="dialog"]{top:var(--dsh-frame-overlay-top,var(--dsh-frame-top-clearance,0px))!important}
       @keyframes fv-fade{from{opacity:0}to{opacity:1}}
       @keyframes fv-slide{from{transform:translateX(100%)}to{transform:translateX(0)}}
       @media(prefers-reduced-motion:reduce){.fv-scrim,.fv-shell{animation:none}}
@@ -499,7 +514,16 @@ window.__ModuleLoader__.load({
       .fv-mention:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);opacity:1}
       @media(hover:none),(pointer:coarse){.fv-mention{opacity:1}}
       .fv-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
-      .fv-row[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
+      /* 选中高亮挂在行座（.fv-row-seat）上，因为一行由「行按钮 + @ 引用按钮」
+         两段组成，只有整行一起变色才读得懂"这个文件正开着"。曾经的选择器写的是
+         .fv-row[aria-current="true"]，而属性在父节点上，规则从未命中——右侧标签页
+         换了，左侧却没有任何一行跟着亮。两种写法都保留，祖先/自身任一命中即可。 */
+      .fv-row-seat[aria-current="true"]>.fv-row,.fv-row[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
+      .fv-row-seat[aria-current="true"]>.fv-row{box-shadow:inset 2px 0 0 0 var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary);font-weight:600}
+      .fv-row-seat[aria-current="true"]>.fv-row .fv-row-name{color:var(--dsw-alias-label-primary)}
+      /* 键盘聚焦与"当前文件"是两件事：焦点框只在键盘操作时出现，避免鼠标点完
+         还留一个和选中态抢眼的方框。 */
+      .fv-row-seat[aria-current="true"]>.fv-row:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:-2px}
       .fv-row-name{flex:1 1 auto;min-width:0;line-height:1.35;word-break:break-all;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
       .fv-row-size{flex:none;color:var(--dsw-alias-label-caption);font-size:11px;font-variant-numeric:tabular-nums}
       .fv-glyph{flex:none;width:16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:11px;transition:transform .12s}
@@ -611,6 +635,24 @@ window.__ModuleLoader__.load({
       .fv-content div[class*="_card_"],.fv-content div[class*="_body_"]{font-size:var(--fv-font-size,13px);line-height:1.65}
       .fv-content div[class*="_line_"]{font-size:var(--fv-font-size,13px);line-height:1.65}
       .fv-content div[class*="_line_"] span[class*="_content_"]{font-size:inherit;line-height:inherit}
+      /* 预览（Markdown / JSON）的根节点各自用 font 简写把字号写死：
+         Markdown 根是 var(--dsw-font-markdown-base)，JSON 根是
+         12px/16px var(--ds-font-family-code)。简写会一次性重置字号、
+         字重与行高，因此单靠外层 .fv-content 的 font-size 根本传不进去——
+         这就是「预览里点字号按钮没有任何反应」的原因。
+         两个根节点都必须显式重新声明字号，并连带行高，否则放大后行会重叠。
+         类名带构建哈希（_markdown_xxx / _root_xxx），只能按属性子串匹配，
+         这也是本插件匹配宿主类名的既有做法；选择器带 .fv-content 前缀与一个
+         属性，特异性高于宿主那条单类规则，与样式表顺序无关。 */
+      .fv-content div[class*="_markdown_"]{font-size:var(--fv-font-size,13px);line-height:1.65}
+      /* JSON 树根同时是横向滚动容器，行高沿用宿主的紧凑节奏，只放大字号。 */
+      .fv-content div[class*="_root_"]{font-size:var(--fv-font-size,12px)}
+      /* 预览里的标题自带 font 简写，按比例跟随正文字号，否则正文放大了而标题不动。 */
+      .fv-content div[class*="_markdown_"] :where(h1,h2,h3,h4,h5,h6){font-size:1.35em;line-height:1.35}
+      .fv-content div[class*="_markdown_"] :where(h1,h2,h3,h4,h5,h6) *{font-size:inherit}
+      /* 预览里的代码块与行内代码同样是简写，跟随字号但不跟着标题放大。 */
+      .fv-content div[class*="_markdown_"] :where(pre,code){font-size:0.95em}
+      .fv-content div[class*="_markdown_"] table{font-size:inherit}
       .fv-content .fv-sheet-tabs{position:sticky;top:0;margin:-12px -12px 10px;padding:12px 12px 8px}
       .fv-tab{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
       .fv-tab[aria-selected="true"]{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}
@@ -3459,6 +3501,69 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The working-tree path the file tree should highlight, for a given tab set.
+     *
+     * This is the whole of the tab ↔ tree link: the highlight is a function of
+     * which tab is on screen, not of which row was clicked last. Reading it off
+     * the tab rather than off the tab's loaded metadata is what makes the
+     * highlight appear immediately — a freshly opened tab knows its path before
+     * the file read returns, and going through `meta` left the tree dark for
+     * that window and again on every tab switch.
+     *
+     * Three kinds of tab describe something the tree cannot point at:
+     * - a `commit` tab is a blob inside history, which no tree row shows;
+     * - a `change` tab is a diff of a working-tree path, so the pane is showing
+     *   a patch rather than that file. Highlighting it would misreport what is
+     *   on screen;
+     * - a `file` tab read from a commit (`commit` is a non-empty hash) is a
+     *   historical version, addressed by a path that may not even exist on disk
+     *   any more. The tree lists the working tree, so it stays unmarked.
+     *
+     * @param {null | Array<{id: string, kind: string, path?: string, commit?: string}>} tabs - the tab list.
+     * @param {string} activeId - the tab on screen.
+     * @returns {string} root-relative path to highlight, or '' for no highlight.
+     */
+    function pathOfActiveTab(tabs, activeId) {
+      if (!Array.isArray(tabs) || tabs.length === 0) return "";
+      if (typeof activeId !== "string" || activeId === "") return "";
+      const tab = tabs.find((row) => row !== null && row !== undefined && row.id === activeId);
+      if (tab === undefined || tab.kind !== "file") return "";
+      // A history preview is a different document that happens to share a path.
+      if (typeof tab.commit === "string" && tab.commit !== "") return "";
+      return typeof tab.path === "string" ? tab.path : "";
+    }
+
+    /**
+     * How far the tree has to scroll to bring one row into view.
+     *
+     * Split out as a pure function because the interesting part — the geometry —
+     * cannot be observed in a test environment that does no layout: jsdom
+     * reports every rectangle as zero. With the decision here, the rule "reveal
+     * a row that is off screen, leave one that is not, never scroll past the
+     * start" is exercised directly instead of only being read in the source.
+     *
+     * @param {{rowTop: number, rowHeight: number, hostTop: number, hostHeight: number, scrollTop: number}} box
+     *   Rects relative to the viewport, as `getBoundingClientRect` reports them.
+     * @returns {number | null} the scrollTop to set, or null when nothing is
+     *   needed — the row is already fully visible.
+     */
+    function scrollTargetForRow({ rowTop, rowHeight, hostTop, hostHeight, scrollTop }) {
+      const height = Number.isFinite(rowHeight) ? rowHeight : 0;
+      const visibleTop = Number.isFinite(hostTop) ? hostTop : 0;
+      const visibleHeight = Number.isFinite(hostHeight) ? hostHeight : 0;
+      const fromTop = (Number.isFinite(rowTop) ? rowTop : 0) - visibleTop;
+      const fromBottom = fromTop + height;
+      // Already inside the viewport: scrolling would be motion with no
+      // information in it, and it would fight a reader who scrolled on purpose.
+      if (fromTop >= 0 && fromBottom <= visibleHeight) return null;
+      const base = Number.isFinite(scrollTop) ? scrollTop : 0;
+      // Centre the row, but never above the first row: a negative scrollTop is
+      // clamped by the browser anyway, and doing it here keeps the value honest.
+      const centred = base + fromTop - Math.max(0, (visibleHeight - height) / 2);
+      return Math.max(0, Math.round(centred));
+    }
+
+    /**
      * The content area's tab strip.
      *
      * One tab per opened file, commit or working-tree change. The strip is a
@@ -3933,6 +4038,11 @@ window.__ModuleLoader__.load({
         const longPressedRef = react.useRef(false);
         const isModified = !isDirectory && Boolean(gitStatus?.modified?.has(entry.path));
         const isUntracked = !isDirectory && Boolean(gitStatus?.untracked?.has(entry.path));
+        // `selected` is the path the content area is showing, derived from the
+        // active tab rather than from the last click. That is what keeps the
+        // tree in step when the reader switches or closes a tab: the highlight
+        // follows the tab, it does not remember the last row that was pressed.
+        const isCurrent = !isDirectory && selected !== "" && entry.path === selected;
 
         const clearLongPress = () => {
           if (timerRef.current !== null) {
@@ -3988,7 +4098,12 @@ window.__ModuleLoader__.load({
           role: "treeitem",
           "aria-level": row.depth + 1,
           ...(isDirectory ? { "aria-expanded": row.expanded ? "true" : "false" } : {}),
-          "aria-current": !isDirectory && entry.path === selected ? "true" : undefined,
+          // `aria-current` is the accessible name for "this is the file on
+          // screen"; `data-active` is the same fact for the scroll-into-view
+          // effect, which must not depend on a translated ARIA value.
+          "aria-current": isCurrent ? "true" : undefined,
+          "data-active": isCurrent ? "true" : undefined,
+          "data-path": entry.path,
           onContextMenu: handleContextMenu,
         },
           react.createElement("button", {
@@ -4035,7 +4150,7 @@ window.__ModuleLoader__.load({
             }, react.createElement("span", { "aria-hidden": "true" }, "@")));
       }
 
-      function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu, width, gitStatus, header }) {
+      function Tree({ rows, selected, onToggle, onSelect, onMention, onContextMenu, width, gitStatus, header, treeRef }) {
         const children = rows.map((row) => {
           const indent = { "--fv-depth": row.depth, paddingLeft: 8 + row.depth * 14 + "px" };
           if (row.kind === "status") {
@@ -4061,6 +4176,7 @@ window.__ModuleLoader__.load({
         });
         return react.createElement("div", {
           className: "fv-tree", role: "tree", "aria-label": "文件树",
+          ref: treeRef,
           style: typeof width === "number" ? { width: width + "px" } : undefined,
         }, header === undefined ? null : header, ...children);
       }
@@ -5377,6 +5493,17 @@ window.__ModuleLoader__.load({
         // is not mistaken for one made on another after a switch.
         const gitState = useStore(git.store);
 
+        // ------------------------------------------------------------------
+        // Tabs drive the tree
+        //
+        // The highlight follows the tab on screen, so both halves of the drawer
+        // always describe the same file. Derived here — above the early return,
+        // hence stable in hook order — because the effects below need it too: a
+        // file can only be highlighted if its row exists, which means every
+        // directory on the way to it must be open.
+        // ------------------------------------------------------------------
+        const activeFilePath = pathOfActiveTab(tabs, activeTabId);
+
         react.useEffect(() => {
           if (!open || !root) return undefined;
           let live = true;
@@ -5695,6 +5822,85 @@ window.__ModuleLoader__.load({
           const listings = [...new Set(["", ...chain, ...visible])];
           for (const dirPath of listings) loadDirectory(dirPath);
         }, [open, root, hidden, reveal]);
+
+        // ------------------------------------------------------------------
+        // Revealing the file the content area is showing
+        //
+        // A tab can name a file the tree cannot show yet: its directory is
+        // collapsed, or has never been listed. Highlighting a row that does not
+        // exist is invisible, so the tree opens the path to the file first and
+        // only then scrolls it into view. This is additive — it never closes a
+        // directory the reader opened, which is what makes it safe to run on
+        // every tab switch.
+        // ------------------------------------------------------------------
+        const treeScrollRef = react.useRef(null);
+        // Which path the tree was last scrolled to. Kept so the scroll is a
+        // one-off gesture per file instead of something that re-runs whenever
+        // an unrelated listing lands and yanks the reader back mid-scroll.
+        const treeRevealedForRef = react.useRef("");
+
+        react.useEffect(() => {
+          if (!open || root === "" || activeFilePath === "") return;
+          const chain = ancestorsOf(activeFilePath);
+          // Open only the directories that are actually closed. Returning the
+          // same Set when nothing is missing keeps this from re-rendering (and
+          // from re-running itself) on every pass.
+          setExpanded((current) => {
+            let next = current;
+            for (const dirPath of chain) {
+              if (next.has(dirPath)) continue;
+              if (next === current) next = new Set(current);
+              next.add(dirPath);
+            }
+            return next;
+          });
+          // A directory that has never been listed has no row to open into. The
+          // root is left to the effect above, which owns the initial listing;
+          // only the ancestors are fetched here, and only once (`undefined`),
+          // never again after a failure — an erroring directory would otherwise
+          // retry on every render.
+          for (const dirPath of chain) {
+            if (nodes.get(dirPath) !== undefined) continue;
+            loadDirectory(dirPath);
+          }
+        }, [open, root, hidden, activeFilePath, expanded, nodes]);
+
+        react.useEffect(() => {
+          if (!open) {
+            // Reopening is a fresh look at the same tree, so reveal again.
+            treeRevealedForRef.current = "";
+            return;
+          }
+          if (activeFilePath === "" || treeRevealedForRef.current === activeFilePath) return;
+          const host = treeScrollRef.current;
+          if (host === null || host === undefined) return;
+          const row = host.querySelector('[data-active="true"]');
+          // Still waiting for an ancestor listing; the row will appear later and
+          // this effect runs again once it does.
+          if (row === null) return;
+          treeRevealedForRef.current = activeFilePath;
+          // Already on screen: scrolling would be motion with no information in
+          // it, and it would fight a reader who has scrolled deliberately.
+          const target = scrollTargetForRow({
+            rowTop: row.getBoundingClientRect().top,
+            rowHeight: row.getBoundingClientRect().height,
+            hostTop: host.getBoundingClientRect().top,
+            hostHeight: host.clientHeight,
+            scrollTop: host.scrollTop,
+          });
+          if (target === null) return;
+          const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+          // Drive the tree's own scroller rather than scrollIntoView, which
+          // would also scroll the page and the content pane behind the drawer.
+          // `scrollTo` is absent in non-visual environments (jsdom, some webview
+          // shims); falling back to the assignment keeps the reveal working
+          // without animation there instead of throwing inside an effect.
+          if (typeof host.scrollTo === "function") {
+            host.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
+          } else {
+            host.scrollTop = target;
+          }
+        }, [open, activeFilePath, expanded, nodes]);
 
         react.useEffect(() => {
           if (!open) return undefined;
@@ -6456,7 +6662,10 @@ window.__ModuleLoader__.load({
                 })
                 : react.createElement(Tree, {
                   rows: treeRows,
-                  selected: meta === null ? "" : meta.path,
+                  // Derived from the active tab, so switching or closing a tab
+                  // moves the highlight with it instead of leaving the last
+                  // clicked row lit.
+                  selected: activeFilePath,
                   onToggle: toggleDirectory,
                   onSelect: selectFile,
                   // Always offered: the DOM fallback covers hosts that leave the
@@ -6467,6 +6676,7 @@ window.__ModuleLoader__.load({
                   width: isMobile ? undefined : treeWidth,
                   gitStatus,
                   header: sideTabs,
+                  treeRef: treeScrollRef,
                 }),
               react.createElement("div", {
                 className: "fv-resizer",
@@ -6945,7 +7155,7 @@ window.__ModuleLoader__.load({
       // Content-area tabs: the strip, its four-item menu and the path helper
       // that gives a tab its secondary directory line.
       directoryOf, TabStrip, TabContextMenu, parseHeadings, MarkdownOutline, SvgIconOutline,
-      TAB_MENU_ITEMS, tabsAfterClose, tabsAfterUpsert,
+      TAB_MENU_ITEMS, tabsAfterClose, tabsAfterUpsert, pathOfActiveTab, scrollTargetForRow,
     };
     return module.exports;
   }
