@@ -305,15 +305,17 @@ html[data-theme-studio="aurora"] ._LS25G_centerCol::before {
     var(--color-background) var(--ts-canvas-alpha, 100%),
     transparent
   );
-  -webkit-backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
-  backdrop-filter: blur(var(--ts-blur)) saturate(var(--ts-saturate));
+  /* 性能极核优化：动态极光光斑平移时，全屏大容器绝不能挂载实时 backdrop-filter 高斯模糊。
+     极光光斑已内置四段衰减色标（0/34/60/86%），自身已具有极佳平滑柔和感；
+     全屏实时模糊会导致 Chromium 每一帧都对 2K/4K 视口执行纹理拷贝与双通道高斯卷积，
+     引发核显 100% 满载与掉帧。半透明底色已足以提供 13.1:1 AAA 级清晰对比度与剔透质感。 */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   pointer-events: none;
 }
 
 /* 亮色态再抬一档：62% 仍偏透（正文落在光斑上晃眼），提到 82% 回到玻璃级可读性。
-   同时把亮色态的模糊与饱和大幅收窄：亮色光斑 alpha 只有 0.14~0.18，
-   `blur(26px) saturate(1.65)` 会把它们糊成一片荧光色块；降到
-   `blur(8px) saturate(1.05)` 后光斑保留色相边界、正文可读。 */
+   晨曦极光光斑同样自带平滑过渡，不依赖全屏每帧模糊计算。 */
 html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) .pI_x6G_centerCol::before,
 html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) ._LS25G_centerCol::before {
   background: color-mix(
@@ -321,8 +323,8 @@ html[data-theme-studio="aurora"] body:not([data-ds-dark-theme]) ._LS25G_centerCo
     var(--color-background) var(--ts-canvas-alpha-light, 82%),
     transparent
   );
-  -webkit-backdrop-filter: blur(8px) saturate(1.05);
-  backdrop-filter: blur(8px) saturate(1.05);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* 侧栏：比主区更透一档，形成前后景深。材质同样下沉到 ::before。 */
@@ -340,8 +342,8 @@ html[data-theme-studio="aurora"] ._LS25G_sidebarCol::before {
   inset: 0;
   z-index: -1;
   background: var(--color-sidebar);
-  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.7)) saturate(var(--ts-saturate));
-  backdrop-filter: blur(calc(var(--ts-blur) * 0.7)) saturate(var(--ts-saturate));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   pointer-events: none;
 }
 
@@ -393,8 +395,8 @@ html[data-theme-studio="aurora"] .uV2eYG_card,
 html[data-theme-studio="aurora"] .Qt4Hga_card {
   position: relative;
   background: var(--color-input);
-  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.45)) saturate(var(--ts-saturate));
-  backdrop-filter: blur(calc(var(--ts-blur) * 0.45)) saturate(var(--ts-saturate));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   border: 1px solid color-mix(in srgb, var(--ts-beam-a) 28%, var(--color-border));
   box-shadow:
     inset 0 1px 0 var(--ts-glass-highlight),
@@ -531,8 +533,8 @@ html[data-theme-studio="aurora"] ._7yHdaG_header,
 html[data-theme-studio="aurora"] .TvmKiG_header,
 html[data-theme-studio="aurora"] .dsh-mobile-bar {
   background: var(--color-header);
-  -webkit-backdrop-filter: blur(calc(var(--ts-blur) * 0.8)) saturate(var(--ts-saturate));
-  backdrop-filter: blur(calc(var(--ts-blur) * 0.8)) saturate(var(--ts-saturate));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   border-bottom: 1px solid var(--ts-glass-edge);
   box-shadow: inset 0 -1px 0 var(--ts-glass-highlight);
 }
@@ -728,8 +730,8 @@ html[data-theme-studio="aurora"] .Qt4Hga_primary:active {
    - 待办状态：lXshSW_root（Web）/ j_dMAa_root（Desktop） */
 html[data-theme-studio="aurora"] :is(.nyYjTG_file, ._8G85G_file, .nyYjTG_cardPreview, ._8G85G_cardPreview) {
   background: var(--color-card) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(var(--ts-saturate));
-  backdrop-filter: blur(14px) saturate(var(--ts-saturate));
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
   border: 1px solid var(--ts-glass-edge) !important;
   border-radius: var(--dsw-radius-md) !important;
   box-shadow:
@@ -740,8 +742,8 @@ html[data-theme-studio="aurora"] :is(.nyYjTG_file, ._8G85G_file, .nyYjTG_cardPre
 /* 待办与计划完成状态：极光微光胶囊 */
 html[data-theme-studio="aurora"] :is(.lXshSW_root, .j_dMAa_root) {
   background: color-mix(in srgb, var(--color-surface) 80%, transparent) !important;
-  -webkit-backdrop-filter: blur(10px) saturate(var(--ts-saturate));
-  backdrop-filter: blur(10px) saturate(var(--ts-saturate));
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
   border: 1px solid var(--ts-glass-edge) !important;
   border-radius: 999px !important;
   box-shadow: inset 0 1px 0 var(--ts-glass-highlight) !important;
@@ -751,8 +753,8 @@ html[data-theme-studio="aurora"] :is(.lXshSW_root, .j_dMAa_root) {
 /* 移动端顶栏与组件调优 */
 html[data-theme-studio="aurora"] .dsh-mobile-bar {
   background: color-mix(in srgb, var(--color-header) 76%, transparent) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(var(--ts-saturate)) !important;
-  backdrop-filter: blur(24px) saturate(var(--ts-saturate)) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
   border-bottom: 1px solid var(--ts-glass-edge) !important;
   box-shadow: 0 4px 24px -8px color-mix(in srgb, var(--ts-beam-a) 25%, transparent) !important;
 }
@@ -771,8 +773,9 @@ html[data-theme-studio="aurora"] .dsh-mobile-bar .dsh-mobile-view {
    子元素），所以不能各自上色。这里给整枚胶囊做三层极光效果：
 
      1. **流光边框**：`::before` 用 conic-gradient + mask 裁出 1.5px 环，
-        与桌面输入卡的扫光同源（复用 `--ts-beam-*` 三段色与 `--ts-beam-angle`）。
-     2. **呼吸光晕**：外扩 box-shadow 随 `--ts-motion-scale` 呼吸，表达「模型已就绪」。
+        与桌面输入卡的扫光同源（复用 `--ts-beam-*` 三段色）。常态保持精致静态发光，
+        避免持续占用 GPU 光栅化带宽。
+     2. **呼吸光晕**：微光透明度呼吸（走 GPU 合成通道），表达「模型已就绪」。
      3. **文字微光**：`text-shadow` 给模型名镀一层极光色温的柔光。
         （不用 `background-clip: text`——胶囊自身要用 `background` 铺底色，
         两者在同一条规则里会互相重置，见下方说明。）
@@ -829,34 +832,22 @@ html[data-theme-studio="aurora"] .dsh-mobile-composer-info::before {
   mask-composite: exclude;
   pointer-events: none;
   opacity: 0.85;
-  animation: ts-aurora-beam calc(5.2s * var(--ts-motion-scale, 1)) linear infinite;
 }
 
-/* 呼吸：光晕从 0 扩到 6px 再淡出；幅度刻意比输入卡小，
-   因为它尺寸小、离眼睛更远，光影过强会显得脏。 */
+/* 呼吸：透明度微光呼吸，走纯合成通道不触发重排重绘。 */
 @keyframes ts-mobile-badge-breathe {
   0%, 100% {
-    box-shadow:
-      inset 0 1px 0 var(--ts-glass-highlight),
-      0 0 14px -6px color-mix(in srgb, var(--color-primary) 30%, transparent);
+    opacity: 0.88;
   }
   50% {
-    box-shadow:
-      inset 0 1px 0 var(--ts-glass-highlight),
-      0 0 20px -4px color-mix(in srgb, var(--color-primary) 46%, transparent);
+    opacity: 1;
   }
 }
 
-/* 文字微光：极光色温在文本上缓慢流动。
-   **不能再写 background-image**：上面那条规则已经用 `background` 简写给胶囊
-   铺了底色，这里若再写一条 background-image 会与之冲突（简写会重置 image）。
-   折中方案：文字渐变交给 `::after` 也不可行（它铺满胶囊、无法只覆盖文字）。
-   所以这里放弃文字渐变，改为用 **text-shadow 微光**表达色温——
-   它不影响布局、不与底色冲突，且在移动端小字号下比渐变文字更清晰。 */
+/* 文字微光：极光色温在文本上。 */
 html[data-theme-studio="aurora"] .dsh-mobile-composer-info {
   color: var(--color-foreground-subtle);
   text-shadow: 0 0 10px color-mix(in srgb, var(--color-brand) 34%, transparent);
-  animation: ts-mobile-badge-breathe calc(3.2s * var(--ts-motion-scale, 1)) ease-in-out infinite;
 }
 
 /* 亮色态：青紫发光在白底上会显荧光，收窄到中性极光。

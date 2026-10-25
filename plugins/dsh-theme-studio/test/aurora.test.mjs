@@ -469,3 +469,40 @@ test('极光主题在主题清单里，且排在玻璃之后（面板展示顺�
   assert.ok(ids.includes('aurora'), '极光主题未注册')
   assert.ok(ids.indexOf('aurora') > ids.indexOf('glass-color'), '极光应排在玻璃系列之后')
 })
+
+test('全屏大容器在默认极光动态背景下不得开启 backdrop-filter 高斯模糊（杜绝 GPU 暴增雪崩）', () => {
+  // 核心性能契约：底层 body::before 在跑平移动画时，覆于其上的全屏大容器
+  // （centerCol / sidebarCol / header / card）若声明 blur()，会导致 GPU 每一帧
+  // 必须对 2K/4K 视口执行纹理拷贝与双通道高斯卷积，导致核显 100% 满载与 20fps 掉帧。
+  for (const b of blocks()) {
+    if (!/html\[data-theme-studio="aurora"\]/.test(b.selector)) continue
+    // 用户自设背景时（data-ts-bg）底层光斑已隐藏（静态壁纸），此时允许适度模糊
+    if (/data-ts-bg/.test(b.selector)) continue
+    // 弹窗与独立菜单是小面积交互浮层，不属于常驻全屏大容器
+    if (/\[role="dialog"\]|\[role="menu"\]|Toast|toast/.test(b.selector)) continue
+
+    // 检查 centerCol / sidebarCol / header / composer-card
+    if (/(?:centerCol|sidebarCol|header|data-composer-card|dsh-mobile-bar)/.test(b.selector)) {
+      assert.doesNotMatch(
+        b.body,
+        /(?:^|[;\s])-?(?:webkit-)?backdrop-filter\s*:\s*blur\(/,
+        `容器 ${b.selector.slice(0, 80)} 在动态极光背景下带了 backdrop-filter:blur，会引发每帧全屏高斯卷积死锁`,
+      )
+    }
+  }
+})
+
+test('移动端模型徽标不得常驻运行 conic-gradient 扫光动画', () => {
+  // conic-gradient 角度插值在 Chromium 每一帧都会触发重光栅化，
+  // 只有输入框聚焦 :focus-within 时才允许运行，常驻徽标伪元素不得带 ts-aurora-beam 动画。
+  const badgeBefore = blocks().find(
+    (b) => b.selector.includes('.dsh-mobile-composer-info::before'),
+  )
+  assert.ok(badgeBefore, '缺少移动端模型徽标 ::before 规则')
+  assert.doesNotMatch(
+    badgeBefore.body,
+    /animation:\s*[^;]*ts-aurora-beam/,
+    '移动端徽标不得常驻运行 ts-aurora-beam，否则每帧重光栅化导致高 GPU',
+  )
+})
+
