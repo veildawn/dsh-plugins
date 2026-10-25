@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -24,7 +24,20 @@ import { fileURLToPath } from 'node:url'
  */
 const root = fileURLToPath(new URL('..', import.meta.url))
 
-/** Locate a headless Chrome, or null when the machine has none. */
+/**
+ * Locate a headless Chrome, or null when the machine has none.
+ *
+ * The capability that matters is "can this binary render a page headlessly",
+ * not "does it answer --version": on Windows `chrome.exe --version` prints a
+ * localized notice instead of a version string, so a version-string probe
+ * rejects a perfectly good install. Instead each candidate is asked to render a
+ * trivial page and the printed marker is checked.
+ *
+ * Bare command names cover Linux and any install already on PATH; Windows and
+ * macOS keep the browser at a fixed absolute path that is not on PATH, so those
+ * are probed too — otherwise every cascade test would skip on exactly the
+ * platform this suite's desktop geometry is written for.
+ */
 function findChrome() {
   const candidates = [
     process.env.CHROME_PATH,
@@ -32,10 +45,21 @@ function findChrome() {
     'google-chrome-stable',
     'chromium',
     'chromium-browser',
+    // Windows
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    // macOS
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ].filter(Boolean)
   for (const candidate of candidates) {
-    const probe = spawnSync(candidate, ['--version'], { encoding: 'utf8' })
-    if (probe.status === 0 && typeof probe.stdout === 'string' && /Chrome|Chromium/i.test(probe.stdout)) {
+    // An absolute path that is absent would throw rather than report a status.
+    if ((candidate.includes('/') || candidate.includes('\\')) && !existsSync(candidate)) continue
+    const probe = spawnSync(candidate, [
+      '--headless', '--disable-gpu', '--no-sandbox',
+      '--virtual-time-budget=1000', '--dump-dom',
+      'data:text/html,<b id=probe>fv-probe-ok</b>',
+    ], { encoding: 'utf8', timeout: 30000 })
+    if (probe.status === 0 && typeof probe.stdout === 'string' && probe.stdout.includes('fv-probe-ok')) {
       return candidate
     }
   }
@@ -203,12 +227,20 @@ body > div[role="presentation"] { position: fixed; top: 0; left: 0; width: 100vw
 </div>
 <script>
 const head = document.getElementById('head').getBoundingClientRect();
-const shell = document.querySelector('.fv-shell').getBoundingClientRect();
+const shellEl = document.querySelector('.fv-shell');
+const shell = shellEl.getBoundingClientRect();
+const computed = getComputedStyle(shellEl);
 document.getElementById('out').textContent = JSON.stringify({
   headTop: Math.round(head.top),
   headBottom: Math.round(head.bottom),
   shellRight: Math.round(shell.right),
   viewport: window.innerWidth,
+  radius: [
+    computed.borderTopLeftRadius,
+    computed.borderTopRightRadius,
+    computed.borderBottomRightRadius,
+    computed.borderBottomLeftRadius,
+  ],
 });
 </script></body></html>`
   writeFileSync(page, html)
@@ -286,4 +318,79 @@ test('a plain web browser keeps the drawer at the frame edge', { skip: SKIP }, (
   // a permanent empty band on a normal web session.
   const box = measureDrawer({ htmlAttrs: '', cssVars: { '--dsh-windows-titlebar-height': '40px' } })
   assert.equal(box.headTop, 0, 'a web session must not be offset by desktop-only rules')
+})
+
+/* -------------------------------------------------------------------------- *
+ * Desktop corner geometry
+ *
+ * The drawer starts on the caption strip's bottom edge, which is the same edge
+ * the host's content card starts on — and that card is rounded on its
+ * leading-top corner only. A square drawer corner therefore met a rounded card
+ * corner at the same seam, and the session title, its tabs and the drawer's
+ * toolbar lined up into one continuous band: the panel read as a layer lying
+ * over the window instead of a panel inside it.
+ *
+ * Measured in a real engine because the failure mode is invisible to a
+ * source-shape check: the rule can be present and still lose the cascade, or
+ * round a corner the host leaves square.
+ * -------------------------------------------------------------------------- */
+
+test('on Windows the drawer rounds only its leading-top corner, like the host card', { skip: SKIP }, () => {
+  const box = measureDrawer({
+    htmlAttrs: 'data-windows-titlebar',
+    cssVars: {
+      '--dsh-windows-titlebar-height': '40px',
+      '--dsh-windows-content-radius': '16px',
+    },
+  })
+  assert.deepEqual(
+    box.radius,
+    ['16px', '0px', '0px', '0px'],
+    'the drawer must match the host content card: one rounded leading-top corner, every other corner square',
+  )
+  // Rounding must not move the panel: it still starts below the strip and still
+  // hugs the trailing edge.
+  assert.ok(box.headTop >= 40, 'the corner must not pull the drawer up under the caption strip')
+  assert.equal(box.shellRight, box.viewport, 'the drawer must stay flush with the trailing edge')
+})
+
+test('the drawer corner follows the host radius variable, not a hard-coded value', { skip: SKIP }, () => {
+  // The host scales this with DPI. A literal 16px would be wrong at 150%.
+  const box = measureDrawer({
+    htmlAttrs: 'data-windows-titlebar',
+    cssVars: {
+      '--dsh-windows-titlebar-height': '60px',
+      '--dsh-windows-content-radius': '24px',
+    },
+  })
+  assert.equal(box.radius[0], '24px', 'the published radius must be consumed as-is')
+  assert.equal(box.headTop, 60, 'the drawer still clears the scaled caption strip')
+})
+
+test('the drawer stays square where there is no host card to match', { skip: SKIP }, () => {
+  // Fullscreen drops the caption strip and the drawer covers the frame, so a
+  // rounded corner there would leave a notch against the window edge.
+  const full = measureDrawer({
+    htmlAttrs: 'data-windows-titlebar data-fullscreen',
+    cssVars: {
+      '--dsh-windows-titlebar-height': '40px',
+      '--dsh-windows-content-radius': '16px',
+    },
+    fullscreen: true,
+  })
+  assert.deepEqual(full.radius, ['0px', '0px', '0px', '0px'], 'fullscreen must not round the drawer')
+
+  // macOS uses its own geometry and keeps the square trailing drawer.
+  const mac = measureDrawer({
+    htmlAttrs: 'data-platform="darwin"',
+    cssVars: { '--dsh-frame-top-clearance': '48px' },
+  })
+  assert.deepEqual(mac.radius, ['0px', '0px', '0px', '0px'], 'macOS must keep its own drawer shape')
+
+  // A plain web session has no host content card either.
+  const web = measureDrawer({
+    htmlAttrs: '',
+    cssVars: { '--dsh-windows-content-radius': '16px' },
+  })
+  assert.deepEqual(web.radius, ['0px', '0px', '0px', '0px'], 'a web session must stay square')
 })

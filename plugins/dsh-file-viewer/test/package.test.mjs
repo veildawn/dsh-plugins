@@ -565,6 +565,42 @@ test('the drawer also clears the macOS traffic lights, using the host-computed v
   assert.doesNotMatch(source, /^\s*html \.fv-scrim\[role="dialog"\]\{top:/m)
 })
 
+test('the Windows drawer wears the same rounded corner as the host content card', () => {
+  const source = read('lib/client.js')
+
+  // The drawer starts on the caption strip's bottom edge — exactly where the
+  // host's content card starts. That card is rounded on its leading-top corner
+  // only (the host sets `border-radius: var(--dsh-windows-content-radius) 0 0 0`
+  // on the center column and leaves every other corner square).
+  //
+  // With the drawer's corner left square, its header sat on that shared edge as
+  // one continuous band with the session title and its tabs: the panel read as a
+  // layer lying on top of the window rather than a card inside it. Matching the
+  // host's corner removed the seam without moving a single control.
+  //
+  // The rule must consume the host's variable rather than a literal, so it
+  // follows the DPI-scaled value the host publishes.
+  const rule = /html\[data-windows-titlebar\]:not\(\[data-fullscreen\]\) \.fv-shell\[data-mobile="false"\]\{border-radius:var\(--dsh-windows-content-radius,16px\) 0 0 0\}/
+  assert.match(source, rule, 'the drawer must match the host content card corner on Windows')
+
+  // Only the leading-top corner. Rounding all four would make the drawer a
+  // floating card, which is a different relationship to the window than the
+  // session panel it sits beside; leaving the trailing edge square keeps it
+  // pinned to the window edge.
+  const body = rule.exec(source)[0]
+  assert.doesNotMatch(body, /radius:[^}]*\)(?! 0 0 0)/, 'only the leading-top corner may be rounded')
+
+  // Fullscreen hides the caption strip and the drawer covers the frame, so the
+  // corner has to go square again; a phone drawer is the whole viewport and is
+  // governed by its own rules.
+  assert.doesNotMatch(source, /html\[data-windows-titlebar\] \.fv-shell\[data-mobile="false"\]\{border-radius:/)
+  assert.doesNotMatch(source, /html\[data-windows-titlebar\]\[data-fullscreen\][^{]*\.fv-shell[^{]*\{border-radius:/)
+
+  // This rule sets no !important, so it cannot outrank the caption-strip offset
+  // and must not be added to that guard's reviewed list by accident.
+  assert.doesNotMatch(body, /!important/)
+})
+
 test('no new important declaration may quietly outrank the caption-strip offset', () => {
   const source = read('lib/client.js')
 

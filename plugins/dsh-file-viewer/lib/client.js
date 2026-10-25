@@ -459,6 +459,24 @@ window.__ModuleLoader__.load({
          rule it has to beat, so the outcome is decided by the important flag and
          the attribute count rather than by sheet order. */
       html[data-windows-titlebar]:not([data-fullscreen]) .fv-scrim[role="dialog"]{top:var(--dsh-windows-titlebar-height,40px)!important}
+      /* The drawer is a peer of the host's content card, not a second window.
+
+         On Windows the host rounds the content card's leading-top corner with
+         --dsh-windows-content-radius and leaves every other corner square. The
+         drawer starts on that same edge — the caption strip's bottom — so it
+         has to speak the same language. Left square, its corner reads as a slab
+         welded onto the session header: the session title, its tabs and the
+         drawer's own toolbar all line up into one continuous strip, and the
+         drawer looks like a layer above the window it lives in rather than a
+         panel inside it.
+
+         Only the leading-top corner is rounded, matching the host exactly. The
+         trailing edge is the window edge and stays square, as does the bottom.
+         No !important: nothing else sets a radius on the shell, so this wins on
+         specificity and stays out of the caption-strip guard's way. Fullscreen
+         drops the caption strip, so the drawer covers the frame and goes square
+         again; a phone drawer is the whole viewport and keeps its own rules. */
+      html[data-windows-titlebar]:not([data-fullscreen]) .fv-shell[data-mobile="false"]{border-radius:var(--dsh-windows-content-radius,16px) 0 0 0}
       /* macOS 桌面版是另一套几何：没有那排 caption 按钮，但窗口左上角有交通灯
          （关闭/最小化/缩放），宿主用 html[data-platform="darwin"] 标记，并把需要
          让位的高度发布为 --dsh-frame-top-clearance（48px）。宿主另外提供一个算好
