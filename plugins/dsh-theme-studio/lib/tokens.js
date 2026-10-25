@@ -340,6 +340,7 @@ export const MATERIAL_DEFAULTS = {
   '--dsw-font-base-strong-16': '500 16px/24px var(--dsw-font-family)',
   '--dsw-font-s-14': '14px/22px var(--dsw-font-family)',
   '--dsw-font-s-strong-14': '500 14px/22px var(--dsw-font-family)',
+  '--dsw-font-markdown-base': '400 14px/22px var(--dsw-font-family)',
   // 焦点环宽度：宿主定义在 :root，插件直接引用。主题不改变它，只是确保
   // 主题自绘的 focus 规则有值可读（宿主缺失时 outline-width 会退化）。
   '--dsw-focus-ring-width': '2px',

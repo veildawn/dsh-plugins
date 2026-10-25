@@ -220,6 +220,19 @@ test('动效只在聚焦或运行态触发，不常驻', () => {
   )
 })
 
+test('停止生成按钮动效必须限定状态，不得误伤普通发送按钮导致常驻重绘', () => {
+  const stopBlocks = blocks().filter((b) => b.body.includes('ts-aurora-stop'))
+  assert.ok(stopBlocks.length >= 1, '应有停止生成按钮动效规则')
+  for (const block of stopBlocks) {
+    if (/animation:\s*none/.test(block.body)) continue
+    assert.match(
+      block.selector,
+      /:is\(\[aria-label\*="停止"\],|:has\(svg rect\)/,
+      `停止按钮动画规则没有状态限定，会导致日常发送按钮持续触发 GPU 重绘：\n${block.selector}`,
+    )
+  }
+})
+
 test('无障碍：减弱动效时必须真的关掉，而不只是压短时长', () => {
   // 不能用非贪婪正则取媒体查询块：块内还有嵌套规则，
   // `([\s\S]*?)\n\}` 会在第一个内层 `}` 处截断，导致断言在残缺片段上失败。

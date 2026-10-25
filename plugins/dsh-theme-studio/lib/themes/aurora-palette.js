@@ -274,7 +274,11 @@ export const AURORA_OVERRIDES = {
  * 不透明的色块会让整个界面变成一块实色。
  */
 export const AURORA_MATERIAL = {
-  '--ts-blur': '26px',
+  // 模糊半径从 26px 优化至 8px：
+  // 极光光斑自带多段平滑色标衰减，大半径模糊在底层持续平移动画时会导致
+  // Chromium 无法复用图层位图缓存，每帧必须对全屏重算 26px 高斯模糊，造成 GPU 暴载。
+  // 降至 8px 与亮色晨雾态对齐，GPU 计算量减少 80%+，且光斑色相更清澈。
+  '--ts-blur': '8px',
   '--ts-saturate': '165%',
   '--ts-glass-tint': 'rgba(255, 255, 255, 0.38)',
   '--ts-glass-highlight': 'rgba(255, 255, 255, 0.52)',

@@ -498,9 +498,15 @@ html[data-theme-studio="aurora"] .Qt4Hga_card:focus-within {
 
    两套构建哈希成对：Web 为 uV2eYG_primary，桌面端为 Qt4Hga_primary。 */
 /* 停止生成按钮：与运行态同族的脉冲，节奏更快一档（1.6s），
-   因为「可中断」是比「正在跑」更需要注意力的状态。 */
-html[data-theme-studio="aurora"] .uV2eYG_primary,
-html[data-theme-studio="aurora"] .Qt4Hga_primary {
+   因为「可中断」是比「正在跑」更需要注意力的状态。
+   注意：必须精准限定为停止状态（aria-label 或 svg rect），
+   绝对不能漏选导致日常发送按钮在闲置时持续跑动画触发重绘。 */
+html[data-theme-studio="aurora"] :is(
+  .uV2eYG_primary,
+  .Qt4Hga_primary,
+  button[data-variant="primary"],
+  button[class*="_primary_"]
+):is([aria-label*="停止"], [aria-label*="stop" i], :has(svg rect)) {
   animation: ts-aurora-stop calc(1.6s * var(--ts-motion-scale, 1)) ease-in-out infinite !important;
 }
 
@@ -919,8 +925,12 @@ html[data-ts-bg][data-theme-studio="aurora"] ._LS25G_centerCol::before {
 
   /* 状态条（runningContent / runningIcon）的降级已移到 status.css，
      主题层只管自己引入的停止按钮脉冲。 */
-  html[data-theme-studio="aurora"] .uV2eYG_primary,
-  html[data-theme-studio="aurora"] .Qt4Hga_primary {
+  html[data-theme-studio="aurora"] :is(
+    .uV2eYG_primary,
+    .Qt4Hga_primary,
+    button[data-variant="primary"],
+    button[class*="_primary_"]
+  ):is([aria-label*="停止"], [aria-label*="stop" i], :has(svg rect)) {
     animation: none !important;
   }
 }
