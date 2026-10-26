@@ -722,8 +722,10 @@ test('Config: the context ceiling is a live field declared as number-or-string',
   const supportsLiveFields = typeof Config.dict.baseURL.volatile === 'function'
   assert.equal(Config.dict.maxContextWindow.meta?.volatile === true, supportsLiveFields,
     'the settings card writes it through settings.mutate, which rejects non-volatile paths')
-  // Both spellings must survive schema validation: a typed suffix is config data.
-  assert.equal(Config({ maxContextWindow: '500K' }).maxContextWindow, '500K')
+  // A live field resolves to a cosmokit reference, so read through unwrapConfig:
+  // asserting the raw resolved object would compare against the reference.
+  assert.equal(unwrapConfig(Config({ maxContextWindow: '500K' })).maxContextWindow, '500K',
+    'a typed suffix survives schema validation: it is config data, not a number')
   assert.equal(unwrapConfig(Config({})).maxContextWindow, 1000000)
 })
 
