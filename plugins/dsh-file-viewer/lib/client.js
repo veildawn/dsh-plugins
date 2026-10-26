@@ -115,6 +115,19 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** "Open this file in the viewer": a document with an outbound arrow. */
+    function SvgIconOpenFile({ size = 15 }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        react.createElement("path", { d: "M9 1.8H4.2a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1V6.2" }),
+        react.createElement("path", { d: "M9 1.8v4.4h4.4" }),
+        react.createElement("path", { d: "M9.6 9.9L14.2 5.3" }),
+        react.createElement("path", { d: "M11.4 5.3h2.8v2.8" })
+      );
+    }
+
     /** Source-control entry marker: a branch with two commits. */
     function SvgIconBranch({ size = 15 }) {
       return react.createElement("svg", {
@@ -753,6 +766,17 @@ window.__ModuleLoader__.load({
       .fv-commit-head{display:flex;flex:none;flex-direction:column;gap:4px;padding:12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1,transparent)}
       .fv-commit-subject{font-size:14px;font-weight:600;line-height:1.4;word-break:break-word}
       .fv-commit-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;color:var(--dsw-alias-label-caption);font-size:11px}
+      /* The action row under a changed file's header: "open this file in the
+         viewer". Kept out of the tab strip above because it belongs to the
+         subject header, next to the path it acts on. */
+      .fv-commit-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:2px}
+      .fv-open-file{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:13px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-secondary);font-size:12px;font-weight:500;cursor:pointer;transition:background-color .12s,color .12s,border-color .12s}
+      .fv-open-file:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-l2))}
+      .fv-open-file:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
+      /* A deleted file has nothing on disk to open: the control stays visible
+         but disabled, so the reader learns why instead of the button vanishing. */
+      .fv-open-file:disabled{opacity:.45;cursor:default}
+      .fv-open-file svg{display:block;flex:none}
       .fv-commit-sha{font-family:var(--dsw-font-code,monospace);color:var(--dsw-alias-label-tertiary)}
       .fv-commit-body{max-height:220px;overflow:auto;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-family:var(--dsw-font-code,monospace);font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
       .fv-commit-files{display:flex;flex:1 1 auto;flex-direction:column;gap:1px;min-height:0;padding:6px;overflow-y:auto;overscroll-behavior:contain}
@@ -2947,7 +2971,7 @@ window.__ModuleLoader__.load({
      *
      * @param {{state: object, path: string}} props - panel snapshot and the file to diff.
      */
-    function WorkspaceChangeDetail({ state, path: filePath, request, repo, backControl }) {
+    function WorkspaceChangeDetail({ state, path: filePath, request, repo, backControl, onOpenFile }) {
       const [diff, setDiff] = react.useState({ status: "idle", data: null, error: null });
       // A change can be staged, unstaged, or both. The reader picks which side
       // to look at instead of the pane guessing.
@@ -2997,6 +3021,26 @@ window.__ModuleLoader__.load({
             : react.createElement("div", { className: "fv-note" }, "该文件在" + (effectiveSide === "staged" ? "暂存区" : "工作区") + "没有差异。"))
           : react.createElement("div", { className: "fv-note" }, "正在读取改动…");
 
+      // A deleted file has nothing on disk to open. The control stays in place
+      // but disabled, so the reader learns why rather than finding it missing
+      // on exactly the rows where it would have been most tempting to click.
+      const isDeleted = row !== null && row.letter === "D";
+      const canOpen = typeof filePath === "string" && filePath !== "" && !isDeleted && typeof onOpenFile === "function";
+      const openFileControl = typeof onOpenFile === "function"
+        ? react.createElement("div", { className: "fv-commit-actions" },
+          react.createElement("button", {
+            type: "button",
+            className: "fv-open-file",
+            disabled: !canOpen,
+            title: isDeleted
+              ? "该文件已被删除，无法打开"
+              : (canOpen ? "在文件查看器中打开 " + filePath : "无法打开该文件"),
+            onClick: () => { if (canOpen) onOpenFile(filePath); },
+          },
+            react.createElement(SvgIconOpenFile, { size: 13 }),
+            react.createElement("span", null, isDeleted ? "文件已删除" : "打开文件")))
+        : null;
+
       return react.createElement("div", { className: "fv-commit" },
         react.createElement("div", { className: "fv-commit-head" },
           backControl ? react.createElement("div", { style: { marginBottom: "6px" } }, backControl) : null,
@@ -3005,7 +3049,8 @@ window.__ModuleLoader__.load({
             row !== null
               ? react.createElement("span", null, (row.change || "变更") + (row.partiallyStaged === true ? " · 部分暂存" : ""))
               : null,
-            react.createElement("span", null, "工作区，未提交"))),
+            react.createElement("span", null, "工作区，未提交")),
+          openFileControl),
         bothSides
           ? react.createElement("div", { className: "fv-sheet-tabs", role: "tablist" },
             react.createElement("button", {
@@ -6555,7 +6600,13 @@ window.__ModuleLoader__.load({
             kind: "change",
             path: row.path,
             title: row.path,
-            dir: row.change || "工作区",
+            // The title carries a "改动" suffix rather than the bare path. A
+            // diff tab and a file tab for the same path are two different
+            // documents (id `change:<path>` vs `file:<path>`) and they coexist
+            // on purpose — the reader switches between the patch and the file.
+            // Without the suffix both tabs read "src/a.ts" and there is no way
+            // to tell which one shows what.
+            dir: (row.change || "工作区") + " · 改动",
             meta: null,
             commitView: "changes",
             changePath: row.path,
@@ -6966,6 +7017,12 @@ window.__ModuleLoader__.load({
                           request,
                           repo: gitState.repoId,
                           backControl,
+                          // Opens the WORKING-TREE file, not the diff: the panel
+                          // is showing a patch, and this is the way to the file
+                          // that patch applies to. `selectFile` is the same path
+                          // a tree click takes, so the file opens in a normal
+                          // tab and the tree highlight follows it.
+                          onOpenFile: (target) => selectFile({ path: target, name: baseNameOf(target), type: "file" }),
                         })
                         : react.createElement(CommitDetail, {
                           state: gitState,
@@ -7373,7 +7430,7 @@ window.__ModuleLoader__.load({
       langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
-      triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconCopy, PathCopyDropdown, resolveAbsPath, extractRelativeAndAbsolutePaths, isAbsolutePath, SvgIconBranch, SvgIconCommit,
+      triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconCopy, PathCopyDropdown, resolveAbsPath, extractRelativeAndAbsolutePaths, isAbsolutePath, SvgIconBranch, SvgIconCommit, SvgIconOpenFile,
       FONT_SIZE_KEY, DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE, FONT_SIZE_STEP, readFontSize, writeFontSize, clampFontSize, FontSizeControl,
       // Git panel: controller, views and the small formatters they share.
       GIT_PAGE_SIZE, createGitController, GitSidebar, CommitDetail, WorkspaceChangeDetail, DiffView, kindOfPath,

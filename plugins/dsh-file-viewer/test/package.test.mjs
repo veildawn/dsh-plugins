@@ -3504,6 +3504,48 @@ test('leaving the preview entirely clears the selection', () => {
   assert.match(fallback, /setPane\("tree"\)/)
 })
 
+test('a working-tree change offers a jump to the file itself', () => {
+  const { internals } = loadClient()
+  const source = read('lib/client.js')
+
+  // The diff pane shows a patch; this is the way from that patch to the file it
+  // applies to. The control sits in the subject header, above the diff, next to
+  // the path it acts on.
+  assert.match(source, /function WorkspaceChangeDetail\(\{ state, path: filePath, request, repo, backControl, onOpenFile \}\)/)
+  assert.match(source, /className: "fv-open-file"/)
+  assert.match(source, /\.fv-commit-actions\{/)
+  assert.match(source, /className: "fv-commit-actions"/)
+  // It has to be MOUNTED in the header, not merely constructed: the control is
+  // built into a variable, and forgetting to place that variable produced a
+  // fully-defined component that rendered nothing.
+  assert.match(source, /"工作区，未提交"\)\),\s*\n\s*openFileControl\),/, 'the control must be rendered inside .fv-commit-head')
+
+  // It opens the WORKING-TREE file, not the historical blob: `selectFile` is the
+  // same path a tree click takes, so the file lands in a normal tab and the tree
+  // highlight follows it.
+  assert.match(source, /onOpenFile: \(target\) => selectFile\(\{ path: target, name: baseNameOf\(target\), type: "file" \}\)/)
+
+  // A deleted file has nothing on disk to open. The control stays visible and
+  // disabled with an explanation, rather than disappearing from exactly the rows
+  // where a reader would most want it.
+  assert.match(source, /const isDeleted = row !== null && row\.letter === "D"/)
+  assert.match(source, /const canOpen = typeof filePath === "string" && filePath !== "" && !isDeleted/)
+  assert.match(source, /disabled: !canOpen/)
+  assert.match(source, /isDeleted \? "文件已删除" : "打开文件"/)
+  assert.match(source, /该文件已被删除，无法打开/)
+
+  // A diff tab and a file tab for the same path are two documents and they
+  // coexist; the diff tab's subtitle says so, or both read "src/a.ts".
+  assert.match(source, /dir: \(row\.change \|\| "工作区"\) \+ " · 改动"/)
+
+  // The glyph is a real SVG rather than an emoji, so it inherits currentColor
+  // and stays aligned with the 13px controls beside it.
+  assert.equal(typeof internals.SvgIconOpenFile, 'function')
+  const icon = internals.SvgIconOpenFile({ size: 13 })
+  assert.equal(icon.props.width, 13)
+  assert.equal(icon.props.stroke, 'currentColor')
+})
+
 test('a working-tree change is diffed for the row that was clicked', () => {
   const source = read('lib/client.js')
   // The row used to be discarded (`void row`), so the pane diffed whichever
