@@ -369,6 +369,40 @@ bundle + 模块文件名 + 部件名      例：layout/AppFrame.module.css|cente
 和右上角露底。`lib/styles/frame.css` 的 `[data-windows-titlebar]` 段落显式让位：
 几何交还宿主，圆角跟随 `--dsh-windows-content-radius`，不写死像素值（宿主按 DPI 换算）。
 
+#### 平台判定的特异性（真实事故：桌面版侧栏没有主题色）
+
+在 Windows 段落里加**颜色**规则时，特异性必须精确控制——几何规则无所谓，颜色规则
+参与层叠竞争，高一级就会把主题层永久压死。
+
+事故经过（2026-10）：`frame.css` 曾有一条给侧栏刷窗口底色的 Windows 规则，
+写成两个裸属性选择器：
+
+```css
+/* 已删除 */
+html[data-theme-studio][data-windows-titlebar] .pI_x6G_sidebarCol { /* (0,3,1) */
+  background: var(--color-background-win-alt);
+}
+```
+
+极光/玻璃把侧栏本体设成 `transparent`、材质放进 `::before`（`--color-sidebar` 半透明）。
+那条基座规则 (0,3,1) 比主题层 (0,2,1) 高一级，于是**父级被刷成不透明窗口底色**
+（极光暗色 `#08090d`），`::before` 那层半透明完全被挡住。用户看到的就是
+「桌面版左侧菜单一片死黑、没有主题色，Web 版正常」。
+
+修法与现在的不变式：
+
+| 规则 | 目标特异性 | 理由 |
+| :--- | :--- | :--- |
+| 侧栏底色 | **不再单独声明** | 基线 `html[data-theme-studio] .sidebarCol` 已是同一个值；重复只会抬高特异性 |
+| 拖拽条 `frame::before` | **(0,2,2)** | 必须 > 宿主 `[data-windows-titlebar] .frame:before` (0,2,1)，且 ≤ 主题层同部件规则 |
+
+拖拽条用 `html[data-theme-studio]:where([data-windows-titlebar])` 承载平台判定：
+`:where()` 把属性选择器的权重归零，既保留「仅 Windows 命中」，又把特异性压回
+与主题层持平，让后写的 `glass.css` / `aurora.css` / `background.css` 接管。
+
+`test/windows-layer.test.mjs` 用真实的 CSS 层叠计算（解析 → 特异性 → 顺序决胜）
+锁死这三条，而不是只断言「规则文本存在」。**只断言文本存在，正是这次事故漏网的原因。**
+
 ## 特异性契约
 
 主题是全局样式，社区插件各自往页面里注入自己的 CSS。**主题的选择器绝不能比

@@ -108,18 +108,55 @@ html[data-theme-studio][data-windows-titlebar] ._LS25G_centerCol {
 /* ② 拖拽条（frame::before）也要跟着主题走：宿主用 --dsw-specific-sidebar-fill，
     主题把它映射成 --color-sidebar，Windows 上是画布黑，会在标题栏区域形成一条
     与侧栏不同的深色带。这里统一到窗口底色。
-    高度取宿主变量，绝不写死 40px —— 微软在不同 DPI 下会改这个值。 */
-html[data-theme-studio][data-windows-titlebar] .pI_x6G_frame::before,
-html[data-theme-studio][data-windows-titlebar] ._LS25G_frame::before {
+    高度取宿主变量，绝不写死 40px —— 微软在不同 DPI 下会改这个值。
+
+    ## 为什么是 `html[data-theme-studio]:where([data-windows-titlebar])`（真实事故）
+
+    这条规则的特异性必须**恰好等于 (0,2,2)**：一个属性选择器都不能多，也不能少。
+
+    | 参与方 | 选择器 | 特异性 | 期望结果 |
+    | :--- | :--- | :--- | :--- |
+    | 宿主 0.2.x | `[data-windows-titlebar] .frame:before` | (0,2,1) | 必须被压过 |
+    | 本规则 | `html[data-theme-studio]:where([…]) .frame::before` | **(0,2,2)** | — |
+    | 主题层 | `html[data-theme-studio="aurora"] .frame::before` | (0,2,2) | 必须赢本规则 |
+
+    对宿主：本规则 (0,2,2) 严格大于 (0,2,1)，**与注入顺序无关**，稳赢。
+    对主题层：两者同分，胜负交给源码顺序 —— `STYLE_FILES` 里 `frame.css` 排第 3，
+    `glass.css` / `aurora.css` / `background.css` 由 `composeThemeCss()` 追加在其后，
+    所以主题层天然后写、天然胜出。
+
+    事故经过（2026-10，用户报告「桌面版左侧菜单没有主题色」）：原写法是
+    `html[data-theme-studio][data-windows-titlebar] …`，两个**裸**属性选择器把特异性
+    抬到 (0,3,2)，高于主题层的 (0,2,2)。于是基座的「让位」规则反过来锁死了主题的
+    「材质」规则——极光想 `background: none` 让光斑透过标题栏，却被刷回实色；
+    用户设了背景图时顶部 40px 也成为唯一不透背景的横条。
+
+    `:where()` 在这里是**降权工具**：它把 `[data-windows-titlebar]` 的权重归零，
+    同时保留这个属性作为「仅 Windows 命中」的判定条件。
+
+    判定口径写在 `test/windows-layer.test.mjs`：基座 Windows 段落的颜色规则，
+    特异性不得高于它所对抗的主题层规则（也不得低于它必须压过的宿主规则）。 */
+html[data-theme-studio]:where([data-windows-titlebar]) .pI_x6G_frame::before,
+html[data-theme-studio]:where([data-windows-titlebar]) ._LS25G_frame::before {
   background: var(--color-background-win-alt);
 }
 
-/* ③ 侧栏底色：Windows 没有 macOS 那层渐变，直接用窗口底色即可，
-    但要显式声明成 transparent 之下的同一色，避免 ::before 覆盖区与侧栏出现色差。 */
-html[data-theme-studio][data-windows-titlebar] .pI_x6G_sidebarCol,
-html[data-theme-studio][data-windows-titlebar] ._LS25G_sidebarCol {
-  background: var(--color-background-win-alt);
-}
+/* ③ 侧栏底色：**这里刻意不写规则。**
+
+    基线（本文件顶部第 10-14 行）已经给 `.sidebarCol` 刷了
+    `--color-background-win-alt`，Windows 在这里只需保证「与窗口同色」——
+    而那条基线规则本来就是同一个值。早先在这一段重复声明了一次，唯一的作用
+    是把特异性从 (0,2,1) 抬到 (0,3,1)，于是压过了主题层：
+
+        html[data-theme-studio="aurora"] :is(…sidebarCol){ background: transparent }  (0,2,1)
+
+    侧栏本体被刷成不透明的 `--color-background-win-alt`（极光暗色 #08090d），
+    而极光/玻璃把材质放在 `::before` 上（`--color-sidebar` 半透明）——父级既然
+    已经是实色，那层半透明就完全看不见了。用户看到的就是「桌面版左侧菜单没有
+    主题色，Web 版有」。玻璃主题的壁纸同样被这一条挡在侧栏后面。
+
+    删掉重复声明后，两者回到同特异性 (0,2,1)，按源码顺序由后写的主题层胜出：
+    极光/玻璃拿到 `transparent`（材质交给 `::before`），其余主题继续拿窗口底色。 */
 
 /* ④ 全屏时宿主把标题栏高度归零（`--dsh-frame-chrome-top: 0px`），
     内容卡重新贴住窗口顶部，此时恢复四周内缩的观感才不会顶边。 */
