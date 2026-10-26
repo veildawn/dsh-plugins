@@ -72,8 +72,8 @@ class ConnectionService extends Service {
     this.calls = []
     this.rpc = { call: async (channel, method, payload) => {
       this.calls.push({ channel, method, payload })
-      if (method === 'config') return { ok: true, value: { baseURL: 'http://gateway.test', clientId: 'dsh', apiFormat: 'chat/completions', defaultReasoningEffort: 'highest', endpoint: 'http://gateway.test/v1/chat/completions' } }
-      if (method === 'setGateway') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh', apiFormat: payload.apiFormat || 'chat/completions', defaultReasoningEffort: payload.defaultReasoningEffort ?? 'highest', endpoint: 'http://gateway.test/v1/chat/completions' } }
+      if (method === 'config') return { ok: true, value: { baseURL: 'http://gateway.test', clientId: 'dsh', apiFormat: 'chat/completions', defaultReasoningEffort: 'highest', maxContextWindow: 1000000, endpoint: 'http://gateway.test/v1/chat/completions' } }
+      if (method === 'setGateway') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh', apiFormat: payload.apiFormat || 'chat/completions', defaultReasoningEffort: payload.defaultReasoningEffort ?? 'highest', maxContextWindow: payload.maxContextWindow === '' || payload.maxContextWindow === undefined ? 1000000 : payload.maxContextWindow, endpoint: 'http://gateway.test/v1/chat/completions' } }
       if (method === 'setBaseURL') return { ok: true, value: { baseURL: payload.baseURL, clientId: 'dsh' } }
       if (method === 'refreshModels') return { ok: true, value: { count: 5, models: [] } }
       return {
@@ -156,7 +156,7 @@ test('browser client registers only the AI Proxy OAuth settings section', async 
   view = render(section.component, props)
   await findElement(view, (node) => node?.type === 'button' && node.props.children.includes('登录')).props.onClick()
   assert.deepEqual(connection.calls.at(-2), {
-    channel: '/ai-proxy-auth', method: 'setGateway', payload: { baseURL: 'http://gateway-2.test', apiFormat: 'chat/completions', defaultReasoningEffort: 'highest' },
+    channel: '/ai-proxy-auth', method: 'setGateway', payload: { baseURL: 'http://gateway-2.test', apiFormat: 'chat/completions', defaultReasoningEffort: 'highest', maxContextWindow: 1000000 },
   })
   assert.deepEqual(connection.calls.at(-1), { channel: '/ai-proxy-auth', method: 'login', payload: {} })
   view = render(section.component, props)
@@ -216,7 +216,7 @@ test('toggling highest reasoning effort sets defaultReasoningEffort to lowest', 
   assert.deepEqual(connection.calls.at(-1), {
     channel: '/ai-proxy-auth',
     method: 'setGateway',
-    payload: { baseURL: 'http://gateway.test', apiFormat: 'chat/completions', defaultReasoningEffort: 'lowest' },
+    payload: { baseURL: 'http://gateway.test', apiFormat: 'chat/completions', defaultReasoningEffort: 'lowest', maxContextWindow: 1000000 },
   })
 })
 
@@ -282,6 +282,173 @@ test("editing clientId persists through setGateway RPC", async () => {
   assert.deepEqual(connection.calls.at(-1), {
     channel: "/ai-proxy-auth",
     method: "setGateway",
-    payload: { baseURL: "http://gateway.test", clientId: "dsh-laptop-1", apiFormat: "chat/completions", defaultReasoningEffort: "highest" },
+    payload: { baseURL: "http://gateway.test", clientId: "dsh-laptop-1", apiFormat: "chat/completions", defaultReasoningEffort: "highest", maxContextWindow: 1000000 },
   })
+})
+
+test("context ceiling field loads, formats and persists through setGateway RPC", async () => {
+  resetHooks()
+  const ctx = new Context()
+  const slots = new SlotsService(ctx)
+  const connection = new ConnectionService(ctx)
+  new RemoteService(ctx)
+  await ctx.plugin(plugin).await()
+  const section = slots.registrations[0]
+  const props = section.entry.inject()
+  render(section.component, props)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  hooks[authSlot()] = { state: "signed-in", message: "已登录" }
+  let view = render(section.component, props)
+
+  // The stored token count is spelled back in its shortest round-tripping form.
+  const capInput = findElement(view, (node) => node?.type === "input" && node.props["aria-label"] === "上下文上限")
+  assert(capInput, "context ceiling input should be rendered")
+  assert.equal(capInput.props.value, "1M")
+
+  capInput.props.onChange({ target: { value: "2M" } })
+  view = render(section.component, props)
+  let saveBtn = findElement(view, (node) => node?.type === "button" && node.props.children.includes("保存"))
+  assert(saveBtn, "editing the ceiling marks the config dirty")
+  await saveBtn.props.onClick()
+
+  assert.deepEqual(connection.calls.at(-1), {
+    channel: "/ai-proxy-auth",
+    method: "setGateway",
+    payload: {
+      baseURL: "http://gateway.test",
+      apiFormat: "chat/completions",
+      defaultReasoningEffort: "highest",
+      maxContextWindow: 2000000,
+    },
+  })
+
+  // A lowercase suffix parses the same way.
+  view = render(section.component, props)
+  findElement(view, (node) => node?.type === "input" && node.props["aria-label"] === "上下文上限")
+    .props.onChange({ target: { value: "300k" } })
+  view = render(section.component, props)
+  saveBtn = findElement(view, (node) => node?.type === "button" && node.props.children.includes("保存"))
+  await saveBtn.props.onClick()
+  assert.equal(connection.calls.at(-1).payload.maxContextWindow, 300000)
+
+  // A plain number needs no suffix at all.
+  view = render(section.component, props)
+  findElement(view, (node) => node?.type === "input" && node.props["aria-label"] === "上下文上限")
+    .props.onChange({ target: { value: "262144" } })
+  view = render(section.component, props)
+  saveBtn = findElement(view, (node) => node?.type === "button" && node.props.children.includes("保存"))
+  await saveBtn.props.onClick()
+  assert.equal(connection.calls.at(-1).payload.maxContextWindow, 262144)
+})
+
+test("an unreadable context ceiling blocks saving instead of silently defaulting", async () => {
+  resetHooks()
+  const ctx = new Context()
+  const slots = new SlotsService(ctx)
+  const connection = new ConnectionService(ctx)
+  new RemoteService(ctx)
+  await ctx.plugin(plugin).await()
+  const section = slots.registrations[0]
+  const props = section.entry.inject()
+  render(section.component, props)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  hooks[authSlot()] = { state: "signed-in", message: "已登录" }
+  let view = render(section.component, props)
+  findElement(view, (node) => node?.type === "input" && node.props["aria-label"] === "上下文上限")
+    .props.onChange({ target: { value: "500G" } })
+  view = render(section.component, props)
+
+  assert.equal(
+    findElement(view, (node) => node?.type === "button" && node.props.children.includes("保存")),
+    undefined,
+    "an unreadable ceiling hides the save button",
+  )
+  assert(findElement(view, (node) => node?.props?.className === "ai-proxy-error" && /上下文上限/.test(node.props.children)))
+
+  // The sign-in path is blocked by the same validation.
+  hooks[authSlot()] = { state: "signed-out", message: "未登录" }
+  view = render(section.component, props)
+  const loginBtn = findElement(view, (node) => node?.type === "button" && node.props.children.includes("登录"))
+  assert.equal(loginBtn.props.disabled, true)
+})
+
+test("clearing the context ceiling asks the host for the documented default", async () => {
+  resetHooks()
+  const ctx = new Context()
+  const slots = new SlotsService(ctx)
+  const connection = new ConnectionService(ctx)
+  new RemoteService(ctx)
+  await ctx.plugin(plugin).await()
+  const section = slots.registrations[0]
+  const props = section.entry.inject()
+  render(section.component, props)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  hooks[authSlot()] = { state: "signed-in", message: "已登录" }
+  let view = render(section.component, props)
+  findElement(view, (node) => node?.type === "input" && node.props["aria-label"] === "上下文上限")
+    .props.onChange({ target: { value: "  " } })
+  view = render(section.component, props)
+
+  // Blank is valid: it means "no override", not "unreadable".
+  const saveBtn = findElement(view, (node) => node?.type === "button" && node.props.children.includes("保存"))
+  assert(saveBtn, "clearing the field is a valid edit")
+  await saveBtn.props.onClick()
+  assert.equal(connection.calls.at(-1).payload.maxContextWindow, "",
+    "the empty string asks the host to reset the field to its default")
+})
+
+test("equivalent context ceiling spellings do not mark the card dirty", async () => {
+  resetHooks()
+  const ctx = new Context()
+  const slots = new SlotsService(ctx)
+  const connection = new ConnectionService(ctx)
+  new RemoteService(ctx)
+  await ctx.plugin(plugin).await()
+  const section = slots.registrations[0]
+  const props = section.entry.inject()
+  render(section.component, props)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  hooks[authSlot()] = { state: "signed-in", message: "已登录" }
+  let view = render(section.component, props)
+  const capInput = findElement(view, (node) => node?.type === "input" && node.props["aria-label"] === "上下文上限")
+  assert.equal(capInput.props.value, "1M")
+
+  // `1m` and `1000000` parse to the stored 1000000, so nothing changed.
+  for (const spelling of ["1m", "1000000"]) {
+    capInput.props.onChange({ target: { value: spelling } })
+    view = render(section.component, props)
+    assert.equal(
+      findElement(view, (node) => node?.type === "button" && node.props.children.includes("保存")),
+      undefined,
+      spelling + " is the same ceiling, so there is nothing to save",
+    )
+    findElement(view, (node) => node?.type === "input" && node.props["aria-label"] === "上下文上限")
+      .props.onChange({ target: { value: "1M" } })
+    view = render(section.component, props)
+  }
+})
+
+test("the card's default ceiling matches the host's own constant", async () => {
+  // lib/client.js is a standalone browser bundle and cannot import lib/index.js
+  // (that module pulls in node:crypto), so the default is spelled out on both
+  // sides. A drift here would show one ceiling before the config RPC answers
+  // and another afterwards, so pin the two together.
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const { dirname, join } = await import('node:path')
+  const here = dirname(fileURLToPath(import.meta.url))
+  const hostSource = readFileSync(join(here, '..', 'lib', 'index.js'), 'utf8')
+  const clientSource = readFileSync(join(here, '..', 'lib', 'client.js'), 'utf8')
+
+  const hostDefault = /export const DEFAULT_MAX_CONTEXT_WINDOW = (\d+)/.exec(hostSource)
+  const clientDefault = /const DEFAULT_MAX_CONTEXT_WINDOW = (\d+)/.exec(clientSource)
+  assert(hostDefault, 'the host declares DEFAULT_MAX_CONTEXT_WINDOW')
+  assert(clientDefault, 'the card declares DEFAULT_MAX_CONTEXT_WINDOW')
+  assert.equal(clientDefault[1], hostDefault[1],
+    'the card and the host must agree on the default ceiling')
+  assert.equal(hostDefault[1], '1000000', 'the documented default is 1M')
 })

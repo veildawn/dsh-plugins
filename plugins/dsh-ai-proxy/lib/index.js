@@ -71,6 +71,12 @@ export function generateDefaultClientId() {
 }
 export const DEFAULT_MAX_TOKENS = 65536
 export const DEFAULT_CONTEXT_WINDOW = 200000
+/**
+ * Ceiling applied to every materialized model's context window: 1M tokens.
+ * A model that advertises exactly 1M keeps its own window; only a larger one
+ * is pulled down.
+ */
+export const DEFAULT_MAX_CONTEXT_WINDOW = 1000000
 export const DEFAULT_MODEL_CACHE_TTL_MS = 300000
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300000
 
@@ -176,6 +182,55 @@ export function clampEffortToLadder(effort, ladder) {
     }
   }
   return rungs[0]
+}
+
+// ── context-window ceiling ─────────────────────────────────────────────────
+
+/**
+ * Unit suffixes a context-window value may carry, keyed lower-case. The scales
+ * are decimal — `1M` is 1000K — matching how model capacities are quoted in the
+ * host's own model editor (`CAPACITY_SCALE` in dsh-client-ui-settings-models),
+ * so a value typed here reads the same as one typed there.
+ */
+const CONTEXT_WINDOW_SCALES = { '': 1, k: 1e3, m: 1e6 }
+
+/** A decimal count with an optional K/M suffix; surrounding space is tolerated. */
+const CONTEXT_WINDOW_PATTERN = /^(\d+(?:\.\d+)?)\s*([km])?$/i
+
+/**
+ * Read a configured context-window ceiling.
+ *
+ * Accepts a plain token count (`500000`) or one carrying a K/M suffix in either
+ * case (`500K`, `500k`, `1M`, `1m`, `1.5M`). Returns a positive integer, or
+ * `undefined` when the value is not a readable capacity — callers turn that into
+ * a validation error rather than silently falling back to a default, so a typo
+ * in the profile patch is visible instead of quietly ignored.
+ */
+export function parseContextWindow(value) {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? value : undefined
+  }
+  if (typeof value !== 'string') return undefined
+  const match = CONTEXT_WINDOW_PATTERN.exec(value.trim())
+  if (match === null) return undefined
+  const scale = CONTEXT_WINDOW_SCALES[(match[2] ?? '').toLowerCase()]
+  const rounded = Math.round(Number(match[1]) * scale)
+  return Number.isSafeInteger(rounded) && rounded > 0 ? rounded : undefined
+}
+
+/**
+ * Apply the ceiling to one capacity (a context window or an output limit).
+ *
+ * The configured value is a maximum, never a floor: a capacity that already fits
+ * below it is kept exactly as it is, and only a larger one is pulled down to the
+ * cap. Anything that is not a positive integer (an undeclared model capacity, a
+ * malformed catalog entry) has nothing to clamp and passes through untouched, so
+ * the caller's own validation still reports it.
+ */
+export function clampToCap(capacity, cap) {
+  if (!Number.isSafeInteger(capacity) || capacity <= 0) return capacity
+  if (!Number.isSafeInteger(cap) || cap <= 0) return capacity
+  return capacity > cap ? cap : capacity
 }
 
 /** Normalize API format string to canonical identifier. */
@@ -575,33 +630,50 @@ export function buildProviderProfile(options, models) {
   const catalog = (Array.isArray(models) ? models : [])
     .filter((entry) => typeof entry?.id === 'string' && entry.id.length > 0)
   const api = piAiProtocolFor(options.apiFormat)
+  // The ceiling applies to every capacity this route publishes, including the
+  // fallback used for models the gateway did not size. maxTokens is capped too:
+  // a requested output longer than the whole context cannot be satisfied, and
+  // the host forwards maxTokens to the gateway verbatim.
+  const cap = options.maxContextWindow
   const profile = {
     displayName: 'AI Proxy',
     apiKeyEnv: options.apiKeyEnv,
     api,
     baseURL: piAiBaseURL(options.baseURL, options.apiFormat),
     headers: { ...ROUTE_HEADERS },
-    defaultContextWindow: options.defaultContextWindow,
-    defaultMaxTokens: options.maxTokens,
+    defaultContextWindow: clampToCap(options.defaultContextWindow, cap),
+    defaultMaxTokens: clampToCap(options.maxTokens, cap),
     ...(Number.isFinite(options.streamIdleTimeoutMs)
       ? { streamIdleTimeoutMs: options.streamIdleTimeoutMs }
       : {}),
     ...(options.retryPolicy !== undefined ? { retryPolicy: options.retryPolicy } : {}),
-    models: catalog.map((entry) => ({
-      id: entry.id,
-      ...(entry.name !== undefined && entry.name !== entry.id ? { name: entry.name } : {}),
-      ...(entry.contextWindow !== undefined ? { contextWindow: entry.contextWindow } : {}),
-      ...(entry.maxTokens !== undefined ? { maxTokens: entry.maxTokens } : {}),
-      // The gateway's /v1/models "modality" (text / image / decision) is not a
-      // formal llm-pi-ai model field, but schemastery preserves undeclared keys,
-      // so writing it here lets static consumers (e.g. dsh-jev's decision-model
-      // detection) classify models without probing /v1/models again.
-      ...(typeof entry.modality === 'string' && entry.modality.trim() !== ''
-        ? { modality: entry.modality.trim() }
-        : {}),
-      input: inputModalitiesOf(entry) ?? ['text'],
-      reasoningEfforts: ladderToReasoningEfforts(entry.effortLevels),
-    })),
+    models: catalog.map((entry) => {
+      // The window this model will actually resolve to: its own declaration, or
+      // the route fallback when the gateway did not size it.
+      const window = clampToCap(entry.contextWindow ?? options.defaultContextWindow, cap)
+      // The output limit the host will actually send. pi-ai fills an omitted
+      // request maxTokens from the model entry itself (`options.maxTokens ??
+      // model.maxTokens`), and the adapter only reports an entry's own maxTokens
+      // as the request default — the route-level defaultMaxTokens never reaches a
+      // request. So the ceiling has to land on the entry, or a request whose
+      // output limit exceeds the clamped window still goes out uncapped.
+      const outputLimit = clampToCap(entry.maxTokens ?? options.maxTokens, window)
+      return {
+        id: entry.id,
+        ...(entry.name !== undefined && entry.name !== entry.id ? { name: entry.name } : {}),
+        ...(entry.contextWindow !== undefined ? { contextWindow: window } : {}),
+        ...(outputLimit !== undefined ? { maxTokens: outputLimit } : {}),
+        // The gateway's /v1/models "modality" (text / image / decision) is not a
+        // formal llm-pi-ai model field, but schemastery preserves undeclared keys,
+        // so writing it here lets static consumers (e.g. dsh-jev's decision-model
+        // detection) classify models without probing /v1/models again.
+        ...(typeof entry.modality === 'string' && entry.modality.trim() !== ''
+          ? { modality: entry.modality.trim() }
+          : {}),
+        input: inputModalitiesOf(entry) ?? ['text'],
+        reasoningEfforts: ladderToReasoningEfforts(entry.effortLevels),
+      }
+    }),
   }
   const compat = routeCompatFor(api)
   if (compat !== undefined) profile.compat = compat
@@ -731,6 +803,7 @@ class AiProxyApi {
       clientId: opts.clientId,
       apiFormat: opts.apiFormat,
       defaultReasoningEffort: opts.defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT,
+      maxContextWindow: opts.maxContextWindow,
     }
   }
 
@@ -744,6 +817,26 @@ class AiProxyApi {
     const clientId = typeof params === 'object' && params?.clientId !== undefined
       ? (typeof params.clientId === 'string' ? params.clientId.trim() : '')
       : undefined
+    // Absent = leave the stored value alone. An empty string = clear the field,
+    // which resets it to the schema default. Anything else must parse.
+    let maxContextWindow
+    if (typeof params === 'object' && params?.maxContextWindow !== undefined) {
+      const rawCap = params.maxContextWindow
+      if (typeof rawCap === 'string' && rawCap.trim() === '') {
+        // Written back explicitly instead of unset: an unset would fall through
+        // to whatever the composition layer holds, while clearing the card's
+        // field must mean the documented default.
+        maxContextWindow = DEFAULT_MAX_CONTEXT_WINDOW
+      } else {
+        maxContextWindow = parseContextWindow(rawCap)
+        if (maxContextWindow === undefined) {
+          throw new LlmError(
+            '上下文上限必须是正整数，可带 K 或 M 单位（例如 500K、1M）',
+            'INVALID_REQUEST',
+          )
+        }
+      }
+    }
 
     const mutations = []
     if (baseURL !== undefined) {
@@ -765,6 +858,9 @@ class AiProxyApi {
     }
     if (defaultReasoningEffort !== undefined) {
       mutations.push({ op: 'set', path: ['defaultReasoningEffort'], value: defaultReasoningEffort })
+    }
+    if (maxContextWindow !== undefined) {
+      mutations.push({ op: 'set', path: ['maxContextWindow'], value: maxContextWindow })
     }
     let clientIdChanged = false
     let previousOptions
@@ -1240,6 +1336,13 @@ export const Config = z.object({
   defaultReasoningEffort: liveField(z.string().default(DEFAULT_REASONING_EFFORT)),
   maxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
+  // A plain token count or one carrying a K/M suffix (`500K`, `1M`, `500k`);
+  // parseContextWindow normalizes it in resolveOptions. Declared live so the
+  // settings card can rewrite it through settings.mutate, which rejects any
+  // field the schema does not mark volatile.
+  maxContextWindow: liveField(
+    z.union([z.number(), z.string()]).default(DEFAULT_MAX_CONTEXT_WINDOW),
+  ),
   modelCacheTtlMs: z.number().step(1).min(10000).default(DEFAULT_MODEL_CACHE_TTL_MS),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_SET_TIMEOUT_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
   models: z.array(catalogModel).default([]),
@@ -1265,6 +1368,10 @@ export function resolveOptions(raw) {
   if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) throw new Error(name + ': maxTokens must be a positive safe integer')
   const defaultContextWindow = raw.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW
   if (!Number.isInteger(defaultContextWindow) || defaultContextWindow <= 0) throw new Error(name + ': defaultContextWindow must be a positive integer')
+  const maxContextWindow = parseContextWindow(raw.maxContextWindow ?? DEFAULT_MAX_CONTEXT_WINDOW)
+  if (maxContextWindow === undefined) {
+    throw new Error(name + ': maxContextWindow must be a positive token count, optionally suffixed K or M (e.g. 500K, 1M)')
+  }
   return {
     baseURL: (raw.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, ''),
     apiFormat: normalizeApiFormat(raw.apiFormat),
@@ -1275,6 +1382,7 @@ export function resolveOptions(raw) {
     defaultReasoningEffort: raw.defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT,
     maxTokens,
     defaultContextWindow,
+    maxContextWindow,
     modelCacheTtlMs,
     streamIdleTimeoutMs,
     models: raw.models ?? [],
@@ -1582,6 +1690,7 @@ export const internals = {
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey,
   clampEffortToLadder, extractEffortRungs,
   effortName, resolveDefaultEffort, inputModalitiesOf,
+  parseContextWindow, clampToCap,
   isGeminiModel, isGemini3Model, sanitizeGeminiSchema, sanitizeGeminiTools, sanitizeWindowsPathText, sanitizeGeminiMessages,
   httpErrorCode, errorFromResponse, handleAuthRpc,
   pkcePair, base64url,

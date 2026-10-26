@@ -107,6 +107,7 @@ dsh plugin --profile web add ./dsh-ai-proxy-0.3.16.tgz
       config:
         baseURL: http://localhost:18080
         clientId: dsh
+        maxContextWindow: 1M
 ```
 
 重启后在 **设置 → AI Proxy** 中填写网关地址并点击“登录”。浏览器将打开授权页，Host
@@ -179,6 +180,39 @@ providers:
         reasoningEfforts: false
 ```
 
+## 上下文上限
+
+`maxContextWindow` 给这条路由能声明的上下文窗口设一个天花板，默认 `1M`。它只做截断，
+不做抬升：
+
+- 网关声明的窗口**大于**上限 → 材料化时写成上限（例如上限 `128K`、模型声明 `200K`，写入 `128000`）；
+- 网关声明的窗口**小于或等于**上限 → 保持原值不变（例如上限 `500K`、模型声明 `200K`，写入 `200000`）；
+- 网关未声明窗口 → 仍不写 `contextWindow`，由路由的 `defaultContextWindow` 兜底，而这个兜底值
+  同样受上限截断。
+
+上限同时约束**输出上限**，避免出现「单次输出比整个上下文还长」的矛盾配置。宿主不校验
+`maxTokens` 和 `contextWindow` 的大小关系，而且请求没带 `maxTokens` 时，底层协议实现会用
+**模型条目自己的 `maxTokens`** 回填（路由级 `defaultMaxTokens` 到不了请求）。因此每个模型条目
+都会带上一个不超过**该模型自己窗口**的 `maxTokens`：网关声明了就取其小，没声明就用路由的
+`maxTokens` 再压到窗口以内。这只是材料化时的派生结果，不会改写你配置里的 `maxTokens`——把上限
+调大回去，原值自动恢复。
+
+写法支持纯数字或 K / M 单位，单位按十进制（`1K` = 1000，`1M` = 1000000），大小写不敏感：
+
+| 写法 | 解析结果 |
+| --- | --- |
+| `500K` / `500k` | `500000` |
+| `1M` / `1m` | `1000000` |
+| `1.5M` | `1500000` |
+| `262144` | `262144` |
+
+无法解析的值（`500G`、`abc`、`0`、负数）会被直接拒绝，不会静默回退到默认值——配置文件里的
+拼写错误会以错误信息的形式暴露出来，而不是悄悄按 1M 运行。设置卡片里留空等于清除覆盖，
+写回默认的 `1M`。
+
+`maxContextWindow` 是 live 字段：在 **设置 → AI Proxy** 里改完点“保存”即可，材料化路由会立即
+按新上限重写，不需要重启。
+
 ## 配置
 
 | 字段 | 默认值 | 说明 |
@@ -188,8 +222,9 @@ providers:
 | `clientId` | `dsh` | OAuth public client id。`dsh` 只是共享占位：启动或登录时会改成 `dsh-` 加 8 位随机后缀并丢掉旧令牌，避免多台机器共用一条 refresh 链互相踢下线。自定义值会保留 |
 | `apiKeyEnv` | 按 clientId 派生 | 静态密钥凭据引用（材料化路由的 apiKeyEnv 同名）。默认 `AIPROXY_<KEY>_ACCESS_TOKEN`，`<KEY>` 是 client id 大写、非字母数字转 `_`；显式配置时只替换 access 槽位 |
 | `defaultReasoningEffort` | `'highest'` | 当前模型的默认思考档位，不写入路由级 `reasoning`。`highest` 选该模型自己 ladder 的最高档；`lowest` 用第一档；精确档位名优先精确匹配，缺失时落到最近的较低档 |
-| `maxTokens` | `65536` | 材料化为路由 `defaultMaxTokens`；模型目录未提供输出上限时生效 |
-| `defaultContextWindow` | `200000` | 材料化为路由 `defaultContextWindow` |
+| `maxTokens` | `65536` | 材料化为路由 `defaultMaxTokens`；模型目录未提供输出上限时生效。材料化时会被压到 `maxContextWindow` 以内 |
+| `defaultContextWindow` | `200000` | 材料化为路由 `defaultContextWindow`（模型目录未声明容量时使用；本身也受 `maxContextWindow` 截断） |
+| `maxContextWindow` | `1M` | 上下文上限。材料化时对每个模型（以及路由回退值）的上下文窗口取小：超过上限按上限写，未超过则保持模型原值不变。默认 1M，声明恰好 1M 的模型保持原值，只有更大的才被截断。支持纯数字或 K / M 单位（`500K`、`500k`、`1M`、`1m`、`1.5M`，不区分大小写），单位按十进制换算（`1K` = 1000） |
 | `modelCacheTtlMs` | `300000` | 模型目录缓存时间 |
 | `streamIdleTimeoutMs` | `300000` | 材料化为路由 `streamIdleTimeoutMs`（流空闲看门狗由官方适配器执行） |
 | `models` | `[]` | 离线静态兜底目录 |
@@ -198,9 +233,9 @@ providers:
 `remoteAccess` 和 `remoteAuthSecret` 已从 0.2.0 配置 schema 删除。升级后可从旧 `ai-proxy`
 设置段移除这两个字段。
 
-`baseURL`、`apiFormat`、`defaultReasoningEffort` 对宿主是 **live 字段**：改完立即作用于运行中
-的插件（OAuth、模型发现、材料化路由全部按新值走），不触发重载；其余字段是普通配置，改动
-后由 Loader 按常规生命周期重新应用插件。
+`baseURL`、`apiFormat`、`defaultReasoningEffort`、`maxContextWindow` 对宿主是 **live 字段**：改完
+立即作用于运行中的插件（OAuth、模型发现、材料化路由全部按新值走），不触发重载；其余字段是
+普通配置，改动后由 Loader 按常规生命周期重新应用插件。
 
 ## 远程访问
 
@@ -225,6 +260,9 @@ OAuth 认证接口 `/ai-proxy-auth` 使用连接默认访问策略，可由局�
 6. **设置 → AI Proxy** 改网关地址后点“保存”：不再出现
    `保存配置失败: Plugin entry "llm-ai-proxy" has no volatile fields`，profile 补丁里
    `llm-ai-proxy` 行的 `config.baseURL` 立即更新，且插件无需重启即可用新网关登录/拉模型。
+7. 在 **设置 → AI Proxy** 把“上下文上限”改成小于某个模型声明值的数（例如网关有 `200K` 模型时
+   填 `128K`）并保存：`llm-pi-ai.providers.ai-proxy` 里该模型的 `contextWindow` 立即变成
+   `128000`；改回 `1M` 或更大值后恢复成网关原值。留空保存则回到默认 `1M`。
 
 ## 开发与测试
 

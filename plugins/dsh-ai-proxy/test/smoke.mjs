@@ -224,6 +224,7 @@ test('materializes the gateway as one llm-pi-ai route, leaving hand-written ones
       id: 'claude-sonnet-4-5',
       contextWindow: 200000,
       modality: 'text',
+      maxTokens: 65536,
       input: ['text', 'image'],
       reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' },
     })
@@ -271,6 +272,7 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
         clientId: 'dsh-test',
         apiFormat: 'chat/completions',
         defaultReasoningEffort: 'highest',
+        maxContextWindow: 1000000,
       },
     })
     const written = await handler('setBaseURL', { baseURL: gw.url + '/' })
@@ -600,5 +602,80 @@ test('changing clientId drops tokens issued to the previous client', async () =>
     assert.equal(rejected.ok, false)
   } finally {
     // no gateway
+  }
+})
+
+test('the context ceiling travels from the RPC into the materialized route', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds, connection, settings } = makeCtx()
+  try {
+    await enablePiAi(ctx)
+    creds.store.set('AIPROXY_API_KEY', 'sk-test')
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
+    assert.equal(await waitFor(() => materialized(settings) !== undefined), true, 'initial materialization')
+
+    // The gateway declares a 200000 window; with the 500K default it must stay
+    // exactly as declared, not be pulled up or down.
+    assert.equal(materialized(settings).models[0].contextWindow, 200000,
+      'a window below the default ceiling keeps its own value')
+    assert.equal(materialized(settings).defaultContextWindow, 200000)
+
+    // Lowering the ceiling below the gateway's window truncates it.
+    const written = await connection.registration().handler('setGateway', { maxContextWindow: '128K' })
+    assert.equal(written.ok, true, JSON.stringify(written))
+    assert.equal(written.value.maxContextWindow, 128000)
+    assert.equal(settings.doc['ai-proxy'].maxContextWindow, 128000)
+    assert.equal(await waitFor(() => materialized(settings).models[0].contextWindow === 128000), true,
+      'the materialized route is rewritten with the truncated window')
+    assert.equal(materialized(settings).defaultContextWindow, 128000,
+      'the route fallback window is capped by the same ceiling')
+    // The host sends an omitted request maxTokens from the model entry itself,
+    // so the cap has to reach the entry or the request still goes out at 65536.
+    assert.equal(materialized(settings).models[0].maxTokens, 65536,
+      'an output limit that still fits the clamped window is kept')
+    assert.equal(materialized(settings).models[1].maxTokens, 65536,
+      'a model the gateway did not size still carries the route output limit')
+
+    // Raising the ceiling restores the gateway's own window.
+    await connection.registration().handler('setGateway', { maxContextWindow: '1M' })
+    assert.equal(await waitFor(() => materialized(settings).models[0].contextWindow === 200000), true,
+      'a raised ceiling lets the gateway window through again')
+  } finally {
+    gw.close()
+  }
+})
+
+test('the context ceiling accepts K/M spellings and rejects unreadable values', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds, connection, settings } = makeCtx()
+  try {
+    await enablePiAi(ctx)
+    creds.store.set('AIPROXY_API_KEY', 'sk-test')
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
+    assert.equal(await waitFor(() => materialized(settings) !== undefined), true)
+    const handler = connection.registration().handler
+
+    for (const [input, expected] of [['1M', 1000000], ['1m', 1000000], ['300k', 300000], ['262144', 262144], [750000, 750000]]) {
+      const result = await handler('setGateway', { maxContextWindow: input })
+      assert.equal(result.ok, true, JSON.stringify(input) + ': ' + JSON.stringify(result))
+      assert.equal(result.value.maxContextWindow, expected, JSON.stringify(input))
+    }
+
+    // An unreadable value is refused outright rather than silently defaulting.
+    const before = settings.doc['ai-proxy'].maxContextWindow
+    for (const bad of ['500G', 'abc', '0', -1]) {
+      const result = await handler('setGateway', { maxContextWindow: bad })
+      assert.equal(result.ok, false, JSON.stringify(bad) + ' must be rejected')
+      assert.match(result.error.message, /上下文上限/)
+    }
+    assert.equal(settings.doc['ai-proxy'].maxContextWindow, before, 'a rejected write changes nothing')
+
+    // A blank string clears the override back to the documented default.
+    const cleared = await handler('setGateway', { maxContextWindow: '' })
+    assert.equal(cleared.ok, true)
+    assert.equal(cleared.value.maxContextWindow, 1000000)
+    assert.equal(settings.doc['ai-proxy'].maxContextWindow, 1000000)
+  } finally {
+    gw.close()
   }
 })

@@ -10,6 +10,7 @@ const {
   AiProxyApi,
   pkcePair, effortName,
   resolveDefaultEffort, inputModalitiesOf,
+  parseContextWindow, clampToCap,
   httpErrorCode, normalizeApiFormat, resolveModelsEndpoint,
   piAiProtocolFor, piAiBaseURL,
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey, buildProviderProfile,
@@ -309,17 +310,20 @@ test('buildProviderProfile: full shape, defaults, effort ladder and headers', ()
     id: 'tiered-model',
     contextWindow: 200000,
     modality: 'text',
+    maxTokens: 8192,
     input: ['text', 'image'],
     reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' },
   }, 'name equal to id is omitted, per-model fields including modality pass through')
   assert.deepEqual(profile.models[1], {
     id: 'plain-model',
     modality: 'decision',
+    maxTokens: 8192,
     input: ['text'],
     reasoningEfforts: false,
   }, 'no ladder marks a non-reasoning model; modality is preserved for static consumers')
   assert.deepEqual(profile.models[2], {
     id: 'strong-model',
+    maxTokens: 8192,
     input: ['text'],
     reasoningEfforts: { off: null, max: 'ultra' },
   }, 'undisclosed media defaults to text; no modality field is invented when the gateway omits it')
@@ -605,4 +609,164 @@ test('sanitizeGeminiMessages: degrades historical tool calls and tool results to
   assert.equal(cleaned[2].role, 'user')
   assert.equal(cleaned[2].content[0].type, 'text')
   assert.match(cleaned[2].content[0].text, /\[Tool result for call_123\]:\nfile1\.txt\nfile2\.txt/)
+})
+
+// ── context-window ceiling ─────────────────────────────────────────────────
+
+test('parseContextWindow: plain counts and K/M suffixes in either case', () => {
+  // Plain numbers are token counts as written.
+  assert.equal(parseContextWindow(500000), 500000)
+  assert.equal(parseContextWindow(1000), 1000)
+
+  // The suffix is decimal (1M is 1000K) and case-insensitive.
+  assert.equal(parseContextWindow('500K'), 500000)
+  assert.equal(parseContextWindow('500k'), 500000)
+  assert.equal(parseContextWindow('1M'), 1000000)
+  assert.equal(parseContextWindow('1m'), 1000000)
+  assert.equal(parseContextWindow('1.5M'), 1500000)
+
+  // Surrounding whitespace from a hand-edited profile patch is tolerated.
+  assert.equal(parseContextWindow(' 500K '), 500000)
+  assert.equal(parseContextWindow('500 K'), 500000)
+
+  // A numeric string with no suffix is still a plain count.
+  assert.equal(parseContextWindow('262144'), 262144)
+})
+
+test('parseContextWindow: unreadable values yield undefined, never a silent default', () => {
+  for (const value of ['', '   ', 'abc', '500G', '500KB', 'K', '1e6', '-500', '0', '0K']) {
+    assert.equal(parseContextWindow(value), undefined, JSON.stringify(value) + ' is not a capacity')
+  }
+  for (const value of [0, -5, 1.5, Number.NaN, Number.POSITIVE_INFINITY, null, undefined, {}, [], true]) {
+    assert.equal(parseContextWindow(value), undefined, String(value) + ' is not a capacity')
+  }
+})
+
+test('clampToCap: a ceiling truncates above and leaves anything below alone', () => {
+  const cap = 500000
+  // Above the ceiling: truncated to the ceiling.
+  assert.equal(clampToCap(1000000, cap), cap)
+  assert.equal(clampToCap(500001, cap), cap)
+  // At or below the ceiling: the model's own window is kept verbatim.
+  assert.equal(clampToCap(500000, cap), cap)
+  assert.equal(clampToCap(200000, cap), 200000)
+  assert.equal(clampToCap(32768, cap), 32768)
+  // An undeclared or malformed window has nothing to clamp and passes through,
+  // so the host's own validation still reports it.
+  assert.equal(clampToCap(undefined, cap), undefined)
+  assert.equal(clampToCap(0, cap), 0)
+  assert.equal(clampToCap(1.5, cap), 1.5)
+  // A missing ceiling clamps nothing.
+  assert.equal(clampToCap(1000000, undefined), 1000000)
+  assert.equal(clampToCap(1000000, 0), 1000000)
+})
+
+test('resolveOptions: the ceiling defaults to 1M and accepts every spelling', () => {
+  assert.equal(resolveOptions({}).maxContextWindow, 1000000)
+  assert.equal(resolveOptions({ maxContextWindow: '500K' }).maxContextWindow, 500000)
+  assert.equal(resolveOptions({ maxContextWindow: '1M' }).maxContextWindow, 1000000)
+  assert.equal(resolveOptions({ maxContextWindow: 262144 }).maxContextWindow, 262144)
+  // The fallback window and the ceiling stay independent fields.
+  assert.equal(resolveOptions({}).defaultContextWindow, 200000)
+})
+
+test('resolveOptions: an unreadable ceiling is a configuration error', () => {
+  for (const maxContextWindow of ['abc', '500G', '', 0, -1, 1.5]) {
+    assert.throws(
+      () => resolveOptions({ maxContextWindow }),
+      /maxContextWindow must be a positive token count/,
+      JSON.stringify(maxContextWindow),
+    )
+  }
+})
+
+test('buildProviderProfile: the ceiling truncates oversized windows only', () => {
+  const models = [
+    { id: 'huge', contextWindow: 1000000 },
+    { id: 'fits', contextWindow: 262144 },
+    { id: 'exact', contextWindow: 500000 },
+    { id: 'unsized' },
+  ]
+  const profile = buildProviderProfile(resolveOptions({ maxContextWindow: '500K' }), models)
+  assert.equal(profile.models[0].contextWindow, 500000, 'a window above the ceiling is truncated to it')
+  assert.equal(profile.models[1].contextWindow, 262144, 'a smaller window keeps its own value')
+  assert.equal(profile.models[2].contextWindow, 500000, 'a window at the ceiling is unchanged')
+  assert.equal('contextWindow' in profile.models[3], false, 'an unsized model still declares no window')
+  // Every entry carries its own output limit: pi-ai fills an omitted request
+  // maxTokens from the entry, so the route-level default never reaches a request.
+  assert.equal(profile.models[0].maxTokens, 65536, 'the output limit fits inside the clamped window')
+  assert.equal(profile.models[3].maxTokens, 65536, 'an unsized model still gets the route output limit')
+})
+
+test('buildProviderProfile: the ceiling also caps the route fallback window', () => {
+  // defaultContextWindow is the fallback for models the gateway did not size;
+  // a ceiling has to apply to it too or an oversized fallback would leak through.
+  const oversized = buildProviderProfile(
+    resolveOptions({ defaultContextWindow: 1000000, maxContextWindow: '500K' }), [],
+  )
+  assert.equal(oversized.defaultContextWindow, 500000)
+
+  const fits = buildProviderProfile(
+    resolveOptions({ defaultContextWindow: 131072, maxContextWindow: '500K' }), [],
+  )
+  assert.equal(fits.defaultContextWindow, 131072, 'a fallback below the ceiling is untouched')
+
+  // Raising the ceiling lets a larger fallback through again.
+  const raised = buildProviderProfile(
+    resolveOptions({ defaultContextWindow: 1000000, maxContextWindow: '2M' }), [],
+  )
+  assert.equal(raised.defaultContextWindow, 1000000)
+})
+
+test('Config: the context ceiling is a live field declared as number-or-string', () => {
+  const supportsLiveFields = typeof Config.dict.baseURL.volatile === 'function'
+  assert.equal(Config.dict.maxContextWindow.meta?.volatile === true, supportsLiveFields,
+    'the settings card writes it through settings.mutate, which rejects non-volatile paths')
+  // Both spellings must survive schema validation: a typed suffix is config data.
+  assert.equal(Config({ maxContextWindow: '500K' }).maxContextWindow, '500K')
+  assert.equal(unwrapConfig(Config({})).maxContextWindow, 1000000)
+})
+
+test('buildProviderProfile: the ceiling keeps an output limit inside the window', () => {
+  // A tiny ceiling must not leave maxTokens larger than the whole context. The
+  // limit has to land on the model entry itself: pi-ai sends
+  // `options.maxTokens ?? model.maxTokens`, and the adapter only reports an
+  // entry's own maxTokens as the request default, so the route-level
+  // defaultMaxTokens never reaches a request.
+  const tiny = buildProviderProfile(resolveOptions({ maxContextWindow: '32K' }), [
+    { id: 'sized', contextWindow: 200000 },
+    { id: 'unsized' },
+  ])
+  assert.equal(tiny.defaultContextWindow, 32000)
+  assert.equal(tiny.defaultMaxTokens, 32000, 'the route output limit is pulled inside the ceiling')
+  assert.equal(tiny.models[0].contextWindow, 32000)
+  assert.equal(tiny.models[0].maxTokens, 32000, 'the entry output limit the host actually sends is capped')
+  assert.equal(tiny.models[1].maxTokens, 32000, 'an unsized model gets the capped route output limit')
+
+  // With the default 500K ceiling the 65536 output limit fits and is untouched.
+  const roomy = buildProviderProfile(resolveOptions({}), [{ id: 'sized', contextWindow: 200000 }])
+  assert.equal(roomy.defaultMaxTokens, 65536, 'a limit below the ceiling is never raised or lowered')
+  assert.equal(roomy.models[0].maxTokens, 65536)
+  assert.equal(roomy.models[0].contextWindow, 200000)
+
+  // Raising the ceiling restores the configured output limit: the clamp is a
+  // derived view, never a write-back of the user's own maxTokens.
+  const raised = buildProviderProfile(resolveOptions({ maxContextWindow: '1M' }), [{ id: 'sized' }])
+  assert.equal(raised.defaultMaxTokens, 65536)
+  assert.equal(raised.models[0].maxTokens, 65536)
+})
+
+test('buildProviderProfile: a per-model output limit follows that model\'s own window', () => {
+  // The gateway declares a small window on one model; its output limit must not
+  // exceed it even though the route ceiling is far larger.
+  const profile = buildProviderProfile(resolveOptions({ maxContextWindow: '500K' }), [
+    { id: 'small-window', contextWindow: 8192, maxTokens: 65536 },
+    { id: 'big-window', contextWindow: 200000, maxTokens: 65536 },
+    { id: 'unsized', maxTokens: 65536 },
+  ])
+  assert.equal(profile.models[0].contextWindow, 8192)
+  assert.equal(profile.models[0].maxTokens, 8192, 'the output limit is capped by this model\'s own window')
+  assert.equal(profile.models[1].maxTokens, 65536, 'a model with room keeps its declared output limit')
+  assert.equal(profile.models[2].maxTokens, 65536, 'an unsized model falls back to the route output limit')
+  assert.equal('contextWindow' in profile.models[2], false, 'no window is invented for an unsized model')
 })

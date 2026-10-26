@@ -107,6 +107,42 @@ window.__ModuleLoader__.load({
       return "";
     }
 
+    /** Accepted context-capacity spellings: a decimal count with an optional K/M suffix. */
+    const CONTEXT_CAP_PATTERN = /^(\d+(?:\.\d+)?)\s*([km])?$/i;
+    /** Decimal suffix scales — `1M` is 1000K, matching how capacities are quoted. */
+    const CONTEXT_CAP_SCALE = { k: 1e3, m: 1e6 };
+    const DEFAULT_MAX_CONTEXT_WINDOW = 1000000;
+
+    /**
+     * Read a typed context ceiling so a user can write `500K` or `1M` instead of
+     * counting zeroes. Mirrors the host's own capacity editor.
+     * @returns the token count; `NaN` when unreadable.
+     */
+    function parseContextCap(text) {
+      const trimmed = (text || "").trim();
+      const match = CONTEXT_CAP_PATTERN.exec(trimmed);
+      if (match === null) return NaN;
+      const suffix = (match[2] || "").toLowerCase();
+      const scale = suffix === "k" || suffix === "m" ? CONTEXT_CAP_SCALE[suffix] : 1;
+      return Math.round(Number(match[1]) * scale);
+    }
+
+    /** Spell a stored count back in the shortest form that round-trips. */
+    function formatContextCap(value) {
+      if (!Number.isInteger(value) || value <= 0) return String(value);
+      if (value % CONTEXT_CAP_SCALE.m === 0) return String(value / CONTEXT_CAP_SCALE.m) + "M";
+      if (value % CONTEXT_CAP_SCALE.k === 0) return String(value / CONTEXT_CAP_SCALE.k) + "K";
+      return String(value);
+    }
+
+    function contextCapError(value) {
+      const trimmed = (value || "").trim();
+      if (!trimmed) return "";
+      const parsed = parseContextCap(trimmed);
+      if (!Number.isFinite(parsed) || parsed <= 0) return "上下文上限必须是正整数，可带 K 或 M 单位（例如 500K、1M）";
+      return "";
+    }
+
     function apply(ctx) {
       if (typeof document !== "undefined" && !document.getElementById("dsh-ai-proxy-styles")) {
         const style = document.createElement("style");
@@ -141,6 +177,8 @@ window.__ModuleLoader__.load({
         const [savedClientId, setSavedClientId] = react.useState("");
         const [savedApiFormat, setSavedApiFormat] = react.useState("chat/completions");
         const [savedHighestEffort, setSavedHighestEffort] = react.useState(true);
+        const [maxContextText, setMaxContextText] = react.useState(formatContextCap(DEFAULT_MAX_CONTEXT_WINDOW));
+        const [savedMaxContextText, setSavedMaxContextText] = react.useState(DEFAULT_MAX_CONTEXT_WINDOW);
         const [loaded, setLoaded] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
         const [refreshingModels, setRefreshingModels] = react.useState(false);
@@ -149,11 +187,18 @@ window.__ModuleLoader__.load({
         const normalizedClientId = (clientId || "").trim();
         const invalidGateway = gatewayError(gateway);
         const invalidClientId = clientIdError(clientId);
+        const invalidMaxContext = contextCapError(maxContextText);
+        // Compare the parsed count, not the typed text: retyping `500K` as
+        // `500k` or `500000` is the same setting and must not mark the card dirty.
+        const normalizedMaxContext = (maxContextText || "").trim() === ""
+          ? ""
+          : parseContextCap(maxContextText);
         const configChanged = loaded && (
           normalizedGateway !== savedGateway ||
           normalizedClientId !== savedClientId ||
           apiFormat !== savedApiFormat ||
-          highestEffort !== savedHighestEffort
+          highestEffort !== savedHighestEffort ||
+          normalizedMaxContext !== savedMaxContextText
         );
         const pending = busy || auth.state === "authorizing" || auth.state === "checking";
 
@@ -179,6 +224,13 @@ window.__ModuleLoader__.load({
               const isHighest = value.defaultReasoningEffort === "highest" || (value.defaultReasoningEffort !== "lowest" && value.defaultReasoningEffort !== "none" && value.defaultReasoningEffort !== "off");
               setHighestEffort(isHighest);
               setSavedHighestEffort(isHighest);
+            }
+            if (value?.maxContextWindow !== undefined) {
+              const text = Number.isInteger(value.maxContextWindow)
+                ? formatContextCap(value.maxContextWindow)
+                : String(value.maxContextWindow);
+              setMaxContextText(text);
+              setSavedMaxContextText(Number.isInteger(value.maxContextWindow) ? value.maxContextWindow : text);
             }
             setLoaded(true);
           }, () => { if (active) setLoaded(true); });
@@ -245,8 +297,14 @@ window.__ModuleLoader__.load({
         const commitGateway = async () => {
           if (invalidGateway) throw new Error(invalidGateway);
           if (invalidClientId) throw new Error(invalidClientId);
+          if (invalidMaxContext) throw new Error(invalidMaxContext);
           if (!configChanged) return;
           const defaultReasoningEffort = highestEffort ? "highest" : "lowest";
+          // A blank field means "use the default ceiling": the host accepts the
+          // empty string and writes the documented default back.
+          const maxContextWindow = (maxContextText || "").trim() === ""
+            ? ""
+            : parseContextCap(maxContextText);
           // `dsh` is the shared sentinel. Omit it so a stale input cannot
           // overwrite the per-machine id allocated at startup or login.
           const value = await props.authRequest("setGateway", {
@@ -254,6 +312,7 @@ window.__ModuleLoader__.load({
             ...(normalizedClientId && normalizedClientId !== "dsh" ? { clientId: normalizedClientId } : {}),
             apiFormat,
             defaultReasoningEffort,
+            maxContextWindow,
           });
           if (typeof value?.baseURL === "string") {
             setGateway(value.baseURL);
@@ -271,6 +330,13 @@ window.__ModuleLoader__.load({
             const isHighest = value.defaultReasoningEffort === "highest" || (value.defaultReasoningEffort !== "lowest" && value.defaultReasoningEffort !== "none" && value.defaultReasoningEffort !== "off");
             setHighestEffort(isHighest);
             setSavedHighestEffort(isHighest);
+          }
+          if (value?.maxContextWindow !== undefined) {
+            const text = Number.isInteger(value.maxContextWindow)
+              ? formatContextCap(value.maxContextWindow)
+              : String(value.maxContextWindow);
+            setMaxContextText(text);
+            setSavedMaxContextText(Number.isInteger(value.maxContextWindow) ? value.maxContextWindow : text);
           }
           if (value?.reauthRequired) {
             setAuth({ state: "signed-out", message: "Client ID 已更改，请重新登录" });
@@ -361,6 +427,20 @@ window.__ModuleLoader__.load({
               react.createElement("span", null, predictedEndpoint)
             ) : null
           ),
+          react.createElement("label", { className: "ai-proxy-field" },
+            react.createElement("span", { className: "ai-proxy-label" }, "上下文上限 (maxContextWindow)"),
+            react.createElement("input", {
+              className: "ai-proxy-input", type: "text", value: maxContextText,
+              placeholder: "1M", disabled: pending || !loaded,
+              "aria-label": "上下文上限", "aria-invalid": invalidMaxContext ? "true" : "false",
+              onChange: (event) => setMaxContextText(event.target.value),
+            }),
+            invalidMaxContext && (maxContextText || "").length > 0
+              ? react.createElement("p", { className: "ai-proxy-error" }, invalidMaxContext)
+              : null,
+            react.createElement("p", { className: "ai-proxy-details" },
+              "支持纯数字或 K / M 单位（如 500K、1M，不区分大小写），默认 1M。模型声明的上下文超过此值时按此值截断，低于此值则保持模型原值不变。")
+          ),
           react.createElement("label", { className: "ai-proxy-toggle" },
             react.createElement("div", { className: "ai-proxy-toggle-info" },
               react.createElement("span", { className: "ai-proxy-toggle-title" }, "最高推理强度 (defaultReasoningEffort)"),
@@ -406,7 +486,7 @@ window.__ModuleLoader__.load({
             )
           ) : null,
           react.createElement("div", { className: "ai-proxy-actions" },
-            auth.state === "signed-in" && configChanged && !invalidGateway && !invalidClientId ? react.createElement("button", {
+            auth.state === "signed-in" && configChanged && !invalidGateway && !invalidClientId && !invalidMaxContext ? react.createElement("button", {
               className: "ai-proxy-button", type: "button", disabled: pending,
               onClick: () => withBusy(commitGateway, "保存配置失败: "),
             }, "保存") : null,
@@ -419,7 +499,7 @@ window.__ModuleLoader__.load({
               onClick: () => runAuth("logout"),
             }, "退出登录") : react.createElement("button", {
               className: "ai-proxy-button ai-proxy-button-primary", type: "button",
-              disabled: pending || Boolean(invalidGateway) || Boolean(invalidClientId), onClick: () => runAuth("login", commitGateway),
+              disabled: pending || Boolean(invalidGateway) || Boolean(invalidClientId) || Boolean(invalidMaxContext), onClick: () => runAuth("login", commitGateway),
             }, auth.state === "authorizing" ? "登录中…" : "登录")
           ),
           react.createElement("p", { className: "ai-proxy-details" }, "登录后会按账号权限同步可用模型与思考档位。"),

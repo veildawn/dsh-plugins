@@ -202,6 +202,26 @@ check('gateway write keeps the rest of the config',
 check('gateway write commits through the volatile path', liveUpdates.length === 1,
   JSON.stringify(liveUpdates));
 
+// The ceiling is written through the same mutate path, so the host's own
+// volatile-field check decides whether the field is really editable.
+let ceilingError;
+try {
+  await settings.mutate(ENTRY_ID, [{ op: 'set', path: ['maxContextWindow'], value: 128000 }]);
+} catch (error) {
+  ceilingError = error;
+}
+check('context ceiling write is accepted by the host', ceilingError === undefined, ceilingError?.message);
+check('context ceiling write reaches the profile patch',
+  rows[0]?.config?.maxContextWindow === 128000, JSON.stringify(rows[0]?.config));
+
+const ceiling = await registrations.get(AUTH_RPC_CHANNEL).handler('setGateway', { maxContextWindow: '1M' });
+check('setGateway RPC normalizes a suffixed ceiling',
+  ceiling?.ok === true && ceiling?.value?.maxContextWindow === 1000000 && rows[0]?.config?.maxContextWindow === 1000000,
+  JSON.stringify({ ceiling: ceiling?.value, row: rows[0]?.config }));
+
+const badCeiling = await registrations.get(AUTH_RPC_CHANNEL).handler('setGateway', { maxContextWindow: '500G' });
+check('setGateway RPC rejects an unreadable ceiling', badCeiling?.ok === false, JSON.stringify(badCeiling));
+
 const gateway = await registrations.get(AUTH_RPC_CHANNEL).handler('config', {});
 check('running plugin reports the new gateway without remounting',
   gateway?.value?.baseURL === 'http://192.168.1.253:8319', JSON.stringify(gateway));
@@ -238,7 +258,7 @@ const fields = plugin.Config.dict ?? {};
 const volatileKeys = Object.entries(fields)
   .filter(([, field]) => field.meta?.volatile === true).map(([key]) => key).sort();
 check('only the live gateway fields are volatile',
-  JSON.stringify(volatileKeys) === JSON.stringify(['apiFormat', 'baseURL', 'clientId', 'defaultReasoningEffort']),
+  JSON.stringify(volatileKeys) === JSON.stringify(['apiFormat', 'baseURL', 'clientId', 'defaultReasoningEffort', 'maxContextWindow']),
   JSON.stringify(volatileKeys));
 check('model catalog stays ordinary config', fields.models?.meta?.volatile !== true);
 check('the resolved config carries live references',
