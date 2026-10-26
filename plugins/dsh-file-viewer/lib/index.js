@@ -494,6 +494,109 @@ export async function listDirectory(ctx, options, payload, signal) {
 }
 
 /**
+ * Collapse a root-relative path to its significant segments.
+ *
+ * Used to decide whether a path names the root itself (`''`, `'.'`, `'./'`,
+ * `'sub/..'` all do). Deliberately not `path.normalize`: that keeps a trailing
+ * separator and would answer `'./'` with `'./'`. Returning `''` for the root
+ * matches how `resolveInRoot` reports the root everywhere else.
+ *
+ * A path that climbs above the root (`'../x'`) keeps its leading `..` so it
+ * does not masquerade as the root — that case is rejected by
+ * `isSafeRelativePath` afterwards, and collapsing it here would hide it.
+ * @param {string} relative - any caller-supplied relative path.
+ * @returns {string} normalized segments joined by `/`, or `''` for the root.
+ */
+function normalizeRelativeSegments(relative) {
+  const parts = String(relative ?? '').replace(/\\/g, '/').split('/')
+  const kept = []
+  for (const part of parts) {
+    if (part === '' || part === '.') continue
+    if (part === '..') {
+      // Popping a real segment is what `..` means; popping past the start is an
+      // escape attempt and is preserved so the caller's shape check sees it.
+      if (kept.length > 0 && kept[kept.length - 1] !== '..') kept.pop()
+      else kept.push('..')
+      continue
+    }
+    kept.push(part)
+  }
+  return kept.join('/')
+}
+
+/**
+ * Delete one file, or one directory and everything below it.
+ *
+ * The host's `fs` service is read-only (it offers `writeText` and `editText`,
+ * but nothing that unlinks), so this is the one place the plugin reaches the
+ * disk with Node's own fs module. That makes the fences below load-bearing
+ * rather than defensive:
+ *
+ *   - the path goes through `resolveInRoot` first, which is the same gate every
+ *     read passes: shape check for absolute paths and `..`, then
+ *     `ctx.fs.contains` on canonicalized identities so a symlink cannot point
+ *     the deletion outside the roots;
+ *   - the root itself is never deletable, whatever the payload says — removing
+ *     a workspace from a file tree would be a surprise of the worst kind;
+ *   - `recursive` is required explicitly to remove a non-empty directory. A
+ *     caller that meant "delete this file" and hit a directory instead gets a
+ *     refusal, not a wiped tree.
+ *
+ * The absolute path is never echoed in the error: fs failures embed it in
+ * `error.message`, which is exactly what the rest of this file avoids.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, path?: string, recursive?: boolean}} payload - what to delete.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{root: string, path: string, type: string, recursive: boolean}>} what was removed.
+ */
+export async function deleteEntry(ctx, options, payload, signal) {
+  const relative = payload?.path === undefined || payload?.path === null ? '' : String(payload.path)
+  // A path that names the root itself. Checked before resolving so the refusal
+  // names the real reason rather than surfacing as a generic error.
+  //
+  // Stripping separators alone is not enough: `./`, `.`, `//` and `sub/..` all
+  // normalize to the root while leaving non-empty text behind. A test caught
+  // exactly that — `path: "./"` walked past the first version of this guard and
+  // would have deleted the whole workspace. So the segments are resolved the
+  // way `path.posix.normalize` would, and the result is compared against the
+  // empty string that denotes the root everywhere else in this file.
+  if (normalizeRelativeSegments(relative) === '') {
+    throw new ViewerError('cannot-delete-root', 'the workspace root itself cannot be deleted')
+  }
+
+  const { root, target, relative: vetted } = await resolveInRoot(ctx, options, payload, signal)
+  const info = await ctx.fs.stat(target, signal)
+  if (info === undefined) throw new ViewerError('not-found', 'the file no longer exists')
+
+  const type = info.type === 'directory' ? 'directory' : 'file'
+  const recursive = payload?.recursive === true
+  const absolute = ctx.fs.processPath?.(target) ?? target.displayPath
+
+  if (type === 'directory') {
+    if (!recursive) {
+      // Refuse rather than silently deleting a subtree: a caller that did not
+      // ask for recursion is telling us it believes the target is a file.
+      throw new ViewerError('is-a-directory', 'the target is a directory and recursive deletion was not requested')
+    }
+    try {
+      await fsPromises.rm(absolute, { recursive: true, force: false })
+    } catch (error) {
+      throw new ViewerError('delete-failed', 'the directory could not be deleted', { reason: error?.code ?? 'unknown' })
+    }
+    return { root: root.id, path: vetted, type, recursive: true }
+  }
+
+  try {
+    await fsPromises.unlink(absolute)
+  } catch (error) {
+    throw new ViewerError('delete-failed', 'the file could not be deleted', { reason: error?.code ?? 'unknown' })
+  }
+  return { root: root.id, path: vetted, type, recursive: false }
+}
+
+/**
  * Describe one file so the client can choose a viewer before fetching content.
  * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
  * @param {() => {maxBytes: number}} options - resolved config reader.
@@ -2101,6 +2204,9 @@ export async function updateSafePathsConfig(ctx, options, payload) {
 const METHODS = Object.freeze({
   roots: (ctx, options, payload) => resolveSessionRoot(ctx, options, payload),
   list: listDirectory,
+  // The only destructive method on this channel. Its payload is vetted exactly
+  // like a read (`resolveInRoot`), and the root itself is refused.
+  delete: deleteEntry,
   meta: describeFile,
   read: readText,
   diff: getFileDiff,

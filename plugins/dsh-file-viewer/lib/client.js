@@ -860,6 +860,23 @@ window.__ModuleLoader__.load({
       .fv-context-item:active{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
       .fv-context-item-icon{display:inline-grid;place-items:center;width:18px;height:18px;flex:none;color:var(--dsw-alias-label-secondary);font-size:14px}
       .fv-context-item-label{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+      /* Destructive item: red from the start, not only on hover. A delete row
+         that looks like the three above it is the one people click by mistake. */
+      .fv-context-item-destructive{color:var(--dsw-alias-state-error-primary,#ef4444)}
+      .fv-context-item-destructive .fv-context-item-icon{color:inherit}
+      .fv-context-item-destructive:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 12%,transparent);color:var(--dsw-alias-state-error-primary,#ef4444)}
+      .fv-context-item-destructive:active{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 20%,transparent)}
+      .fv-context-item-destructive:disabled{opacity:.5;cursor:default}
+      /* The confirmation dialog names what will be removed, so the reader can
+         check it is the row they meant rather than a same-named file nearby. */
+      .fv-confirm-target{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1,transparent)}
+      .fv-confirm-name{font-weight:600;color:var(--dsw-alias-label-primary);word-break:break-all;line-height:1.35}
+      .fv-confirm-path{font-size:12px;color:var(--dsw-alias-label-tertiary);word-break:break-all;line-height:1.35;font-family:var(--dsw-font-code,monospace)}
+      .fv-confirm-warn{font-size:12.5px;line-height:1.5;color:var(--dsw-alias-state-error-primary,#ef4444)}
+      .fv-modal-foot{display:flex;flex:none;align-items:center;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--dsw-alias-border-l1)}
+      .fv-button-danger{border:1px solid transparent;background:var(--dsw-alias-state-error-primary,#ef4444);color:#fff}
+      .fv-button-danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 86%,#000)}
+      .fv-button-danger:disabled{opacity:.55;cursor:default}
       .fv-context-divider{height:1px;margin:3px 4px;background:var(--dsw-alias-border-l1)}
       .fv-context-head{padding:4px 8px 6px;border-bottom:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:2px;margin-bottom:3px}
       .fv-context-title{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);word-break:break-all;line-height:1.3}
@@ -2107,6 +2124,12 @@ window.__ModuleLoader__.load({
       "unknown-commit": "找不到该提交。",
       "git-dirty": "工作区有未提交的改动，无法切换分支。",
       "git-failed": "Git 命令执行失败。",
+      // Deleting. `delete-failed` carries a `reason` (the fs error code) rather
+      // than a message, because fs errors embed the absolute host path and this
+      // plugin never echoes those. The reason is only used to say something
+      // more useful than "failed" for the cases a reader can act on.
+      "cannot-delete-root": "工作区根目录本身不能被删除。",
+      "delete-failed": "删除失败，文件可能正被其他程序占用或没有写入权限。",
     };
 
     function messageOf(error) {
@@ -4991,7 +5014,7 @@ window.__ModuleLoader__.load({
 
 
       /** Right-click context menu for file and directory items. */
-      function ContextMenu({ menu, rootPath, onClose, onMention, onToast, onDownload }) {
+      function ContextMenu({ menu, rootPath, onClose, onMention, onToast, onDownload, onDelete }) {
         const ref = react.useRef(null);
         const mountTimeRef = react.useRef(Date.now());
         react.useEffect(() => {
@@ -5051,9 +5074,20 @@ window.__ModuleLoader__.load({
           if (onDownload) onDownload(entry);
         };
 
+        // The menu only asks; the removal itself happens after the reader
+        // confirms in the dialog. Closing first keeps the menu from sitting
+        // behind the confirm scrim.
+        const handleDelete = (e) => {
+          e.stopPropagation();
+          onClose();
+          if (onDelete) onDelete(entry);
+        };
+
         const winW = typeof window !== "undefined" ? window.innerWidth : 1000;
         const winH = typeof window !== "undefined" ? window.innerHeight : 800;
-        const top = Math.max(8, Math.min(y, winH - 140)) + "px";
+        // The menu grew by one row; the old bound clipped the delete item off
+        // the bottom of the viewport when right-clicking near the lower edge.
+        const top = Math.max(8, Math.min(y, winH - 220)) + "px";
         const left = Math.max(8, Math.min(x, winW - 190)) + "px";
 
         return react.createElement(react.Fragment, null,
@@ -5132,7 +5166,19 @@ window.__ModuleLoader__.load({
               },
                 react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "⬇️"),
                 react.createElement("span", { className: "fv-context-item-label" }, "下载文件"))
-              : null));
+              : null,
+            // Separated from the harmless items above so a mis-aimed click
+            // lands on "download" or nothing, never on delete.
+            react.createElement("div", { className: "fv-context-divider", "aria-hidden": "true" }),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-context-item fv-context-item-destructive",
+              role: "menuitem",
+              onClick: handleDelete,
+            },
+              react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "🗑"),
+              react.createElement("span", { className: "fv-context-item-label" },
+                entry.type === "directory" || entry.isDirectory ? "删除目录…" : "删除文件…"))));
       }
 
       /** Transient toast notification. */
@@ -5287,6 +5333,85 @@ window.__ModuleLoader__.load({
               }, saving ? "保存中..." : "保存并应用"))));
       }
 
+      /**
+       * The confirmation a destructive action has to pass before it happens.
+       *
+       * Deliberately names the target: a tree can hold several files with the
+       * same basename in different directories, and "delete this?" is not enough
+       * to tell which one is about to go. The relative path is shown under the
+       * name for the same reason.
+       *
+       * A directory adds a second, stronger warning, because removing it takes
+       * everything inside with it and there is no undo.
+       */
+      function DeleteConfirmDialog({ target, busy, onCancel, onConfirm }) {
+        const ref = react.useRef(null);
+        // Escape closes, and focus lands on Cancel rather than on the red
+        // button: a reflex Enter must not perform the deletion.
+        react.useEffect(() => {
+          if (target === null || target === undefined) return undefined;
+          const onKeyDown = (event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onCancel();
+            }
+          };
+          document.addEventListener("keydown", onKeyDown);
+          const cancel = ref.current ? ref.current.querySelector("[data-confirm-cancel]") : null;
+          if (cancel && typeof cancel.focus === "function") cancel.focus();
+          return () => document.removeEventListener("keydown", onKeyDown);
+        }, [target, onCancel]);
+
+        if (target === null || target === undefined) return null;
+        const entry = target.entry || {};
+        const isDirectory = entry.type === "directory" || entry.isDirectory === true;
+        const name = entry.name || baseNameOf(target.path || "") || target.path || "";
+        return react.createElement("div", {
+          className: "fv-modal-scrim",
+          role: "presentation",
+          onMouseDown: (event) => {
+            if (event.target !== event.currentTarget) return;
+            if (busy) return;
+            onCancel();
+          },
+        },
+          react.createElement("div", {
+            ref,
+            className: "fv-modal",
+            role: "alertdialog",
+            "aria-modal": "true",
+            "aria-labelledby": "fv-delete-title",
+            "aria-describedby": "fv-delete-desc",
+          },
+            react.createElement("div", { className: "fv-modal-head" },
+              react.createElement("span", { className: "fv-modal-title", id: "fv-delete-title" },
+                "删除" + (isDirectory ? "目录" : "文件") + "？")),
+            react.createElement("div", { className: "fv-modal-body" },
+              react.createElement("div", { className: "fv-confirm-target" },
+                react.createElement("span", { className: "fv-confirm-name" }, name),
+                target.path !== undefined && target.path !== "" && target.path !== name
+                  ? react.createElement("span", { className: "fv-confirm-path" }, target.path)
+                  : null),
+              react.createElement("span", { className: "fv-confirm-warn", id: "fv-delete-desc" },
+                isDirectory
+                  ? "该目录及其中的所有内容都会被永久删除，无法撤销。"
+                  : "该文件将被永久删除，无法撤销。")),
+            react.createElement("div", { className: "fv-modal-foot" },
+              react.createElement("button", {
+                type: "button",
+                className: "fv-button",
+                "data-confirm-cancel": "true",
+                disabled: busy,
+                onClick: onCancel,
+              }, "取消"),
+              react.createElement("button", {
+                type: "button",
+                className: "fv-button fv-button-danger",
+                disabled: busy,
+                onClick: onConfirm,
+              }, busy ? "删除中…" : "删除"))));
+      }
+
       /** The overlay page: root picker, breadcrumbs, tree and viewer. */
       function ViewerOverlay(props) {
         const request_ = useStore(openStore);
@@ -5320,6 +5445,11 @@ window.__ModuleLoader__.load({
         // file. `meta` is derived from the active tab further down.
         const [hidden, setHidden] = react.useState(false);
         const [safeModalOpen, setSafeModalOpen] = react.useState(false);
+        // The entry a right-click asked to delete, held until the confirmation
+        // resolves. `null` means no dialog is open; the request is never carried
+        // by a flag, so there is no state in which "confirmed" outlives "what".
+        const [deleteTarget, setDeleteTarget] = react.useState(null);
+        const [deleting, setDeleting] = react.useState(false);
         const [prefillPath, setPrefillPath] = react.useState("");
         const [treeWidth, setTreeWidth] = react.useState(readTreeWidth);
         const [isResizing, setIsResizing] = react.useState(false);
@@ -6203,6 +6333,69 @@ window.__ModuleLoader__.load({
         // once, which made a single click re-read things the reader was not
         // looking at.
 
+        /**
+         * Ask before deleting. The right-click handler only records what was
+         * asked for; nothing touches the disk until `performDelete` runs from
+         * the dialog's confirm button.
+         */
+        const requestDelete = (entry) => {
+          if (entry === null || entry === undefined || typeof entry.path !== "string" || entry.path === "") return;
+          setDeleteTarget({ path: entry.path, entry });
+        };
+
+        /**
+         * Delete the confirmed entry and leave the tree describing reality.
+         *
+         * What has to be cleaned up afterwards is what makes this more than a
+         * one-line call:
+         *   - the listing that contained the entry is re-read, so the row goes
+         *     away (re-reading the whole visible tree also covers a directory,
+         *     whose children are cached under their own paths);
+         *   - every open tab pointing at the deleted path is closed, plus any
+         *     tab inside a deleted directory — leaving them open would show a
+         *     file that no longer exists and fail on the next refresh;
+         *   - the git badges are re-read, since a deleted tracked file becomes a
+         *     working-tree change.
+         */
+        const performDelete = () => {
+          const target = deleteTarget;
+          if (target === null || target === undefined) return;
+          const entry = target.entry || {};
+          const isDirectory = entry.type === "directory" || entry.isDirectory === true;
+          setDeleting(true);
+          request("delete", {
+            root,
+            path: target.path,
+            ...(isDirectory ? { recursive: true } : {}),
+          }).then(() => {
+            setDeleting(false);
+            setDeleteTarget(null);
+            // Close the tabs this deletion invalidated. A directory takes its
+            // whole subtree with it, so the prefix match is the correct test.
+            const prefix = target.path.replace(/[\\/]+$/, "") + "/";
+            const doomed = tabList().filter((tab) => tab.kind === "file" && (
+              tab.path === target.path || (isDirectory && tab.path.startsWith(prefix))
+            )).map((tab) => tab.id);
+            if (doomed.length > 0) closeTabs(doomed);
+            // Re-read every directory the tree is currently showing, not just
+            // the parent: a directory's children live in `nodes` under their own
+            // paths, and the entry is gone from its parent's listing.
+            const visible = ["", ...expanded].filter((dirPath) => nodes.has(dirPath) || dirPath === "");
+            for (const dirPath of visible) loadDirectory(dirPath);
+            request("status", { root }).then((val) => {
+              setGitStatus({
+                modified: new Set(val?.modified || []),
+                untracked: new Set(val?.untracked || []),
+              });
+            }).catch(() => {});
+            showToast(isDirectory ? "目录已删除" : "文件已删除");
+          }).catch((problem) => {
+            setDeleting(false);
+            setDeleteTarget(null);
+            showToast("删除失败：" + messageOf(problem));
+          });
+        };
+
         /** Open one commit in its own tab, or activate the tab already showing it. */
         const openCommit = (commit) => {
           if (commit === null || commit === undefined || typeof commit.sha !== "string") return;
@@ -6842,6 +7035,7 @@ window.__ModuleLoader__.load({
                 onMention: mention,
                 onToast: showToast,
                 onDownload: handleDownloadItem,
+                onDelete: requestDelete,
               })
               : null,
             // The tab menu is a separate component with a separate subject; it
@@ -6868,6 +7062,14 @@ window.__ModuleLoader__.load({
                 prefillPath,
               })
               : null,
+            // The confirmation sits above the drawer and above the context
+            // menu, and is the only thing that can actually remove a file.
+            react.createElement(DeleteConfirmDialog, {
+              target: deleteTarget,
+              busy: deleting,
+              onCancel: () => { if (!deleting) setDeleteTarget(null); },
+              onConfirm: performDelete,
+            }),
             toast !== null ? react.createElement(ToastView, { toast }) : null));
       }
 

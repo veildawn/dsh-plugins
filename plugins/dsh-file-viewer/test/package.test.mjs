@@ -205,10 +205,18 @@ test('client helpers agree with the host about paths and formats', () => {
 
   assert.equal(internals.formatBytes(1536), '1.5 KB')
 
-  // Every host error code needs copy, or the user sees a raw code.
-  for (const code of ['no-roots', 'unknown-root', 'outside-root', 'not-found', 'too-large', 'read-failed', 'not-text', 'unsupported']) {
+  // Every host error code needs copy, or the user sees a raw code. The delete
+  // codes are included deliberately: a destructive action that fails must say
+  // why in words, not print `delete-failed` at the reader.
+  for (const code of [
+    'no-roots', 'unknown-root', 'outside-root', 'not-found', 'too-large', 'read-failed', 'not-text', 'unsupported',
+    'cannot-delete-root', 'delete-failed', 'is-a-directory',
+  ]) {
     assert.equal(typeof internals.ERROR_COPY[code], 'string', `${code} needs user-facing copy`)
   }
+  // The refusal copy names the reason rather than repeating "failed".
+  assert.match(internals.ERROR_COPY['cannot-delete-root'], /根目录/)
+  assert.doesNotMatch(internals.ERROR_COPY['delete-failed'], /EACCES|ENOENT|:\s*\//, 'copy must not leak a path or errno')
   assert.equal(internals.messageOf({ code: 'outside-root' }), internals.ERROR_COPY['outside-root'])
   assert.equal(internals.messageOf({ message: 'boom' }), 'boom')
 })
@@ -1161,6 +1169,66 @@ test('tree rows support right-click context menu with relative/absolute path cop
   assert.match(source, /引用到输入框 \(@\)/)
   assert.match(source, /copyToClipboard\(relPath\)/)
   assert.match(source, /copyToClipboard\(absPath\)/)
+})
+
+test('the tree offers deletion behind a confirmation that names the target', () => {
+  const { internals } = loadClient()
+  const source = read('lib/client.js')
+
+  // The item exists, is visually destructive, and is separated from the safe
+  // items above it so a mis-aimed click cannot land on it.
+  assert.match(source, /className: "fv-context-item fv-context-item-destructive"/)
+  assert.match(source, /\.fv-context-item-destructive\{color:var\(--dsw-alias-state-error-primary/)
+  assert.match(source, /onDelete: requestDelete/)
+  // Folders are deletable too, and the label says which one it is.
+  assert.match(source, /entry\.type === "directory" \|\| entry\.isDirectory \? "删除目录…" : "删除文件…"/)
+
+  // Nothing may reach the host before the dialog is confirmed: the right-click
+  // only records the target, and the RPC lives in `performDelete`.
+  const requestDelete = /const requestDelete = \(entry\) => \{([\s\S]*?)\n        \};/.exec(source)
+  assert(requestDelete, 'requestDelete must exist')
+  assert.doesNotMatch(requestDelete[1], /request\("delete"/, 'requesting a delete must not perform one')
+  assert.match(requestDelete[1], /setDeleteTarget\(/)
+  const performDelete = /const performDelete = \(\) => \{([\s\S]*?)\n        \};/.exec(source)
+  assert(performDelete, 'performDelete must exist')
+  assert.match(performDelete[1], /request\("delete", \{/)
+  // A directory is deleted recursively, a file is not.
+  assert.match(performDelete[1], /\.\.\.\(isDirectory \? \{ recursive: true \} : \{\}\)/)
+
+  // Deleting must leave the drawer describing reality: the tabs that pointed at
+  // the removed path (or into the removed directory) are closed, and the visible
+  // listings are re-read.
+  assert.match(performDelete[1], /const doomed = tabList\(\)\.filter/)
+  assert.match(performDelete[1], /tab\.path\.startsWith\(prefix\)/)
+  assert.match(performDelete[1], /closeTabs\(doomed\)/)
+  assert.match(performDelete[1], /loadDirectory\(dirPath\)/)
+  assert.match(performDelete[1], /request\("status", \{ root \}\)/)
+
+  // The dialog is an alertdialog, not a menu: it names the file and warns that
+  // the action cannot be undone.
+  assert.match(source, /function DeleteConfirmDialog\(\{ target, busy, onCancel, onConfirm \}\)/)
+  assert.match(source, /role: "alertdialog"/)
+  assert.match(source, /该文件将被永久删除，无法撤销。/)
+  assert.match(source, /该目录及其中的所有内容都会被永久删除，无法撤销。/)
+  // Escape cancels, and focus lands on Cancel so a reflex Enter is harmless.
+  assert.match(source, /if \(event\.key === "Escape"\) \{\s*\n\s*event\.preventDefault\(\);\s*\n\s*onCancel\(\);/)
+  assert.match(source, /querySelector\("\[data-confirm-cancel\]"\).*focus/s)
+  // The cancel button is disabled while the request is in flight, so a second
+  // click cannot race the deletion.
+  assert.match(source, /"data-confirm-cancel": "true",\s*\n\s*disabled: busy,/)
+
+  // The dialog is mounted by the overlay, above the context menu.
+  assert.match(source, /react\.createElement\(DeleteConfirmDialog, \{/)
+  assert.match(source, /target: deleteTarget,/)
+  assert.match(source, /onConfirm: performDelete,/)
+
+  // A failure is reported, not swallowed, and the dialog closes either way.
+  assert.match(performDelete[1], /showToast\("删除失败：" \+ messageOf\(problem\)\)/)
+  assert.match(performDelete[1], /setDeleteTarget\(null\)/)
+
+  // The menu grew a row, so its viewport clamp had to grow with it or the new
+  // item would sit below the fold when right-clicking near the bottom edge.
+  assert.match(source, /winH - 220/)
 })
 
 test('the drawer scrim ignores the gesture that opened it', () => {

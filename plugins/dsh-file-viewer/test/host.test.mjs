@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+// Needed by the deletion tests: those are the only ones that touch a real
+// filesystem, because `ctx.fs` is read-only and the delete path uses Node's
+// own fs module instead.
+import fsNode from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 import { GIT_REPO_SCAN_LIMIT, MAX_BYTES, MAX_DOWNLOAD_BYTES, RPC_CHANNEL, ViewerError, collectRoots, gitChildEnv, handleRpc, handleDownloadRequest } from '../lib/index.js'
 
@@ -2359,4 +2365,140 @@ test('an old path outside the repository is refused like the new one', async () 
   })
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'outside-root')
+})
+
+/* -------------------------------------------------------------------------- *
+ * Deleting a file or directory
+ *
+ * This is the only method on the channel that destroys data, and the only one
+ * that reaches the disk with Node's fs module rather than the host's read-only
+ * `ctx.fs`. The fences therefore matter more here than anywhere else, so these
+ * tests run against a real temporary directory: a fake that merely records
+ * intent cannot show that a file is actually gone, nor that a refused deletion
+ * left the tree untouched.
+ * -------------------------------------------------------------------------- */
+
+/** A ctx whose roots are real directories, so deletions really happen. */
+function createDiskCtx(rootPath) {
+  const canonical = (p) => path.resolve(String(p)).replace(/\\/g, '/')
+  const fs = {
+    async resolve(p) {
+      const key = canonical(p)
+      return { targetKey: key, displayPath: key }
+    },
+    processPath(target) {
+      return target.displayPath
+    },
+    contains(parent, child) {
+      return child.targetKey === parent.targetKey || child.targetKey.startsWith(parent.targetKey + '/')
+    },
+    async stat(target) {
+      try {
+        const info = fsNode.statSync(target.targetKey)
+        return { type: info.isDirectory() ? 'directory' : 'file', size: info.size }
+      } catch {
+        return undefined
+      }
+    },
+    async listDir(target) {
+      return fsNode.readdirSync(target.targetKey, { withFileTypes: true })
+        .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'directory' : 'file' }))
+    },
+  }
+  return createCtx(fs, { workspaces: [rootPath], sessions: [] })
+}
+
+/** Build a throwaway workspace: one file, one directory with a file inside. */
+function makeWorkspace() {
+  const dir = fsNode.mkdtempSync(path.join(os.tmpdir(), 'fv-delete-'))
+  fsNode.writeFileSync(path.join(dir, 'a.txt'), 'alpha')
+  fsNode.mkdirSync(path.join(dir, 'sub'))
+  fsNode.writeFileSync(path.join(dir, 'sub', 'b.txt'), 'beta')
+  return dir
+}
+
+test('deleting a file removes it from disk and reports what went', async () => {
+  const dir = makeWorkspace()
+  const ctx = createDiskCtx(dir)
+  try {
+    const result = await handleRpc(ctx, options(), 'delete', { root: dir, path: 'a.txt' })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(result.value.path, 'a.txt')
+    assert.equal(result.value.type, 'file')
+    assert.equal(fsNode.existsSync(path.join(dir, 'a.txt')), false, 'the file must actually be gone')
+    // The directory beside it is untouched: deleting one row is not a tree wipe.
+    assert.equal(fsNode.existsSync(path.join(dir, 'sub', 'b.txt')), true)
+  } finally {
+    fsNode.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a non-empty directory is refused unless recursion is asked for', async () => {
+  const dir = makeWorkspace()
+  const ctx = createDiskCtx(dir)
+  try {
+    // Without `recursive` the request is rejected — a caller that did not ask
+    // for recursion believes it is deleting a file.
+    const refused = await handleRpc(ctx, options(), 'delete', { root: dir, path: 'sub' })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.error.code, 'is-a-directory')
+    assert.equal(fsNode.existsSync(path.join(dir, 'sub', 'b.txt')), true, 'a refusal must not touch the disk')
+
+    // With it, the subtree goes.
+    const done = await handleRpc(ctx, options(), 'delete', { root: dir, path: 'sub', recursive: true })
+    assert.equal(done.ok, true, JSON.stringify(done))
+    assert.equal(done.value.type, 'directory')
+    assert.equal(done.value.recursive, true)
+    assert.equal(fsNode.existsSync(path.join(dir, 'sub')), false)
+  } finally {
+    fsNode.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the workspace root itself can never be deleted', async () => {
+  const dir = makeWorkspace()
+  const ctx = createDiskCtx(dir)
+  try {
+    for (const payload of [{ root: dir, path: '' }, { root: dir, path: '/' }, { root: dir }, { root: dir, path: './' }]) {
+      const result = await handleRpc(ctx, options(), 'delete', { ...payload, recursive: true })
+      assert.equal(result.ok, false, `deleting the root must be refused for ${JSON.stringify(payload)}`)
+      assert.equal(result.error.code, 'cannot-delete-root')
+    }
+    assert.equal(fsNode.existsSync(dir), true, 'the workspace must still be there')
+    assert.equal(fsNode.existsSync(`${dir}/a.txt`), true)
+  } finally {
+    fsNode.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a deletion cannot escape its root', async () => {
+  const dir = makeWorkspace()
+  // A sibling file that must survive every attempt below.
+  const outside = fsNode.mkdtempSync(path.join(os.tmpdir(), 'fv-outside-'))
+  const victim = path.join(outside, 'precious.txt')
+  fsNode.writeFileSync(victim, 'keep me')
+  const ctx = createDiskCtx(dir)
+  try {
+    for (const bad of ['../' + path.basename(outside) + '/precious.txt', '../../etc/passwd', victim]) {
+      const result = await handleRpc(ctx, options(), 'delete', { root: dir, path: bad })
+      assert.equal(result.ok, false, `"${bad}" must be refused`)
+      assert.equal(result.error.code, 'outside-root')
+    }
+    assert.equal(fsNode.existsSync(victim), true, 'a path outside the root must never be removed')
+  } finally {
+    fsNode.rmSync(dir, { recursive: true, force: true })
+    fsNode.rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('deleting something that is already gone reports not-found, not a crash', async () => {
+  const dir = makeWorkspace()
+  const ctx = createDiskCtx(dir)
+  try {
+    const result = await handleRpc(ctx, options(), 'delete', { root: dir, path: 'nope.txt' })
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'not-found')
+  } finally {
+    fsNode.rmSync(dir, { recursive: true, force: true })
+  }
 })
