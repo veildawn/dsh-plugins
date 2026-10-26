@@ -525,3 +525,10 @@ test('移动端顶栏在极光主题下保持原生贯通式，无圆角、无�
     '存在移动端顶栏时主区必须重置 border-radius: 0，避免在顶栏下方和四周留出圆角与缝隙',
   )
 })
+
+test('任务与待办面板（TodoPanel）采用 16px 极光微弧圆角，杜绝 999px 胶囊畸变', () => {
+  const todoBlock = blocks().find((b) => b.selector.includes('.lXshSW_root'))
+  assert.ok(todoBlock, '缺少 TodoPanel 规则')
+  assert.doesNotMatch(todoBlock.body, /border-radius:\s*999px/, 'TodoPanel 不得使用 999px 超大胶囊圆角')
+  assert.match(todoBlock.body, /border-radius:\s*16px/, 'TodoPanel 必须采用 16px 极光微弧圆角')
+})

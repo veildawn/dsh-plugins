@@ -768,15 +768,15 @@ html[data-theme-studio="aurora"] :is(.nyYjTG_file, ._8G85G_file, .nyYjTG_cardPre
     0 4px 18px -4px color-mix(in srgb, var(--color-primary) 14%, transparent) !important;
 }
 
-/* 待办与计划完成状态：极光微光胶囊 */
+/* 任务与待办面板（TodoPanel）：去除 999px 胶囊畸变，改用 16px 极光微弧卡片圆角，呼应输入卡 */
 html[data-theme-studio="aurora"] :is(.lXshSW_root, .j_dMAa_root) {
   background: color-mix(in srgb, var(--color-surface) 80%, transparent) !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   border: 1px solid var(--ts-glass-edge) !important;
-  border-radius: 999px !important;
+  border-radius: 16px !important;
   box-shadow: inset 0 1px 0 var(--ts-glass-highlight) !important;
-  padding: 4px 12px !important;
+  padding: 0 !important;
 }
 
 /* 移动端顶栏：改回原生贯通式，左、右、上顶边贴合，不留任何缝隙，绝对禁用圆角与四周浮动留白 */
