@@ -394,3 +394,94 @@ test('the drawer stays square where there is no host card to match', { skip: SKI
   })
   assert.deepEqual(web.radius, ['0px', '0px', '0px', '0px'], 'a web session must stay square')
 })
+
+/* -------------------------------------------------------------------------- *
+ * The outline rows must keep their height
+ *
+ * Another case of "the rules were all present and the result was still wrong".
+ * `.fv-outline-list` is a flex column inside a height-capped panel, and the rows
+ * are its flex items — which shrink by default. Once a document had more
+ * headings than fit, every row was compressed instead of the list scrolling:
+ * each kept ~27px of content in a ~13px box, cutting the bottom off every line.
+ * `overflow-y:auto` was there the whole time; it simply had nothing to scroll,
+ * because nothing was overflowing any more.
+ *
+ * Only a real engine can tell the difference between "the rule exists" and "the
+ * row is 27px tall", so this measures the rendered boxes.
+ * -------------------------------------------------------------------------- */
+
+/** Render the outline at a given panel height and measure its rows. */
+function measureOutline({ hostHeight, rows }) {
+  const chrome = findChrome()
+  if (chrome === null) return null
+  const dir = mkdtempSync(join(tmpdir(), 'fv-outline-'))
+  const page = join(dir, 'page.html')
+  const items = Array.from({ length: rows }, (_, index) =>
+    `<button class="fv-outline-item" data-level="${index % 3}">第 ${index + 1} 节标题</button>`).join('\n        ')
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  /* The drawer's content area: positioned, height-capped, and its own scroller. */
+  .host { position: relative; width: 700px; height: ${hostHeight}px; overflow: auto; padding: 12px; }
+</style>
+<style id="plugin">${bundleCss()}</style></head><body>
+<div class="host fv-content-wrap">
+  <div class="fv-outline" data-open="true">
+    <button class="fv-outline-toggle" aria-label="收起目录">×</button>
+    <nav class="fv-outline-panel">
+      <div class="fv-outline-head">目录</div>
+      <div class="fv-outline-list" id="list">
+        ${items}
+      </div>
+    </nav>
+  </div>
+</div>
+<pre id="out" style="all:initial;display:block;position:fixed;bottom:0;z-index:99"></pre>
+<script>
+const list = document.getElementById('list');
+const first = document.querySelector('.fv-outline-item');
+const box = first.getBoundingClientRect();
+document.getElementById('out').textContent = JSON.stringify({
+  // The row's own content height versus the box it was given: if the box is
+  // shorter, the line is being clipped.
+  rowScrollHeight: first.scrollHeight,
+  rowClientHeight: first.clientHeight,
+  rowHeight: Math.round(box.height),
+  listScrolls: list.scrollHeight > list.clientHeight,
+  listClientHeight: list.clientHeight,
+  listScrollHeight: list.scrollHeight,
+});
+</script></body></html>`
+  writeFileSync(page, html)
+  const dumped = execFileSync(chrome, [
+    '--headless', '--disable-gpu', '--no-sandbox',
+    '--window-size=900,900', '--virtual-time-budget=3000', '--dump-dom', `file://${page}`,
+  ], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
+  const match = /<pre id="out"[^>]*>([\s\S]*?)<\/pre>/.exec(dumped)
+  assert(match, 'the probe page must report the outline geometry')
+  const payload = match[1]
+    .replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  return JSON.parse(payload)
+}
+
+test('outline rows keep their full height and the list scrolls instead', { skip: SKIP }, () => {
+  // A short panel with many headings: the case that produced the bug.
+  const cramped = measureOutline({ hostHeight: 300, rows: 30 })
+  assert.equal(
+    cramped.rowClientHeight,
+    cramped.rowScrollHeight,
+    'a row must not be shorter than its content — that is the clipping',
+  )
+  // ~13px was the compressed height; a padded 12px line is comfortably taller.
+  assert(cramped.rowHeight >= 20, `a row must keep its padding, got ${cramped.rowHeight}px`)
+  // And the overflow has to go somewhere: the list scrolls.
+  assert.equal(cramped.listScrolls, true, 'the list must scroll when the headings do not fit')
+  assert(cramped.listScrollHeight > cramped.listClientHeight, 'there must be content below the fold')
+
+  // A tall panel must not gain a scrollbar it does not need.
+  const roomy = measureOutline({ hostHeight: 900, rows: 4 })
+  assert.equal(roomy.listScrolls, false, 'a list that fits must not scroll')
+  assert.equal(roomy.rowClientHeight, roomy.rowScrollHeight)
+})

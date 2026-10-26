@@ -3979,7 +3979,32 @@ test('the tree highlight follows the active tab, and its rule can actually match
   assert.match(source, /const row = host\.querySelector\('\[data-active="true"\]'\);/)
   // The reveal is a one-off per file: re-scrolling on every unrelated listing
   // would yank the tree away from a reader who scrolled deliberately.
-  assert.match(source, /if \(activeFilePath === "" \|\| treeRevealedForRef\.current === activeFilePath\) return;/)
+  assert.match(source, /if \(activeFilePath === "" \|\| treeScrolledForRef\.current === activeFilePath\) return;/)
+
+  // The regression this guards: the reveal effect used to depend on `expanded`,
+  // which is the very state it writes. Collapsing the directory that holds the
+  // open file changed `expanded`, which re-ran the reveal, which re-opened it —
+  // so that directory could never be collapsed at all. The dependency list is
+  // the fix, so it is asserted as a whole rather than by proxy.
+  assert.match(
+    source,
+    /\}, \[open, root, activeFilePath, revealStamp\]\);/,
+    'the reveal effect must key on the file and the explicit reveal request, never on the tree state it writes',
+  )
+  assert.match(
+    source,
+    /\}, \[open, activeFilePath\]\);\n\n        react\.useEffect\(\(\) => \{\n          if \(!open\) return undefined;\n          const onKeyDown/,
+    'the scroll effect must key on the file only as well',
+  )
+  // Reading the tree through refs is what lets the reveal stay keyed on the file
+  // while still seeing what is currently open.
+  assert.match(source, /const expandedRef = react\.useRef\(expanded\);/)
+  assert.match(source, /const nodesRef = react\.useRef\(nodes\);/)
+  // Two tickets, not one: the first effect marks "ancestors opened", the second
+  // marks "scrolled". Sharing one ref made the first swallow the second's turn,
+  // so a cold tree never scrolled.
+  assert.match(source, /const treeRevealedForRef = react\.useRef\(""\);/)
+  assert.match(source, /const treeScrolledForRef = react\.useRef\(""\);/)
   // `scrollTo` is missing outside a visual environment; throwing inside an
   // effect would take the whole drawer down with it.
   assert.match(source, /if \(typeof host\.scrollTo === "function"\) \{/)
@@ -4000,6 +4025,41 @@ test('the tree highlight follows the active tab, and its rule can actually match
     assert.doesNotMatch(match[0], /background/, `a mobile .fv-row rule must not reset the highlight background: ${match[0]}`)
     assert.doesNotMatch(match[0], /box-shadow/, `a mobile .fv-row rule must not reset the accent bar: ${match[0]}`)
   }
+})
+
+test('a tab can point the tree at the file it shows', () => {
+  const { internals } = loadClient()
+  const source = read('lib/client.js')
+
+  // The item exists and is offered first: it is the only entry in that menu that
+  // is not about destroying or reloading the tab.
+  const reveal = internals.TAB_MENU_ITEMS.find((item) => item.key === 'reveal')
+  assert(reveal, 'the tab menu must offer a reveal item')
+  assert.equal(reveal.label, '定位文件')
+  assert.equal(internals.TAB_MENU_ITEMS[0].key, 'reveal', 'it belongs first in the list')
+
+  // Only tabs the tree can point at qualify. A commit tab is a blob in history,
+  // a change tab is a diff, and a file tab carrying a commit hash is a historical
+  // version — none has a row in a tree that lists the working tree.
+  assert.match(source, /const revealable = target !== null && target\.kind === "file"/)
+  assert.match(source, /&& !\(typeof target\.commit === "string" && target\.commit !== ""\)/)
+  assert.match(source, /reveal: !revealable,/)
+
+  // Revealing means: switch the sidebar to the tree, activate that tab, then ask
+  // for the reveal again. The sidebar switch matters — revealing a row in the
+  // Git panel moves nothing on screen.
+  assert.match(source, /const revealTabInTree = \(id\) => \{/)
+  assert.match(source, /setSide\("files"\);\s*\n\s*if \(activeTabIdRef\.current !== id\) activateTab\(id\);\s*\n\s*setRevealStamp/)
+  assert.match(source, /if \(action === "reveal"\) revealTabInTree\(id\);/)
+
+  // The automatic reveal is once-per-file, so the explicit request needs a way
+  // past that guard — a stamp, not a boolean, so repeated requests each count.
+  assert.match(source, /const \[revealStamp, setRevealStamp\] = react\.useState\(0\);/)
+  assert.match(source, /const asked = revealStamp !== revealStampHandledRef\.current;/)
+  assert.match(source, /if \(treeRevealedForRef\.current === activeFilePath && !asked\) return;/)
+  // A manual reveal also re-arms the scroll ticket, or the row would be opened
+  // but never brought into view.
+  assert.match(source, /if \(asked\) treeScrolledForRef\.current = "";/)
 })
 
 test('a tab offers refresh, close, close others and close all', () => {

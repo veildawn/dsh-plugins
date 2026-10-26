@@ -598,8 +598,18 @@ window.__ModuleLoader__.load({
          and the rail must never push past the reading area. */
       .fv-outline-panel{display:flex;flex-direction:column;min-height:0;max-height:min(60vh,420px);width:min(280px,52vw);padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-base,#fff));box-shadow:var(--dsw-shadow-lv3);animation:fv-menu-in .12s cubic-bezier(.2,.8,.2,1)}
       .fv-outline-head{flex:none;padding:4px 8px 6px;border-bottom:1px solid var(--dsw-alias-border-l1);margin-bottom:4px;color:var(--dsw-alias-label-caption);font-size:11px;font-weight:600;letter-spacing:.02em}
-      .fv-outline-list{display:flex;flex-direction:column;gap:1px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-      .fv-outline-item{display:block;width:100%;padding:5px 8px;border:none;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1.4;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+      /* The list is a flex column inside a height-capped panel, so its rows are
+         flex items. Flex items shrink by default, and once the headings outgrew
+         the panel every row was squeezed — each kept its full ~27px of content
+         in a ~13px box, so the bottom half of every line was cut off. The panel
+         did declare overflow-y:auto, but there was nothing to scroll: the rows
+         had already been compressed to fit.
+         flex:none on the rows is the actual fix — a row keeps its own height and
+         the list scrolls instead. flex:1 1 auto on the list makes it claim the
+         panel's leftover height, so the scroller is the list (which is the
+         element that knows how many rows there are) rather than the panel. */
+      .fv-outline-list{display:flex;flex:1 1 auto;flex-direction:column;gap:1px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+      .fv-outline-item{display:block;flex:none;width:100%;padding:5px 8px;border:none;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:1.4;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
       .fv-outline-item:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-outline-item[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary);font-weight:600}
       .fv-outline-item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:-2px}
@@ -3524,6 +3534,11 @@ window.__ModuleLoader__.load({
      * @type {Array<{key: string, icon: string, label: string}>}
      */
     const TAB_MENU_ITEMS = [
+      // "Reveal" comes first because it is the only item here that is not about
+      // destroying or reloading the tab: it points the tree at the file this tab
+      // shows. That is what a reader wants after collapsing a directory — the
+      // highlight is still on the file, but its row is no longer on screen.
+      { key: "reveal", icon: "◎", label: "定位文件" },
       { key: "refresh", icon: "↻", label: "刷新当前" },
       { key: "close", icon: "×", label: "关闭当前" },
       { key: "others", icon: "⇤", label: "关闭其它" },
@@ -3791,7 +3806,17 @@ window.__ModuleLoader__.load({
       // Which items can do anything is decided from the list, not left to
       // the view: "close others" with one tab open is a no-op that would
       // look like a broken button.
+      //
+      // "Reveal" needs a tab the TREE can point at. Only working-tree file tabs
+      // qualify: a commit tab is a blob in history, a change tab is a diff, and
+      // a file tab carrying a commit hash is a historical version — none of them
+      // has a row in a tree that lists the working tree. Disabling the item says
+      // so; hiding it would make the menu change shape per tab.
+      const revealable = target !== null && target.kind === "file"
+        && typeof target.path === "string" && target.path !== ""
+        && !(typeof target.commit === "string" && target.commit !== "");
       const disabled = {
+        reveal: !revealable,
         refresh: target === null,
         close: target === null,
         others: rows.length < 2,
@@ -6028,56 +6053,116 @@ window.__ModuleLoader__.load({
         // A tab can name a file the tree cannot show yet: its directory is
         // collapsed, or has never been listed. Highlighting a row that does not
         // exist is invisible, so the tree opens the path to the file first and
-        // only then scrolls it into view. This is additive — it never closes a
-        // directory the reader opened, which is what makes it safe to run on
-        // every tab switch.
+        // only then scrolls it into view.
+        //
+        // The reveal happens ONCE PER FILE, when the reader arrives at that file
+        // — a tab switch, a click in the tree, an arrival from a link. After
+        // that the tree belongs to the reader: collapsing a directory stays
+        // collapsed even though the file inside it is still the one on screen.
+        //
+        // The dependencies below are the whole trick, and they are load-bearing.
+        // `expanded` used to be among them, which made this effect re-run on the
+        // very state it writes: collapsing the directory holding the current
+        // file changed `expanded`, which re-ran the reveal, which re-opened it.
+        // The reader could not close that directory at all — reported as "the
+        // folder holding the open file cannot be collapsed". `nodes` had the same
+        // fault for a different reason (a listing landing re-ran the reveal).
+        //
+        // So the effect keys on the FILE, and reads the tree's current state
+        // through refs instead of subscribing to it. `revealedForRef` is what
+        // makes it once-per-file rather than once-per-render.
         // ------------------------------------------------------------------
         const treeScrollRef = react.useRef(null);
-        // Which path the tree was last scrolled to. Kept so the scroll is a
-        // one-off gesture per file instead of something that re-runs whenever
-        // an unrelated listing lands and yanks the reader back mid-scroll.
+        // Two separate memories, because the two halves of the reveal complete at
+        // different times and must not consume each other's ticket:
+        //   - `treeRevealedForRef`: the path whose ancestors have been opened;
+        //   - `treeScrolledForRef`: the path that has actually been scrolled to.
+        // Sharing one ref made the first effect swallow the second's turn, so the
+        // scroll never happened on a cold tree.
         const treeRevealedForRef = react.useRef("");
+        const treeScrolledForRef = react.useRef("");
+        /**
+         * A request from the reader to reveal the file again.
+         *
+         * The automatic reveal is once-per-file on purpose (see above): after it
+         * runs, the tree belongs to the reader. But "I collapsed that directory
+         * by accident, put it back" is a legitimate thing to ask for, and the tab
+         * menu's 定位文件 is how. Bumping this counter is what makes the effect
+         * run again for a file it has already revealed — the only thing that can,
+         * which is why the reader's own collapses still survive.
+         */
+        const [revealStamp, setRevealStamp] = react.useState(0);
+        // The last stamp the effect acted on, so a re-render cannot replay it.
+        const revealStampHandledRef = react.useRef(0);
+        // Live mirrors of the tree state, read by the reveal without making it a
+        // dependency. Updated on every render, which is safe because the reveal
+        // only ever *adds* to what it reads.
+        const expandedRef = react.useRef(expanded);
+        expandedRef.current = expanded;
+        const nodesRef = react.useRef(nodes);
+        nodesRef.current = nodes;
 
         react.useEffect(() => {
-          if (!open || root === "" || activeFilePath === "") return;
+          if (!open || root === "" || activeFilePath === "") {
+            // Leaving the drawer (or closing every tab) resets the memory, so
+            // reopening reveals the file that is still on screen.
+            treeRevealedForRef.current = "";
+            return;
+          }
+          // Already revealed this file: the reader has since been free to
+          // collapse whatever they like, and must not be overruled.
+          //
+          // `revealStamp` is the one exception, and the only way past this
+          // guard: the reader explicitly asked (tab menu → 定位文件). Comparing
+          // against the last stamp handled — rather than just reading the
+          // current one — keeps an unrelated re-render from being mistaken for
+          // a new request.
+          const asked = revealStamp !== revealStampHandledRef.current;
+          if (treeRevealedForRef.current === activeFilePath && !asked) return;
+          revealStampHandledRef.current = revealStamp;
+          treeRevealedForRef.current = activeFilePath;
+          // A manual reveal also re-arms the scroll, which has its own ticket.
+          if (asked) treeScrolledForRef.current = "";
+
           const chain = ancestorsOf(activeFilePath);
-          // Open only the directories that are actually closed. Returning the
-          // same Set when nothing is missing keeps this from re-rendering (and
-          // from re-running itself) on every pass.
-          setExpanded((current) => {
-            let next = current;
-            for (const dirPath of chain) {
-              if (next.has(dirPath)) continue;
-              if (next === current) next = new Set(current);
-              next.add(dirPath);
-            }
-            return next;
-          });
+          const current = expandedRef.current;
+          const missing = chain.filter((dirPath) => !current.has(dirPath));
+          // Only touch state when something actually has to open: returning the
+          // same Set keeps this from causing a pointless re-render (and, before
+          // the refactor, from re-triggering itself).
+          if (missing.length > 0) {
+            setExpanded((previous) => {
+              const next = new Set(previous);
+              for (const dirPath of missing) next.add(dirPath);
+              return next;
+            });
+          }
           // A directory that has never been listed has no row to open into. The
           // root is left to the effect above, which owns the initial listing;
-          // only the ancestors are fetched here, and only once (`undefined`),
-          // never again after a failure — an erroring directory would otherwise
-          // retry on every render.
-          for (const dirPath of chain) {
-            if (nodes.get(dirPath) !== undefined) continue;
+          // only the ancestors are fetched here, and only once — an erroring
+          // directory would otherwise retry on every render.
+          for (const dirPath of missing) {
+            if (nodesRef.current.get(dirPath) !== undefined) continue;
             loadDirectory(dirPath);
           }
-        }, [open, root, hidden, activeFilePath, expanded, nodes]);
+        }, [open, root, activeFilePath, revealStamp]);
 
         react.useEffect(() => {
           if (!open) {
             // Reopening is a fresh look at the same tree, so reveal again.
-            treeRevealedForRef.current = "";
+            treeScrolledForRef.current = "";
             return;
           }
-          if (activeFilePath === "" || treeRevealedForRef.current === activeFilePath) return;
+          if (activeFilePath === "" || treeScrolledForRef.current === activeFilePath) return;
           const host = treeScrollRef.current;
           if (host === null || host === undefined) return;
           const row = host.querySelector('[data-active="true"]');
           // Still waiting for an ancestor listing; the row will appear later and
-          // this effect runs again once it does.
+          // this effect runs again once it does. `nodesRef` is not a dependency
+          // (that was the bug), so the re-run is driven by the render that the
+          // arriving listing causes.
           if (row === null) return;
-          treeRevealedForRef.current = activeFilePath;
+          treeScrolledForRef.current = activeFilePath;
           // Already on screen: scrolling would be motion with no information in
           // it, and it would fight a reader who has scrolled deliberately.
           const target = scrollTargetForRow({
@@ -6099,7 +6184,12 @@ window.__ModuleLoader__.load({
           } else {
             host.scrollTop = target;
           }
-        }, [open, activeFilePath, expanded, nodes]);
+          // No `expanded` / `nodes` here either. This effect has to re-run when a
+          // listing arrives (so the row finally exists to scroll to), and it
+          // does — because that listing causes a render, and `activeFilePath`
+          // stays the key. Depending on `nodes` additionally made it re-run for
+          // every unrelated directory that finished loading.
+        }, [open, activeFilePath]);
 
         react.useEffect(() => {
           if (!open) return undefined;
@@ -6346,10 +6436,39 @@ window.__ModuleLoader__.load({
           });
         };
 
-        /** The four items a tab's context menu offers. */
+        /**
+         * Point the tree at the file a tab shows.
+         *
+         * Three things have to happen, and the order matters:
+         *   1. the sidebar has to be showing the TREE — revealing a row in the
+         *      Git panel would move nothing on screen;
+         *   2. the tab has to become the active one, because the reveal follows
+         *      `activeFilePath`; revealing a background tab would highlight a
+         *      file the pane is not showing;
+         *   3. the stamp is bumped so the once-per-file guard lets it through.
+         *
+         * Revealing a tab that is already active is the interesting case: it is
+         * exactly what a reader does after collapsing the directory by accident,
+         * and it must work even though the file has not changed.
+         */
+        const revealTabInTree = (id) => {
+          const tab = findTab(id);
+          if (tab === null) return;
+          // Nothing to point at for a commit or a diff, and nothing on disk for a
+          // historical version. The menu disables the item in those cases; this
+          // is the belt to that braces.
+          if (tab.kind !== "file" || typeof tab.path !== "string" || tab.path === "") return;
+          if (typeof tab.commit === "string" && tab.commit !== "") return;
+          setSide("files");
+          if (activeTabIdRef.current !== id) activateTab(id);
+          setRevealStamp((current) => current + 1);
+        };
+
+        /** The items a tab's context menu offers. */
         const onTabAction = (action, id) => {
           const current = tabList();
-          if (action === "refresh") refreshTab(id);
+          if (action === "reveal") revealTabInTree(id);
+          else if (action === "refresh") refreshTab(id);
           else if (action === "close") closeTab(id);
           else if (action === "others") closeTabs(current.filter((tab) => tab.id !== id).map((tab) => tab.id));
           else if (action === "all") closeTabs(current.map((tab) => tab.id));

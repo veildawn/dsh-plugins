@@ -503,3 +503,143 @@ test('a drawer that is merely hidden keeps its tabs when reopened', async () => 
     container.remove()
   }
 })
+
+/* -------------------------------------------------------------------------- *
+ * The reveal must not fight the reader
+ *
+ * Auto-expanding the path to the open file is what makes the highlight visible,
+ * but the reveal used to depend on `expanded` — the state it writes — so
+ * collapsing the directory holding the open file changed `expanded`, re-ran the
+ * reveal, and re-opened it. The folder could not be closed at all. These tests
+ * drive the real component, because the source of that bug was a dependency
+ * list: every rule involved looked right on its own.
+ * -------------------------------------------------------------------------- */
+
+/** Mount the overlay on a two-level tree and hand back the driver. */
+async function mountTree() {
+  await loadDom()
+  const React = require('react')
+  const { createRoot } = require('react-dom/client')
+  const bundle = loadBundle()
+  const host = createHost({
+    filePath: 'src/lib/a.ts',
+    reveal: '',
+    listings: { '': ['src'], src: ['lib'], 'src/lib': ['a.ts', 'b.ts'] },
+  })
+  bundle.apply(host.ctx)
+  const overlay = host.registrations.find((row) => row.spec.name === 'shell.overlay')
+  const container = globalThis.document.createElement('div')
+  globalThis.document.body.appendChild(container)
+  const reactRoot = createRoot(container)
+  await React.act(async () => { reactRoot.render(React.createElement(overlay.component)) })
+  await React.act(async () => { await sleep(20) })
+  return {
+    React,
+    container,
+    reactRoot,
+    open: async (filePath) => {
+      await React.act(async () => {
+        globalThis.window.__dsh_open_file_viewer({ filePath })
+        await sleep(150)
+      })
+    },
+    rows: () => [...container.querySelectorAll('.fv-tree .fv-row-seat[data-path]')]
+      .map((seat) => seat.getAttribute('data-path')),
+    clickDirectory: async (name) => {
+      const row = [...container.querySelectorAll('.fv-tree .fv-row')]
+        .find((button) => button.getAttribute('title') === name)
+      assert(row, `the tree must render the "${name}" row`)
+      await React.act(async () => {
+        row.dispatchEvent(new globalThis.window.MouseEvent('click', { bubbles: true }))
+        await sleep(150)
+      })
+    },
+    cleanup: async () => {
+      await React.act(async () => { reactRoot.unmount() })
+      container.remove()
+    },
+  }
+}
+
+test('a directory holding the open file can be collapsed, and stays collapsed', async () => {
+  const tree = await mountTree()
+  try {
+    await tree.open('src/lib/a.ts')
+    assert.deepEqual(tree.rows(), ['src', 'src/lib', 'src/lib/a.ts', 'src/lib/b.ts'],
+      'opening a file must reveal its path')
+
+    // The reported bug: this click used to do nothing visible, because the
+    // reveal re-opened the directory on the very next render.
+    await tree.clickDirectory('src')
+    assert.deepEqual(tree.rows(), ['src'], 'collapsing must actually collapse')
+
+    // And it must stay collapsed — no background effect may re-open it.
+    await tree.React.act(async () => { await sleep(250) })
+    assert.deepEqual(tree.rows(), ['src'], 'the tree must not re-open what the reader closed')
+  } finally {
+    await tree.cleanup()
+  }
+})
+
+test('switching to another file reveals its path again', async () => {
+  const tree = await mountTree()
+  try {
+    await tree.open('src/lib/a.ts')
+    await tree.clickDirectory('src')
+    assert.deepEqual(tree.rows(), ['src'])
+
+    // The reveal is once-per-file, not once-ever: arriving at a different file
+    // opens the way to it again. Otherwise the highlight would be unreachable.
+    await tree.open('src/lib/b.ts')
+    assert.deepEqual(tree.rows(), ['src', 'src/lib', 'src/lib/a.ts', 'src/lib/b.ts'],
+      'switching files must reveal the new path')
+    assert.equal(
+      tree.container.querySelector('.fv-row-seat[aria-current="true"]')?.getAttribute('data-path'),
+      'src/lib/b.ts',
+      'and the new file must be the highlighted one',
+    )
+  } finally {
+    await tree.cleanup()
+  }
+})
+
+test('the tab menu can point the tree at a file the reader collapsed', async () => {
+  const tree = await mountTree()
+  try {
+    await tree.open('src/lib/a.ts')
+    // Collapse it away, the way a reader does by accident.
+    await tree.clickDirectory('src')
+    assert.deepEqual(tree.rows(), ['src'], 'precondition: the path is collapsed')
+
+    // Right-click the tab and choose 定位文件. This is the whole point of the
+    // item: the automatic reveal is once-per-file, so without an explicit way to
+    // ask again, a collapsed path would stay collapsed until another file opened.
+    const cell = tree.container.querySelector('.fv-tab-cell')
+    assert(cell, 'the tab must be rendered')
+    await tree.React.act(async () => {
+      cell.dispatchEvent(new globalThis.window.MouseEvent('contextmenu', {
+        bubbles: true,
+        clientX: 40,
+        clientY: 40,
+      }))
+      await sleep(80)
+    })
+    const item = [...tree.container.querySelectorAll('.fv-tab-cell ~ *, [role="menuitem"]')]
+      .find((node) => node.textContent?.includes('定位文件'))
+      ?? [...tree.container.querySelectorAll('[role="menuitem"]')]
+        .find((node) => node.textContent?.includes('定位文件'))
+    assert(item, 'the tab menu must offer 定位文件')
+
+    await tree.React.act(async () => {
+      item.dispatchEvent(new globalThis.window.MouseEvent('click', { bubbles: true }))
+      await sleep(250)
+    })
+    assert.deepEqual(
+      tree.rows(),
+      ['src', 'src/lib', 'src/lib/a.ts', 'src/lib/b.ts'],
+      'the reveal must open the path again, even though the file never changed',
+    )
+  } finally {
+    await tree.cleanup()
+  }
+})
