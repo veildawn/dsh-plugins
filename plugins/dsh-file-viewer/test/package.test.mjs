@@ -1082,15 +1082,56 @@ test('the language picker offers auto plus the host catalog', () => {
   assert.match(source, /meta\.kind === "text" \|\| meta\.kind === "markdown" \|\| meta\.kind === "json"\)/)
 })
 
-test('the picker reports how the language was decided', () => {
+test('the picker keeps its provenance as a tooltip instead of toolbar text', () => {
+  const { internals } = loadClient()
   const source = read('lib/client.js')
 
-  // A guess must be visible as a guess, or the user cannot tell that the
-  // highlighting is automatic — which is the whole point of the override.
+  // How the language was decided is still worked out — the four states are
+  // still distinguished, they just are not painted into the toolbar any more.
   assert.match(source, /source === "content" \? "按内容识别"/)
   assert.match(source, /source === "name" \? "按后缀识别"/)
   assert.match(source, /: "未识别"/)
   assert.match(source, /choice !== "auto"/)
+
+  // The label that used to sit beside the select is gone, and so is its rule:
+  // a leftover `.fv-lang-hint` would be a stylesheet entry for an element that
+  // no longer exists, which is how dead CSS accumulates.
+  assert.doesNotMatch(source, /className: "fv-lang-hint"/, 'the hint must not be rendered any more')
+  assert.doesNotMatch(source, /\.fv-lang-hint\{/, 'the hint rule must be deleted with the element')
+
+  // The information moved into the select's own tooltip, so nothing is lost:
+  // the resolved grammar AND how it was decided are both named there.
+  const picker = internals.LanguagePicker({
+    choice: 'auto',
+    catalog: [{ id: 'ts', label: 'TypeScript' }],
+    source: 'name',
+    resolved: 'TypeScript',
+    onChange: () => {},
+  })
+  const select = picker.children.find((child) => child.props && child.props.className === 'fv-lang-select')
+  assert(select, 'the picker must still render its select')
+  assert.equal(select.props.title, '语法高亮：TypeScript（按后缀识别）')
+
+  // A pinned language is reported as pinned, never as a guess.
+  const pinned = internals.LanguagePicker({
+    choice: 'ts',
+    catalog: [{ id: 'ts', label: 'TypeScript' }],
+    source: 'name',
+    resolved: 'TypeScript',
+    onChange: () => {},
+  })
+  const pinnedSelect = pinned.children.find((child) => child.props && child.props.className === 'fv-lang-select')
+  assert.equal(pinnedSelect.props.title, '语法高亮：TypeScript（已指定）')
+
+  // Before the grammar is known the tooltip still names the control, so the
+  // select is never left without an accessible description.
+  const bare = internals.LanguagePicker({ choice: 'auto', catalog: [], onChange: () => {} })
+  const bareSelect = bare.children.find((child) => child.props && child.props.className === 'fv-lang-select')
+  assert.equal(bareSelect.props.title, '语法高亮语言')
+
+  // The toolbar no longer has a variable-width label between the size stepper
+  // and the picker, which is what made the row reflow from one file to the next.
+  assert.equal(picker.children.length, 1, 'the picker label must contain only the select')
 })
 
 test('floating entry is disabled with display:none!important and composer entry supports active hover state', () => {

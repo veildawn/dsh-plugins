@@ -565,7 +565,6 @@ window.__ModuleLoader__.load({
       .fv-main-head{display:flex;flex:none;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-tertiary);font-size:12px}
       .fv-main-name{flex:1 1 auto;min-width:0;overflow:hidden;color:var(--dsw-alias-label-primary);font-weight:500;white-space:nowrap;text-overflow:ellipsis}
       .fv-lang{display:inline-flex;flex:none;align-items:center;gap:4px;min-width:0}
-      .fv-lang-hint{flex:none;color:var(--dsw-alias-label-caption);font-size:11px;white-space:nowrap}
       .fv-lang-select{box-sizing:border-box;max-width:132px;height:24px;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1,transparent);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:22px;cursor:pointer}
       .fv-lang-select:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-l2))}
       .fv-lang-select:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
@@ -895,9 +894,8 @@ window.__ModuleLoader__.load({
       .fv-shell[data-mobile="true"] .fv-body[data-pane="tree"] .fv-main{display:none!important}
       .fv-shell[data-mobile="true"] .fv-crumbs{font-size:11px}
       .fv-shell[data-mobile="true"] .fv-file-path{display:none!important}
-      /* The head is cramped on a phone: drop the provenance hint, keep the
-         control, and give the select a full touch target. */
-      .fv-shell[data-mobile="true"] .fv-lang-hint{display:none!important}
+      /* The head is cramped on a phone: give the select a full touch target.
+         The provenance hint that used to be hidden here is gone entirely now. */
       .fv-shell[data-mobile="true"] .fv-lang-select{max-width:104px;height:32px;font-size:13px;line-height:30px}
       @media(max-width:960px), (pointer:coarse) and (max-width:1100px){
         .fv-shell{width:100%!important;border-left:none!important}
@@ -3390,28 +3388,36 @@ window.__ModuleLoader__.load({
      * accessible for free, and on a phone it opens the platform's own
      * picker, which a hand-rolled listbox would only imitate badly.
      *
-     * "自动" is always first and is the default. The entry shows how the
-     * current language was decided, so a guess is visible as a guess rather
-     * than looking like a fact about the file.
+     * "自动" is always first and is the default.
+     *
+     * How the language was decided used to sit beside the control as visible
+     * text ("按后缀识别" / "按内容识别" / …). In the toolbar that label was the
+     * widest thing between the size stepper and the picker, and it pushed the
+     * file size and the picker itself around as the source changed — the
+     * toolbar visibly reflowed from one file to the next. The information is
+     * still useful, so it moved into the control's own tooltip: the toolbar
+     * stays a fixed row of controls, and the explanation is one hover away
+     * instead of taking up permanent width.
      */
     function LanguagePicker({ choice, catalog, source, resolved, onChange }) {
       const options = catalog.length > 0
         ? catalog
         : [{ id: "plain", label: "纯文本" }];
-      // How the language was decided, shown beside the control. Only "auto"
-      // can be a guess, so only "auto" explains itself.
+      // How the language was decided. Only "auto" can be a guess, so only
+      // "auto" is described as one; an explicit choice is never a guess.
       const hint = choice !== "auto"
         ? "已指定"
         : source === "content" ? "按内容识别"
           : source === "name" ? "按后缀识别"
             : "未识别";
       return react.createElement("label", { className: "fv-lang" },
-        react.createElement("span", { className: "fv-lang-hint", title: "语言识别来源" }, hint),
         react.createElement("select", {
           className: "fv-lang-select",
           value: choice,
           "aria-label": "语法高亮语言",
-          title: resolved === undefined ? "语法高亮语言" : `语法高亮：${resolved}`,
+          title: resolved === undefined
+            ? "语法高亮语言"
+            : `语法高亮：${resolved}（${hint}）`,
           onChange: (event) => onChange(event.target.value),
         },
           react.createElement("option", { value: "auto" }, "自动"),
