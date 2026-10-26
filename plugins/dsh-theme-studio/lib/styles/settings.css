@@ -1217,9 +1217,36 @@ html[data-theme-studio] :where(button):is(
   color: var(--color-foreground);
 }
 
-/* ---- 3. 选项行 / 页签 / 单元格：透明底，选中态用 surface-hover ----
+/* ---- 3. 选项行 / 页签 / 单元格：透明底，选中态用 selected ----
    `option` / `optionLine` / `optionCopy` / `cell` / `tab` / `entryCell` /
-   `registryOption` / `modelOption` 等。 */
+   `registryOption` / `modelOption` 等。
+
+   ## 选中态必须复制「透明底」那条的 :not() 链（真实事故 2026-10-26）
+
+   用户问「做选择的面板中选中了哪一个无法清晰看到」。宿主 `user-questions`
+   （`dsh-client-ui-user-questions`）的回答面板就是这样：点选项没有任何视觉反馈。
+
+   根因是**特异性**，不是配色。下面三条规则按顺序写：
+
+     | 规则 | 特异性 | 声明 |
+     | :--- | :--- | :--- |
+     | 透明底 | (0,6,1) | `background: transparent` |
+     | 悬停 | (0,5,1) | `background: surface` |
+     | 选中 | (0,2,1) | `background: selected` |
+
+   透明底那一条带了四个 `:not([class*="_options"])` / `_optionsRow` /
+   `_optionLabel` / `_optionCopy`，把特异性抬到 (0,6,1)；而选中态只有
+   一个 `:not()`，停在 (0,2,1)。**特异性高的先赢，与书写顺序无关**，
+   于是 `background: transparent` 压掉了 `background: var(--color-selected)`——
+   选中态在 DOM 上确实带了 `_optionSelected` 类，规则也确实命中，但背景被
+   前一条清成了透明，用户看到的就是「点了没反应」。
+
+   修法：把同样的 `:not()` 链复制到选中态上，两者特异性对齐到 (0,6,1)，
+   再由书写顺序决定胜负（选中态在后）。**不要**改用 `!important`：那会压掉
+   插件自己 `_option:hover` 之类的意图，也会盖掉宿主将来新增的强调态。
+
+   悬停那条不带 `:not()` 链（(0,5,1)），仍低于透明底的 (0,6,1)——但悬停是
+   瞬时态，且选中态已给出更明确的主色底与左侧竖条，可接受。 */
 html[data-theme-studio] :where(button, [role="option"], [role="tab"]):is(
   [class*="_option"],
   [class*="_cell"],
@@ -1248,14 +1275,18 @@ html[data-theme-studio] :where(button, [role="option"], [role="tab"]):is(
   color: var(--color-foreground);
 }
 
+/* 选中态：`:not()` 链与上方「透明底」逐条对齐，特异性同为 (0,6,1)，
+   靠书写顺序取胜。左侧 2px 主色竖条是第二重信号——单靠底色在极光主题的
+   半透明表面上对比度只有 0.13 左右，肉眼很难分辨（用户实测反馈）。 */
 html[data-theme-studio] :where(button, [role="option"], [role="tab"]):is(
   [class*="_optionSelected"],
   [class*="_optionActive"],
   [class*="_cellSelected"],
   [class*="_selected"]
-):not([class*="_options"]) {
+):not([class*="_options"]):not([class*="_optionsRow"]):not([class*="_optionLabel"]):not([class*="_optionCopy"]) {
   background: var(--color-selected);
   color: var(--color-foreground);
+  box-shadow: inset 2px 0 0 var(--color-primary);
 }
 
 /* 页签选中：用底部 2px 主色指示条（与宿主的 tab 语言一致） */
