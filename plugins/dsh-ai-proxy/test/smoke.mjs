@@ -224,7 +224,7 @@ test('materializes the gateway as one llm-pi-ai route, leaving hand-written ones
       id: 'claude-sonnet-4-5',
       contextWindow: 200000,
       modality: 'text',
-      maxTokens: 65536,
+      maxTokens: 50000,
       input: ['text', 'image'],
       reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' },
     })
@@ -630,11 +630,12 @@ test('the context ceiling travels from the RPC into the materialized route', asy
     assert.equal(materialized(settings).defaultContextWindow, 128000,
       'the route fallback window is capped by the same ceiling')
     // The host sends an omitted request maxTokens from the model entry itself,
-    // so the cap has to reach the entry or the request still goes out at 65536.
-    assert.equal(materialized(settings).models[0].maxTokens, 65536,
-      'an output limit that still fits the clamped window is kept')
-    assert.equal(materialized(settings).models[1].maxTokens, 65536,
-      'a model the gateway did not size still carries the route output limit')
+    // so the cap has to reach the entry. It also keeps a quarter of the window
+    // as headroom, or host-side pressure compaction would have no budget left.
+    assert.equal(materialized(settings).models[0].maxTokens, 32000,
+      'the output limit is a quarter of the clamped 128K window')
+    assert.equal(materialized(settings).models[1].maxTokens, 32000,
+      'a model the gateway did not size is bounded the same way')
 
     // Raising the ceiling restores the gateway's own window.
     await connection.registration().handler('setGateway', { maxContextWindow: '1M' })
@@ -675,6 +676,36 @@ test('the context ceiling accepts K/M spellings and rejects unreadable values', 
     assert.equal(cleared.ok, true)
     assert.equal(cleared.value.maxContextWindow, 1000000)
     assert.equal(settings.doc['ai-proxy'].maxContextWindow, 1000000)
+  } finally {
+    gw.close()
+  }
+})
+
+test('the RPC refuses a context ceiling below the floor', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds, connection, settings } = makeCtx()
+  try {
+    await enablePiAi(ctx)
+    creds.store.set('AIPROXY_API_KEY', 'sk-test')
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
+    assert.equal(await waitFor(() => materialized(settings) !== undefined), true)
+    const handler = connection.registration().handler
+
+    // The floor is accepted.
+    const atFloor = await handler('setGateway', { maxContextWindow: '128K' })
+    assert.equal(atFloor.ok, true, JSON.stringify(atFloor))
+    assert.equal(atFloor.value.maxContextWindow, 128000)
+
+    // Anything under it is refused, and the stored value is left alone.
+    for (const bad of ['127K', '32K', '64K', 127999]) {
+      const result = await handler('setGateway', { maxContextWindow: bad })
+      assert.equal(result.ok, false, JSON.stringify(bad) + ' must be refused')
+      assert.match(result.error.message, /128K/, JSON.stringify(bad))
+    }
+    assert.equal(settings.doc['ai-proxy'].maxContextWindow, 128000,
+      'a refused write leaves the stored ceiling untouched')
+    assert.equal(await waitFor(() => materialized(settings)?.models?.[0]?.contextWindow === 128000), true,
+      'and the materialized route carries the accepted floor')
   } finally {
     gw.close()
   }

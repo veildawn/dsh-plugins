@@ -219,6 +219,26 @@ export function parseContextWindow(value) {
 }
 
 /**
+ * Lowest ceiling a user may configure: 128K tokens.
+ *
+ * Host-side pressure compaction cannot run under a narrow window. It charges one
+ * request's output reservation to the same window as the prompt, then subtracts
+ * its own headroom. With the entry limit this plugin materializes (a quarter of
+ * the window) and the host's default 64K headroom, the smallest window whose
+ * budget stays positive is 104026; 128K (decimal, matching this plugin's own
+ * capacity units: 1K = 1000) sits above that with room to spare and is a number
+ * users recognize from model tiers.
+ *
+ * Below this floor compaction rejects every pass with `TargetPressureConfigError`.
+ * That failure surfaces later, mid-conversation, so the value is refused at
+ * configuration time instead.
+ */
+export const MIN_MAX_CONTEXT_WINDOW = 128000
+
+/** Human spelling of {@link MIN_MAX_CONTEXT_WINDOW} for messages and the card. */
+export const MIN_MAX_CONTEXT_WINDOW_LABEL = '128K'
+
+/**
  * Apply the ceiling to one capacity (a context window or an output limit).
  *
  * The configured value is a maximum, never a floor: a capacity that already fits
@@ -231,6 +251,41 @@ export function clampToCap(capacity, cap) {
   if (!Number.isSafeInteger(capacity) || capacity <= 0) return capacity
   if (!Number.isSafeInteger(cap) || cap <= 0) return capacity
   return capacity > cap ? cap : capacity
+}
+
+/**
+ * Fraction of a context window an output limit may take.
+ *
+ * Host-side pressure compaction (`dsh-compaction-basic`) charges one request's
+ * output reservation to the same window as the prompt, then subtracts its own
+ * headroom:
+ *
+ *   messageBudget  = contextWindow - reserved   (reserved = the entry maxTokens)
+ *   pressureBudget = messageBudget  - headroomTokens
+ *
+ * and throws `TargetPressureConfigError` unless both stay positive. An output
+ * limit that merely equals the window leaves zero message budget and disables
+ * compaction outright, so a clamped window must keep the limit well inside it.
+ * A quarter leaves the entry limit below the window even after the host's
+ * default 64K headroom, and matches the order of magnitude of real model output
+ * limits (a 200K model typically allows 8K–64K out).
+ */
+const OUTPUT_LIMIT_WINDOW_FRACTION = 0.25
+
+/**
+ * The output limit one materialized model entry may declare.
+ *
+ * Two bounds apply. The configured limit is never raised, and it is pulled
+ * first under the route ceiling and then under a fraction of the model's own
+ * window, so the host's compaction budget keeps room on both sides. Without the
+ * fraction, lowering `maxContextWindow` to (say) 128K would make every entry
+ * declare a 64K output limit inside a 128K window and compaction would throw
+ * before its first pass.
+ */
+export function outputLimitFor(maxTokens, window, cap) {
+  const bounded = clampToCap(maxTokens, cap)
+  if (!Number.isSafeInteger(window) || window <= 0) return bounded
+  return clampToCap(bounded, Math.floor(window * OUTPUT_LIMIT_WINDOW_FRACTION))
 }
 
 /** Normalize API format string to canonical identifier. */
@@ -635,14 +690,18 @@ export function buildProviderProfile(options, models) {
   // a requested output longer than the whole context cannot be satisfied, and
   // the host forwards maxTokens to the gateway verbatim.
   const cap = options.maxContextWindow
+  // The route fallback window and its output limit must satisfy the same budget
+  // as a model entry: a model the gateway did not size resolves to these two, and
+  // the host charges them to the compaction budget exactly the same way.
+  const fallbackWindow = clampToCap(options.defaultContextWindow, cap)
   const profile = {
     displayName: 'AI Proxy',
     apiKeyEnv: options.apiKeyEnv,
     api,
     baseURL: piAiBaseURL(options.baseURL, options.apiFormat),
     headers: { ...ROUTE_HEADERS },
-    defaultContextWindow: clampToCap(options.defaultContextWindow, cap),
-    defaultMaxTokens: clampToCap(options.maxTokens, cap),
+    defaultContextWindow: fallbackWindow,
+    defaultMaxTokens: outputLimitFor(options.maxTokens, fallbackWindow, cap),
     ...(Number.isFinite(options.streamIdleTimeoutMs)
       ? { streamIdleTimeoutMs: options.streamIdleTimeoutMs }
       : {}),
@@ -655,9 +714,9 @@ export function buildProviderProfile(options, models) {
       // request maxTokens from the model entry itself (`options.maxTokens ??
       // model.maxTokens`), and the adapter only reports an entry's own maxTokens
       // as the request default — the route-level defaultMaxTokens never reaches a
-      // request. So the ceiling has to land on the entry, or a request whose
-      // output limit exceeds the clamped window still goes out uncapped.
-      const outputLimit = clampToCap(entry.maxTokens ?? options.maxTokens, window)
+      // request. It is bounded by the window's own fraction so host-side
+      // pressure compaction keeps a positive budget (see outputLimitFor).
+      const outputLimit = outputLimitFor(entry.maxTokens ?? options.maxTokens, window, cap)
       return {
         id: entry.id,
         ...(entry.name !== undefined && entry.name !== entry.id ? { name: entry.name } : {}),
@@ -832,6 +891,12 @@ class AiProxyApi {
         if (maxContextWindow === undefined) {
           throw new LlmError(
             '上下文上限必须是正整数，可带 K 或 M 单位（例如 500K、1M）',
+            'INVALID_REQUEST',
+          )
+        }
+        if (maxContextWindow < MIN_MAX_CONTEXT_WINDOW) {
+          throw new LlmError(
+            '上下文上限不能低于 ' + MIN_MAX_CONTEXT_WINDOW_LABEL + '，否则宿主无法压缩上下文',
             'INVALID_REQUEST',
           )
         }
@@ -1372,6 +1437,9 @@ export function resolveOptions(raw) {
   if (maxContextWindow === undefined) {
     throw new Error(name + ': maxContextWindow must be a positive token count, optionally suffixed K or M (e.g. 500K, 1M)')
   }
+  if (maxContextWindow < MIN_MAX_CONTEXT_WINDOW) {
+    throw new Error(name + ': maxContextWindow must be at least ' + MIN_MAX_CONTEXT_WINDOW_LABEL + ' (' + MIN_MAX_CONTEXT_WINDOW + ' tokens); a narrower window disables host-side context compaction')
+  }
   return {
     baseURL: (raw.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, ''),
     apiFormat: normalizeApiFormat(raw.apiFormat),
@@ -1690,7 +1758,7 @@ export const internals = {
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey,
   clampEffortToLadder, extractEffortRungs,
   effortName, resolveDefaultEffort, inputModalitiesOf,
-  parseContextWindow, clampToCap,
+  parseContextWindow, clampToCap, outputLimitFor,
   isGeminiModel, isGemini3Model, sanitizeGeminiSchema, sanitizeGeminiTools, sanitizeWindowsPathText, sanitizeGeminiMessages,
   httpErrorCode, errorFromResponse, handleAuthRpc,
   pkcePair, base64url,

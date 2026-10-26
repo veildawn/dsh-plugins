@@ -112,6 +112,14 @@ window.__ModuleLoader__.load({
     /** Decimal suffix scales — `1M` is 1000K, matching how capacities are quoted. */
     const CONTEXT_CAP_SCALE = { k: 1e3, m: 1e6 };
     const DEFAULT_MAX_CONTEXT_WINDOW = 1000000;
+    /**
+     * Lowest ceiling the plugin accepts. Below it, host-side pressure compaction
+     * has no budget left (it reserves one request's output plus its own 64K
+     * headroom out of the same window) and every pass would throw. Keep this in
+     * sync with MIN_MAX_CONTEXT_WINDOW in lib/index.js.
+     */
+    const MIN_MAX_CONTEXT_WINDOW = 128000;
+    const MIN_MAX_CONTEXT_WINDOW_LABEL = "128K";
 
     /**
      * Read a typed context ceiling so a user can write `500K` or `1M` instead of
@@ -140,6 +148,9 @@ window.__ModuleLoader__.load({
       if (!trimmed) return "";
       const parsed = parseContextCap(trimmed);
       if (!Number.isFinite(parsed) || parsed <= 0) return "上下文上限必须是正整数，可带 K 或 M 单位（例如 500K、1M）";
+      if (parsed < MIN_MAX_CONTEXT_WINDOW) {
+        return "上下文上限不能低于 " + MIN_MAX_CONTEXT_WINDOW_LABEL + "，否则宿主无法压缩上下文";
+      }
       return "";
     }
 
@@ -435,11 +446,13 @@ window.__ModuleLoader__.load({
               "aria-label": "上下文上限", "aria-invalid": invalidMaxContext ? "true" : "false",
               onChange: (event) => setMaxContextText(event.target.value),
             }),
+            react.createElement("p", { className: "ai-proxy-details" },
+              "支持纯数字或 K / M 单位（如 500K、1M，不区分大小写），默认 1M。模型声明的上下文超过此值时按此值截断，低于此值则保持模型原值不变。"),
+            react.createElement("p", { className: "ai-proxy-details" },
+              "不能低于 " + MIN_MAX_CONTEXT_WINDOW_LABEL + "：窗口更小时宿主的上下文压缩无法工作（它要从同一窗口里预留输出额度与 64K 余量）。"),
             invalidMaxContext && (maxContextText || "").length > 0
               ? react.createElement("p", { className: "ai-proxy-error" }, invalidMaxContext)
-              : null,
-            react.createElement("p", { className: "ai-proxy-details" },
-              "支持纯数字或 K / M 单位（如 500K、1M，不区分大小写），默认 1M。模型声明的上下文超过此值时按此值截断，低于此值则保持模型原值不变。")
+              : null
           ),
           react.createElement("label", { className: "ai-proxy-toggle" },
             react.createElement("div", { className: "ai-proxy-toggle-info" },

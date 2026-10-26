@@ -3,14 +3,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { Config, internals, resolveOptions, CLIENT_ID_PATTERN, clampEffortToLadder } from '../lib/index.js'
+import { Config, internals, resolveOptions, CLIENT_ID_PATTERN, clampEffortToLadder, MIN_MAX_CONTEXT_WINDOW, MIN_MAX_CONTEXT_WINDOW_LABEL } from '../lib/index.js'
 
 const {
   isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE, settingsBase,
   AiProxyApi,
   pkcePair, effortName,
   resolveDefaultEffort, inputModalitiesOf,
-  parseContextWindow, clampToCap,
+  parseContextWindow, clampToCap, outputLimitFor,
   httpErrorCode, normalizeApiFormat, resolveModelsEndpoint,
   piAiProtocolFor, piAiBaseURL,
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey, buildProviderProfile,
@@ -694,8 +694,9 @@ test('buildProviderProfile: the ceiling truncates oversized windows only', () =>
   assert.equal('contextWindow' in profile.models[3], false, 'an unsized model still declares no window')
   // Every entry carries its own output limit: pi-ai fills an omitted request
   // maxTokens from the entry, so the route-level default never reaches a request.
-  assert.equal(profile.models[0].maxTokens, 65536, 'the output limit fits inside the clamped window')
-  assert.equal(profile.models[3].maxTokens, 65536, 'an unsized model still gets the route output limit')
+  // It is bounded by a fraction of the entry's own window (see outputLimitFor).
+  assert.equal(profile.models[0].maxTokens, 65536, 'the configured limit already fits inside a quarter of the window')
+  assert.equal(profile.models[3].maxTokens, 50000, 'an unsized model takes a quarter of the route fallback window')
 })
 
 test('buildProviderProfile: the ceiling also caps the route fallback window', () => {
@@ -730,45 +731,190 @@ test('Config: the context ceiling is a live field declared as number-or-string',
 })
 
 test('buildProviderProfile: the ceiling keeps an output limit inside the window', () => {
-  // A tiny ceiling must not leave maxTokens larger than the whole context. The
-  // limit has to land on the model entry itself: pi-ai sends
-  // `options.maxTokens ?? model.maxTokens`, and the adapter only reports an
-  // entry's own maxTokens as the request default, so the route-level
-  // defaultMaxTokens never reaches a request.
-  const tiny = buildProviderProfile(resolveOptions({ maxContextWindow: '32K' }), [
+  // The narrowest ceiling a user may configure must not leave maxTokens pressed
+  // against the whole context.
+  //
+  // Host-side pressure compaction (dsh-compaction-basic) charges one request's
+  // output reservation to the same window as the prompt and then subtracts its
+  // own headroom (64K by default):
+  //   messageBudget  = contextWindow - reserved
+  //   pressureBudget = messageBudget - headroomTokens
+  // and throws TargetPressureConfigError unless both stay positive. So an entry
+  // whose limit merely equals the window would disable compaction outright.
+  const narrowest = buildProviderProfile(resolveOptions({ maxContextWindow: '128K' }), [
     { id: 'sized', contextWindow: 200000 },
     { id: 'unsized' },
   ])
-  assert.equal(tiny.defaultContextWindow, 32000)
-  assert.equal(tiny.defaultMaxTokens, 32000, 'the route output limit is pulled inside the ceiling')
-  assert.equal(tiny.models[0].contextWindow, 32000)
-  assert.equal(tiny.models[0].maxTokens, 32000, 'the entry output limit the host actually sends is capped')
-  assert.equal(tiny.models[1].maxTokens, 32000, 'an unsized model gets the capped route output limit')
+  assert.equal(narrowest.defaultContextWindow, 128000)
+  assert.equal(narrowest.models[0].contextWindow, 128000)
+  assert.equal(narrowest.models[0].maxTokens, 32000, 'the entry limit keeps a quarter of the window')
+  assert.equal(narrowest.models[1].maxTokens, 32000, 'an unsized model is bounded the same way')
 
-  // With the default 500K ceiling the 65536 output limit fits and is untouched.
+  // With the default 1M ceiling a 200K model allows a 50K output limit: below the
+  // configured 65536, so the entry is pulled to a quarter of its own window.
   const roomy = buildProviderProfile(resolveOptions({}), [{ id: 'sized', contextWindow: 200000 }])
-  assert.equal(roomy.defaultMaxTokens, 65536, 'a limit below the ceiling is never raised or lowered')
-  assert.equal(roomy.models[0].maxTokens, 65536)
+  // The route fallback is bounded the same way: an unsized model resolves to it.
+  assert.equal(roomy.defaultMaxTokens, 50000, 'a quarter of the 200K fallback window')
+  assert.equal(roomy.models[0].maxTokens, 50000)
   assert.equal(roomy.models[0].contextWindow, 200000)
+
+  // A window wide enough for the configured limit keeps it untouched.
+  const wide = buildProviderProfile(resolveOptions({ maxContextWindow: '1M' }), [
+    { id: 'big', contextWindow: 1000000 },
+  ])
+  assert.equal(wide.models[0].contextWindow, 1000000)
+  assert.equal(wide.models[0].maxTokens, 65536, 'no clamping when the limit already fits')
 
   // Raising the ceiling restores the configured output limit: the clamp is a
   // derived view, never a write-back of the user's own maxTokens.
-  const raised = buildProviderProfile(resolveOptions({ maxContextWindow: '1M' }), [{ id: 'sized' }])
-  assert.equal(raised.defaultMaxTokens, 65536)
+  const raised = buildProviderProfile(resolveOptions({ maxContextWindow: '1M' }), [{ id: 'sized', contextWindow: 1000000 }])
   assert.equal(raised.models[0].maxTokens, 65536)
 })
 
 test('buildProviderProfile: a per-model output limit follows that model\'s own window', () => {
-  // The gateway declares a small window on one model; its output limit must not
-  // exceed it even though the route ceiling is far larger.
-  const profile = buildProviderProfile(resolveOptions({ maxContextWindow: '500K' }), [
+  // The gateway declares a small window on one model; its output limit must stay
+  // within a quarter of that window even though the route ceiling is far larger.
+  const profile = buildProviderProfile(resolveOptions({ maxContextWindow: '1M' }), [
     { id: 'small-window', contextWindow: 8192, maxTokens: 65536 },
-    { id: 'big-window', contextWindow: 200000, maxTokens: 65536 },
+    { id: 'big-window', contextWindow: 1000000, maxTokens: 65536 },
     { id: 'unsized', maxTokens: 65536 },
   ])
   assert.equal(profile.models[0].contextWindow, 8192)
-  assert.equal(profile.models[0].maxTokens, 8192, 'the output limit is capped by this model\'s own window')
+  assert.equal(profile.models[0].maxTokens, 2048, 'a quarter of this model\'s own window')
   assert.equal(profile.models[1].maxTokens, 65536, 'a model with room keeps its declared output limit')
-  assert.equal(profile.models[2].maxTokens, 65536, 'an unsized model falls back to the route output limit')
+  assert.equal(profile.models[2].maxTokens, 50000, 'an unsized model falls back to the route window, then a quarter')
   assert.equal('contextWindow' in profile.models[2], false, 'no window is invented for an unsized model')
+})
+
+
+// ── host-side pressure compaction budget ───────────────────────────────────
+
+/**
+ * The budget `dsh-compaction-basic` computes before every pressure compaction
+ * (its `resolveCompactSpec`), reproduced here so the materialized route can be
+ * asserted against the arithmetic that actually consumes it:
+ *
+ *   reserved = the entry's maxTokens (the adapter reports it as defaultMaxTokens,
+ *              and the host falls back to it when the request names no limit)
+ *   message  = contextWindow - reserved
+ *   pressure = message - headroomTokens
+ *
+ * Both must stay positive, and retain must stay under the threshold.
+ */
+function compactionBudget(contextWindow, reserved, headroom = 65536) {
+  const message = contextWindow - reserved
+  const pressure = message - headroom
+  const threshold = Math.floor(Math.min(contextWindow * 0.8, pressure))
+  const retain = Math.floor(message * 0.16)
+  return { message, pressure, threshold, retain, usable: message > 0 && pressure > 0 && retain < threshold }
+}
+
+test('outputLimitFor: the entry limit keeps room for the host compaction budget', () => {
+  // A limit that merely equals the window leaves zero message budget, which is
+  // exactly what disables pressure compaction.
+  assert.equal(outputLimitFor(128000, 128000, undefined), 32000, 'a quarter of the window')
+  assert.equal(outputLimitFor(65536, 200000, undefined), 50000, 'a quarter of a 200K window')
+
+  // A limit already inside the quarter is never raised or lowered.
+  assert.equal(outputLimitFor(8192, 200000, undefined), 8192)
+  assert.equal(outputLimitFor(65536, 1000000, undefined), 65536)
+
+  // The route ceiling still applies first.
+  assert.equal(outputLimitFor(65536, 1000000, 32000), 32000)
+
+  // An unknown window bounds nothing.
+  assert.equal(outputLimitFor(65536, undefined, undefined), 65536)
+})
+
+test('a materialized route never disables pressure compaction', () => {
+  // Every ceiling a user can actually pick, against the windows gateways report.
+  const ceilings = ['128K', '200K', '262144', '500K', '1M', '4M']
+  const windows = [131072, 200000, 262144, 1000000, 2000000]
+
+  for (const ceiling of ceilings) {
+    const profile = buildProviderProfile(
+      resolveOptions({ maxContextWindow: ceiling }),
+      windows.map((contextWindow) => ({ id: 'w' + contextWindow, contextWindow })),
+    )
+    for (const entry of profile.models) {
+      const reserved = entry.maxTokens ?? profile.defaultMaxTokens
+      const budget = compactionBudget(entry.contextWindow, reserved)
+      assert.equal(budget.usable, true,
+        `ceiling ${ceiling}, window ${entry.contextWindow}: ` +
+        `message=${budget.message} pressure=${budget.pressure} threshold=${budget.threshold} retain=${budget.retain}`)
+    }
+  }
+})
+
+test('a model narrower than the floor keeps a usable budget of its own', () => {
+  // A gateway may still report a small window for one model even under a legal
+  // ceiling. That model's own budget is bounded by the window, not the ceiling,
+  // so it must stay positive for every window above the host's headroom.
+  const profile = buildProviderProfile(resolveOptions({ maxContextWindow: '1M' }), [
+    { id: 'small', contextWindow: 131072 },
+    { id: 'tiny', contextWindow: 65536 },
+  ])
+  const small = compactionBudget(profile.models[0].contextWindow, profile.models[0].maxTokens)
+  assert.equal(small.usable, true, `message=${small.message} pressure=${small.pressure}`)
+  // 64K is the host's own headroom: no output limit can make that window work.
+  assert.equal(compactionBudget(65536, 0).usable, false, 'the host floor is 64K, independent of this plugin')
+})
+
+test('the route fallback window also survives the compaction budget', () => {
+  const profile = buildProviderProfile(resolveOptions({ defaultContextWindow: 200000 }), [{ id: 'unsized' }])
+  const reserved = profile.models[0].maxTokens
+  const budget = compactionBudget(profile.defaultContextWindow, reserved)
+  assert.equal(budget.usable, true,
+    `message=${budget.message} pressure=${budget.pressure}`)
+})
+
+// ── the configured floor ───────────────────────────────────────────────────
+
+test('the floor is spelled in the same decimal units the parser accepts', () => {
+  // 128K must be exactly the floor: the parser reads decimal (1K = 1000), so a
+  // floor written as 131072 would reject the very spelling the card documents.
+  assert.equal(parseContextWindow(MIN_MAX_CONTEXT_WINDOW_LABEL), MIN_MAX_CONTEXT_WINDOW)
+  assert.equal(MIN_MAX_CONTEXT_WINDOW_LABEL, '128K')
+  assert.equal(MIN_MAX_CONTEXT_WINDOW, 128000)
+})
+
+test('resolveOptions: a ceiling below the floor is refused', () => {
+  // The floor itself is accepted, in every spelling that means it.
+  for (const value of ['128K', '128k', 128000, '128000']) {
+    assert.equal(resolveOptions({ maxContextWindow: value }).maxContextWindow, 128000, JSON.stringify(value))
+  }
+
+  // One token under the floor is not: host-side compaction would throw on every
+  // pass, and that failure surfaces mid-conversation rather than at save time.
+  for (const value of ['127K', 127999, '32K', '64K', '100K', 65536]) {
+    assert.throws(
+      () => resolveOptions({ maxContextWindow: value }),
+      /must be at least 128K/,
+      JSON.stringify(value),
+    )
+  }
+})
+
+test('resolveOptions: the default ceiling clears the floor with room to spare', () => {
+  assert.equal(resolveOptions({}).maxContextWindow, 1000000)
+  assert.equal(resolveOptions({}).maxContextWindow > MIN_MAX_CONTEXT_WINDOW, true)
+})
+
+test('every ceiling the plugin accepts keeps compaction usable', () => {
+  // Walk from the floor upward and confirm the budget never goes non-positive.
+  for (const ceiling of ['128K', '130K', '200K', '500K', '1M', '10M']) {
+    const profile = buildProviderProfile(resolveOptions({ maxContextWindow: ceiling }), [
+      { id: 'sized', contextWindow: 2000000 },
+      { id: 'unsized' },
+    ])
+    for (const entry of profile.models) {
+      // An entry that declares no window resolves to the route fallback, which is
+      // what the host then charges the compaction budget against.
+      const window = entry.contextWindow ?? profile.defaultContextWindow
+      const budget = compactionBudget(window, entry.maxTokens ?? profile.defaultMaxTokens)
+      assert.equal(budget.usable, true, `${ceiling}/${entry.id}: pressure=${budget.pressure}`)
+    }
+    const fallback = compactionBudget(profile.defaultContextWindow, profile.defaultMaxTokens)
+    assert.equal(fallback.usable, true, `${ceiling} route fallback: pressure=${fallback.pressure}`)
+  }
 })

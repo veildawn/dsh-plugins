@@ -452,3 +452,61 @@ test("the card's default ceiling matches the host's own constant", async () => {
     'the card and the host must agree on the default ceiling')
   assert.equal(hostDefault[1], '1000000', 'the documented default is 1M')
 })
+
+test("a context ceiling below the floor is refused and explained in the card", async () => {
+  resetHooks()
+  const ctx = new Context()
+  const slots = new SlotsService(ctx)
+  const connection = new ConnectionService(ctx)
+  new RemoteService(ctx)
+  await ctx.plugin(plugin).await()
+  const section = slots.registrations[0]
+  const props = section.entry.inject()
+  render(section.component, props)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  hooks[authSlot()] = { state: "signed-in", message: "已登录" }
+  let view = render(section.component, props)
+
+  // The floor is documented under the field, next to the units it shares.
+  const details = []
+  const collect = (node) => {
+    if (!node || typeof node !== "object") return
+    if (node.props?.className === "ai-proxy-details") details.push([].concat(node.props.children).join(""))
+    for (const child of node.props?.children ?? []) collect(child)
+  }
+  collect(view)
+  assert(details.some((text) => text.includes("128K")),
+    "the card must state the 128K floor: " + JSON.stringify(details))
+
+  const capInput = findElement(view, (node) => node?.type === "input" && node.props["aria-label"] === "上下文上限")
+
+  // One token under the floor blocks saving and shows the reason.
+  capInput.props.onChange({ target: { value: "127K" } })
+  view = render(section.component, props)
+  assert.equal(
+    findElement(view, (node) => node?.type === "button" && node.props.children.includes("保存")),
+    undefined,
+    "a sub-floor ceiling hides the save button",
+  )
+  assert(findElement(view, (node) => node?.props?.className === "ai-proxy-error" && /128K/.test(node.props.children)))
+
+  // The floor itself is accepted.
+  capInput.props.onChange({ target: { value: "128K" } })
+  view = render(section.component, props)
+  const saveBtn = findElement(view, (node) => node?.type === "button" && node.props.children.includes("保存"))
+  assert(saveBtn, "the floor is a legal value")
+  await saveBtn.props.onClick()
+  assert.equal(connection.calls.at(-1).payload.maxContextWindow, 128000)
+
+  // Signing in is blocked by the same rule.
+  capInput.props.onChange({ target: { value: "64K" } })
+  view = render(section.component, props)
+  hooks[authSlot()] = { state: "signed-out", message: "未登录" }
+  view = render(section.component, props)
+  assert.equal(
+    findElement(view, (node) => node?.type === "button" && node.props.children.includes("登录")).props.disabled,
+    true,
+    "sign-in cannot carry a sub-floor ceiling",
+  )
+})

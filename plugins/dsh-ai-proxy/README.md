@@ -193,9 +193,40 @@ providers:
 上限同时约束**输出上限**，避免出现「单次输出比整个上下文还长」的矛盾配置。宿主不校验
 `maxTokens` 和 `contextWindow` 的大小关系，而且请求没带 `maxTokens` 时，底层协议实现会用
 **模型条目自己的 `maxTokens`** 回填（路由级 `defaultMaxTokens` 到不了请求）。因此每个模型条目
-都会带上一个不超过**该模型自己窗口**的 `maxTokens`：网关声明了就取其小，没声明就用路由的
-`maxTokens` 再压到窗口以内。这只是材料化时的派生结果，不会改写你配置里的 `maxTokens`——把上限
+都会带上一个不超过**该模型自己窗口四分之一**的 `maxTokens`：先按你配置的值取小，再压到上限，
+最后压到窗口的四分之一。这只是材料化时的派生结果，不会改写你配置里的 `maxTokens`——把上限
 调大回去，原值自动恢复。
+
+那个四分之一是给宿主的**上下文压缩**留的余量。`dsh-compaction-basic` 把一次请求的输出预留
+算进同一个窗口，再减去它自己的 headroom（默认 65536）：
+
+```
+message  = contextWindow - 模型条目 maxTokens
+pressure = message - headroomTokens
+```
+
+两者都必须为正，否则压缩直接抛 `TargetPressureConfigError`。如果输出上限贴着窗口（`maxTokens =
+contextWindow`），消息预算就是 0，压缩功能会完全不可用。四分之一这个比例让输出上限在 200K
+窗口上落在 50000、128K 上落在 32000，压缩预算都为正。
+
+### 下限：128K
+
+`maxContextWindow` 的**最小值是 128K**（128000），低于该值会被直接拒绝——设置卡片上会提示，
+Host RPC 与配置文件两条路径都校验。
+
+原因是宿主的压缩预算在窄窗口下必然为负：宿主默认 headroom 是 65536，再叠加一次请求的输出
+预留，窗口一旦小于约 104026 就没有任何配置能让压缩跑起来。128K 比这个实测下界高约 23%，
+压力预算还有 30464 的余量。这类失败不会在保存时报错，而是在对话进行到需要压缩时才抛
+`TargetPressureConfigError`，所以宁可在这里就拦下来。
+
+模型窗口是另一回事：网关仍可能给某个模型报一个很小的窗口（例如 8K），那属于该模型自身的
+容量，不受这个下限约束，也不会被抬升。
+
+### 输入框下的上下文显示
+
+那行「上下文已用 23% ~233K / 1M」由 `dsh-token-meter` 投影，读的是同一条材料化路由的
+`contextWindow`（经官方适配器解析后）。所以上限生效后，显示的**分母就是截断后的值**——上限
+压到 128K 时，界面显示 `~xxxK / 128K`，百分比也按 128K 计算。压缩阈值同样基于这个值。
 
 写法支持纯数字或 K / M 单位，单位按十进制（`1K` = 1000，`1M` = 1000000），大小写不敏感：
 
@@ -222,9 +253,9 @@ providers:
 | `clientId` | `dsh` | OAuth public client id。`dsh` 只是共享占位：启动或登录时会改成 `dsh-` 加 8 位随机后缀并丢掉旧令牌，避免多台机器共用一条 refresh 链互相踢下线。自定义值会保留 |
 | `apiKeyEnv` | 按 clientId 派生 | 静态密钥凭据引用（材料化路由的 apiKeyEnv 同名）。默认 `AIPROXY_<KEY>_ACCESS_TOKEN`，`<KEY>` 是 client id 大写、非字母数字转 `_`；显式配置时只替换 access 槽位 |
 | `defaultReasoningEffort` | `'highest'` | 当前模型的默认思考档位，不写入路由级 `reasoning`。`highest` 选该模型自己 ladder 的最高档；`lowest` 用第一档；精确档位名优先精确匹配，缺失时落到最近的较低档 |
-| `maxTokens` | `65536` | 材料化为路由 `defaultMaxTokens`；模型目录未提供输出上限时生效。材料化时会被压到 `maxContextWindow` 以内 |
+| `maxTokens` | `65536` | 材料化为路由 `defaultMaxTokens`；模型目录未提供输出上限时生效。材料化时会先压到 `maxContextWindow` 以内，再压到模型窗口的四分之一（给上下文压缩留预算） |
 | `defaultContextWindow` | `200000` | 材料化为路由 `defaultContextWindow`（模型目录未声明容量时使用；本身也受 `maxContextWindow` 截断） |
-| `maxContextWindow` | `1M` | 上下文上限。材料化时对每个模型（以及路由回退值）的上下文窗口取小：超过上限按上限写，未超过则保持模型原值不变。默认 1M，声明恰好 1M 的模型保持原值，只有更大的才被截断。支持纯数字或 K / M 单位（`500K`、`500k`、`1M`、`1m`、`1.5M`，不区分大小写），单位按十进制换算（`1K` = 1000） |
+| `maxContextWindow` | `1M` | 上下文上限，最小 `128K`。材料化时对每个模型（以及路由回退值）的上下文窗口取小：超过上限按上限写，未超过则保持模型原值不变。默认 1M，声明恰好 1M 的模型保持原值，只有更大的才被截断。支持纯数字或 K / M 单位（`500K`、`500k`、`1M`、`1m`、`1.5M`，不区分大小写），单位按十进制换算（`1K` = 1000） |
 | `modelCacheTtlMs` | `300000` | 模型目录缓存时间 |
 | `streamIdleTimeoutMs` | `300000` | 材料化为路由 `streamIdleTimeoutMs`（流空闲看门狗由官方适配器执行） |
 | `models` | `[]` | 离线静态兜底目录 |
