@@ -76,6 +76,27 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * The sidebar toggle: a panel outline with the rail filled in.
+     *
+     * The filled rail switches sides with the state, so the icon shows where
+     * the sidebar is (or that it is gone) rather than just being a button that
+     * happens to look the same both ways.
+     */
+    function SvgIconSidebar({ size = 15, collapsed = false }) {
+      return react.createElement("svg", {
+        width: size, height: size, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: "1.4", strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        react.createElement("rect", { x: "2.2", y: "3.2", width: "11.6", height: "9.6", rx: "1.6" }),
+        collapsed
+          // Put away: a single full-width bar stands in for the sidebar.
+          ? react.createElement("path", { d: "M2.2 8h11.6" })
+          // Out: the leading rail is drawn solid, which is where the tree sits.
+          : react.createElement("path", { d: "M6.1 3.2v9.6" })
+      );
+    }
+
     function SvgIconShield({ size = 15 }) {
       return react.createElement("svg", {
         width: size, height: size, viewBox: "0 0 16 16", fill: "none",
@@ -364,6 +385,19 @@ window.__ModuleLoader__.load({
     // settings; the key follows the `<plugin>.<setting>` form used elsewhere.
     const ENTRY_POSITION_KEY = "dsh-file-viewer.entry-position";
     const TREE_WIDTH_KEY = "dsh-file-viewer.tree-width";
+    // Whether the whole sidebar is put away. Its own key, because collapsing the
+    // panel is not "a width of zero": a collapsed tree remembers the width it
+    // should come back to, and a reader who narrowed the tree to 160px then
+    // collapsed it must not find it reset on the way back.
+    const TREE_COLLAPSED_KEY = "dsh-file-viewer.tree-collapsed";
+    // Where the host writes the plans it materialises, relative to the session's
+    // workspace. Mirrors the host's own constant: the client only needs to
+    // recognise the directory to decide whether a file on screen is a plan, and
+    // both halves are pinned by a test so they cannot drift.
+    const PLANS_DIR_NAME = ".dsh-plans";
+    // Remembered separately from the drawer's own collapse: this one belongs to
+    // a dialog and must not be reset by anything that touches the sidebar.
+    const WORKSPACES_OPEN_KEY = "dsh-file-viewer.workspaces-open";
     // The drawer's own width, set by dragging its left edge. Stored separately
     // from the tree width: they answer different questions ("how wide is the
     // sidebar" vs "how wide is the whole panel"), and dragging one must not
@@ -532,6 +566,16 @@ window.__ModuleLoader__.load({
       .fv-resizer{position:relative;flex:none;width:5px;margin-left:-3px;margin-right:-2px;cursor:col-resize;user-select:none;touch-action:none;z-index:2;background:transparent;transition:background-color .15s ease}
       .fv-resizer:hover,.fv-resizer[data-dragging="true"]{background:var(--dsw-alias-brand-primary,#4d6bfe)}
       .fv-resizer::after{content:"";position:absolute;top:0;bottom:0;left:-3px;right:-3px}
+      /* The sidebar put away. display:none rather than width:0 so the tree keeps
+         its scroll position and expanded set while hidden — coming back is then
+         instant instead of a cold reload, and the reader's place is preserved.
+         Both the sidebar and its drag handle go: a handle with nothing to drag
+         is a trap, and it would leave a 5px strip eating clicks at the edge.
+         Mobile rules set flex/width with !important on .fv-tree, so they are
+         unaffected: on a phone the sidebar is a whole-pane view driven by
+         data-pane, never a column beside the content. */
+      .fv-body[data-tree-collapsed="true"]>.fv-tree,
+      .fv-body[data-tree-collapsed="true"]>.fv-resizer{display:none!important}
       .fv-row{display:flex;align-items:center;gap:8px;min-width:0;min-height:32px;padding:4px 8px;border:none;border-radius:8px;background:none;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
       .fv-row-seat{position:relative;display:flex;align-items:center;gap:2px;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;width:100%;min-width:0;max-width:100%}
       .fv-row-seat>.fv-row{flex:1 1 auto;min-width:0}
@@ -560,6 +604,12 @@ window.__ModuleLoader__.load({
       .fv-glyph{flex:none;width:16px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:11px;transition:transform .12s}
       .fv-glyph-open{transform:rotate(90deg)}
       .fv-tree-status{padding:4px 8px;color:var(--dsw-alias-label-caption);font-size:12px;line-height:20px}
+      /* 计划列表：打开的是一份文档而不是一个目录，所以左栏改列本会话提交过的计划。
+         行高与目录行一致，切换计划时视觉上不会跳动。 */
+      .fv-plan-row{box-sizing:border-box;display:flex;align-items:center;gap:6px;width:100%;min-width:0;padding:5px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
+      .fv-plan-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
+      .fv-plan-row[data-active="true"]{background:var(--dsw-alias-interactive-bg-selected,var(--dsw-alias-interactive-bg-hover))}
+      .fv-plan-row-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .fv-main{display:flex;flex:1 1 auto;flex-direction:column;min-width:0;min-height:0}
       /* 主内容区的多标签栏：一行横向滚动，每个标签是一个带关闭按钮的按钮组。
          标签本身不是按钮里套按钮（HTML 不允许），所以外面是 div[role=tab]，
@@ -582,6 +632,13 @@ window.__ModuleLoader__.load({
       .fv-lang-select:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3,var(--dsw-alias-border-l2))}
       .fv-lang-select:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
       .fv-content{flex:1 1 auto;min-height:0;overflow:auto;padding:12px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;isolation:isolate}
+      /* 计划文档：内容来自 RPC 而非磁盘，所以没有路径、没有标签页，
+         只有一份排版好的 Markdown。标题行给出文件名与它的一级标题。 */
+      .fv-plan-view{display:flex;flex-direction:column;gap:10px}
+      .fv-plan-head{display:flex;flex-direction:column;gap:2px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+      .fv-plan-name{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);word-break:break-all}
+      .fv-plan-sub{font-size:12px;color:var(--dsw-alias-label-caption)}
+      .fv-plan-body{min-width:0}
       .fv-content>*{max-width:100%}
       /* The Markdown outline: a rail pinned to the reading area's trailing edge.
          The wrapper is the positioning context, so the rail stays put while the
@@ -832,6 +889,13 @@ window.__ModuleLoader__.load({
       .fv-modal-body{flex:1 1 auto;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:16px}
       .fv-modal-sec{display:flex;flex-direction:column;gap:8px}
       .fv-modal-sec-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+      /* 内置工作区标题本身是折叠开关：与 .fv-modal-sec-title 同字号同字重，
+         但整行可点、带三角指示，避免看起来像普通小标题而没人去点。 */
+      .fv-ws-toggle{box-sizing:border-box;display:flex;align-items:center;gap:5px;width:100%;padding:0;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:600;line-height:20px;text-align:left;cursor:pointer}
+      .fv-ws-toggle:hover .fv-ws-toggle-label{text-decoration:underline}
+      .fv-ws-caret{flex:none;width:12px;color:var(--dsw-alias-label-caption);font-size:11px;line-height:20px}
+      .fv-ws-toggle-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .fv-ws-count{flex:none;margin-left:auto;padding:0 6px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-caption);font-size:11px;font-weight:500;line-height:18px}
       .fv-modal-sec-hint{font-size:12px;color:var(--dsw-alias-label-tertiary);line-height:1.4}
       .fv-tag-list{display:flex;flex-wrap:wrap;gap:6px}
       .fv-tag{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;background:var(--dsw-alias-bg-layer-3,rgba(0,0,0,.05));font-size:12px;color:var(--dsw-alias-label-secondary);word-break:break-all}
@@ -931,6 +995,10 @@ window.__ModuleLoader__.load({
       @media(max-width:1100px){.fv-shell{width:min(82vw,900px)}}
       .fv-shell[data-mobile="true"]{width:100%!important;border-left:none!important}
       .fv-shell[data-mobile="true"] .fv-btn-fullscreen{display:none!important}
+      /* A phone has no side-by-side layout to collapse: data-pane already
+         swaps the whole pane, so a sidebar toggle there would be a switch
+         wired to nothing. Hidden for the same reason as the fullscreen one. */
+      .fv-shell[data-mobile="true"] .fv-btn-sidebar{display:none!important}
       .fv-shell[data-mobile="true"] .fv-resizer{display:none!important}
       .fv-shell[data-mobile="true"] .fv-edge{display:none!important}
       .fv-shell[data-fullscreen="true"] .fv-edge{display:none!important}
@@ -951,6 +1019,8 @@ window.__ModuleLoader__.load({
       @media(max-width:960px), (pointer:coarse) and (max-width:1100px){
         .fv-shell{width:100%!important;border-left:none!important}
         .fv-btn-fullscreen{display:none!important}
+        /* No column layout here, so nothing for the toggle to put away. */
+        .fv-btn-sidebar{display:none!important}
         .fv-resizer{display:none!important}
         .fv-tree{flex:1 1 auto!important;width:100%!important;min-width:0!important;max-width:none!important;border-right:none!important;padding:6px 6px!important}
         .fv-row-seat{width:100%!important;max-width:none!important}
@@ -1348,6 +1418,49 @@ window.__ModuleLoader__.load({
       } catch { /* storage is unavailable */ }
     }
 
+    /**
+     * Whether the sidebar was left collapsed.
+     *
+     * Defaults to expanded: a first-time reader who has never touched the
+     * toggle must see the tree, not an empty strip they have to discover.
+     * @returns {boolean} true when the sidebar should start put away.
+     */
+    function readTreeCollapsed() {
+      try {
+        return globalThis.localStorage?.getItem(TREE_COLLAPSED_KEY) === "true";
+      } catch {
+        return false;
+      }
+    }
+
+    function writeTreeCollapsed(collapsed) {
+      try {
+        globalThis.localStorage?.setItem(TREE_COLLAPSED_KEY, collapsed ? "true" : "false");
+      } catch { /* storage is unavailable */ }
+    }
+
+    /**
+     * Whether the built-in workspace list in the safe-path dialog is expanded.
+     *
+     * The default is closed: the list is reference material the user cannot
+     * edit there, and on a machine with a dozen workspaces it pushed the paths
+     * they actually manage off the panel.
+     * @returns {boolean} true only when the user opened it before.
+     */
+    function readWorkspacesOpen() {
+      try {
+        return globalThis.localStorage?.getItem(WORKSPACES_OPEN_KEY) === "true";
+      } catch {
+        return false;
+      }
+    }
+
+    function writeWorkspacesOpen(open) {
+      try {
+        globalThis.localStorage?.setItem(WORKSPACES_OPEN_KEY, open ? "true" : "false");
+      } catch { /* storage is unavailable */ }
+    }
+
     function readGitChangesHeight() {
       try {
         const raw = globalThis.localStorage?.getItem(GIT_CHANGES_HEIGHT_KEY);
@@ -1540,6 +1653,17 @@ window.__ModuleLoader__.load({
     // store the mounted overlay is actually subscribed to.
     let liveOpenStore = null;
     let liveSessionStore = null;
+    let liveRequest = null;
+    /**
+     * Hand a plan back to the Host's own sidebar.
+     *
+     * The drawer intercepts the card, so a read that never finishes would leave
+     * the user with nothing at all. The Host can always render a plan from the
+     * Session log, so this is the guaranteed way out — set up by `apply` once the
+     * sidebar service is reachable, and a no-op when it is not.
+     * @type {null | ((sessionId: string, callId: string) => void)}
+     */
+    let liveFallbackPlan = null;
 
     /**
      * Open the drawer on one path.
@@ -1553,6 +1677,77 @@ window.__ModuleLoader__.load({
       const session = liveSessionStore || sessionStore;
       const sid = sessionId !== undefined && sessionId !== "" ? sessionId : (session ? session.get() : undefined);
       target.set({ filePath: path, sessionId: sid, _t: Date.now() });
+    }
+
+    /**
+     * Open the drawer on a plan the Turn submitted through `exit_plan_mode`.
+     *
+     * A plan card carries only a tool call id: the text lives in the session log
+     * and the Host renders it in its own artifact pane. The host half of this
+     * plugin writes that Markdown into the Session's workspace
+     * (`<cwd>/.dsh-plans/<title>.md`) and answers with a root-relative path, so
+     * everything after this point is the ordinary file path — a tab, the tree,
+     * the outline, and closing the tab closes the plan.
+     *
+     * Two earlier shapes were worse: a root under the DSH home put a phantom
+     * entry in the workspace picker, and a virtual document had no way to be
+     * closed. A file has neither problem because nothing about it is special.
+     *
+     * Failure is deliberately visible: the click is already intercepted by the
+     * time this runs, so a rejected plan must not look like "nothing happened" —
+     * the drawer opens with the reason instead.
+     */
+    function openViewerForPlan(openStore, sessionStore, callId, preferredSessionId) {
+      const target = liveOpenStore || openStore;
+      const session = liveSessionStore || sessionStore;
+      const sid = preferredSessionId || (session !== null && session !== undefined ? session.get() : undefined);
+      const request = liveRequest;
+      if (typeof request !== "function") return false;
+      // The drawer opens immediately in a loading state so a slow session log
+      // does not feel like a dead click; the reply below replaces it.
+      target.set({ planCallId: callId, planLoading: true, sessionId: sid, _t: Date.now() });
+      request("openPlan", { sessionId: sid === undefined ? undefined : sid, callId })
+        .then((value) => {
+          if (value === null || typeof value.path !== "string" || value.path === "") {
+            throw new Error("该计划没有可打开的内容");
+          }
+          // The host writes the plan into the workspace and answers with a real
+          // root-relative path, so from here this is an ordinary file: the drawer
+          // opens it in a tab, and closing that tab closes the plan. No
+          // plan-specific rendering or state is involved.
+          target.set({
+            filePath: value.path,
+            planCallId: callId,
+            planRoot: typeof value.root === "string" ? value.root : "",
+            planTitle: typeof value.title === "string" ? value.title : "",
+            sessionId: sid,
+            _t: Date.now(),
+          });
+        })
+        .catch((error) => {
+          target.set({
+            planCallId: callId,
+            planError: (error && error.message) || "该计划无法打开",
+            sessionId: sid,
+            _t: Date.now(),
+          });
+        });
+      return true;
+    }
+
+    function parsePlanResource(address) {
+      if (typeof address !== "string" || !address.startsWith("dsh-resource://plan/")) return null;
+      try {
+        const end = address.search(/[?#]/);
+        const sliced = address.slice("dsh-resource://plan/".length, end === -1 ? undefined : end);
+        const parts = sliced.split("/");
+        // `dsh-resource://plan/session/<id>/<callId>` or `.../subagent/<id>/<callId>`
+        const callId = decodeURIComponent(parts[parts.length - 1] || "");
+        const sessionId = parts[0] === "session" ? decodeURIComponent(parts[1] || "") : undefined;
+        return callId === "" ? null : { callId, sessionId };
+      } catch {
+        return null;
+      }
     }
 
     function parseFileResource(address) {
@@ -1600,6 +1795,14 @@ window.__ModuleLoader__.load({
           openViewerForPath(openStore, sessionStore, parsed.path, parsed.sessionId);
           return;
         }
+        // The plan card reaches the sidebar through this same call, so a click
+        // that slips past the interceptor (a host re-render, an assistant action
+        // row) still lands in this viewer rather than the built-in pane.
+        const plan = parsePlanResource(address);
+        if (plan !== null) {
+          openViewerForPlan(openStore, sessionStore, plan.callId, plan.sessionId);
+          return;
+        }
         const review = parseChangesReviewResource(address);
         if (review && review.sessionId) {
           const sid = review.sessionId;
@@ -1625,6 +1828,11 @@ window.__ModuleLoader__.load({
           const parsed = parseFileResource(address);
           if (parsed && parsed.path) {
             openViewerForPath(openStore, sessionStore, parsed.path, sessionId || parsed.sessionId);
+            return;
+          }
+          const plan = parsePlanResource(address);
+          if (plan !== null) {
+            openViewerForPlan(openStore, sessionStore, plan.callId, plan.sessionId || sessionId);
             return;
           }
           const review = parseChangesReviewResource(address);
@@ -1880,6 +2088,30 @@ window.__ModuleLoader__.load({
       return "";
     }
 
+    /**
+     * Whether an element is a card's own show-more/show-less button.
+     *
+     * The deliverables cards render their rows and a sibling disclosure button
+     * that expands the full list ("全部 N 个文件"). That button carries
+     * `aria-expanded`, which is exactly how a disclosure widget is announced —
+     * and unlike a CSS-module class name, it is a stable, semantic signal.
+     *
+     * @param {Element} element - the click target or its nearest button.
+     * @returns {boolean} true when the target is the list's own toggle.
+     */
+    function isDisclosureToggle(element) {
+      if (!element || typeof element.closest !== "function") return false;
+      const button = element.tagName === "BUTTON" ? element : element.closest("button");
+      if (button === null || button === undefined) return false;
+      // `aria-expanded` must be present: a plain <button> has no such attribute,
+      // and an absent one is different from `aria-expanded="false"`.
+      if (!button.hasAttribute || !button.hasAttribute("aria-expanded")) return false;
+      const cls = typeof button.className === "string" ? button.className : "";
+      // The card's toggle is the only aria-expanded control in these containers,
+      // and its class name ends in "toggle" (a CSS-module hash in front of it).
+      return /(^|[_-])toggle$/.test(cls) || cls === "toggle";
+    }
+
     function isFileOpenControl(element) {
       if (!element) return false;
       if (element.hasAttribute("data-file-path") || element.hasAttribute("data-path")) return true;
@@ -1890,6 +2122,40 @@ window.__ModuleLoader__.load({
       // never sees the gesture. The `-more` chevron is a menu of applications,
       // not a plain open, so it is deliberately left to the Host.
       if (element.closest("[data-open-path-open]")) return true;
+      // The collapse/expand toggle of a deliverables card is NOT a file control,
+      // even though it lives inside the same card container as the files:
+      //
+      //   <div data-presented-files-row>      <-- container (matched below)
+      //     <div data-presented-file> ... </div>   <-- a real file card
+      //     ...
+      //   </div>
+      //   <button aria-expanded="false">全部 5 个文件</button>  <-- the toggle
+      //
+      // Because `closest()` walks up to the container, the toggle used to match
+      // too, and clicking "全部 5 个文件" opened the FIRST file in the list
+      // instead of expanding it — reported as "点了展开按钮，却打开了插件".
+      // The container marker is still needed (it is how a click on a card's name
+      // area resolves), so the fix is to exclude the toggle specifically rather
+      // than drop the container.
+      //
+      // Both signals are checked because either alone would be fragile: the
+      // class is a CSS-module hash, and `aria-expanded` is a legitimate attribute
+      // for other controls. Together they are unambiguous — a disclosure button
+      // inside a file list is the list's own toggle.
+      if (isDisclosureToggle(element)) return false;
+      if (element.closest("[data-open-path-open]")) return true;
+      // A plan card (`exit_plan_mode` artifacts in the turn tail) is a file
+      // document as far as the user is concerned, but the Host renders it from
+      // the session log rather than from disk, so it carries a call id and no
+      // path at all:
+      //
+      //   <div data-plan-artifacts>
+      //     <button data-plan-card="call_..."><span>计划标题</span>打开</button>
+      //   </div>
+      //
+      // None of the markers below match it, which is why clicking one opened the
+      // Host's own artifact pane instead of this viewer.
+      if (element.closest("[data-plan-card]")) return true;
       if (element.closest("[data-produced-files-row]")) return true;
       // Support deliverables: changed files card (ChangedFiles) and presented file cards (PresentedFileCard)
       if (element.closest("[data-changed-files], [data-presented-file], [data-presented-files-row]")) return true;
@@ -1936,6 +2202,24 @@ window.__ModuleLoader__.load({
         if (!isControl && !isMention) return;
 
         const el = target.closest("button, [role='button'], a, code") || target;
+
+        // A plan card carries a tool call id and no path, so the path pipeline
+        // below cannot serve it. Handle it first: the host materialises the
+        // plan's Markdown and hands back a real file to open.
+        const planCard = target.closest("[data-plan-card]");
+        if (planCard !== null) {
+          const callId = planCard.getAttribute("data-plan-card") || "";
+          if (callId !== "") {
+            const handled = openViewerForPlan(openStore, sessionStore, callId);
+            if (handled) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.stopImmediatePropagation();
+            }
+          }
+          return;
+        }
+
         const path = extractClickedPath(el);
         if (!path || !looksLikeFilePath(path)) return;
 
@@ -4137,6 +4421,21 @@ window.__ModuleLoader__.load({
       // input state through props.
       const composerStore = createStore(null);
       const request = createRequest(ctx.connection);
+      // The click interceptor and the resource wrappers run outside this
+      // component, so a plan card (which has to ask the host to materialise its
+      // Markdown before it can be opened) needs the channel published too.
+      liveRequest = request;
+      // The escape hatch for a plan read that never finishes. `sidebarRight` is
+      // resolved lazily and defensively: it is not part of this plugin's inject,
+      // so a direct property read would be rejected by cordis.
+      liveFallbackPlan = (sessionId, callId) => {
+        const sidebar = typeof ctx.get === "function" ? ctx.get("sidebarRight", false) : undefined;
+        if (sidebar === undefined || sidebar === null || typeof sidebar.openResource !== "function") return;
+        const address = "dsh-resource://plan/session/" + encodeURIComponent(sessionId) + "/" + encodeURIComponent(callId);
+        try {
+          sidebar.openResource(address);
+        } catch (_) {}
+      };
       // One controller for the whole drawer: the Git sidebar and the commit
       // pane read the same snapshot, and a checkout invalidates both.
       const git = createGitController(request);
@@ -5267,6 +5566,11 @@ window.__ModuleLoader__.load({
         const [workspaces, setWorkspaces] = react.useState([]);
         const [newPath, setNewPath] = react.useState("");
         const [newLabel, setNewLabel] = react.useState("");
+        // The built-in workspace list is reference material, not something the
+        // user edits here, and a machine with many workspaces turned this block
+        // into most of the dialog. It starts folded and remembers the choice, so
+        // the paths the user actually manages stay on screen.
+        const [workspacesOpen, setWorkspacesOpen] = react.useState(readWorkspacesOpen);
 
         react.useEffect(() => {
           if (!open) return;
@@ -5320,14 +5624,30 @@ window.__ModuleLoader__.load({
         };
 
         const workspacesSection = react.createElement("div", { className: "fv-modal-sec" },
-          react.createElement("span", { className: "fv-modal-sec-title" }, "内置工作区（默认可访问）"),
-          react.createElement("span", { className: "fv-modal-sec-hint" }, "以下为当前环境已注册的工作区目录，文件查看器内置默认放行，无需重复添加："),
-          react.createElement("div", { className: "fv-tag-list" },
-            workspaces.length > 0
-              ? workspaces.map((w, idx) => react.createElement("span", { key: idx, className: "fv-tag" },
-                react.createElement("span", { "aria-hidden": "true" }, "\u{1F4C1}"),
-                w.name ? (w.name + " (" + w.path + ")") : w.path))
-              : react.createElement("span", { className: "fv-modal-sec-hint" }, "暂无内置工作区")));
+          react.createElement("button", {
+            type: "button",
+            className: "fv-ws-toggle",
+            "aria-expanded": workspacesOpen ? "true" : "false",
+            "aria-controls": "fv-workspaces-list",
+            onClick: () => {
+              const next = !workspacesOpen;
+              setWorkspacesOpen(next);
+              writeWorkspacesOpen(next);
+            },
+          },
+            react.createElement("span", { className: "fv-ws-caret", "aria-hidden": "true" }, workspacesOpen ? "\u25BE" : "\u25B8"),
+            react.createElement("span", { className: "fv-ws-toggle-label" }, "内置工作区（默认可访问）"),
+            react.createElement("span", { className: "fv-ws-count" }, workspaces.length > 0 ? String(workspaces.length) : "")),
+          workspacesOpen
+            ? react.createElement(react.Fragment, null,
+              react.createElement("span", { className: "fv-modal-sec-hint" }, "以下为当前环境已注册的工作区目录，文件查看器内置默认放行，无需重复添加："),
+              react.createElement("div", { className: "fv-tag-list", id: "fv-workspaces-list" },
+                workspaces.length > 0
+                  ? workspaces.map((w, idx) => react.createElement("span", { key: idx, className: "fv-tag" },
+                    react.createElement("span", { "aria-hidden": "true" }, "\u{1F4C1}"),
+                    w.name ? (w.name + " (" + w.path + ")") : w.path))
+                  : react.createElement("span", { className: "fv-modal-sec-hint" }, "暂无内置工作区")))
+            : null);
 
         const safePathsList = loading
           ? react.createElement("div", { className: "fv-tree-status" }, "加载配置中...")
@@ -5522,6 +5842,10 @@ window.__ModuleLoader__.load({
         const [deleting, setDeleting] = react.useState(false);
         const [prefillPath, setPrefillPath] = react.useState("");
         const [treeWidth, setTreeWidth] = react.useState(readTreeWidth);
+        // Whether the whole sidebar is put away, leaving the content pane the
+        // full width. Independent of `treeWidth`: the width is remembered
+        // across a collapse so expanding restores what the reader had.
+        const [treeCollapsed, setTreeCollapsed] = react.useState(readTreeCollapsed);
         const [isResizing, setIsResizing] = react.useState(false);
         const resizeRef = react.useRef(null);
         const treeWidthRef = react.useRef(treeWidth);
@@ -5558,6 +5882,21 @@ window.__ModuleLoader__.load({
         const onResizerDoubleClick = () => {
           setTreeWidth(DEFAULT_TREE_WIDTH);
           writeTreeWidth(DEFAULT_TREE_WIDTH);
+        };
+
+        /**
+         * Put the sidebar away, or bring it back.
+         *
+         * The width is deliberately NOT touched. Collapsing is a temporary
+         * state, not a width of zero: a reader who narrowed the tree to 160px
+         * and then put it away expects 160px back, not the default.
+         */
+        const toggleTreeCollapsed = () => {
+          setTreeCollapsed((current) => {
+            const next = !current;
+            writeTreeCollapsed(next);
+            return next;
+          });
         };
 
         // --- Resizing the whole drawer from its leading edge ---------------
@@ -5674,9 +6013,34 @@ window.__ModuleLoader__.load({
 
         const [contextMenu, setContextMenu] = react.useState(null);
         const [gitStatus, setGitStatus] = react.useState({ modified: new Set(), untracked: new Set() });
+        /**
+         * How long the plan on screen has been loading, in two steps.
+         *
+         * A plan card is the one gesture that can be slow: the Host may have to
+         * read the Session's compressed history off disk. "正在读取计划…" for five
+         * seconds reads as a dead click, and a first version took 21 seconds
+         * because it swept every archive on the machine — so the wait has to be
+         * narrated, and the reader has to be able to give up and let the Host's
+         * own pane show the plan instead of watching a frozen drawer.
+         *
+         * `0` idle, `1` reading the log, `2` digging through archives (past the
+         * point where an in-memory read would have answered), `3` slow enough to
+         * offer the escape hatch.
+         */
+        const [planWaitStage, setPlanWaitStage] = react.useState(0);
         // Which sidebar pane is showing, and whether the main pane is a commit
         // rather than a file. Both live here because the drawer owns the split.
+        //
+        // Three panes, not two: `plans` is entered when a plan opens and left the
+        // moment the user asks for the tree. Treating "a plan is open" as the
+        // pane itself (the first attempt) left the tree unreachable — the plan
+        // list covered it and clicking `文件` could not clear it.
         const [side, setSide] = react.useState("files");
+        // No plan-specific pane switching any more: a plan is an ordinary
+        // Markdown file in the workspace, so it opens in a tab and the tree
+        // reveals it like any other file. The two shapes tried before this (a
+        // root under the DSH home, then a virtual document) each needed state of
+        // their own, and both ended up hiding the tree or resisting being closed.
         /**
          * The right-hand content area is a set of tabs.
          *
@@ -5740,6 +6104,26 @@ window.__ModuleLoader__.load({
           }).catch(() => {});
           return () => { live = false; };
         }, [open, root]);
+
+        // Narrate a slow plan read. `open` and the plan identity are the trigger;
+        // the timers are cleared whenever the wait resolves, so a fast read never
+        // flashes the archive copy.
+        const planWaitKey = request_ !== null && request_.planLoading === true
+          ? String(request_.planCallId || "")
+          : "";
+        react.useEffect(() => {
+          if (planWaitKey === "") {
+            setPlanWaitStage(0);
+            return undefined;
+          }
+          setPlanWaitStage(1);
+          const archive = setTimeout(() => setPlanWaitStage(2), 1500);
+          const slow = setTimeout(() => setPlanWaitStage(3), 8000);
+          return () => {
+            clearTimeout(archive);
+            clearTimeout(slow);
+          };
+        }, [planWaitKey]);
 
         /**
          * The root the Git controller was last initialised for.
@@ -6816,7 +7200,7 @@ window.__ModuleLoader__.load({
 
         const activeRoot = roots.find((row) => row.id === root);
         const treeRows = flattenTree({ expanded, nodes });
-
+        // The plan list replaces the tree only while a plan is the thing on
         /**
          * The sidebar's two-pane switch, kept out of the tree component so the
          * Git panel and the file tree share exactly one control and one seat.
@@ -6988,6 +7372,14 @@ window.__ModuleLoader__.load({
                 : null,
               react.createElement("button", {
                 type: "button",
+                className: "fv-icon-button fv-btn-sidebar",
+                "aria-pressed": treeCollapsed ? "false" : "true",
+                "aria-label": treeCollapsed ? "展开侧栏" : "收起侧栏",
+                title: treeCollapsed ? "展开侧栏" : "收起侧栏",
+                onClick: toggleTreeCollapsed,
+              }, react.createElement(SvgIconSidebar, { size: 15, collapsed: treeCollapsed })),
+              react.createElement("button", {
+                type: "button",
                 className: "fv-icon-button",
                 "aria-pressed": hidden ? "true" : "false",
                 "aria-label": hidden ? "隐藏点文件" : "显示点文件",
@@ -7012,7 +7404,17 @@ window.__ModuleLoader__.load({
               react.createElement("button", {
                 type: "button", className: "fv-icon-button fv-btn-close", "aria-label": "关闭", title: "关闭文件查看器", onClick: () => openStore.set(null),
               }, react.createElement(SvgIconClose, { size: 15 }))),
-            react.createElement("div", { className: "fv-body", "data-pane": pane, "data-resizing": isResizing ? "true" : "false", "data-mobile": isMobile ? "true" : "false" },
+            react.createElement("div", {
+              className: "fv-body",
+              "data-pane": pane,
+              "data-resizing": isResizing ? "true" : "false",
+              "data-mobile": isMobile ? "true" : "false",
+              // Collapsing is expressed as a body-level flag rather than by
+              // unmounting the sidebar: the tree keeps its scroll position, its
+              // expanded set, and any in-flight listing when put away, so
+              // bringing it back is instant instead of a cold reload.
+              "data-tree-collapsed": treeCollapsed ? "true" : "false",
+            },
               side === "git"
                 ? react.createElement(GitSidebar, {
                   state: gitState,
@@ -7093,7 +7495,39 @@ window.__ModuleLoader__.load({
                   onContextMenu: (menu) => setTabMenu(menu),
                   menuFor: tabMenu === null || tabMenu === undefined ? "" : tabMenu.tabId,
                 }),
-                error !== null && meta === null && !showCommit && activeTab === null
+                // A plan that could not be materialised has no file to fall
+                // back on, and the click was already intercepted, so the reason
+                // has to be shown here or the gesture looks like it did nothing.
+                request_ !== null && request_.planLoading === true && typeof request_.planError !== "string"
+                  ? react.createElement("div", { className: "fv-note" },
+                    planWaitStage >= 2 ? "正在检索历史归档…" : "正在读取计划…",
+                    // Past this point the reader deserves a way out: the Host can
+                    // still render the plan in its own pane, so nothing is lost by
+                    // giving up on the file copy.
+                    planWaitStage >= 3
+                      ? react.createElement("button", {
+                        type: "button",
+                        className: "fv-button",
+                        style: { marginLeft: "8px" },
+                        onClick: () => {
+                          const callId = request_ !== null && typeof request_.planCallId === "string"
+                            ? request_.planCallId
+                            : "";
+                          const sid = request_ !== null && typeof request_.sessionId === "string"
+                            ? request_.sessionId
+                            : "";
+                          // Stop waiting: closing the drawer drops the pending
+                          // attempt, and the Host's own resource route is used.
+                          openStore.set(null);
+                          if (callId !== "" && sid !== "" && liveFallbackPlan !== null) {
+                            liveFallbackPlan(sid, callId);
+                          }
+                        },
+                      }, "改用原生面板打开")
+                      : null)
+                  : request_ !== null && typeof request_.planError === "string" && request_.planError !== ""
+                  ? react.createElement("div", { className: "fv-note fv-error" }, request_.planError)
+                  : error !== null && meta === null && !showCommit && activeTab === null
                   ? react.createElement("div", { className: "fv-note fv-error" },
                     react.createElement("span", null, messageOf(error)),
                     error?.code === "outside-root"
@@ -7542,13 +7976,15 @@ window.__ModuleLoader__.load({
       ERROR_COPY, appendMention, insertMentionAtCaret, baseNameOf, formatBytes, parentOf, ancestorsOf, flattenTree, columnLabel,
       mediaTypeOf, messageOf, createStore, createRequest, blobOf, ensureStyles,
       ENTRY_POSITION_KEY, DRAG_SLOP, settleEntry, readEntryPosition, writeEntryPosition,
-      TREE_WIDTH_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
+      TREE_WIDTH_KEY, TREE_COLLAPSED_KEY, DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, MAX_TREE_WIDTH, readTreeWidth, writeTreeWidth,
+      readTreeCollapsed, writeTreeCollapsed, SvgIconSidebar,
+      WORKSPACES_OPEN_KEY, readWorkspacesOpen, writeWorkspacesOpen,
       GIT_CHANGES_HEIGHT_KEY, DEFAULT_GIT_CHANGES_HEIGHT, MIN_GIT_CHANGES_HEIGHT, MAX_GIT_CHANGES_HEIGHT, readGitChangesHeight, writeGitChangesHeight,
       SHELL_WIDTH_KEY, MIN_SHELL_WIDTH, readShellWidth, writeShellWidth, clampShellWidth,
       LANG_OVERRIDES_KEY, LANG_OVERRIDES_MAX, readLangOverrides, writeLangOverrides, readLangOverride, writeLangOverride,
       langOverrideKey, isKnownLanguageId, setLanguageCatalog, getLanguageCatalog: () => languageCatalog, LanguagePicker,
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
-      openViewerForPath, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isFileMentionCode, renderRootOptions,
+      openViewerForPath, openViewerForPlan, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, parsePlanResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isDisclosureToggle, isFileMentionCode, renderRootOptions,
       triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconCopy, PathCopyDropdown, resolveAbsPath, extractRelativeAndAbsolutePaths, isAbsolutePath, SvgIconBranch, SvgIconCommit, SvgIconOpenFile,
       FONT_SIZE_KEY, DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE, FONT_SIZE_STEP, readFontSize, writeFontSize, clampFontSize, FontSizeControl,
       // Git panel: controller, views and the small formatters they share.

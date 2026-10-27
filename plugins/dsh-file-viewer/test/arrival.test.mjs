@@ -46,6 +46,9 @@ async function loadDom() {
   const { JSDOM } = require('jsdom')
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     pretendToBeVisual: true,
+    // A real origin, because jsdom refuses localStorage on an opaque one — and
+    // the viewer's remembered sidebar state lives there.
+    url: 'http://localhost/',
   })
   // `navigator` is a read-only accessor on modern Node, so a plain assignment
   // throws; define it like the other globals React probes for.
@@ -63,6 +66,11 @@ async function loadDom() {
     // `act` refuses to run outside an act-enabled environment. React reads this
     // flag off `globalThis` on every call, so it must survive for the whole file.
     IS_REACT_ACT_ENVIRONMENT: true,
+    // The viewer remembers the sidebar state across visits. jsdom has no
+    // storage, so without this the persistence path is dead code in tests: the
+    // read always throws and returns the default, and a test would "pass" while
+    // never exercising the thing it claims to check.
+    localStorage: dom.window.localStorage,
   }
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, {
@@ -641,5 +649,91 @@ test('the tab menu can point the tree at a file the reader collapsed', async () 
     )
   } finally {
     await tree.cleanup()
+  }
+})
+
+test('the sidebar can be put away and brought back', async () => {
+  const tree = await mountTree()
+  try {
+    await tree.open('src/lib/a.ts')
+    const body = () => tree.container.querySelector('.fv-body')
+    const toggle = () => tree.container.querySelector('.fv-btn-sidebar')
+    assert(toggle(), 'the header must carry a sidebar toggle')
+
+    assert.equal(body()?.getAttribute('data-tree-collapsed'), 'false', 'the tree starts out')
+    assert.equal(toggle().getAttribute('aria-label'), '收起侧栏')
+
+    await tree.React.act(async () => {
+      toggle().dispatchEvent(new globalThis.window.MouseEvent('click', { bubbles: true }))
+      await sleep(80)
+    })
+    assert.equal(body()?.getAttribute('data-tree-collapsed'), 'true', 'clicking must put it away')
+    assert.equal(toggle().getAttribute('aria-label'), '展开侧栏', 'the control must now offer the way back')
+
+    // The tree stays MOUNTED, which is what keeps its scroll position and
+    // expanded set; hiding it is a CSS decision, not an unmount.
+    assert(tree.container.querySelector('.fv-tree'), 'the tree must not be unmounted')
+
+    await tree.React.act(async () => {
+      toggle().dispatchEvent(new globalThis.window.MouseEvent('click', { bubbles: true }))
+      await sleep(80)
+    })
+    assert.equal(body()?.getAttribute('data-tree-collapsed'), 'false', 'clicking again must bring it back')
+  } finally {
+    await tree.cleanup()
+  }
+})
+
+test('the sidebar state survives a revisit, in both directions', async () => {
+  // Both directions matter: remembering "collapsed" but forgetting "expanded"
+  // would trap a reader who collapsed once and changed their mind.
+  for (const startCollapsed of [true, false]) {
+    // What a previous visit left behind.
+    globalThis.localStorage.clear()
+    globalThis.localStorage.setItem('dsh-file-viewer.tree-collapsed', startCollapsed ? 'true' : 'false')
+
+    const tree = await mountTree()
+    try {
+      const body = () => tree.container.querySelector('.fv-body')
+      const toggle = () => tree.container.querySelector('.fv-btn-sidebar')
+
+      // Open a file first: the drawer's DOM only exists once it is showing.
+      await tree.open('src/lib/a.ts')
+
+      // The state must be read on the very first render, not only after a click:
+      // a sidebar that flashes open and then closes would mean the stored value
+      // is applied in an effect instead of as the initial state.
+      assert.equal(
+        body()?.getAttribute('data-tree-collapsed'),
+        startCollapsed ? 'true' : 'false',
+        `a visit after "${startCollapsed ? 'collapsed' : 'expanded'}" must start that way`,
+      )
+      assert.equal(
+        toggle().getAttribute('aria-label'),
+        startCollapsed ? '展开侧栏' : '收起侧栏',
+        'and the control must offer the matching action',
+      )
+
+      // Toggling writes the new state back, so the NEXT visit sees it.
+      await tree.React.act(async () => {
+        toggle().dispatchEvent(new globalThis.window.MouseEvent('click', { bubbles: true }))
+        await sleep(80)
+      })
+      assert.equal(
+        globalThis.localStorage.getItem('dsh-file-viewer.tree-collapsed'),
+        String(!startCollapsed),
+        'toggling must persist the new state',
+      )
+      // Collapsing must not disturb the remembered width — that is the whole
+      // reason the two live in separate keys.
+      assert.equal(
+        globalThis.localStorage.getItem('dsh-file-viewer.tree-width'),
+        null,
+        'toggling must not write a width',
+      )
+    } finally {
+      await tree.cleanup()
+      globalThis.localStorage.clear()
+    }
   }
 })

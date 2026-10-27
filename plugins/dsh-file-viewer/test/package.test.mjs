@@ -1362,6 +1362,59 @@ test('clicked path extraction keeps Chinese filenames and prefers title over bas
   assert.equal(internals.extractClickedPath(button), '/root/CodeSpace/dsh-workspace/20万落地国产纯电SUV选车报告.md')
 })
 
+test('a deliverables card toggle expands the list instead of opening a file', () => {
+  // The reported bug: the "全部 N 个文件" button sat inside the card container,
+  // so `closest('[data-presented-files-row]')` matched it and the viewer opened
+  // the FIRST file in the list instead of expanding the card.
+  const { internals } = loadClient()
+
+  // Real shape: the toggle is a SIBLING of the card list, both inside the row.
+  const fakeEl = (overrides = {}) => ({
+    tagName: 'SPAN',
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    closest: () => null,
+    className: '',
+    textContent: '',
+    ...overrides,
+  })
+  // A button that is the card's disclosure control.
+  const toggleButton = fakeEl({
+    tagName: 'BUTTON',
+    className: 'nyYjTG_toggle',
+    hasAttribute: (name) => name === 'aria-expanded',
+    closest: (sel) => (sel === 'button' ? toggleButton : (sel.includes('data-presented-files-row') ? {} : null)),
+  })
+  assert.equal(internals.isDisclosureToggle(toggleButton), true, 'the toggle must be recognised')
+  assert.equal(internals.isFileOpenControl(toggleButton), false, 'and must NOT be treated as a file')
+
+  // Its inner span resolves to the same button, so the label text is covered.
+  const toggleLabel = fakeEl({ tagName: 'SPAN', closest: (sel) => (sel === 'button' ? toggleButton : null) })
+  assert.equal(internals.isFileOpenControl(toggleLabel), false, 'clicking the label text must not open a file either')
+
+  // The changed-files card uses the same pattern and must behave the same way.
+  const changesToggle = fakeEl({
+    tagName: 'BUTTON',
+    className: 'nyYjTG_toggle',
+    hasAttribute: (name) => name === 'aria-expanded',
+    closest: (sel) => (sel === 'button' ? changesToggle : (sel.includes('data-changed-files') ? {} : null)),
+  })
+  assert.equal(internals.isFileOpenControl(changesToggle), false)
+
+  // A real file card inside the same container is still a file control: the fix
+  // must exclude the toggle, not the container it lives in.
+  const cardPreview = fakeEl({
+    tagName: 'BUTTON',
+    className: 'nyYjTG_cardPreview',
+    closest: (sel) => (sel === 'button' ? cardPreview : (sel.includes('data-presented-file') ? {} : null)),
+  })
+  assert.equal(internals.isFileOpenControl(cardPreview), true, 'cards must still open the viewer')
+
+  // A plain button with no aria-expanded is untouched by the exclusion.
+  const ordinary = fakeEl({ tagName: 'BUTTON', className: 'settings-item' })
+  assert.equal(internals.isDisclosureToggle(ordinary), false)
+})
+
 test('model selector and ordinary buttons are not treated as file-open controls', () => {
   const previousWindow = globalThis.window
   let definition
@@ -4027,6 +4080,62 @@ test('the tree highlight follows the active tab, and its rule can actually match
   }
 })
 
+test('the sidebar can be put away without losing its width', () => {
+  const { internals } = loadClient()
+  const source = read('lib/client.js')
+
+  // The toggle lives in the drawer header, beside the other display switches.
+  assert.match(source, /className: "fv-icon-button fv-btn-sidebar"/)
+  assert.match(source, /onClick: toggleTreeCollapsed/)
+  // A switch that is on must say so: aria-pressed tracks "tree visible".
+  assert.match(source, /"aria-pressed": treeCollapsed \? "false" : "true"/)
+  assert.match(source, /"aria-label": treeCollapsed \? "展开侧栏" : "收起侧栏"/)
+
+  // Collapsed state is its OWN key. Folding it into the width would make
+  // "collapsed" indistinguishable from "narrowed to the minimum", and would
+  // reset a reader's carefully chosen width on the way back.
+  assert.equal(internals.TREE_COLLAPSED_KEY, 'dsh-file-viewer.tree-collapsed')
+  assert(!/TREE_COLLAPSED_KEY[^\n]*TREE_WIDTH_KEY/.test(source), 'the two keys must not alias')
+  assert.match(source, /function readTreeCollapsed\(\)/)
+  assert.match(source, /function writeTreeCollapsed\(collapsed\)/)
+  // A first-time reader must see the tree, not an empty strip.
+  assert.match(source, /return globalThis\.localStorage\?\.getItem\(TREE_COLLAPSED_KEY\) === "true";/)
+
+  // The state must be READ at first render, not applied in an effect: an effect
+  // would let the sidebar flash open before closing on every revisit.
+  assert.match(source, /const \[treeCollapsed, setTreeCollapsed\] = react\.useState\(readTreeCollapsed\)/)
+  // And both directions are remembered — persisting only "collapsed" would trap
+  // a reader who tried it once and changed their mind.
+  assert.match(source, /writeTreeCollapsed\(next\)/)
+
+  // Collapsing must not touch the remembered width: that is the whole point of
+  // keeping the two apart, and it is one line away from being "helpfully" reset.
+  const toggle = source.slice(source.indexOf('const toggleTreeCollapsed'), source.indexOf('const toggleTreeCollapsed') + 400)
+  assert(toggle.length > 0)
+  assert(!/setTreeWidth|writeTreeWidth/.test(toggle), 'toggling must never rewrite the width')
+
+  // The sidebar is hidden, not unmounted: its scroll position and expanded set
+  // survive, so bringing it back is instant rather than a cold reload.
+  assert.match(source, /"data-tree-collapsed": treeCollapsed \? "true" : "false"/)
+  assert.match(source, /\.fv-body\[data-tree-collapsed="true"\]>\.fv-tree,/)
+  // The drag handle goes with it — a handle whose sidebar is gone is a 5px
+  // strip that eats clicks with nothing to drag.
+  assert.match(source, /\.fv-body\[data-tree-collapsed="true"\]>\.fv-resizer\{display:none!important\}/)
+  // No column layout on a phone, so the toggle is hidden there rather than
+  // offering a switch wired to nothing.
+  assert.match(source, /\.fv-shell\[data-mobile="true"\] \.fv-btn-sidebar\{display:none!important\}/)
+
+  // The icon has to show the state, not just be a button that looks identical
+  // either way. Asserted on the SOURCE because React's createElement is stubbed
+  // in this harness: two branches that both return an element would compare
+  // equal no matter what shapes they describe.
+  const icon = source.slice(source.indexOf('function SvgIconSidebar'), source.indexOf('function SvgIconSidebar') + 1200)
+  assert(icon.length > 0, 'the sidebar icon must exist')
+  assert.match(icon, /collapsed/, 'the icon must take the state into account')
+  assert.match(icon, /M6\.1 3\.2v9\.6/, 'expanded: draw the rail where the sidebar sits')
+  assert.match(icon, /M2\.2 8h11\.6/, 'collapsed: the rail is gone')
+})
+
 test('a tab can point the tree at the file it shows', () => {
   const { internals } = loadClient()
   const source = read('lib/client.js')
@@ -4505,4 +4614,41 @@ test('Tooltip bubbles adapt text color in light and dark mode so hints never ble
   const source = read('lib/client.js')
   assert.match(source, /span\[class\*="_bubble_"\]/)
   assert.match(source, /color:var\(--dsw-alias-label-primary,#0f1115\)!important/)
+})
+
+test('no hook is declared after a conditional return in the drawer', () => {
+  // React requires the same hooks in the same order on every render. A hook
+  // added below an early `return` only runs on some renders, and the failure is
+  // loud but late: "Rendered more hooks than during the previous render" shows
+  // up the second time the component mounts, which unit tests that only render
+  // once will never see.
+  //
+  // The drawer is the component this keeps happening to, so its body is scanned
+  // for the pattern directly rather than trusting review to catch it.
+  const client = read('lib/client.js')
+  const start = client.indexOf('function ViewerOverlay(props) {')
+  assert.ok(start > 0, 'ViewerOverlay is present')
+  // The component ends at the next top-level function declaration at the same
+  // indentation.
+  const rest = client.slice(start + 1)
+  const endMatch = /\n {6}\}[a-zA-Z]*\s*\n {6}\/\*\*/.exec(rest)
+  const body = rest.slice(0, endMatch === null ? rest.length : endMatch.index)
+
+  // Every early return in the component body (not inside a nested callback).
+  const lines = body.split('\n')
+  let returned = false
+  let depthAtReturn = 0
+  for (const line of lines) {
+    if (/\bif \(.*\) return (null|undefined|\w+);/.test(line) && /^\s{8}if /.test(line)) {
+      returned = true
+      depthAtReturn += 1
+    }
+    if (returned && /react\.use[A-Z]/.test(line)) {
+      assert.fail(
+        'a hook follows an early return; move it above the return or the hook count '
+        + 'changes between renders: ' + line.trim(),
+      )
+    }
+  }
+  assert.ok(depthAtReturn >= 0, 'scan ran')
 })

@@ -485,3 +485,67 @@ test('outline rows keep their full height and the list scrolls instead', { skip:
   assert.equal(roomy.listScrolls, false, 'a list that fits must not scroll')
   assert.equal(roomy.rowClientHeight, roomy.rowScrollHeight)
 })
+
+test('a collapsed sidebar gives its width to the content pane', { skip: SKIP }, () => {
+  const chrome = findChrome()
+  if (chrome === null) return
+  const dir = mkdtempSync(join(tmpdir(), 'fv-collapse-'))
+  const page = join(dir, 'page.html')
+  // The sidebar toggle is a property assertion (arrival.test.mjs); what only a
+  // real engine can answer is whether the content pane actually reclaims the
+  // space, and whether the drag handle disappears with the sidebar. A handle
+  // left behind at the edge is a 5px strip that eats clicks with nothing to drag.
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+<style>* { box-sizing: border-box; } body { margin: 0; }
+.host { position: relative; width: 900px; height: 400px; }</style>
+<style id="plugin">${bundleCss()}</style></head><body>
+<div class="fv-body" id="body" data-pane="content" data-mobile="false" data-tree-collapsed="false"
+     style="display:flex;height:400px">
+  <div class="fv-tree" id="tree" style="width:280px">TREE</div>
+  <div class="fv-resizer" id="resizer"></div>
+  <div class="fv-main" id="main" style="flex:1 1 auto">MAIN</div>
+</div>
+<pre id="out" style="all:initial;display:block;position:fixed;bottom:0"></pre>
+<script>
+const t = document.getElementById('tree');
+const r = document.getElementById('resizer');
+const m = document.getElementById('main');
+const b = document.getElementById('body');
+const snap = () => ({
+  tree: getComputedStyle(t).display,
+  resizer: getComputedStyle(r).display,
+  mainWidth: Math.round(m.getBoundingClientRect().width),
+  bodyWidth: Math.round(b.getBoundingClientRect().width),
+});
+const expanded = snap();
+b.setAttribute('data-tree-collapsed', 'true');
+const collapsed = snap();
+b.setAttribute('data-tree-collapsed', 'false');
+const restored = snap();
+document.getElementById('out').textContent = JSON.stringify({ expanded, collapsed, restored });
+</script></body></html>`
+  writeFileSync(page, html)
+  const dumped = execFileSync(chrome, [
+    '--headless', '--disable-gpu', '--no-sandbox',
+    '--window-size=1000,700', '--virtual-time-budget=3000', '--dump-dom', `file://${page}`,
+  ], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
+  const match = /<pre id="out"[^>]*>([\s\S]*?)<\/pre>/.exec(dumped)
+  assert(match, 'the probe page must report the layout')
+  const data = JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&'))
+  const { expanded, collapsed, restored } = data
+
+  assert.equal(expanded.tree, 'flex', 'the tree is shown by default')
+  assert.equal(collapsed.tree, 'none', 'collapsing must remove the tree from layout')
+  assert.equal(collapsed.resizer, 'none', 'the drag handle must go with it')
+  assert(
+    collapsed.mainWidth > expanded.mainWidth,
+    `the content pane must reclaim the space (${collapsed.mainWidth} vs ${expanded.mainWidth})`,
+  )
+  // Full width, not merely wider: a sidebar that only shrank would still be
+  // stealing pixels with nothing in them.
+  assert.equal(collapsed.mainWidth, collapsed.bodyWidth, 'the content pane must take the whole width')
+  // And expanding has to give the exact previous geometry back.
+  assert.equal(restored.tree, expanded.tree)
+  assert.equal(restored.resizer, expanded.resizer)
+  assert.equal(restored.mainWidth, expanded.mainWidth, 'expanding must restore the original width')
+})

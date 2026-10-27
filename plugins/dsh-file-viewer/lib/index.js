@@ -152,6 +152,7 @@ export const name = 'file-viewer'
 export const inject = ['fs', 'connection', 'settings', 'workspaceRegistry', 'sessions', 'webServer']
 export const NS = 'file-viewer'
 export const RPC_CHANNEL = '/dsh-file-viewer'
+export const PLANS_DIR_NAME = '.dsh-plans'
 
 /**
  * Exact Fetch route that streams one file to the browser's save flow.
@@ -482,7 +483,10 @@ export async function listDirectory(ctx, options, payload, signal) {
   const showHidden = payload?.hidden === true
   const entries = await ctx.fs.listDir(target, signal)
   const rows = entries
-    .filter((entry) => showHidden || !isHiddenEntry(entry.name))
+    // The plan directory is dot-prefixed so Git ignores it easily, but it belongs
+    // to the workspace and the reader must be able to see and navigate to it
+    // without having to turn on "show hidden files" for the entire project.
+    .filter((entry) => showHidden || !isHiddenEntry(entry.name) || entry.name === PLANS_DIR_NAME)
     .map((entry) => ({
       name: entry.name,
       type: entry.type,
@@ -2200,9 +2204,629 @@ export async function updateSafePathsConfig(ctx, options, payload) {
   return { ok: true, safePaths: normalized }
 }
 
+/**
+ * Plans are ordinary documents once they land on disk.
+ *
+ * A plan is the Markdown a Turn submitted through `exit_plan_mode`. It lives in
+ * the Session's event log, and the Host renders it from there into its own
+ * sidebar (`dsh-resource://plan/<callId>`), so the transcript's plan card is a
+ * button with no path anywhere on it — which is why the viewer used to ignore it
+ * and the Host's built-in artifact pane opened instead.
+ *
+ * The viewer is a file viewer, so the honest way to show a plan is to give it a
+ * real file **inside the session's own workspace**: every plan is written once
+ * under `<cwd>/.dsh-plans/`, and from there it is an ordinary Markdown document
+ * that inherits the tree, the outline, the font controls and the md preview for
+ * free.
+ *
+ * Two earlier shapes were worse, and the reasons are worth keeping:
+ *
+ *  - A separate root under the DSH home put a phantom "计划文档" entry in the
+ *    workspace picker that could not be switched away from.
+ *  - A virtual document rendered from an RPC reply needed its own drawer pane,
+ *    one more piece of state to keep in sync, and had no way to be closed. Once
+ *    a plan is a file, every question about it ("how do I get back to the tree",
+ *    "how do I close it", "how do I reveal it") is already answered by the tabs
+ *    and the tree that exist for files.
+ *
+ * @module dsh-file-viewer/plans
+ */
+
+/** A plan id becomes a filename, so it must not be able to spell a path. */
+const PLAN_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/
+
+/** The heading a plan's title is read from, matching the Host's own rule. */
+const PLAN_TITLE_PATTERN = /^#\s+(\S[^\r\n]*)/
+
+/**
+ * The directory a Session's plans are written into.
+ *
+ * Inside the workspace, so it needs no root of its own and the user can browse,
+ * reveal and delete plans with the same tree they use for everything else.
+ * @param {string} cwd - the Session's workspace root.
+ * @returns {string} absolute directory path, not guaranteed to exist yet.
+ */
+function plansDirectory(cwd) {
+  return path.join(cwd, PLANS_DIR_NAME)
+}
+
+/**
+ * The workspace root a Session is attached to.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {string} sessionId - the Session.
+ * @returns {string} absolute path, or '' when it cannot be determined.
+ */
+function sessionWorkspace(ctx, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '') return ''
+  const session = ctx.sessions?.get?.(sessionId)
+  const cwd = session?.header?.cwd ?? session?.header?.meta?.cwd
+  return typeof cwd === 'string' && path.isAbsolute(cwd) ? cwd : ''
+}
+
+/**
+ * The Session's complete event log.
+ *
+ * `session.log` is the canonical, append-only array (the same one the Host folds
+ * its chat from), and it covers inherited fork history too. A Session that is no
+ * longer live is not readable this way, which is why both callers below treat a
+ * missing log as "no plans" rather than as an error.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {string} sessionId - owning Session.
+ * @returns {Array<object>} events, oldest first (empty when unavailable).
+ */
+function sessionEvents(ctx, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '') return []
+  const session = ctx.sessions?.get?.(sessionId)
+  if (session === undefined) return []
+  if (Array.isArray(session.log)) return session.log
+  if (Array.isArray(session.events)) return session.events
+  return []
+}
+
+/**
+ * Pull the plan text out of one logged `exit_plan_mode` call.
+ * @param {object} event - a `tool/call` event.
+ * @returns {{callId: string, title: string, markdown: string, seq: number} | null} the plan, or null for any other event.
+ */
+function planFromEvent(event) {
+  if (event?.type !== 'tool/call') return null
+  const data = event.data
+  if (data?.name !== 'exit_plan_mode') return null
+  const callId = typeof data.callId === 'string' ? data.callId : ''
+  if (!PLAN_ID_PATTERN.test(callId)) return null
+  let args = data.arguments
+  if (typeof args === 'string') {
+    try {
+      args = JSON.parse(args)
+    } catch {
+      return null
+    }
+  }
+  const markdown = typeof args?.plan === 'string' ? args.plan : ''
+  if (markdown === '') return null
+  return { callId, title: PLAN_TITLE_PATTERN.exec(markdown.trim())?.[1] ?? callId, markdown, seq: event.seq ?? 0 }
+}
+
+/**
+ * Search disk session archives for a plan by its tool call id.
+ *
+ * A plan card from a Session that is no longer live has no in-memory event log to
+ * read, but the Host keeps every Session's history on disk under
+ * `~/.dsh/sessions/<encoded-cwd>/<sessionId>/`. Reading it back is what keeps an
+ * old card openable after a restart.
+ *
+ * The cost of getting this wrong is the whole point of this function. A first
+ * version walked every archive on the machine — 501 files, 438 MB — decompressing
+ * each one to look for the id. That took **21 seconds**, long past the point where
+ * a user concludes the click did nothing. Three things fix it:
+ *
+ *  1. **The session id is a directory name.** The card's address already carries
+ *     it, so the target archive can be addressed directly instead of searched for.
+ *     Measured: 14 ms to locate, 280 ms to decompress, versus 21 s to sweep.
+ *  2. **A sweep is bounded.** Only when the direct hit fails does the walk run,
+ *     and then newest-first, stopped by both a file budget and a wall-clock
+ *     budget, so the worst case is a few seconds rather than tens.
+ *  3. **`zlib`'s zstd is not a substitute for the `zstd` binary.** These archives
+ *     are multi-frame (one frame per append). `zstdDecompressSync` and
+ *     `createZstdDecompress` both return only the first frame — 211 bytes of a
+ *     13 MB file — and the stream throws `Unknown frame descriptor` on the rest.
+ *     That failure is silent (or nearly), which would make plans look absent
+ *     rather than unreadable, so the binary is used and its absence is reported.
+ *
+ * @module dsh-file-viewer/plans-archive
+ */
+
+/** Files the bounded sweep may decompress before giving up. */
+const ARCHIVE_SWEEP_FILE_BUDGET = 80
+
+/** Wall-clock ceiling for the bounded sweep, in milliseconds. */
+const ARCHIVE_SWEEP_TIME_BUDGET_MS = 5000
+
+/** Per-file `zstd` deadline, so one pathological archive cannot stall the sweep. */
+const ARCHIVE_ZSTD_TIMEOUT_MS = 3000
+
+/** Ceiling on decompressed bytes, matching the largest plausible archive. */
+const ARCHIVE_MAX_BYTES = 64 * 1024 * 1024
+
+/**
+ * Plans already recovered from disk, keyed by tool call id.
+ *
+ * Re-opening the same card is common (the reader closes the tab, then wants it
+ * back), and a recovered plan never changes — the call id identifies one logged
+ * invocation. Failures are deliberately NOT cached: a timeout is a property of
+ * this moment's load, and caching it would make one slow read permanent.
+ * @type {Map<string, {plan: object, cwd: string}>}
+ */
+const planArchiveCache = new Map()
+
+/** Successes kept before the oldest entry is dropped. */
+const PLAN_ARCHIVE_CACHE_LIMIT = 64
+
+/**
+ * In-flight recoveries, so N rapid clicks on one card do one decompression.
+ * @type {Map<string, Promise<{plan: object, cwd: string} | null>>}
+ */
+const planArchivePending = new Map()
+
+/**
+ * The archives belonging to one Session.
+ *
+ * The directory name is the Session id the Host chose, so this is a direct
+ * lookup rather than a search — no recursion, no listing of unrelated projects.
+ * @param {string} sessionsDir - the Host's sessions root.
+ * @param {string} sessionId - the Session the card belongs to.
+ * @returns {Promise<string[]>} matching archive paths, newest first.
+ */
+async function archivesForSession(sessionsDir, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '' || PLAN_ID_PATTERN.test(sessionId) === false) {
+    // Same shape rule the Host uses for its directory names: refuse anything that
+    // could spell a path.
+    return []
+  }
+  const projects = await fsPromises.readdir(sessionsDir).catch(() => [])
+  const found = []
+  for (const project of projects) {
+    const directory = path.join(sessionsDir, project, sessionId)
+    const entries = await fsPromises.readdir(directory).catch(() => null)
+    if (entries === null) continue
+    for (const name of entries) {
+      if (name.endsWith('.jsonl') || name.endsWith('.jsonl.zstd')) {
+        found.push(path.join(directory, name))
+      }
+    }
+  }
+  return found
+}
+
+/**
+ * Every archive on the machine, newest first, capped at the sweep budget.
+ *
+ * Sorted by mtime because the plan being opened is far more likely to be recent
+ * than ancient; the cap is what turns "scan everything" into "scan the plausible
+ * candidates". Directories are walked explicitly rather than recursively so a
+ * stray symlink cannot lead the scan outside the sessions root.
+ * @param {string} sessionsDir - the Host's sessions root.
+ * @returns {Promise<string[]>} candidate archive paths.
+ */
+async function recentArchives(sessionsDir) {
+  const projects = await fsPromises.readdir(sessionsDir).catch(() => [])
+  const rows = []
+  for (const project of projects) {
+    const projectPath = path.join(sessionsDir, project)
+    const sessions = await fsPromises.readdir(projectPath).catch(() => [])
+    for (const session of sessions) {
+      const sessionPath = path.join(projectPath, session)
+      const entries = await fsPromises.readdir(sessionPath).catch(() => [])
+      for (const name of entries) {
+        if (!name.endsWith('.jsonl') && !name.endsWith('.jsonl.zstd')) continue
+        const full = path.join(sessionPath, name)
+        const stat = await fsPromises.stat(full).catch(() => null)
+        if (stat === null || !stat.isFile()) continue
+        rows.push({ full, at: stat.mtimeMs })
+      }
+    }
+  }
+  rows.sort((left, right) => right.at - left.at)
+  return rows.slice(0, ARCHIVE_SWEEP_FILE_BUDGET).map((row) => row.full)
+}
+
+/**
+ * Read one archive as text, or report why it could not be read.
+ *
+ * `zstd` is an external binary here on purpose; see the module comment for the
+ * measured reason the built-in decoder cannot stand in for it.
+ * @param {string} file - archive path.
+ * @returns {Promise<{text: string} | {missing: true} | {failed: true}>} the text, or the failure kind.
+ */
+async function readArchive(file) {
+  if (!file.endsWith('.zstd')) {
+    return fsPromises.readFile(file, 'utf8').then((text) => ({ text }), () => ({ failed: true }))
+  }
+  return new Promise((resolve) => {
+    execFile(
+      'zstd',
+      ['-dc', file],
+      { maxBuffer: ARCHIVE_MAX_BYTES, timeout: ARCHIVE_ZSTD_TIMEOUT_MS },
+      (error, stdout) => {
+        // ENOENT means this machine has no `zstd` at all, which is a different
+        // answer from "this archive is corrupt" and has to reach the user.
+        if (error !== null && error !== undefined && error.code === 'ENOENT') {
+          resolve({ missing: true })
+          return
+        }
+        if (error !== null && error !== undefined) {
+          resolve({ failed: true })
+          return
+        }
+        resolve({ text: stdout })
+      },
+    )
+  })
+}
+
+/**
+ * Pull the plan and the workspace path out of one archive's text.
+ * @param {string} text - decompressed JSONL.
+ * @param {string} callId - the plan's tool call id.
+ * @returns {{plan: object, cwd: string} | null} the plan with its workspace, or null.
+ */
+function planFromArchiveText(text, callId) {
+  // A cheap pre-filter first: most archives mention neither the id nor a plan.
+  if (!text.includes(callId)) return null
+  let cwd = ''
+  let plan = null
+  for (const line of text.split('\n')) {
+    if (line === '') continue
+    // The workspace is recorded once, in the leading `session` event.
+    if (cwd === '' && line.includes('"type":"session"')) {
+      try {
+        const header = JSON.parse(line)
+        if (header.type === 'session' && typeof header.cwd === 'string') cwd = header.cwd
+      } catch (_) {}
+      continue
+    }
+    if (!line.includes(callId)) continue
+    try {
+      const candidate = planFromEvent(JSON.parse(line))
+      if (candidate !== null && candidate.callId === callId) plan = candidate
+    } catch (_) {}
+  }
+  return plan === null ? null : { plan, cwd }
+}
+
+/**
+ * Recover one plan from the Session archives on disk.
+ *
+ * Direct lookup first, bounded sweep second. Throws a `ViewerError` with
+ * `plan-archive-unavailable` when the machine has no `zstd`, because "this
+ * deployment cannot read archives" must not be reported as "no such plan".
+ *
+ * @param {string} callId - the plan's tool call id.
+ * @param {string} sessionId - the Session the card belongs to, when known.
+ * @returns {Promise<{plan: object, cwd: string} | null>} the plan, or null when absent.
+ */
+async function findPlanFromDisk(callId, sessionId) {
+  if (planArchiveCache.has(callId)) return planArchiveCache.get(callId)
+  const pending = planArchivePending.get(callId)
+  if (pending !== undefined) return pending
+
+  const task = (async () => {
+    const sessionsDir = path.join(resolveDshHome(), 'sessions')
+    let sawMissingZstd = false
+
+    /**
+     * Try one archive and answer with a plan, or a machine-readable miss.
+     * @param {string} file - archive path.
+     * @returns {Promise<{plan: object, cwd: string} | 'missing' | null>}
+     */
+    const attempt = async (file) => {
+      const read = await readArchive(file)
+      if (read.missing === true) {
+        sawMissingZstd = true
+        return 'missing'
+      }
+      if (read.failed === true) return null
+      return planFromArchiveText(read.text, callId)
+    }
+
+    // Stage 1: the Session's own archives. Milliseconds, and it is the path every
+    // card from a known Session takes.
+    for (const file of await archivesForSession(sessionsDir, sessionId)) {
+      const found = await attempt(file)
+      if (found === 'missing') break
+      if (found !== null) return found
+    }
+
+    // Stage 2: a bounded sweep, only when the direct hit found nothing.
+    if (sawMissingZstd) return null
+    const deadline = Date.now() + ARCHIVE_SWEEP_TIME_BUDGET_MS
+    for (const file of await recentArchives(sessionsDir)) {
+      if (Date.now() > deadline) break
+      const found = await attempt(file)
+      if (found === 'missing') {
+        sawMissingZstd = true
+        break
+      }
+      if (found !== null) return found
+    }
+
+    if (sawMissingZstd) {
+      throw new ViewerError(
+        'plan-archive-unavailable',
+        'this deployment cannot read plan archives: the zstd binary is not installed',
+      )
+    }
+    return null
+  })()
+
+  planArchivePending.set(callId, task)
+  try {
+    const found = await task
+    if (found !== null && found !== undefined) {
+      planArchiveCache.set(callId, found)
+      if (planArchiveCache.size > PLAN_ARCHIVE_CACHE_LIMIT) {
+        // Oldest insertion first; Map preserves it.
+        const oldest = planArchiveCache.keys().next().value
+        if (oldest !== undefined) planArchiveCache.delete(oldest)
+      }
+    }
+    return found === undefined ? null : found
+  } finally {
+    planArchivePending.delete(callId)
+  }
+}
+
+/**
+ * Read one plan's Markdown out of a Session's event log.
+ *
+ * The newest matching call wins: a Turn may resubmit a plan under the same id in
+ * principle, and the card the user just clicked is always the latest one.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {string} sessionId - owning Session.
+ * @param {string} callId - tool call id from the card.
+ * @returns {{callId: string, title: string, markdown: string, seq: number} | null} the plan, or null.
+ */
+function findPlanInSession(ctx, sessionId, callId) {
+  const events = sessionEvents(ctx, sessionId)
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const plan = planFromEvent(events[index])
+    if (plan !== null && plan.callId === callId) return plan
+  }
+  return null
+}
+
+/**
+ * Write a plan's Markdown into the workspace and return where it landed.
+ *
+ * The file name is the plan's own title, because that is what the user will see
+ * in the tree and in their editor. It falls back to the call id only when the
+ * title cleans down to nothing usable. An existing file under the same name is
+ * overwritten only when its content actually differs, so re-opening a card does
+ * not churn the mtime and invalidate the client's cache.
+ *
+ * @param {string} directory - the workspace's plan directory.
+ * @param {{callId: string, title: string}} plan - the plan.
+ * @param {string} markdown - plan text.
+ * @returns {Promise<string>} absolute path of the written file.
+ */
+async function materialisePlan(directory, plan, markdown) {
+  await fsPromises.mkdir(directory, { recursive: true })
+  const target = path.join(directory, planFileName(plan))
+  const existing = await fsPromises.readFile(target, 'utf8').catch(() => null)
+  if (existing !== markdown) await fsPromises.writeFile(target, markdown, 'utf8')
+  return target
+}
+
+/**
+ * Turn a plan card click into a real file the viewer opens like any other.
+ *
+ * A plan lands in the Session's own workspace (`<cwd>/.dsh-plans/<title>.md`), so
+ * from the client's point of view this is an ordinary Markdown file: the drawer
+ * opens it in a tab, the tree reveals it, the outline works, and closing the tab
+ * closes the plan. None of that needs plan-specific state.
+ *
+ * The `plans` list still comes back so the drawer can offer the Session's other
+ * plans — but only while this plan's tab is the one on screen.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{sessionId?: string, callId?: string}} payload - card identity.
+ * @returns {Promise<object>} the written file, its workspace root, and the plan list.
+ */
+async function openPlan(ctx, options, payload) {
+  const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
+  const callId = typeof payload?.callId === 'string' ? payload.callId : ''
+  if (!PLAN_ID_PATTERN.test(callId)) {
+    throw new ViewerError('invalid-plan', 'the plan id is not a usable file name')
+  }
+
+  let plan = findPlanInSession(ctx, sessionId, callId)
+  let cwd = sessionWorkspace(ctx, sessionId)
+
+  // Stage 1: the Session named by the card. In memory this is instant; after a
+  // restart it falls through to the archive on disk.
+  if (plan === null) {
+    for (const s of ctx.sessions?.list?.() ?? []) {
+      const p = findPlanInSession(ctx, s.id, callId)
+      if (p !== null) {
+        plan = p
+        if (cwd === '') cwd = s?.header?.cwd ?? s?.header?.meta?.cwd ?? ''
+        break
+      }
+    }
+  }
+
+  // Stage 2: the disk archives. The session id makes this a lookup rather than a
+  // sweep (see `findPlanFromDisk`); without it the sweep still runs, bounded.
+  if (plan === null) {
+    const fromDisk = await findPlanFromDisk(callId, sessionId)
+    if (fromDisk !== null) {
+      plan = fromDisk.plan
+      if (cwd === '' && fromDisk.cwd) cwd = fromDisk.cwd
+    }
+  }
+
+  // The workspace the plan belongs to is part of the plan's identity, not a
+  // preference: guessing would write one project's plan into another's tree.
+  // `workspaceRegistry` is only consulted for the Session's own membership, and
+  // failing that the user is told which piece is missing instead of being handed
+  // an arbitrary directory.
+  if (cwd === '') {
+    const owned = ctx.workspaceRegistry?.list?.() ?? []
+    const match = owned.find((workspace) => {
+      const sessions = workspace?.sessionIds
+      return Array.isArray(sessions) && sessionId !== '' && sessions.includes(sessionId)
+    })
+    if (match !== undefined && typeof match.path === 'string') cwd = match.path
+  }
+
+  if (plan === null && cwd === '') {
+    // Both halves are missing: nothing can be opened and nothing can be written.
+    throw new ViewerError(
+      'no-workspace',
+      'this plan could not be found in the Session history, and the Session is not attached to a workspace',
+    )
+  }
+  if (plan === null) {
+    throw new ViewerError('plan-not-found', 'this plan is no longer part of the Session history')
+  }
+  if (cwd === '') {
+    throw new ViewerError(
+      'no-workspace',
+      'the workspace this plan belongs to could not be determined, so it was not written anywhere',
+    )
+  }
+  const directory = plansDirectory(cwd)
+  let filePath
+  try {
+    filePath = await materialisePlan(directory, plan, plan.markdown)
+  } catch (error) {
+    throw new ViewerError('plan-write-failed', 'the plan could not be written into the workspace', {
+      reason: typeof error?.code === 'string' ? error.code : 'unknown',
+    })
+  }
+  // Plans are the viewer's own working files, not part of the user's project, so
+  // an existing repository should not start reporting them as untracked. Best
+  // effort: a workspace without `.git` is not a repository and needs nothing.
+  await ignorePlansDirectory(cwd)
+  return {
+    callId,
+    // The drawer works in root-relative paths, so it needs both halves.
+    root: cwd,
+    path: path.relative(cwd, filePath).split(path.sep).join('/'),
+    name: path.basename(filePath),
+    title: plan.title,
+    plans: listSessionPlans(ctx, sessionId, cwd),
+  }
+}
+
+/**
+ * Keep the plan directory out of the workspace's Git status.
+ *
+ * Written to `.git/info/exclude` rather than the root `.gitignore`: that way the
+ * repository's Git status ignores `.dsh-plans/` without dirtying any tracked
+ * file or creating an unexpected diff in the user's project.
+ *
+ * Only a real repository is touched (`.git` must exist) and only one line is
+ * appended, so the file is left alone when the entry is already there.
+ * @param {string} cwd - the workspace root.
+ * @returns {Promise<void>} resolves even when the workspace is not a repository.
+ */
+async function ignorePlansDirectory(cwd) {
+  try {
+    const gitDir = path.join(cwd, '.git')
+    const stat = await fsPromises.stat(gitDir).catch(() => null)
+    if (stat === null) return
+    const infoDir = path.join(gitDir, 'info')
+    await fsPromises.mkdir(infoDir, { recursive: true }).catch(() => null)
+    const ignoreFile = path.join(infoDir, 'exclude')
+    const current = await fsPromises.readFile(ignoreFile, 'utf8').catch(() => null)
+    if (current === null) {
+      await fsPromises.writeFile(ignoreFile, `${PLANS_DIR_NAME}/\n`, 'utf8')
+      return
+    }
+    // Match the entry as its own line; `PLAN.md` must not count as covered.
+    const covered = current.split(/\r?\n/).some((line) => {
+      const trimmed = line.trim()
+      return trimmed === `${PLANS_DIR_NAME}/` || trimmed === PLANS_DIR_NAME
+    })
+    if (covered) return
+    const separator = current === '' || current.endsWith('\n') ? '' : '\n'
+    await fsPromises.appendFile(ignoreFile, `${separator}${PLANS_DIR_NAME}/\n`, 'utf8')
+  } catch {
+    // A read-only or otherwise locked workspace is not a reason to fail the
+    // open: the plan still opens, it just shows up as untracked.
+  }
+}
+
+/**
+ * The display name for a plan.
+ *
+ * Derived from the title with a short call id suffix so the tab reads like a
+ * document while ensuring multiple plans or updated plans with the same title
+ * never overwrite each other. The characters stripped here are Windows'
+ * forbidden set (`<>:"/\|?*` plus control characters); enforcing the strictest
+ * platform everywhere keeps one rule instead of three, and a title containing
+ * `:` would otherwise break the download route on Windows only.
+ * @param {{callId: string, title: string}} plan - the plan.
+ * @returns {string} a safe `.md` file name.
+ */
+function planFileName(plan) {
+  const title = typeof plan.title === 'string' ? plan.title : ''
+  const cleaned = title
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/, '')
+    .slice(0, 80)
+  const callId = typeof plan.callId === 'string' ? plan.callId : ''
+  const suffix = callId.length > 8 ? callId.slice(-8) : callId
+  // A title that cleans down to nothing (or to dots, which would name a hidden
+  // or invalid file) falls back to the call id.
+  const stem = cleaned === '' || /^\.+$/.test(cleaned)
+    ? (callId || 'plan')
+    : (suffix ? `${cleaned}-${suffix}` : cleaned)
+  return `${stem}.md`
+}
+
+/**
+ * The plans a Session submitted, newest first, as openable documents.
+ *
+ * Nothing is written here: browsing the list must not create files as a side
+ * effect, so a listed plan only becomes a file when it is actually opened.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {string} sessionId - owning Session.
+ * @returns {Array<{callId: string, title: string, path: string}>} plans in reverse submission order.
+ */
+function listSessionPlans(ctx, sessionId, cwd) {
+  const events = sessionEvents(ctx, sessionId)
+  const workspace = typeof cwd === 'string' && cwd !== '' ? cwd : sessionWorkspace(ctx, sessionId)
+  const directory = workspace === '' ? '' : plansDirectory(workspace)
+  const seen = new Set()
+  const plans = []
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const plan = planFromEvent(events[index])
+    if (plan === null || seen.has(plan.callId)) continue
+    seen.add(plan.callId)
+    const fileName = planFileName(plan)
+    plans.push({
+      callId: plan.callId,
+      title: plan.title,
+      // Root-relative, like every other path the drawer works with; empty when
+      // the Session has no workspace, in which case the entry is not openable.
+      path: directory === '' ? '' : path.relative(workspace, path.join(directory, fileName)).split(path.sep).join('/'),
+    })
+  }
+  return plans
+}
+
 /** Method table; each entry receives `(ctx, options, payload, signal)`. */
 const METHODS = Object.freeze({
   roots: (ctx, options, payload) => resolveSessionRoot(ctx, options, payload),
+  // A plan is not a file, so it cannot come through `roots`/`read`: the card
+  // hands over a tool call id and the host does the writing.
+  openPlan,
+  listPlans: (ctx, options, payload) => listSessionPlans(ctx, payload?.sessionId),
   list: listDirectory,
   // The only destructive method on this channel. Its payload is vetted exactly
   // like a read (`resolveInRoot`), and the root itself is refused.
