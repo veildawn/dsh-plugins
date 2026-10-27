@@ -1432,3 +1432,184 @@ test('桌面端模式下 DOM 突变不会反复触发无效同步且 sync 具备
   assert.equal(f.toggles(), initialToggles, '桌面端 settled 后连续突变不再触发无效重算')
 })
 
+
+test('the composer model bar renders cleanly without injecting fragile attributes', async (t) => {
+  // 模型条在移动端始终作为单例精准插入在输入卡片上方，
+  // 动效完全由纯 CSS 规则 html[data-ts-status] 接管，不在 DOM 节点上注入脆弱的 live 属性。
+  const f = fixture()
+  const previous = {
+    document: globalThis.document,
+    window: globalThis.window,
+    MutationObserver: globalThis.MutationObserver,
+  }
+  globalThis.document = f.doc
+  globalThis.window = f.win
+  globalThis.MutationObserver = f.Observer
+  t.after(() => {
+    globalThis.document = previous.document
+    globalThis.window = previous.window
+    globalThis.MutationObserver = previous.MutationObserver
+  })
+
+  const infoOf = () => f.doc.composer.children.find((node) => node.className === 'dsh-mobile-composer-info')
+
+  client.apply(f.ctx)
+  const infoEl = infoOf()
+  assert(infoEl, 'model bar renders in composer')
+  assert.equal(infoEl.textContent, 'antigravity/gemini-3-flash · High')
+  assert.equal(f.doc.composer.children.indexOf(infoEl) < f.doc.composer.children.indexOf(f.doc.card), true)
+
+  // 幂等性：连续多次 DOM 突变，模型条绝不被重复复制
+  f.doc.notifyMutation()
+  f.doc.notifyMutation()
+  assert.equal(f.doc.composer.children.filter((node) => node.className === 'dsh-mobile-composer-info').length, 1)
+})
+
+test('every status tier the theme studio offers has a pure CSS mirrored rule that overrides themes', async () => {
+  // 档位清单必须与 dsh-theme-studio 的 STATUS_EFFECTS 完全对齐：
+  // 模型和推理强度条完全跟随状态条效果，不跟主题。
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const start = source.indexOf('const css = `')
+  const end = source.indexOf('\n    `', start)
+  const body = source.slice(start, end)
+
+  // 档位清单直接从 dsh-theme-studio 的源码读取
+  const themeRoot = new URL('../../dsh-theme-studio/lib/settings.js', import.meta.url)
+  const themeSource = await readFile(themeRoot, 'utf8')
+  const declared = [...themeSource.matchAll(/\{ id: '([a-z]+)', label:/g)].map((m) => m[1])
+  assert(declared.length >= 10, '未从 dsh-theme-studio 读到档位清单: ' + declared.join(','))
+  const tiers = declared.filter((id) => id !== 'none')
+  for (const tier of tiers) {
+    assert.equal(body.includes(`html[data-ts-status="${tier}"]`), true,
+      `移动端缺少 ${tier} 档的镜像规则`)
+  }
+
+  // 分层承载：胶囊底色与外圈呼吸环由 ::before 垫底承载（z-index:-1），与文字流光彻底分层，
+  // 避免文字裁剪把胶囊底色涂在文本上导致发虚发糊
+  assert.equal(body.includes('html[data-ts-status] .dsh-mobile-composer-info::before{content:""!important'), true,
+    '缺少胶囊底色与呼吸环的分层承载规则')
+
+  // ── 级联正确性（真实事故守卫）─────────────────────────────────────────────
+  // 曾因基础规则用 :not([data-ts-status="none"]) 把特异性抬到 (0,3,1)，反压了
+  // 流光档的 (0,2,1)：基础规则的 background:none 清掉了流光渐变，而
+  // -webkit-text-fill-color:transparent 仍在生效 —— 表现为「文字整个消失，
+  // 只剩一个空胶囊」。这里断言：对每个档位，最终胜出的 background 不能是 none。
+  const specificity = (sel) => {
+    let s2 = sel.replace(/:not\(/g, ' ').replace(/\)/g, ' ')
+    const a = (s2.match(/#[\w-]+/g) || []).length
+    const b = (s2.match(/\.[\w-]+/g) || []).length + (s2.match(/\[[^\]]+\]/g) || []).length
+    const c = (s2.match(/(?:^|[\s>+~,])([a-z][a-z0-9]*)(?![\w-])/g) || []).length
+    return [a, b, c]
+  }
+  const cmp = (x, y) => (x[0] - y[0]) || (x[1] - y[1]) || (x[2] - y[2])
+
+  // 稳健解析：先剥离注释（注释里的 { } 会破坏块边界），再按 } 回扫最近的 {，
+  // 得到 (选择器文本, 块体)。shimmer / flow 这类跨行选择器组会被一并取出。
+  const stripped = body
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => l.replace(/^\s*\/\/.*$/, '')).join('\n')
+  const bgDecls = []
+  let scan = 0
+  while (true) {
+    const close = stripped.indexOf('}', scan)
+    if (close === -1) break
+    const open = stripped.lastIndexOf('{', close)
+    scan = close + 1
+    if (open === -1) continue
+    const selText = stripped.slice(stripped.lastIndexOf('}', open) + 1, open).trim()
+    const blockBody = stripped.slice(open + 1, close)
+    if (!selText.includes('dsh-mobile-composer-info')) continue
+    const bg = blockBody.match(/background:([^;]+)/)
+    if (!bg) continue
+    for (const one of selText.split(',').map((x) => x.trim().replace(/\s+/g, ' ')).filter(Boolean)) {
+      if (!one.includes('dsh-mobile-composer-info')) continue
+      if (one.includes('::before') || one.includes('::after')) continue
+      bgDecls.push({ sel: one, value: bg[1].trim().replace(/!important$/, ''), spec: specificity(one) })
+    }
+  }
+  assert(bgDecls.length >= 2, '未采集到背景声明: ' + JSON.stringify(bgDecls.map((d) => d.sel)))
+
+  // 只有「用 background-clip:text 把字形掏空」的档位才必须由渐变赢得 background。
+  // 其他档位靠不透明的 color 上色，background 为 none 完全正常——把它也判为错误
+  // 会制造误报（pulse / whale / neon 等档位本就不需要背景）。
+  const clipToTextTiers = new Set(['shimmer', 'flow'])
+
+  for (const tier of tiers) {
+    const matched = bgDecls.filter((d) => {
+      const m = d.sel.match(/\[data-ts-status(?:="([a-z]+)")?\]/)
+      if (!m) return false
+      return m[1] === undefined || m[1] === tier
+    })
+    assert(matched.length > 0, `${tier} 档没有任何背景规则`)
+    // 特异性优先；同特异性取源码靠后者
+    let winner = matched[0]
+    for (const d of matched.slice(1)) {
+      const c = cmp(d.spec, winner.spec)
+      if (c > 0 || c === 0) winner = d
+    }
+    if (clipToTextTiers.has(tier)) {
+      assert.equal(winner.value.includes('linear-gradient'), true,
+        `${tier} 档把字形裁空了，background 必须由流光渐变赢得，否则文字会整个消失。` +
+        `实际胜出者: ${winner.sel.slice(0, 70)} => ${winner.value.slice(0, 40)}`)
+    }
+  }
+
+  // 反之：任何把 -webkit-text-fill-color 设成 transparent 的档位，都必须同时让
+  // 渐变赢得 background —— 这条把「掏空字形」与「提供渐变」绑死，杜绝再次出现
+  // 「透明文字 + none 背景 = 空胶囊」。
+  const hollowTiers = []
+  const ruleBlocks = []
+  {
+    let scan2 = 0
+    while (true) {
+      const close = stripped.indexOf('}', scan2)
+      if (close === -1) break
+      const open = stripped.lastIndexOf('{', close)
+      scan2 = close + 1
+      if (open === -1) continue
+      const selText = stripped.slice(stripped.lastIndexOf('}', open) + 1, open).trim()
+      const blockBody = stripped.slice(open + 1, close)
+      if (!selText.includes('dsh-mobile-composer-info')) continue
+      ruleBlocks.push({ sel: selText, body: blockBody })
+    }
+  }
+  for (const rb of ruleBlocks) {
+    if (rb.sel.includes('::before') || rb.sel.includes('::after')) continue
+    if (!/webkit-text-fill-color:\s*transparent/.test(rb.body)) continue
+    for (const m of rb.sel.matchAll(/\[data-ts-status="([a-z]+)"\]/g)) hollowTiers.push(m[1])
+  }
+  for (const tier of hollowTiers) {
+    const matched = bgDecls.filter((d) => {
+      const m = d.sel.match(/\[data-ts-status(?:="([a-z]+)")?\]/)
+      return m && (m[1] === undefined || m[1] === tier)
+    })
+    let winner = matched[0]
+    for (const d of matched.slice(1)) {
+      const c = cmp(d.spec, winner.spec)
+      if (c > 0 || c === 0) winner = d
+    }
+    assert.equal(winner.value.includes('linear-gradient'), true,
+      `${tier} 档把文字设成透明却让 background=${winner.value.slice(0, 30)} 胜出，` +
+      '会导致字形完全不可见（空胶囊）')
+  }
+  assert(hollowTiers.length > 0, '未找到任何掏空字形的档位，解析可能有误')
+
+  // 零侵入约定：所有镜像规则都必须以 html[data-ts-status 开头，没有它时一条都不命中。
+  const statusRules = body.split('\n').filter((line) => line.includes('dsh-mobile-composer-info') && line.includes('data-ts-status'))
+  assert(statusRules.length > 0)
+  for (const line of statusRules) {
+    const trimmed = line.trim()
+    if (!trimmed.includes('html[data-ts-status')) continue
+    assert.equal(trimmed.startsWith('html[data-ts-status'), true,
+      '镜像规则必须以 data-ts-status 限定，否则会污染原生观感: ' + trimmed.slice(0, 80))
+  }
+
+  // 动效只碰合成器属性：镜像块里不得出现 width/height/padding 等布局属性的动画。
+  const mirroredBlock = body.slice(body.indexOf('模型和推理强度条完全跟随'))
+  assert.equal(/@keyframes dsh-mobile-status-[a-z]+\{[^}]*(width|height|padding|margin):/.test(mirroredBlock), false,
+    '状态栏动效不得动画化布局属性')
+  assert.equal(mirroredBlock.includes('prefers-reduced-motion'), true,
+    '镜像必须尊重减弱动效偏好')
+  assert.equal(mirroredBlock.includes('prefers-contrast'), true,
+    '镜像必须尊重高对比偏好')
+})

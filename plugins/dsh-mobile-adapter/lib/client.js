@@ -309,6 +309,63 @@ window.__ModuleLoader__.load({
         ._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon{display:none!important}
         ._7KE1Ra_trigger::before{content:"";width:16px;height:16px;display:block;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat}
         .dsh-mobile-composer-info{box-sizing:border-box;width:100%;padding:2px 12px 4px;font-size:11px;line-height:14px;color:var(--dsw-alias-label-tertiary);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.2px}
+        /* ── 模型和推理强度条完全跟随主题工作室的「状态条效果」，不跟主题 ────
+           状态条效果是独立于主题的全局视觉动效，档位由 <html data-ts-status="<档位>"> 驱动。
+           设计原则：
+           ① 完全跟随状态条效果：用户在主题工作室设置里选了哪一档，模型条就呈现哪一档的胶囊与动效；
+           ② 不跟主题：带 !important 压过 theme-studio 的主题样式（如 aurora 的静态极光环、glass 的毛玻璃），
+              并屏蔽 ::before 装饰，确保呈现纯正的状态条视觉；
+           ③ 零侵入：用户选「原生」或未安装主题工作室时（无 data-ts-status 或为 none），保持上面那条原生纯文本；
+           ④ 纯 CSS 响应：零 JS 属性同步，在设置切换档位时浏览器 0ms 瞬间响应。 */
+        html[data-ts-status] .dsh-mobile-composer-info{display:inline-flex!important;align-items:center!important;justify-content:center!important;position:relative!important;z-index:1!important;width:fit-content!important;max-width:calc(100% - 24px)!important;margin:0 auto 5px!important;padding:3px 14px!important;border-radius:999px!important;background:none!important;border:none!important;font-size:11px!important;line-height:15px!important;letter-spacing:0.2px!important;text-align:center!important;white-space:nowrap!important;overflow:visible!important;user-select:none!important;box-sizing:border-box!important;isolation:auto!important}
+        /* 胶囊底色与外圈呼吸环由 ::before 垫底承载（z-index:-1），与文字流光彻底分层，
+           彻底消除 background-clip:text 把胶囊底色与文字裁切混为一谈导致文字发糊发虚的缺陷 */
+        html[data-ts-status] .dsh-mobile-composer-info::before{content:""!important;display:block!important;position:absolute!important;inset:0!important;z-index:-1!important;border-radius:inherit!important;background:color-mix(in srgb,var(--color-surface,var(--dsw-alias-bg-layer-2,#1e293b)) 82%,transparent)!important;border:1px solid color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 28%,transparent)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,0.12),0 2px 8px rgba(0,0,0,0.08)!important;pointer-events:none!important}
+        /* shimmer / flow：文字高光横向流动扫过（只裁切文字自身，底色由 ::before 垫底保持清晰可见） */
+        html[data-ts-status="shimmer"] .dsh-mobile-composer-info,
+        html[data-ts-status="flow"] .dsh-mobile-composer-info{background:linear-gradient(100deg,var(--color-foreground-subtle,var(--dsw-alias-label-tertiary,#94a3b8)) 20%,var(--color-foreground,var(--dsw-alias-label-primary,#f8fafc)) 45%,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 55%,var(--color-foreground,var(--dsw-alias-label-primary,#f8fafc)) 70%,var(--color-foreground-subtle,var(--dsw-alias-label-tertiary,#94a3b8)) 92%)!important;background-size:280% 100%!important;-webkit-background-clip:text!important;background-clip:text!important;-webkit-text-fill-color:transparent!important;color:transparent!important;animation:dsh-mobile-status-shimmer 3.2s linear infinite!important}
+        @keyframes dsh-mobile-status-shimmer{0%{background-position:180% 0}100%{background-position:-80% 0}}
+        /* pulse / flow：胶囊外圈呼吸光环扩散（作用于 ::before，绝不覆盖文字自身渐变） */
+        html[data-ts-status="pulse"] .dsh-mobile-composer-info::before,
+        html[data-ts-status="flow"] .dsh-mobile-composer-info::before{animation:dsh-mobile-status-breathe 2.4s ease-in-out infinite!important}
+        @keyframes dsh-mobile-status-breathe{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 30%,transparent),0 0 18px -6px color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 22%,transparent)}70%{box-shadow:0 0 0 10px color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 0%,transparent),0 0 18px -6px color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 22%,transparent)}100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 0%,transparent),0 0 18px -6px color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 22%,transparent)}}
+        /* whale：游动微浮节奏 */
+        html[data-ts-status="whale"] .dsh-mobile-composer-info{animation:dsh-mobile-status-whale 2.8s ease-in-out infinite!important}
+        @keyframes dsh-mobile-status-whale{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+        /* neon：双色霓虹发光文字与边框脉冲 */
+        html[data-ts-status="neon"] .dsh-mobile-composer-info{color:var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe))!important;text-shadow:0 0 4px color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 70%,transparent),0 0 12px color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 45%,transparent)!important}
+        html[data-ts-status="neon"] .dsh-mobile-composer-info::before{border-color:color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 45%,transparent)!important;animation:dsh-mobile-status-neon 2.6s ease-in-out infinite!important}
+        @keyframes dsh-mobile-status-neon{0%,100%{box-shadow:0 0 10px color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 32%,transparent)}50%{box-shadow:0 0 22px color-mix(in srgb,var(--color-brand,var(--dsw-alias-brand-text,#8b5cf6)) 55%,transparent)}}
+        /* terminal：复古终端等宽方角与光标扫描线 */
+        html[data-ts-status="terminal"] .dsh-mobile-composer-info{border-radius:2px!important;font-family:var(--dsw-font-family-mono,ui-monospace,monospace)!important;color:var(--color-success,var(--dsw-alias-state-success-primary,#3fb950))!important;letter-spacing:.04em!important;text-shadow:0 0 8px color-mix(in srgb,var(--color-success,var(--dsw-alias-state-success-primary,#3fb950)) 45%,transparent)!important}
+        html[data-ts-status="terminal"] .dsh-mobile-composer-info::before{border-radius:2px!important;border-color:color-mix(in srgb,var(--color-success,var(--dsw-alias-state-success-primary,#3fb950)) 38%,transparent)!important;background:color-mix(in srgb,var(--color-success,var(--dsw-alias-state-success-primary,#3fb950)) 6%,transparent)!important}
+        html[data-ts-status="terminal"] .dsh-mobile-composer-info::after{content:""!important;position:absolute!important;inset:0!important;pointer-events:none!important;background:linear-gradient(to bottom,transparent 0%,color-mix(in srgb,var(--color-success,var(--dsw-alias-state-success-primary,#3fb950)) 16%,transparent) 50%,transparent 100%)!important;background-size:100% 260%!important;animation:dsh-mobile-status-scan 2.4s linear infinite!important}
+        @keyframes dsh-mobile-status-scan{0%{background-position:0 -130%}100%{background-position:0 130%}}
+        /* candy：糖果色微弹跳与柔光 */
+        html[data-ts-status="candy"] .dsh-mobile-composer-info{color:var(--color-brand,var(--dsw-alias-brand-text,#8b5cf6))!important;text-shadow:0 1px 6px color-mix(in srgb,var(--color-brand,var(--dsw-alias-brand-text,#8b5cf6)) 50%,transparent)!important;animation:dsh-mobile-status-candy 1.8s ease-in-out infinite!important}
+        html[data-ts-status="candy"] .dsh-mobile-composer-info::before{border-color:color-mix(in srgb,var(--color-brand,var(--dsw-alias-brand-text,#8b5cf6)) 34%,transparent)!important;background:color-mix(in srgb,var(--color-brand,var(--dsw-alias-brand-text,#8b5cf6)) 12%,transparent)!important}
+        @keyframes dsh-mobile-status-candy{0%,100%{transform:translateY(0)}40%{transform:translateY(-1.5px)}70%{transform:translateY(.5px)}}
+        /* glitch：RGB色散与随机抖动 */
+        html[data-ts-status="glitch"] .dsh-mobile-composer-info{border-radius:4px!important;color:var(--color-foreground,var(--dsw-alias-label-primary,#fff))!important;text-shadow:-1px 0 color-mix(in srgb,var(--color-danger,var(--dsw-alias-state-error-primary,#f85149)) 70%,transparent),1px 0 color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 70%,transparent)!important;animation:dsh-mobile-status-glitch 2.8s steps(1) infinite!important}
+        html[data-ts-status="glitch"] .dsh-mobile-composer-info::before{border-radius:4px!important;border-color:color-mix(in srgb,var(--color-danger,var(--dsw-alias-state-error-primary,#f85149)) 40%,transparent)!important;background:color-mix(in srgb,var(--color-foreground,var(--dsw-alias-label-primary,#fff)) 6%,transparent)!important}
+        @keyframes dsh-mobile-status-glitch{0%{transform:translateX(0)}2%{transform:translateX(-2px)}4%{transform:translateX(2px)}6%,100%{transform:translateX(0)}}
+        /* ring：环形旋转光晕 */
+        html[data-ts-status="ring"] .dsh-mobile-composer-info{color:var(--color-foreground,var(--dsw-alias-label-primary,#f8fafc))!important;text-shadow:0 0 6px color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 35%,transparent)!important}
+        html[data-ts-status="ring"] .dsh-mobile-composer-info::before{border-color:color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 30%,transparent)!important;box-shadow:0 0 12px color-mix(in srgb,var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)) 35%,transparent)!important;animation:dsh-mobile-status-breathe 2.0s ease-in-out infinite!important}
+        /* bar：胶囊下方三段音量跳动条 */
+        html[data-ts-status="bar"] .dsh-mobile-composer-info{margin-bottom:9px!important;color:var(--color-foreground,var(--dsw-alias-label-primary,#f8fafc))!important}
+        html[data-ts-status="bar"] .dsh-mobile-composer-info::after{content:""!important;position:absolute!important;left:50%!important;margin-left:-11px!important;bottom:-5px!important;width:22px!important;height:3px!important;pointer-events:none!important;background:linear-gradient(var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)),var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe))) left/4px 100% no-repeat,linear-gradient(var(--color-brand,var(--dsw-alias-brand-text,#8b5cf6)),var(--color-brand,var(--dsw-alias-brand-text,#8b5cf6))) center/4px 100% no-repeat,linear-gradient(var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe)),var(--color-primary,var(--dsw-alias-brand-primary,#4d6bfe))) right/4px 100% no-repeat!important;animation:dsh-mobile-status-bars 1.2s ease-in-out infinite!important}
+        @keyframes dsh-mobile-status-bars{0%,100%{transform:scaleY(.5);opacity:.6}35%{transform:scaleY(1.4);opacity:1}70%{transform:scaleY(.8);opacity:.8}}
+        /* 移动端电量与无障碍：减弱动效时全部停住，但保留胶囊外观 */
+        @media (prefers-reduced-motion: reduce){
+          html[data-ts-status] .dsh-mobile-composer-info,
+          html[data-ts-status] .dsh-mobile-composer-info::before,
+          html[data-ts-status] .dsh-mobile-composer-info::after{animation:none!important}
+          html[data-ts-status] .dsh-mobile-composer-info{-webkit-text-fill-color:currentColor;color:var(--color-foreground,var(--dsw-alias-label-primary,#f8fafc))}
+        }
+        @media (prefers-contrast: more){
+          html[data-ts-status] .dsh-mobile-composer-info{-webkit-text-fill-color:currentColor;color:var(--color-foreground,var(--dsw-alias-label-primary,#f8fafc));text-shadow:none!important}
+        }
         .dsh-mobile-tools-backdrop:not([hidden]){display:block;position:fixed;inset:0;z-index:1340;background:transparent}
         /* 这条规则必须压过上面的 [role="menu"]{z-index:1300!important}：
            本菜单也带 role="menu"，被那条 !important 压到 1300 后会低于自己的
@@ -1210,6 +1267,10 @@ window.__ModuleLoader__.load({
             const nextInfo = effort ? `${modelName} · ${effort}` : modelName
             if (infoEl.textContent !== nextInfo) infoEl.textContent = nextInfo
             if (cardEl.previousSibling !== infoEl) {
+              // 幂等：infoEl 是单例。真实 DOM 会自动移动重复插入的节点，但宿主
+              // 换会话 / 切视图可能把卡片挪进别的容器，届时旧节点会留在原地成为
+              // 幽灵条。先摘再插，保证任何分支下都只有一个、且正好在卡片前面。
+              if (typeof infoEl.remove === 'function') infoEl.remove()
               if (typeof cardEl.before === 'function') cardEl.before(infoEl)
               else if (cardEl.parentElement) cardEl.parentElement.prepend(infoEl)
             }
