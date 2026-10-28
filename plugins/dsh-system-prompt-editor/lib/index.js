@@ -206,6 +206,99 @@ const assemblyCache = new WeakMap()
 const ASSEMBLY_CACHE_TTL = 3000
 
 /**
+ * 找出一个可以用来组装「完整提示词」的存活 agent。
+ *
+ * **为什么需要它**：`systemPrompt.assemble({ scope: undefined })` 只合并
+ * **全局层**，而不少段落是注册在 **agent scope** 上的。典型例子是
+ * `@deepseek-ai/dsh-file-reference-local`：
+ *
+ * ```js
+ * agent.ctx.inject(['systemPrompt', 'tools'], (scope) => {
+ *   scope.systemPrompt.section({ name: 'context:file-reference', ... })
+ * })
+ * ```
+ *
+ * 这段只有传入 agent 的 scope 才会被合并，并且它的 `text()` 还要用
+ * `agent.ctx.tools.get('read', agent)` 判断是否输出。因此设置页若始终以
+ * `scope: undefined` 组装，`context:file-reference` 就永远不出现在段落列表里，
+ * 「段落查询定位」搜不到、按名称下拉框也选不到——用户明明能在会话提示词里
+ * 看到这句话，却在编辑器里找不到它。
+ *
+ * 探测一律防御式：`ctx.agents` 是可选服务（peerDependencies 未声明），
+ * 且测试用最小 ctx 构造，任何异常都退化为「没有 agent」。
+ * @param {object} ctx - 插件上下文。
+ * @returns {object|null} 存活 agent（含 `.ctx`）或 null。
+ */
+export function findLiveAgent(ctx) {
+  try {
+    const agents = ctx?.agents
+    if (!agents || typeof agents.list !== 'function') return null
+    const all = agents.list()
+    if (!Array.isArray(all) || all.length === 0) return null
+
+    // 优先顶层 agent：子代理（subagent）的 scope 会叠加父级分层，
+    // 组装结果最完整，但它不是用户此刻在用的那个会话，容易误导。
+    let roots = []
+    try {
+      if (typeof agents.roots === 'function') {
+        const listed = agents.roots()
+        if (Array.isArray(listed)) roots = listed
+      }
+    } catch {
+      // 忽略：退化为 list() 的首个。
+    }
+    const candidate = roots[0] ?? all[0]
+    return candidate && typeof candidate === 'object' ? candidate : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 组装一次 baseline，必要时回退到 agent scope。
+ *
+ * 先用全局 scope 组装（兼容没有存活 agent 的部署，例如一次性 CLI 调用），
+ * 再用 agent scope 组装一次，把**只在 agent 层注册**的段落补进来。
+ * 两路按 section 名去重，全局已有的一律以全局为准——全局结果与旧行为完全
+ * 一致，所以这项改动对原本能看到的段落没有任何影响。
+ * @param {object} state - 插件运行时状态。
+ * @param {object|null} agent - 存活 agent（可为 null）。
+ * @returns {Promise<object>} 合并后的 assembly。
+ */
+async function assembleWithAgentScope(state, agent) {
+  const base = await state.prompt.assemble({ scope: undefined, [BYPASS_KEY]: true })
+  if (!agent || !agent.ctx) return base
+
+  let scoped = null
+  try {
+    scoped = await state.prompt.assemble({ scope: agent.ctx, agent, [BYPASS_KEY]: true })
+  } catch {
+    // agent scope 组装失败（例如会话正在销毁）不该让整个设置页报错：
+    // 退回全局结果，至少保留原有能力。
+    return base
+  }
+
+  const baseSections = Array.isArray(base?.sections) ? base.sections : []
+  const scopedSections = Array.isArray(scoped?.sections) ? scoped.sections : []
+  if (scopedSections.length === 0) return base
+
+  const seen = new Set(baseSections.map((section) => asText(section?.name)))
+  const merged = [...baseSections]
+  for (const section of scopedSections) {
+    const name = asText(section?.name)
+    if (seen.has(name)) continue
+    // 空文本段落（如被 tools 条件关掉的 context:file-reference）不补：
+    // 它们本来就不会出现在提示词里，列出来只会让人以为写了规则却没生效。
+    if (asText(section?.text) === '') continue
+    seen.add(name)
+    merged.push(section)
+  }
+
+  if (merged.length === baseSections.length) return base
+  return { ...base, sections: merged }
+}
+
+/**
  * 取一份「纯默认」assembly（已带旁路标记，不含本插件的改写）。
  * @param {object} state - 插件运行时状态。
  * @param {{fresh?: boolean}} [options] - `fresh: true` 强制重新组装。
@@ -223,7 +316,7 @@ async function getBaselineAssembly(state, options = {}) {
     }
   }
 
-  const promise = state.prompt.assemble({ scope: undefined, [BYPASS_KEY]: true })
+  const promise = assembleWithAgentScope(state, findLiveAgent(state.ctx))
   assemblyCache.set(state, { at: now, promise })
   return promise
 }
@@ -318,7 +411,9 @@ export async function buildSettingsView(state, options = {}) {
   try {
     // 组装一次“真正的系统默认提示词”：带上旁路标记，让本插件的 waterfall 跳过
     // 自己的改写，这样用户看到的 baseline 才是官方原始内容。
-    const baselineAssembly = await state.prompt.assemble({ scope: undefined, [BYPASS_KEY]: true })
+    // 必须带上存活 agent 的 scope：只在 agent 层注册的段落
+    // （如 context:file-reference）否则不会出现在段落列表与预览里。
+    const baselineAssembly = await assembleWithAgentScope(state, findLiveAgent(state.ctx))
     variables = baselineAssembly?.variables && typeof baselineAssembly.variables === 'object'
       ? baselineAssembly.variables
       : {}
@@ -531,6 +626,9 @@ export function apply(ctx, config) {
 
   const state = {
     prompt: ctx.systemPrompt,
+    // 供 findLiveAgent 探测 agent scope：只在 agent 层注册的段落
+    // （如 context:file-reference）必须带 agent 组装才能取到。
+    ctx,
     current,
     settingsFile,
     storageKind,

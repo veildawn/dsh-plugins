@@ -254,6 +254,56 @@ section 名是内部标识，普通用户在「按名称」下拉框或查询结
 是唯一告诉模型「先用 `read` 读、再声称检查过」的段落。原文只描述语法，
 不含行为约束，所以它也是最常被用户接管改写的一段（README 例 6 给了套用模板）。
 
+### 2.5.3 必须带 agent scope 组装（否则漏段）
+
+真实事故（v0.3.2 发布后）：设置页显示「当前共 8 个段落」，而会话提示词里明明
+有 `Tokens prefixed with @ are paths the user explicitly referenced`，
+在「段落查询定位」里却**搜不到**。
+
+根因不在查询逻辑，而在**组装时给的 scope 不对**：
+
+```js
+// 修复前：只合并全局层
+state.prompt.assemble({ scope: undefined, [BYPASS_KEY]: true })
+```
+
+`SystemPrompt.assemble(context)` 内部按 `this.layers.chainLayers(context.scope)`
+合并分层，`scope` 为 `undefined` 时**只拿全局层**。而不少段落注册在更强的
+scope 上——典型如 `@deepseek-ai/dsh-file-reference-local`：
+
+```js
+for (const agent of ctx.agents.list()) installPrompt(agent)
+// installPrompt 里：
+agent.ctx.inject(['systemPrompt', 'tools'], (scope) => {
+  scope.systemPrompt.section({ name: 'context:file-reference', ... })
+})
+```
+
+`section()` 走 `layers.effect(this.ctx, ...)`，以**调用时的 ctx** 决定落在哪一层
+（`scopeOf(ctx)` 取值，`undefined` 即全局层）。注册发生在 `agent.ctx` 的 scope 里，
+所以只有带 agent scope 组装才看得到。
+
+修复方式（`assembleWithAgentScope`）：
+
+1. 先按全局 scope 组装一次——**与旧行为完全一致**，保证无 agent 的部署不受影响；
+2. 再用 `findLiveAgent(ctx)` 找到的存活 agent（优先 `agents.roots()` 顶层会话，
+   避免拿到子代理）的 `ctx` 组装一次；
+3. 把只在 scoped 结果里出现的段落**按名并入**，全局已有的一律以全局为准。
+
+三条边界，测试逐一钉住：
+
+- **全局优先**：同名段落不取 scoped 版本，否则设置页展示的 baseline 会与用户
+  真实看到的提示词不一致；
+- **空文本不补**：`context:file-reference` 在没有 `read` 工具时 `text()` 返回空串，
+  列出来只会让人以为写了规则没生效；
+- **探测全防御**：`ctx.agents` 是可选服务（peerDependencies 未声明），
+  缺失/抛错/返回空一律退化为「没有 agent」；scoped 组装失败时退回全局结果，
+  绝不让整个设置页报错。
+
+> 这条教训值得记在规则里：**「组装一次提示词」不等于「看到全部段落」**。
+> 任何以 `scope: undefined` 组装后展示或查询段落的代码，都会静默漏掉
+> agent 级注册的段落——而且漏得毫无提示（段落列表只是变短了）。
+
 ### 2.6 前端设置页
 
 - 注册到 `settings.section` 插槽（与 dsh-jev 一致）。

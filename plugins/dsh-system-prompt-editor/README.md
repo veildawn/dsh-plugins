@@ -45,7 +45,7 @@ DSH 的系统提示词由 `@deepseek-ai/dsh-system-prompt` 按 `order` 排序拼
 cd plugins/dsh-system-prompt-editor
 npm test          # 先跑测试
 npm pack          # 生成 tgz
-dsh plugin --profile web add ./weniatall-dsh-system-prompt-editor-0.3.2.tgz
+dsh plugin --profile web add ./weniatall-dsh-system-prompt-editor-0.3.3.tgz
 ```
 
 > 请勿手动把 `lib/*.js` 复制进 `~/.dsh/profiles/<profile>/node_modules/`，
@@ -171,6 +171,14 @@ A reference grants permission to read, not an instruction to modify: treat @-ref
 一个词（`Web GUI`）、一个短语，或者整段原文都可以。粘贴多行文本也没关系——
 查询会忽略空白差异（换行、缩进、多空格都不影响命中）。
 
+查询范围是**当前会话真实组装出的全部段落**，包括只在当前会话才注册的那些
+（例如 `context:file-reference`，它讲 `@` 引用的解析规则）。所以像
+`Tokens prefixed with @ are paths...` 这类句子可以直接查到。
+
+> 反过来，**需要特定条件才出现的段落，在条件不满足时查不到是正常的**。
+> 上面那段就只在会话能用 `read` 工具时才注册。此时下拉框与查询结果里都不会有它，
+> 那是官方没有输出该段落，不是查询坏了。
+
 ### 三种匹配方式
 
 | 方式 | 语义 | 适合 |
@@ -283,12 +291,14 @@ cd plugins/dsh-system-prompt-editor
 npm test
 ```
 
-覆盖范围（共 155 项）：
+覆盖范围（共 163 项）：
 
 - `test/core.test.mjs`：规则归一化、匹配、动作、排序、渲染、边界与完整场景；
   以及段落查询定位的匹配语义、空白折叠、下标映射与片段生成（73 项）
 - `test/host.test.mjs`：持久化原子性、损坏配置容错、身份解析、视图组装与降级、
-  `locatePrompt` 定位入口（25 项）
+  `locatePrompt` 定位入口；以及**agent scope 段落可见性**——只在 agent 层注册的
+  段落（如 `context:file-reference`）必须能被查到，同时保证全局优先、
+  空文本不并入、探测与 scoped 组装失败时不崩溃（33 项）
 - `test/client.test.mjs`：模块契约、插槽、RPC 通道一致性、编辑表单往返无损、
   前后端匹配方式一致性；段落中文名映射（含 `context:file-reference` 与下划线工具名）（26 项）
 - `test/locate-ui.test.mjs`：用 `test/react-harness.mjs` **真正挂载设置页组件**，

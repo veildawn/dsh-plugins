@@ -8,6 +8,7 @@ import {
   _internals,
   buildSettingsView,
   defaultSettingsFilePath,
+  findLiveAgent,
   locatePrompt,
   readPersistedSettings,
   resolveAgentIdentity,
@@ -371,4 +372,159 @@ test('locatePrompt 对空查询返回可读提示', async () => {
 
 test('_internals 暴露 locatePrompt 便于测试', () => {
   assert.equal(typeof _internals.locatePrompt, 'function')
+})
+
+/**
+ * 模拟真实宿主的 prompt：**按 scope 分派**。
+ *
+ * 这一段是本次修复的回归靶子。真实环境里 `dsh-file-reference-local` 通过
+ * `agent.ctx.inject(...)` 把 `context:file-reference` 注册在 **agent scope**，
+ * 因此 `assemble({ scope: undefined })` 根本合并不到它——设置页显示
+ * 「当前共 8 个段落」、搜 `Tokens prefixed` 查无结果，就是这么来的。
+ */
+function scopedPrompt(globalSections, scopedSections) {
+  return {
+    async assemble(options = {}) {
+      const scoped = options.scope !== undefined
+      return {
+        sections: (scoped ? scopedSections : globalSections).map((section) => ({ ...section })),
+        contexts: [],
+        tools: [],
+        variables: { model: 'test-model' },
+      }
+    },
+  }
+}
+
+/** 构造带存活 agent 的 state（其余字段取默认）。 */
+function stateWithAgent(prompt, agent) {
+  return {
+    prompt,
+    ctx: { agents: { list: () => (agent === undefined ? [] : [agent]) } },
+    current: () => ({ enabled: true, rules: [], appendSections: [], diagnostics: [] }),
+    settingsFile: '/tmp/x.json',
+    storageKind: 'file',
+  }
+}
+
+test('findLiveAgent 在没有 agents 服务时返回 null 而不是抛错', () => {
+  assert.equal(findLiveAgent(undefined), null)
+  assert.equal(findLiveAgent({}), null)
+  assert.equal(findLiveAgent({ agents: {} }), null)
+  // list() 抛错、返回非数组、空数组，都应优雅退化。
+  assert.equal(findLiveAgent({ agents: { list() { throw new Error('boom') } } }), null)
+  assert.equal(findLiveAgent({ agents: { list: () => null } }), null)
+  assert.equal(findLiveAgent({ agents: { list: () => [] } }), null)
+})
+
+test('findLiveAgent 优先返回顶层 agent，roots 不可用时回退 list', () => {
+  const sub = { id: 'sub' }
+  const root = { id: 'root' }
+  assert.equal(
+    findLiveAgent({ agents: { list: () => [sub, root], roots: () => [root] } }),
+    root,
+  )
+  // roots 抛错时不能连累探测。
+  assert.equal(
+    findLiveAgent({ agents: { list: () => [sub], roots() { throw new Error('x') } } }),
+    sub,
+  )
+})
+
+test('只在 agent scope 注册的段落能被 locate 查到', async () => {
+  const prompt = scopedPrompt(
+    [{ name: 'harness:identity', order: -1000, text: 'You are an AI agent.' }],
+    [
+      { name: 'harness:identity', order: -1000, text: 'You are an AI agent.' },
+      { name: 'context:file-reference', order: 900, text: 'Tokens prefixed with @ are paths the user explicitly referenced.' },
+    ],
+  )
+
+  // 关键：修复前这里永远查不到，因为组装只走全局 scope。
+  const result = await locatePrompt(stateWithAgent(prompt, { ctx: {} }), 'Tokens prefixed', { fresh: true })
+  assert.equal(result.ok, true)
+  assert.equal(result.matches.length, 1)
+  assert.equal(result.matches[0].name, 'context:file-reference')
+  assert.equal(result.matches[0].order, 900)
+})
+
+test('没有存活 agent 时仍只返回全局段落，不报错', async () => {
+  const prompt = scopedPrompt(
+    [{ name: 'harness:identity', order: -1000, text: 'You are an AI agent.' }],
+    [{ name: 'context:file-reference', order: 900, text: 'Tokens prefixed' }],
+  )
+
+  const result = await locatePrompt(stateWithAgent(prompt, undefined), 'Tokens prefixed', { fresh: true })
+  // 组装本身成功（ok: true），只是 scoped 段落不存在因此没有命中——
+  // 不能因为「没 agent」就把整个查询判成失败。
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.matches, [])
+})
+
+test('合并时全局优先，scoped 段落不覆盖同名全局段', async () => {
+  const prompt = scopedPrompt(
+    [{ name: 'harness:identity', order: -1000, text: 'GLOBAL-VERSION' }],
+    [
+      { name: 'harness:identity', order: -1000, text: 'SCOPED-SHADOW' },
+      { name: 'context:file-reference', order: 900, text: 'EXTRA-SECTION' },
+    ],
+  )
+
+  const result = await locatePrompt(stateWithAgent(prompt, { ctx: {} }), 'SCOPED-SHADOW', { fresh: true })
+  // 全局版本必须赢：否则设置页展示的 baseline 会和用户真实看到的提示词不一致。
+  assert.deepEqual(result.matches, [])
+
+  const extra = await locatePrompt(stateWithAgent(prompt, { ctx: {} }), 'EXTRA-SECTION', { fresh: true })
+  assert.equal(extra.matches.length, 1)
+})
+
+test('空文本的 scoped 段落不并入列表', async () => {
+  const prompt = scopedPrompt(
+    [{ name: 'harness:identity', order: -1000, text: 'ID' }],
+    [
+      // context:file-reference 在没有 read 工具时 text() 返回空串，
+      // 列出来只会让用户以为写了规则却没生效。
+      { name: 'context:file-reference', order: 900, text: '' },
+      { name: 'tool:real', order: 1000, text: 'REAL-TOOL' },
+    ],
+  )
+
+  const result = await locatePrompt(stateWithAgent(prompt, { ctx: {} }), 'REAL-TOOL', { fresh: true })
+  assert.equal(result.ok, true)
+  assert.equal(result.totalSections, 2, '空文本段落不应计入总段落数')
+})
+
+test('agent scope 组装抛错时退回全局结果而不是让设置页失败', async () => {
+  const prompt = {
+    async assemble(options = {}) {
+      if (options.scope !== undefined) throw new Error('session is disposing')
+      return {
+        sections: [{ name: 'harness:identity', order: -1000, text: 'STILL-WORKS' }],
+        contexts: [],
+        tools: [],
+        variables: { model: 'test-model' },
+      }
+    },
+  }
+
+  const result = await locatePrompt(stateWithAgent(prompt, { ctx: {} }), 'STILL-WORKS', { fresh: true })
+  assert.equal(result.ok, true)
+  assert.equal(result.matches.length, 1)
+})
+
+test('buildSettingsView 的段落列表包含 agent scope 段落', async () => {
+  const prompt = scopedPrompt(
+    [{ name: 'harness:identity', order: -1000, text: 'ID' }],
+    [
+      { name: 'harness:identity', order: -1000, text: 'ID' },
+      { name: 'context:file-reference', order: 900, text: 'Tokens prefixed with @' },
+    ],
+  )
+
+  const view = await buildSettingsView(stateWithAgent(prompt, { ctx: {} }))
+  assert.equal(view.ok, true)
+  const names = view.sections.map((section) => section.name)
+  // 这正是用户截图里「当前共 8 个段落」缺失的那一段。
+  assert.ok(names.includes('context:file-reference'), '段落列表必须包含 context:file-reference')
+  assert.match(view.baseline, /Tokens prefixed with @/)
 })

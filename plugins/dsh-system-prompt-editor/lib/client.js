@@ -941,6 +941,15 @@ window.__ModuleLoader__.load({
             '知道提示词里有这么一句话、但不知道它属于哪个段落？在这里输入一个词或一段话，'
             + '下方会列出命中的段落与上下文。例如输入 Web GUI，会定位到 app:web-surface。'
           ),
+          // 段落列表来自「全局 scope + 当前存活 agent 的 scope」两路合并。
+          // 不说明的话，用户会以为提示词里任何句子都必然能搜到——而需要特定条件
+          // 才注册的段落（如需要 read 工具的 context:file-reference）在条件不满足时
+          // 本就不存在，那是正常的，不是查询坏了。
+          view && Array.isArray(view.sections) && view.sections.length > 0
+            ? react.createElement('p', { className: 'spe-hint' },
+              '列表已包含当前会话专属的段落（如 context:file-reference）。'
+              + '需要特定条件才出现的段落，只在条件满足时才列在这里。')
+            : null,
 
           react.createElement('div', { className: 'spe-query-row' },
             react.createElement('div', { className: 'spe-field grow' },
