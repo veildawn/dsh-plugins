@@ -719,7 +719,10 @@ window.__ModuleLoader__.load({
                     key: section.name,
                     value: section.name,
                     title: section.preview || '',
-                  }, sectionLabel(section))),
+                  },
+                  // inactive：段落已注册但当前不输出（text() 返回空串）。
+                  // 不标出来的话，用户会以为「列在这里就一定在提示词里」。
+                  sectionLabel(section) + (section.inactive ? ' · 当前未输出' : ''))),
                 ),
               )
               : react.createElement('div', { className: 'spe-field', style: { flex: '2 1 260px' } },
@@ -941,14 +944,15 @@ window.__ModuleLoader__.load({
             '知道提示词里有这么一句话、但不知道它属于哪个段落？在这里输入一个词或一段话，'
             + '下方会列出命中的段落与上下文。例如输入 Web GUI，会定位到 app:web-surface。'
           ),
-          // 段落列表来自「全局 scope + 当前存活 agent 的 scope」两路合并。
-          // 不说明的话，用户会以为提示词里任何句子都必然能搜到——而需要特定条件
-          // 才注册的段落（如需要 read 工具的 context:file-reference）在条件不满足时
-          // 本就不存在，那是正常的，不是查询坏了。
+          // 段落列表来自「全局 scope + 当前会话 agent 的 scope」两路合并。
+          // 有些段落虽然注册了，但当前条件下不输出（如需要 read 工具的
+          // context:file-reference），它们会以「当前未输出」标注列出——
+          // 这样用户能区分「段落不存在」和「段落存在但此刻是空的」。
           view && Array.isArray(view.sections) && view.sections.length > 0
             ? react.createElement('p', { className: 'spe-hint' },
               '列表已包含当前会话专属的段落（如 context:file-reference）。'
-              + '需要特定条件才出现的段落，只在条件满足时才列在这里。')
+              + '标注「当前未输出」的段落已注册，但当前条件下内容为空——'
+              + '这类段落搜不到原文是正常的，需要满足条件（例如会话具备 read 工具）才会输出。')
             : null,
 
           react.createElement('div', { className: 'spe-query-row' },

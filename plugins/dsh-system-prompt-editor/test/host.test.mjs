@@ -478,20 +478,61 @@ test('合并时全局优先，scoped 段落不覆盖同名全局段', async () =
   assert.equal(extra.matches.length, 1)
 })
 
-test('空文本的 scoped 段落不并入列表', async () => {
+test('空文本的 scoped 段落仍然列出，并标记为未输出', async () => {
   const prompt = scopedPrompt(
     [{ name: 'harness:identity', order: -1000, text: 'ID' }],
     [
-      // context:file-reference 在没有 read 工具时 text() 返回空串，
-      // 列出来只会让用户以为写了规则却没生效。
+      { name: 'harness:identity', order: -1000, text: 'ID' },
+      // context:file-reference 在没有 read 工具时 text() 返回空串。
+      // 它必须**仍然出现在列表里**并标记 inactive——过滤掉会让用户
+      // 以为段落不存在、以为查询功能坏了。
       { name: 'context:file-reference', order: 900, text: '' },
       { name: 'tool:real', order: 1000, text: 'REAL-TOOL' },
     ],
   )
 
-  const result = await locatePrompt(stateWithAgent(prompt, { ctx: {} }), 'REAL-TOOL', { fresh: true })
+  const view = await buildSettingsView(stateWithAgent(prompt, { ctx: {} }))
+  assert.equal(view.ok, true)
+  assert.equal(view.sections.length, 3, '空文本段落也必须计入')
+
+  const fr = view.sections.find((section) => section.name === 'context:file-reference')
+  assert.ok(fr, 'context:file-reference 必须出现在段落列表中')
+  assert.equal(fr.inactive, true, '空文本段落应标记为当前未输出')
+
+  const real = view.sections.find((section) => section.name === 'tool:real')
+  assert.equal(real.inactive, false, '有文本的段落不应标记 inactive')
+})
+
+test('组装时 scope 必须传 agent 本身而不是 agent.ctx', async () => {
+  // 回归靶子：v0.3.3 错把 agent.ctx 当 scope 传，导致整次修复完全无效——
+  // 实测同一 agent 下 scope=agent 得 9 段（含 context:file-reference），
+  // scope=agent.ctx 只得 8 段。这里断言插件确实传了 agent 本身。
+  const agent = { id: 'a1', ctx: { marker: 'this-must-not-be-used-as-scope' } }
+  const scopes = []
+  const prompt = {
+    async assemble(options = {}) {
+      scopes.push(options.scope)
+      const scoped = options.scope !== undefined
+      return {
+        sections: scoped
+          ? [
+            { name: 'harness:identity', order: -1000, text: 'ID' },
+            { name: 'context:file-reference', order: 900, text: 'FILE-REF-TEXT' },
+          ]
+          : [{ name: 'harness:identity', order: -1000, text: 'ID' }],
+        contexts: [],
+        tools: [],
+        variables: { model: 'test-model' },
+      }
+    },
+  }
+
+  const result = await locatePrompt(stateWithAgent(prompt, agent), 'FILE-REF-TEXT', { fresh: true })
   assert.equal(result.ok, true)
-  assert.equal(result.totalSections, 2, '空文本段落不应计入总段落数')
+  assert.equal(result.matches.length, 1, '传对 scope 才能查到 agent 级段落')
+
+  const scopedCall = scopes.find((scope) => scope !== undefined)
+  assert.equal(scopedCall, agent, 'scope 必须是 agent 对象本身，不能是 agent.ctx')
 })
 
 test('agent scope 组装抛错时退回全局结果而不是让设置页失败', async () => {

@@ -267,11 +267,23 @@ export function findLiveAgent(ctx) {
  */
 async function assembleWithAgentScope(state, agent) {
   const base = await state.prompt.assemble({ scope: undefined, [BYPASS_KEY]: true })
-  if (!agent || !agent.ctx) return base
+  if (!agent) return base
 
   let scoped = null
   try {
-    scoped = await state.prompt.assemble({ scope: agent.ctx, agent, [BYPASS_KEY]: true })
+    // **必须传 agent 对象本身，不能传 agent.ctx。**
+    //
+    // 这是实测出来的（v0.3.3 就是因为传错这里而完全没生效）：
+    // `scopeOf(agent)` 返回 undefined，而 `scopeOf(agent.ctx)` 有值；但
+    // `assemble({ scope })` 内部的 `chainLayers(scope)` 要的是 **agent 自己**——
+    // 宿主把 agent 当作 scope 载体（`scopeTarget(agent, agent)`）。
+    //
+    // 实测同一个 agent 的三种传法：
+    //   scope: agent        → 9 段，含 context:file-reference ✓
+    //   scope: agent.ctx    → 8 段，不含                       ✗
+    //   scope: scopeOf(...) → 8 段，不含                       ✗
+    // 传对的两种情况差的就是全部 agent 级段落，正是用户查不到的那一段。
+    scoped = await state.prompt.assemble({ scope: agent, agent, [BYPASS_KEY]: true })
   } catch {
     // agent scope 组装失败（例如会话正在销毁）不该让整个设置页报错：
     // 退回全局结果，至少保留原有能力。
@@ -287,11 +299,15 @@ async function assembleWithAgentScope(state, agent) {
   for (const section of scopedSections) {
     const name = asText(section?.name)
     if (seen.has(name)) continue
-    // 空文本段落（如被 tools 条件关掉的 context:file-reference）不补：
-    // 它们本来就不会出现在提示词里，列出来只会让人以为写了规则却没生效。
-    if (asText(section?.text) === '') continue
+    // 空文本段落**也要列出**。
+    //
+    // 反面教训（v0.3.2 → v0.3.3 的遗漏）：`context:file-reference` 的 text()
+    // 在 agent 缺 `read` 工具时返回空串，我据此把空段落过滤掉，结果用户看到
+    // 段落列表里根本没有这一项，误以为是查询功能坏了。事实是「段落存在，
+    // 只是当前条件不输出」——这两种情况必须能被区分，所以保留它并打标记
+    // （见 `inactive` 字段），由前端显示「当前未输出」。
     seen.add(name)
-    merged.push(section)
+    merged.push({ ...section, inactive: asText(section?.text) === '' })
   }
 
   if (merged.length === baseSections.length) return base
@@ -436,6 +452,10 @@ export async function buildSettingsView(state, options = {}) {
       name: asText(section?.name),
       length: asText(section?.text).length,
       preview: asText(section?.text).slice(0, 240),
+      // inactive：该段落已注册但当前不输出（text() 返回空串）。
+      // 典型例子是 context:file-reference —— agent 没有 read 工具时它为空。
+      // 前端据此显示「当前未输出」，把「段落不存在」与「条件不满足」区分开。
+      inactive: section?.inactive === true || asText(section?.text) === '',
     }))
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error)

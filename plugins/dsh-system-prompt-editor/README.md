@@ -45,7 +45,7 @@ DSH 的系统提示词由 `@deepseek-ai/dsh-system-prompt` 按 `order` 排序拼
 cd plugins/dsh-system-prompt-editor
 npm test          # 先跑测试
 npm pack          # 生成 tgz
-dsh plugin --profile web add ./weniatall-dsh-system-prompt-editor-0.3.3.tgz
+dsh plugin --profile web add ./weniatall-dsh-system-prompt-editor-0.3.4.tgz
 ```
 
 > 请勿手动把 `lib/*.js` 复制进 `~/.dsh/profiles/<profile>/node_modules/`，

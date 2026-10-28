@@ -287,15 +287,61 @@ agent.ctx.inject(['systemPrompt', 'tools'], (scope) => {
 
 1. 先按全局 scope 组装一次——**与旧行为完全一致**，保证无 agent 的部署不受影响；
 2. 再用 `findLiveAgent(ctx)` 找到的存活 agent（优先 `agents.roots()` 顶层会话，
-   避免拿到子代理）的 `ctx` 组装一次；
+   避免拿到子代理）组装一次；
 3. 把只在 scoped 结果里出现的段落**按名并入**，全局已有的一律以全局为准。
+
+#### ⚠️ 传 `agent` 而不是 `agent.ctx`（v0.3.3 的致命错误）
+
+v0.3.3 第一版把 `scope` 传成了 `agent.ctx`，结果**整次修复完全无效**——发布后
+用户重启，段落数仍是 8。实测同一 agent 三种传法：
+
+| `scope` 传什么 | 段落数 | 含 `context:file-reference` |
+|---|---|---|
+| `agent`（对象本身） | **9** | ✅ |
+| `agent.ctx` | 8 | ❌ |
+| `scopeOf(agent.ctx)` | 8 | ❌ |
+
+反直觉之处：`scopeOf(agent)` 返回 `undefined`，而 `scopeOf(agent.ctx)` 有值——
+看起来该传后者，但 `chainLayers(scope)` 要的恰恰是 **agent 自己**（宿主用
+`scopeTarget(agent, agent)` 把 agent 当 scope 载体）。**这一条只能靠实测确认，
+读代码会得出相反结论。**
+
+#### ⚠️ 空文本段落必须列出，不能过滤
+
+v0.3.3 第二处错误：把 `text === ''` 的段落过滤掉了，理由是「列出来会让人以为
+写了规则没生效」。实际后果更糟——用户根本看不到这一项，**误以为查询功能坏了**。
+
+正确做法是列出并标记（`inactive: true`，前端显示「当前未输出」），把两种状态
+区分开：
+
+- 段落还没注册 → 列表里没有它（真的不存在）
+- 段落注册了但当前为空 → 列表里有它，标「当前未输出」（条件不满足）
+
+`context:file-reference` 属于后者：它的 `text()` 是
+`agent.ctx.tools.get('read', agent) === undefined ? '' : FILE_REFERENCE_PROMPT`，
+会话没有 `read` 工具时就是空串。
+
+#### ⚠️ profile 必须挂载 provider
+
+`@deepseek-ai/dsh-file-reference-local` **不在 `dsh-base` 的清单里**，需要显式挂载，
+否则该段落从未注册，任何 scope 技巧都无济于事：
+
+```yaml
+- id: file-reference-local
+  name: '@deepseek-ai/dsh-file-reference-local'
+  config:
+    maxResults: 20
+```
+
+排查顺序应该是：**先确认 provider 挂载了（`ctx.fileReferences` 存在）→ 再确认
+scope 传对了 → 最后看 text 是否为空**。v0.3.3 跳过了第一步，直接改 scope，白跑一轮。
 
 三条边界，测试逐一钉住：
 
 - **全局优先**：同名段落不取 scoped 版本，否则设置页展示的 baseline 会与用户
   真实看到的提示词不一致；
-- **空文本不补**：`context:file-reference` 在没有 `read` 工具时 `text()` 返回空串，
-  列出来只会让人以为写了规则没生效；
+- **空文本也要列出**：标 `inactive`，由前端显示「当前未输出」。过滤掉会让用户
+  以为段落不存在；
 - **探测全防御**：`ctx.agents` 是可选服务（peerDependencies 未声明），
   缺失/抛错/返回空一律退化为「没有 agent」；scoped 组装失败时退回全局结果，
   绝不让整个设置页报错。
@@ -303,6 +349,14 @@ agent.ctx.inject(['systemPrompt', 'tools'], (scope) => {
 > 这条教训值得记在规则里：**「组装一次提示词」不等于「看到全部段落」**。
 > 任何以 `scope: undefined` 组装后展示或查询段落的代码，都会静默漏掉
 > agent 级注册的段落——而且漏得毫无提示（段落列表只是变短了）。
+>
+> 更值钱的教训是流程上的：**v0.3.2 与 v0.3.3 两轮修复都没有先做端到端验证**。
+> 第一轮猜「scope 不对」但传错了参数，第二轮沿用错误前提继续改，两轮都靠
+> 「单元测试绿了」就当修好了，结果用户两次重启都没有变化。
+> 正确的做法是用 `runProfile` 在真实 profile 上起一次运行时、拿到真实 `ctx`
+> 再去组装——那才是唯一能证明修复有效的验证方式，本文档所有「实测」数据
+> 都来自这条路径（`--patch` 覆盖端口以避免抢占正在运行的服务）。
+
 
 ### 2.6 前端设置页
 
