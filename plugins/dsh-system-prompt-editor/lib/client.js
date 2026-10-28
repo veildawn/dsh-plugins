@@ -199,6 +199,10 @@ window.__ModuleLoader__.load({
      * 键以官方真实注册名为准（冒号形式，见 `SECTION_ORDERS` 与各插件源码）；
      * 早期版本曾误写成 `tool-bash` 这类连字符形式，两种都保留，避免存量
      * 部署因命名差异退化成裸名字。
+     *
+     * 注意 `tool:web_search` / `tool:web_fetch` 用的是**下划线**（见
+     * `@deepseek-ai/dsh-tool-web` 的 `section({ name: ... })`），不是连字符；
+     * 连字符写法只是历史遗留的兜底键。
      */
     const SECTION_LABELS = {
       // —— 骨架段落 ——
@@ -210,8 +214,13 @@ window.__ModuleLoader__.load({
       'plan:policy': '计划模式规范',
       'team:identity': '团队身份说明',
       'team:policy': '团队协作规范',
-      'ptc:only': 'PTC 专用说明',
-      'mcp-servers': 'MCP 服务说明',
+      'tools:ptc-only': 'PTC 专用说明',
+      'tools:sdk': 'PTC 生成的 SDK 说明',
+      'ui:deliverable-file-references': '交付物文件引用约定',
+      'mcp-resource-servers': 'MCP 资源服务说明',
+
+      // —— 上下文约定段落（context:*，由各能力插件按需注册）——
+      'context:file-reference': '@ 引用路径约定（文件与目录引用）',
 
       // —— 工具说明（冒号形式为官方真实名）——
       'tool:bash': 'Bash 工具说明',
@@ -223,8 +232,8 @@ window.__ModuleLoader__.load({
       'tool:grep': '内容搜索工具说明',
       'tool:jobs': '后台任务工具说明',
       'tool:pty': '终端会话工具说明',
-      'tool:web-search': '联网搜索工具说明',
-      'tool:web-fetch': '网页抓取工具说明',
+      'tool:web_search': '联网搜索工具说明',
+      'tool:web_fetch': '网页抓取工具说明',
       'tool:goal': '目标管理工具说明',
       'tool:workflow': '工作流工具说明',
       'tool:subagent': '子代理工具说明',
@@ -234,7 +243,7 @@ window.__ModuleLoader__.load({
       'tool:report': '报告工具说明',
       'tool:computer-use': '桌面操作工具说明',
 
-      // —— 兼容旧命名（连字符）——
+      // —— 兼容旧命名（连字符 / 早期笔误）——
       'tool-bash': 'Bash 工具说明',
       'tool-pwsh': 'PowerShell 工具说明',
       'tool-read': '读取文件工具说明',
@@ -248,7 +257,21 @@ window.__ModuleLoader__.load({
       'tool-goal': '目标管理工具说明',
       'tool-workflow': '工作流工具说明',
       'tool-subagent': '子代理工具说明',
+      'ptc:only': 'PTC 专用说明',
       'mcp-servers': 'MCP 服务说明',
+    }
+
+    /**
+     * 把 section 名翻译成中文含义。
+     *
+     * 与 {@link sectionLabel} 内部的那段判断刻意重复：`sectionLabel` 必须
+     * 自包含（测试会从源码里抠出它单独求值，一旦它引用外部函数就会
+     * ReferenceError）。这里的版本只返回中文名，供查询结果渲染使用。
+     * @param {string} name - 原始 section 名。
+     * @returns {string} 中文名；未收录时返回空串。
+     */
+    function knownSectionLabel(name) {
+      return SECTION_LABELS[name] || (name.startsWith('mcp:') ? 'MCP 服务说明' : '')
     }
 
     /**
@@ -261,7 +284,9 @@ window.__ModuleLoader__.load({
      */
     function sectionLabel(section) {
       const name = section && section.name ? String(section.name) : ''
-      const known = SECTION_LABELS[name]
+      // 每个 MCP 服务都以 `mcp:<服务名>` 单独注册，服务名无法预先穷举，
+      // 所以按前缀识别，避免下拉框里出现一排裸标识。
+      const known = SECTION_LABELS[name] || (name.startsWith('mcp:') ? 'MCP 服务说明' : '')
       const base = known ? `${known}（${name}）` : name
       const size = section && typeof section.length === 'number' ? ` · ${section.length} 字` : ''
       return `${base}${size}`
@@ -569,7 +594,7 @@ window.__ModuleLoader__.load({
 
       /** 渲染一条查询结果（一个命中段落）。 */
       const renderMatch = (match, index) => {
-        const known = SECTION_LABELS[match.name]
+        const known = knownSectionLabel(match.name)
         const referenced = rules.some(
           (rule) => rule && rule.matchKind === 'name' && rule.matchValue === match.name,
         )

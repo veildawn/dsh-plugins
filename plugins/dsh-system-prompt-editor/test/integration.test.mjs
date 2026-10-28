@@ -84,6 +84,48 @@ test('追加段落以正式 section 注册且只出现一次', async () => {
   assert.equal(occurrences, 1)
 })
 
+/**
+ * `FILE_REFERENCE_PROMPT` 与 `@deepseek-ai/dsh-file-reference` 导出常量逐字一致。
+ *
+ * 这里刻意内联而不是 import：本包并不依赖 `dsh-file-reference`（它只是运行时
+ * 可能存在的上游提供方），为了测试去加一条 peerDependency 会让所有未挂载
+ * file-reference 的部署被迫安装它。
+ */
+const FILE_REFERENCE_PROMPT = 'Tokens prefixed with @ are paths the user explicitly referenced. Relative paths resolve from the workspace root; absolute paths identify files or directories on the host. A trailing slash marks a directory: list it when its contents matter. Anything else is a file: use the read tool when its contents are needed, and do not claim to have inspected it before reading. @"..." quotes a path containing spaces.'
+
+test('能改写 @ 引用约定段落（context:file-reference）', async () => {
+  const { ctx, prompt } = createRuntime()
+
+  // 复刻 dsh-file-reference-local 的注册方式：section 名 context:file-reference，
+  // order 取官方 FILE_REFERENCE 锚点（900，工具说明之前）。
+  prompt.section({
+    name: 'context:file-reference',
+    order: prompt.getSectionOrder('FILE_REFERENCE'),
+    text: FILE_REFERENCE_PROMPT,
+  })
+
+  const view = createPluginContext(ctx, prompt)
+  const extra = 'A reference grants permission to read, not an instruction to modify.'
+
+  apply(view, {
+    enabled: true,
+    settingsFile: path.join(os.tmpdir(), `spe-${process.pid}-fileref.json`),
+    rules: [
+      {
+        id: 'enhance-file-reference',
+        match: { kind: 'name', name: 'context:file-reference' },
+        action: { kind: 'setText', text: `${FILE_REFERENCE_PROMPT}\n\n${extra}` },
+      },
+    ],
+    appendSections: [],
+  })
+
+  const text = renderPrompt(await prompt.assemble({ scope: undefined }))
+  assert.match(text, /A reference grants permission to read, not an instruction to modify\./)
+  // 整段替换必须原样保留官方原文，而不是只留下新增的那句。
+  assert.ok(text.includes(FILE_REFERENCE_PROMPT), '官方原文应原样保留')
+})
+
 test('追加段落排在角色设定之后', async () => {
   const { ctx, prompt } = createRuntime()
   const view = createPluginContext(ctx, prompt)

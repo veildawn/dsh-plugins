@@ -281,6 +281,34 @@ test('sectionLabel 为官方段落提供中文可读名称', () => {
   assert.match(sectionLabel({ name: 'harness:identity' }), /harness:identity/)
 })
 
+test('sectionLabel 覆盖 @ 引用约定与下划线形式的真实工具名', () => {
+  const source = readClient()
+  const labels = source.match(/const SECTION_LABELS = \{[\s\S]*?\n    \}/)
+  const labelFn = source.match(/function sectionLabel[\s\S]*?\n    \}/)
+  assert.ok(labels && labelFn, '未能提取 SECTION_LABELS / sectionLabel')
+
+  // eslint-disable-next-line no-new-func
+  const { sectionLabel } = new Function(`${labels[0]}\n${labelFn[0]}\nreturn { sectionLabel }`)()
+
+  // FILE_REFERENCE_PROMPT 注册为 context:file-reference（order 900，工具说明之前）。
+  // 它是“@ 引用怎么解析”的唯一说明，必须有中文名，否则下拉框里只有裸标识。
+  assert.match(sectionLabel({ name: 'context:file-reference' }), /@ 引用/)
+  assert.match(sectionLabel({ name: 'context:file-reference' }), /context:file-reference/)
+
+  // dsh-tool-web 注册的是 tool:web_search / tool:web_fetch（下划线），
+  // 早期标签表写成连字符，导致这两段长期退化成裸名。
+  assert.match(sectionLabel({ name: 'tool:web_search' }), /联网搜索/)
+  assert.match(sectionLabel({ name: 'tool:web_fetch' }), /网页抓取/)
+
+  // 每个 MCP 服务以 mcp:<服务名> 动态注册，名称无法穷举，靠前缀兜底。
+  assert.match(sectionLabel({ name: 'mcp:filesystem' }), /MCP 服务说明/)
+  assert.match(sectionLabel({ name: 'mcp:filesystem' }), /mcp:filesystem/)
+
+  // mcp-resource-servers 是连字符开头的固定段落（dsh-mcp-resources），
+  // mcp: 前缀兜底只认冒号，兜不住它，必须单独收录。
+  assert.match(sectionLabel({ name: 'mcp-resource-servers' }), /MCP 资源服务说明/)
+})
+
 test('存量配置指向的段落不在列表中时仍保留该选项', () => {
   const source = readClient()
   // 预设切换后，规则指向的 section 可能暂时不存在；此时绝不能让下拉框空白，

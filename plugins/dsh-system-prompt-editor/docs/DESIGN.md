@@ -216,6 +216,44 @@ interface LocateResult {
   界面就会闪回上一个词的结果。
 - **查询失败不能连累主流程**。定位只是辅助功能，它挂了也要能正常保存规则。
 
+### 2.5.1 段落中文名映射（SECTION_LABELS）
+
+section 名是内部标识，普通用户在「按名称」下拉框或查询结果里看到 `context:file-reference`
+这种裸串是没法判断该改哪一段的。因此前端维护一张 `SECTION_LABELS`：
+中文含义 + 括号里的原名 + 字数。
+
+维护这张表有三条约束：
+
+1. **键必须是官方真实注册名**。历史上这里写错过两次：
+   - `dsh-tool-web` 注册的是 `tool:web_search` / `tool:web_fetch`（**下划线**），
+     早先按连字符写，导致这两段长期退化成裸名；
+   - PTC 段落是 `tools:ptc-only` / `tools:sdk`（在 `dsh-tools` 里注册，
+     带 `tools:` 前缀），早先按 `ptc:only` 写，同样对不上。
+2. **能穷举的才写死，不能穷举的走前缀**。每个 MCP 服务都以 `mcp:<服务名>`
+   动态注册（`dsh-mcp-client`），服务名无法预先知道，所以按 `mcp:` 前缀兜底。
+   注意前缀兜底**只认冒号**：`mcp-resource-servers`（`dsh-mcp-resources` 注册的
+   固定段落，连字符开头）兜不住，必须单独收录。
+3. **`sectionLabel` 必须自包含**。测试会从源码里抠出这个函数单独求值，
+   一旦它引用模块内的其它 helper 就会 `ReferenceError`。需要复用判断逻辑时，
+   复制那几行（见 `knownSectionLabel`），不要把 `sectionLabel` 改成调用方。
+
+### 2.5.2 内置提示词段落的来源（便于定位）
+
+用户常拿着某段原文来问「这是哪个段落」，下表是几个高频段落的真实出处：
+
+| 段落名 | 文本来源 | order |
+|---|---|---|
+| `harness:identity` | `dsh-system-prompt`（全局硬编码） | -1000 |
+| `context:file-reference` | `FILE_REFERENCE_PROMPT`，由 `dsh-file-reference-local` 注册；变量名与前面这一句同名的常量定义在 `@deepseek-ai/dsh-file-reference` | 900 |
+| `tool:*` | 各 `dsh-tool-*` 包，名为 `` `tool:${toolName}` `` | 1000–3000 |
+| `mcp:<服务名>` | `dsh-mcp-client` | 3100 |
+| `ui:deliverable-file-references` | `dsh-client-ui-deliverables` | 9000 |
+| `app:web-surface` | `dsh-harness-dev-context` | 10100 |
+
+`context:file-reference` 值得单列：它讲的是「`@` 开头的 token 怎么解析」，
+是唯一告诉模型「先用 `read` 读、再声称检查过」的段落。原文只描述语法，
+不含行为约束，所以它也是最常被用户接管改写的一段（README 例 6 给了套用模板）。
+
 ### 2.6 前端设置页
 
 - 注册到 `settings.section` 插槽（与 dsh-jev 一致）。
