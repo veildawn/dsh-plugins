@@ -15,9 +15,11 @@
 - insert:
     - id: system-prompt-editor
       name: './lib/index.js'
+      # agents：设置页要列出只在会话层注册的段落。不注入则 ctx.agents 为 undefined。
       inject:
         - systemPrompt
         - connection
+        - agents
       config:
         # 总开关；关闭后系统提示词完全恢复官方默认，配置仍保留。
         enabled: true

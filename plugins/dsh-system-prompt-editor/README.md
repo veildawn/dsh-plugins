@@ -45,7 +45,7 @@ DSH 的系统提示词由 `@deepseek-ai/dsh-system-prompt` 按 `order` 排序拼
 cd plugins/dsh-system-prompt-editor
 npm test          # 先跑测试
 npm pack          # 生成 tgz
-dsh plugin --profile web add ./weniatall-dsh-system-prompt-editor-0.3.4.tgz
+dsh plugin --profile web add ./weniatall-dsh-system-prompt-editor-0.3.5.tgz
 ```
 
 > 请勿手动把 `lib/*.js` 复制进 `~/.dsh/profiles/<profile>/node_modules/`，
@@ -291,16 +291,16 @@ cd plugins/dsh-system-prompt-editor
 npm test
 ```
 
-覆盖范围（共 163 项）：
+覆盖范围（共 166 项）：
 
 - `test/core.test.mjs`：规则归一化、匹配、动作、排序、渲染、边界与完整场景；
   以及段落查询定位的匹配语义、空白折叠、下标映射与片段生成（73 项）
 - `test/host.test.mjs`：持久化原子性、损坏配置容错、身份解析、视图组装与降级、
   `locatePrompt` 定位入口；以及**agent scope 段落可见性**——只在 agent 层注册的
   段落（如 `context:file-reference`）必须能被查到，同时保证全局优先、
-  空文本不并入、探测与 scoped 组装失败时不崩溃（33 项）
+  空文本仍列出、探测与 scoped 组装失败时不崩溃（34 项）
 - `test/client.test.mjs`：模块契约、插槽、RPC 通道一致性、编辑表单往返无损、
-  前后端匹配方式一致性；段落中文名映射（含 `context:file-reference` 与下划线工具名）（26 项）
+  前后端匹配方式一致性；段落中文名映射；`inject` 必须包含 `agents`（28 项）
 - `test/locate-ui.test.mjs`：用 `test/react-harness.mjs` **真正挂载设置页组件**，
   验证输入即查、结果渲染与高亮、一键落成规则、多次追加规则、剪贴板全路径写入与同步兜底、过期响应丢弃（15 项）
 - `test/integration.test.mjs`：用**真实** `dsh-system-prompt` 服务验证 waterfall 生效、

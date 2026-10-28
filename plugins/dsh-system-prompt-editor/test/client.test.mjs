@@ -238,6 +238,18 @@ test('inject 包含 connection——否则设置页 RPC 会 405', () => {
     'lib/index.js 的 inject 必须包含 connection')
 })
 
+test('inject 包含 agents——否则设置页看不到会话层段落', () => {
+  const hostSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'index.js'), 'utf8')
+  const patchSource = fs.readFileSync(path.join(__dirname, '..', 'cordis.patch.yml'), 'utf8')
+
+  // v0.3.4 漏了这一项：Cordis 未声明的服务读出来是 undefined，
+  // findLiveAgent 永远返回 null，段落数停在全局 8 段。
+  assert.ok(readPatchInject(patchSource).includes('agents'),
+    'cordis.patch.yml 必须注入 agents')
+  assert.match(hostSource, /export const inject = \[[^\]]*'agents'/,
+    'lib/index.js 的 inject 必须包含 agents')
+})
+
 test('宿主端确实注册了 RPC 通道', () => {
   const hostSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'index.js'), 'utf8')
   // 仅声明 inject 不够，代码必须真的调用 rpc.handle。

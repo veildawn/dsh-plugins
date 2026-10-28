@@ -75,8 +75,13 @@ export const name = 'system-prompt-editor'
  * 必须与 `cordis.patch.yml` 的 `inject` 保持一致：`connection` 提供设置页
  * 所需的 RPC 通道，漏掉它则前端调用会得到 HTTP 405 —— UI 能正常渲染，
  * 但宿主端从未 register 过该通道。
+ *
+ * `agents` 同样必须注入。Cordis 上下文是代理，未声明的服务读出来是
+ * undefined，不是「往上找」。不注入的话 `findLiveAgent` 永远返回 null，
+ * 设置页就只能看到全局 8 段，看不到只在会话层注册的段落（例如
+ * `context:file-reference`）。v0.3.4 就是漏了这一项，重启后段落数仍是 8。
  */
-export const inject = ['systemPrompt', 'connection']
+export const inject = ['systemPrompt', 'connection', 'agents']
 
 /**
  * 解析 dsh 主目录。
@@ -229,29 +234,36 @@ const ASSEMBLY_CACHE_TTL = 3000
  * @param {object} ctx - 插件上下文。
  * @returns {object|null} 存活 agent（含 `.ctx`）或 null。
  */
-export function findLiveAgent(ctx) {
+export function listLiveAgents(ctx) {
   try {
     const agents = ctx?.agents
-    if (!agents || typeof agents.list !== 'function') return null
+    if (!agents || typeof agents.list !== 'function') return []
     const all = agents.list()
-    if (!Array.isArray(all) || all.length === 0) return null
+    if (!Array.isArray(all) || all.length === 0) return []
 
-    // 优先顶层 agent：子代理（subagent）的 scope 会叠加父级分层，
-    // 组装结果最完整，但它不是用户此刻在用的那个会话，容易误导。
+    // 优先顶层会话。子代理的 scope 叠在父级上，不是用户此刻打开的那个会话。
     let roots = []
     try {
       if (typeof agents.roots === 'function') {
         const listed = agents.roots()
-        if (Array.isArray(listed)) roots = listed
+        if (Array.isArray(listed) && listed.length > 0) roots = listed
       }
     } catch {
-      // 忽略：退化为 list() 的首个。
+      // 忽略：退化为 list()。
     }
-    const candidate = roots[0] ?? all[0]
-    return candidate && typeof candidate === 'object' ? candidate : null
+    const source = roots.length > 0 ? roots : all
+    return source.filter((agent) => agent && typeof agent === 'object')
   } catch {
-    return null
+    return []
   }
+}
+
+/**
+ * @param {object} ctx - 插件上下文。
+ * @returns {object|null} 一个存活 agent，没有则 null。
+ */
+export function findLiveAgent(ctx) {
+  return listLiveAgents(ctx)[0] ?? null
 }
 
 /**
@@ -262,55 +274,54 @@ export function findLiveAgent(ctx) {
  * 两路按 section 名去重，全局已有的一律以全局为准——全局结果与旧行为完全
  * 一致，所以这项改动对原本能看到的段落没有任何影响。
  * @param {object} state - 插件运行时状态。
- * @param {object|null} agent - 存活 agent（可为 null）。
+ * @param {object|object[]|null} agents - 一个或多个存活 agent。
  * @returns {Promise<object>} 合并后的 assembly。
  */
-async function assembleWithAgentScope(state, agent) {
+async function assembleWithAgentScope(state, agents) {
   const base = await state.prompt.assemble({ scope: undefined, [BYPASS_KEY]: true })
-  if (!agent) return base
-
-  let scoped = null
-  try {
-    // **必须传 agent 对象本身，不能传 agent.ctx。**
-    //
-    // 这是实测出来的（v0.3.3 就是因为传错这里而完全没生效）：
-    // `scopeOf(agent)` 返回 undefined，而 `scopeOf(agent.ctx)` 有值；但
-    // `assemble({ scope })` 内部的 `chainLayers(scope)` 要的是 **agent 自己**——
-    // 宿主把 agent 当作 scope 载体（`scopeTarget(agent, agent)`）。
-    //
-    // 实测同一个 agent 的三种传法：
-    //   scope: agent        → 9 段，含 context:file-reference ✓
-    //   scope: agent.ctx    → 8 段，不含                       ✗
-    //   scope: scopeOf(...) → 8 段，不含                       ✗
-    // 传对的两种情况差的就是全部 agent 级段落，正是用户查不到的那一段。
-    scoped = await state.prompt.assemble({ scope: agent, agent, [BYPASS_KEY]: true })
-  } catch {
-    // agent scope 组装失败（例如会话正在销毁）不该让整个设置页报错：
-    // 退回全局结果，至少保留原有能力。
-    return base
-  }
+  const candidates = Array.isArray(agents) ? agents.filter(Boolean) : (agents ? [agents] : [])
+  if (candidates.length === 0) return base
 
   const baseSections = Array.isArray(base?.sections) ? base.sections : []
-  const scopedSections = Array.isArray(scoped?.sections) ? scoped.sections : []
-  if (scopedSections.length === 0) return base
-
-  const seen = new Set(baseSections.map((section) => asText(section?.name)))
   const merged = [...baseSections]
-  for (const section of scopedSections) {
-    const name = asText(section?.name)
-    if (seen.has(name)) continue
-    // 空文本段落**也要列出**。
-    //
-    // 反面教训（v0.3.2 → v0.3.3 的遗漏）：`context:file-reference` 的 text()
-    // 在 agent 缺 `read` 工具时返回空串，我据此把空段落过滤掉，结果用户看到
-    // 段落列表里根本没有这一项，误以为是查询功能坏了。事实是「段落存在，
-    // 只是当前条件不输出」——这两种情况必须能被区分，所以保留它并打标记
-    // （见 `inactive` 字段），由前端显示「当前未输出」。
-    seen.add(name)
-    merged.push({ ...section, inactive: asText(section?.text) === '' })
+  // 同名段落里，优先留下有正文的版本。只看第一个会话时，一个没有 read
+  // 工具的空会话会把 context:file-reference 钉成「当前未输出」。
+  const byName = new Map(merged.map((section, index) => [asText(section?.name), index]))
+
+  for (const agent of candidates) {
+    let scoped = null
+    try {
+      // **必须传 agent 对象本身，不能传 agent.ctx。**
+      //
+      // 实测同一个 agent 的三种传法：
+      //   scope: agent        → 含 context:file-reference ✓
+      //   scope: agent.ctx    → 不含                       ✗
+      //   scope: scopeOf(...) → 不含                       ✗
+      // 宿主用 scopeTarget(agent, agent) 把 agent 当 scope 载体。
+      scoped = await state.prompt.assemble({ scope: agent, agent, [BYPASS_KEY]: true })
+    } catch {
+      continue
+    }
+    const scopedSections = Array.isArray(scoped?.sections) ? scoped.sections : []
+    for (const section of scopedSections) {
+      const name = asText(section?.name)
+      if (name === '') continue
+      const text = asText(section?.text)
+      const existing = byName.get(name)
+      if (existing === undefined) {
+        byName.set(name, merged.length)
+        merged.push({ ...section, inactive: text === '' })
+        continue
+      }
+      if (text !== '' && asText(merged[existing]?.text) === '') {
+        merged[existing] = { ...section, inactive: false }
+      }
+    }
   }
 
-  if (merged.length === baseSections.length) return base
+  if (merged.length === baseSections.length && merged.every((section, index) => section === baseSections[index])) {
+    return base
+  }
   return { ...base, sections: merged }
 }
 
@@ -332,7 +343,7 @@ async function getBaselineAssembly(state, options = {}) {
     }
   }
 
-  const promise = assembleWithAgentScope(state, findLiveAgent(state.ctx))
+  const promise = assembleWithAgentScope(state, listLiveAgents(state.ctx))
   assemblyCache.set(state, { at: now, promise })
   return promise
 }
@@ -429,7 +440,7 @@ export async function buildSettingsView(state, options = {}) {
     // 自己的改写，这样用户看到的 baseline 才是官方原始内容。
     // 必须带上存活 agent 的 scope：只在 agent 层注册的段落
     // （如 context:file-reference）否则不会出现在段落列表与预览里。
-    const baselineAssembly = await assembleWithAgentScope(state, findLiveAgent(state.ctx))
+    const baselineAssembly = await assembleWithAgentScope(state, listLiveAgents(state.ctx))
     variables = baselineAssembly?.variables && typeof baselineAssembly.variables === 'object'
       ? baselineAssembly.variables
       : {}

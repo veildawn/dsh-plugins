@@ -286,8 +286,9 @@ agent.ctx.inject(['systemPrompt', 'tools'], (scope) => {
 修复方式（`assembleWithAgentScope`）：
 
 1. 先按全局 scope 组装一次——**与旧行为完全一致**，保证无 agent 的部署不受影响；
-2. 再用 `findLiveAgent(ctx)` 找到的存活 agent（优先 `agents.roots()` 顶层会话，
-   避免拿到子代理）组装一次；
+2. 再对存活 agent 组装。插件必须在 `inject` 里声明 `agents`，否则 Cordis
+   上下文读不到 `ctx.agents`（v0.3.4 漏了这项，重启后仍是 8 段）。优先
+   `agents.roots()` 顶层会话，并在多个会话里留下有正文的版本；
 3. 把只在 scoped 结果里出现的段落**按名并入**，全局已有的一律以全局为准。
 
 #### ⚠️ 传 `agent` 而不是 `agent.ctx`（v0.3.3 的致命错误）

@@ -9,6 +9,7 @@ import {
   buildSettingsView,
   defaultSettingsFilePath,
   findLiveAgent,
+  listLiveAgents,
   locatePrompt,
   readPersistedSettings,
   resolveAgentIdentity,
@@ -415,6 +416,15 @@ test('findLiveAgent 在没有 agents 服务时返回 null 而不是抛错', () =
   assert.equal(findLiveAgent({ agents: { list() { throw new Error('boom') } } }), null)
   assert.equal(findLiveAgent({ agents: { list: () => null } }), null)
   assert.equal(findLiveAgent({ agents: { list: () => [] } }), null)
+})
+
+test('listLiveAgents 返回全部顶层会话而不是只留第一个', () => {
+  const first = { id: 'a' }
+  const second = { id: 'b' }
+  assert.deepEqual(
+    listLiveAgents({ agents: { list: () => [first, second], roots: () => [first, second] } }),
+    [first, second],
+  )
 })
 
 test('findLiveAgent 优先返回顶层 agent，roots 不可用时回退 list', () => {
