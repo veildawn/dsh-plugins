@@ -338,6 +338,36 @@ await expectError(
   () => tool.execute({ state: '   ', questions }, {}),
   'state must be a non-empty string',
 );
+// 宿主解析工具调用 JSON 失败时，pi-ai 把参数回退成 {}、agent-loop 把无法解析的
+// 文本原样透传。这两种情况都不能被报成「模型漏传 state」——否则模型会原样重试
+// 同一个坏调用，历史上就是这样连刷三次同一份被截断的参数。
+await expectError(
+  'explains an empty argument object instead of blaming state',
+  () => tool.execute({}, {}),
+  'the tool call JSON was empty or failed to parse',
+);
+await expectError(
+  'explains unparseable argument text instead of blaming state',
+  () => tool.execute('{"state": "x", "questions": {"q": ', {}),
+  'the tool call JSON was empty or failed to parse',
+);
+await expectError(
+  'explains null arguments instead of blaming state',
+  () => tool.execute(null, {}),
+  'the tool call JSON was empty or failed to parse',
+);
+// 反向误报的守卫：参数解析成功但模型真的没给 state 时，必须仍然报 state 的问题。
+// 上一条空参数文案若扩大到这个分支，模型会被误导去「缩短 state」而不是「补上 state」。
+await expectError(
+  'a parseable call that really omits state still blames state',
+  () => tool.execute({ questions }, {}),
+  'state must be a non-empty string, got missing',
+);
+await expectError(
+  'a parseable call with a blank state names it as an empty string',
+  () => tool.execute({ state: '   ', questions }, {}),
+  'got an empty string',
+);
 await expectError(
   'rejects an unknown question type',
   () => tool.execute({ state: 'x', questions: { q: { type: 'label', instructions: 'y?' } } }, {}),

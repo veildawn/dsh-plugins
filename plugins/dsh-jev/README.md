@@ -151,6 +151,17 @@ provider 模式下按 dsh 自身规则解析，面板不保存也不显示 Key�
 - **显式指定 `settingsFile`**（测试或 Profile）时只读写那一个文件，不会旁落读取旧位置。
 - **Key 文件兼容**：旧版保存在 `~/.config/typesafe/key` 的 Key 仍会被读取；新版面板保存的 Key 写入设置文件的 `apiKey` 字段。
 
+## 排障：`state must be a non-empty string`
+
+如果报错是 `no arguments arrived — the tool call JSON was empty or failed to parse`，
+说明**参数根本没送到插件**，与 API Key、提供商、网络都无关。原因在模型这一侧：
+它写 `jev_decide` 的参数时，那段 JSON 被截断或转义错乱（`state` 写得越长越容易发生，
+实测常见于 1KB 以上的中文状态描述）。宿主解析失败后会把参数降级成 `{}` 或原样文本，
+插件收到的就是空对象。
+
+处理办法：把 `state` 压缩到几百字节以内重试；需要给大段上下文时只保留判断依据，
+不要把整份文件或整页需求塞进 `state`。
+
 ## 测试
 
 ```bash

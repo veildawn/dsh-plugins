@@ -706,11 +706,12 @@ function maskKey(key) {
  * @returns 简短的类型描述字符串。
  */
 function describeShape(value) {
+  if (value === undefined) return 'missing';
   if (value === null) return 'null';
   if (Array.isArray(value)) return value.length === 0 ? 'an empty array' : 'an array';
   const type = typeof value;
   if (type === 'object') return Object.keys(value).length === 0 ? 'an empty object' : 'an object';
-  if (type === 'string') return 'a string';
+  if (type === 'string') return value.trim() === '' ? 'an empty string' : 'a string';
   return 'a ' + type;
 }
 
@@ -1272,9 +1273,19 @@ async function attemptRequest(request, headers, body, exec, config, proxy) {
  * @returns 决策结果。
  */
 async function requestDecision(args, exec, config) {
+  // 宿主解析工具调用 JSON 失败时不保留原始文本：pi-ai 把参数回退成 {}，
+  // agent-loop 把无法解析的文本原样透传。两种情况都与「模型真的漏传 state」不可区分，
+  // 所以给出同一份可操作指引，避免模型把同一个失败调用原样重试一遍。
+  if (args === null || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length === 0) {
+    throw new Error(
+      'tool-jev: no arguments arrived — the tool call JSON was empty or failed to parse' +
+        ' (usually a long `state` string that got truncated or mis-escaped while the model wrote it).' +
+        ' Retry with a shorter `state`, and keep `questions` and `state` as sibling keys of the same object.',
+    );
+  }
   const state = args.state;
   if (typeof state !== 'string' || state.trim() === '') {
-    throw new Error('tool-jev: state must be a non-empty string');
+    throw new Error('tool-jev: state must be a non-empty string, got ' + describeShape(state));
   }
   const stateBytes = Buffer.byteLength(state, 'utf8');
   if (stateBytes > config.maxStateBytes) {
