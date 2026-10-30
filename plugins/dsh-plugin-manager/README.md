@@ -111,6 +111,11 @@ dsh plugin --profile web add ./plugins/dsh-plugin-manager/dsh-plugin-manager-0.3
 | **`dsh-im-bot`** | `im-bot` | 集成机器人：企业微信智能机器人与个人微信双通道接入，微信发消息驱动会话、回合完成自动回推 |
 | **`dsh-theme-studio`** | `theme-studio` | 主题工作室：多内置主题、统一 Token 契约与视觉自定义 |
 | **`dsh-zcode-theme`** | `zcode-theme` | ZCode 主题兼容薄壳 —— **（已废弃，只能卸载，请改用 `dsh-theme-studio`）** |
+| **`dsh-jev`** | `jev` | TypeSafe Jev 原生决策模型：结构化决策、意图分流与状态打分 |
+| **`dsh-image-gen`** | `image-gen` | 原生文生图：多提供商与模型、画质/尺寸自选与代理支持 |
+| **`dsh-task-models`** | `task-models` | 子任务模型路由：按任务类型智能分流与模型标注 |
+| **`dsh-system-prompt-editor`** | `system-prompt-editor` | 系统提示词编辑器：可视化段落调整、改写动作与作用域限定 |
+| **`dsh-repo-wiki`** | `repo-wiki` | 仓库知识库：目录规划与逐页写作两阶段流水线、左侧全局面板与六项知识库工具 |
 
 ---
 

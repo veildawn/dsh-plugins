@@ -532,6 +532,19 @@ export const LOCAL_MONOREPO_PLUGINS = [
     path: 'plugins/dsh-system-prompt-editor',
     isRepoPlugin: true,
   },
+  {
+    id: 'dsh-repo-wiki',
+    name: 'dsh-repo-wiki',
+    title: '仓库知识库',
+    description: '代码仓库结构化知识库生成与管理：通过目录规划与逐页写作两阶段流水线自动生成 Markdown 知识库，提供左侧全局面板、六项知识库工具与代码变更持续追踪。',
+    author: 'veildawn',
+    category: 'tools',
+    tags: ['repo-wiki', 'wiki', 'knowledge-base', 'documentation', 'qoder'],
+    icon: 'book',
+    repo: 'veildawn/dsh-plugins',
+    path: 'plugins/dsh-repo-wiki',
+    isRepoPlugin: true,
+  },
 ]
 
 /**

@@ -319,6 +319,12 @@ describe('dsh-market releases formatting and updates detection', () => {
     assert.ok(taskModels)
     assert.equal(taskModels.title, '子任务模型路由')
     assert.ok(taskModels.description.includes('按任务类型为子代理选择模型'))
+
+    // dsh-repo-wiki 同样走静态清单登记，标题与描述为中文
+    const repoWiki = catalog.find((p) => p.name === 'dsh-repo-wiki')
+    assert.ok(repoWiki)
+    assert.equal(repoWiki.title, '仓库知识库')
+    assert.ok(repoWiki.description.includes('代码仓库结构化知识库生成与管理'))
   })
 
   it('keeps every repo plugin card title and description in Chinese', () => {
