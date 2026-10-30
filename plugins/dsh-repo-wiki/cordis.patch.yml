@@ -1,0 +1,52 @@
+# Ensure @deepseek-ai/dsh-client-connection has webStartup + webServer injected
+# so rpc.handle can register HTTP routes.
+# NOTE: webRuntime is intentionally NOT injected: the dsh-web-app web-runtime
+# row that provides it no longer activates on DSH desktop 0.2.1+, so injecting
+# it makes `connection` wait forever and no RPC channel gets registered --
+# the SPA fallback then answers POST with HTTP 405.
+# webStartup must stay listed because a patch row's `inject` REPLACES the
+# previous one wholesale (last write wins), and the connection row's own
+# config reads ctx.webStartup.trustedHosts.
+- id: connection
+  inject:
+    - webStartup
+    - webServer
+
+# Cordis bundle patch: the dsh-repo-wiki HOST row.
+#
+# The host row is deliberately inert for every Agent: it registers no tools and
+# no system-prompt contributions, and injects only `connection` (plus `llm`
+# optionally) so it can serve the /dsh-repo-wiki RPC channel the Web panel calls
+# and run the generation pipeline. The six `*_wiki` tools and the two prompt
+# sections live in the `repo-wiki` Agent preset, published by
+# ./presets/repo-wiki.patch.yml and mounted as `@weniatall/dsh-repo-wiki/tools`.
+#
+# Keeping the row id `repo-wiki` is what makes an upgrade a plain package
+# replace: a profile that already carries this row has its definition swapped
+# in place.
+#
+# `name` is the cordis loader module identifier and must be the package name,
+# otherwise `import(name)` looks for a package that does not exist and the
+# plugin silently fails to load. `@` is a YAML reserved character, so the
+# scalar must be quoted.
+#
+# `llm` is NOT in this row's `inject` on purpose: the pipeline looks it up
+# softly through `ctx.get('llm', false)` so a host without a model service can
+# still serve the panel (read-only) and the agent tools, and only the
+# generation endpoints report `llm-unavailable`.
+- insert:
+    - id: repo-wiki
+      name: '@weniatall/dsh-repo-wiki'
+      config:
+        dataDir: .dsh
+        language: zh
+        maxFiles: 10000
+        maxDepth: 4
+        maxCitations: 40
+        concurrency: 2
+        autoUpdate: false
+        autoUpdateDelayMs: 60000
+        citation: true
+        prompt:
+          enabled: true
+          maxCatalogs: 40

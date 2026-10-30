@@ -24,6 +24,8 @@
 | **`dsh-task-models`** | [`plugins/dsh-task-models`](plugins/dsh-task-models) | 独立子任务模型路由插件（按任务类型为子代理选择模型、显式标签优先与词边界匹配、规则试运行预览、workflow 模型标注附路由解释、可选 TypeSafe Jev 决策、可选轻量分类回退、有界决策超时与取消传播、不依赖任何 Agent Preset 或角色路由插件） | [`v0.3.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-task-models@v0.3.0) |
 | **`dsh-im-bot`** | [`plugins/dsh-im-bot`](plugins/dsh-im-bot) | 集成机器人：企业微信智能机器人（长连接 API 模式，无需公网地址）与个人微信（腾讯 iLink Bot 官方接口）双通道、微信发消息驱动 DSH 会话的双向通信（`/new` `/use` `/sessions` `/status` `/stop` `/notify` `/help` 内置命令）、回合完成与失败告警主动回推发起聊天、白名单安全默认拒绝、每 peer 限流与分片、断线指数退避重连、扫码登录、绑定关系可视化管理、`im_bot_send` 原生工具与 `/dsh-im-bot/send` 通用推送接口 | [`v0.1.14`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-im-bot@v0.1.14) |
 | **`dsh-system-prompt-editor`** | [`plugins/dsh-system-prompt-editor`](plugins/dsh-system-prompt-editor) | 系统提示词可视化编辑器（默认展示当前真实系统提示词、按名称定位改为下拉框列出真实段落并附中文含义与悬停预览、同行字段顶部对齐修正下拉框错位、五种定位方式与五种改写动作、可按预设或会话限定生效范围、追加段落走正式 section 注册、保存前实时预览与逐条命中反馈、优先写入官方 settings 服务并原子落盘、任一规则异常都不阻断会话且失败时原样放行官方提示词、通过 `system-prompt/assemble` waterfall 实现故无需改动安装包） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-system-prompt-editor@v0.2.1) |
+| **`dsh-repo-wiki`** | [`plugins/dsh-repo-wiki`](plugins/dsh-repo-wiki) | Qoder **Repo Wiki** 等价实现（逆向 Qoder CN 1.35.0：18 状态状态机与进度换算、`wiki_catalogs`/`wiki_items`/`knowledge_relations` 四表元数据、分类目录页面路径规则实测 71/71 对齐、`wiki_plan.yaml` 全部字段与 Qoder 上限、六个 `*_wiki` 工具）。在宿主内用 `ctx.llm` 跑「目录规划 → 逐页写作」两阶段流水线，产物落进仓库的 `.dsh/repowiki`，支持暂停/续跑/取消/增量更新/自动更新，可直接读取 Qoder 已导出的 `.qoder/repowiki`） | `v0.2.4` |
+| **`dsh-spec`** | [`plugins/dsh-spec`](plugins/dsh-spec) | 以 **Agent 预设形式提供的 Spec 模式**（Kiro 兼容的 SPEC 规约模型，逆向 Kiro 1.4.13 的官方文档模板与校验器：`.kiro/specs` 三文档、EARS 验收标准、Correctness Properties、复选框任务状态机、Task Dependency Graph 波次调度、`tasks.meta.json` 执行/PBT 记录）。8 个 `spec_*` 工具与 Kiro 提示词随「Spec 模式」预设挂载，只有选中该预设的会话可见；宿主行只提供 SPEC 抽屉面板与设置页的 RPC 通道） | `v0.2.0` |
 
 ---
 
@@ -92,6 +94,12 @@ dsh plugin --profile web add @weniatall/dsh-task-models
 
 # 14. 安装集成机器人 (企业微信 / 个人微信双向通信与任务完成通知)
 dsh plugin --profile web add @weniatall/dsh-im-bot
+
+# 15. 安装 Kiro 兼容 SPEC 规约模型 (requirements/design/tasks + 校验与任务状态)
+dsh plugin --profile web add @weniatall/dsh-spec
+
+# 16. 安装 Qoder Repo Wiki 等价的仓库知识库 (两阶段生成 + 六个 *_wiki 工具)
+dsh plugin --profile web add @weniatall/dsh-repo-wiki
 ```
 
 ### 从旧版 tarball 安装迁移
