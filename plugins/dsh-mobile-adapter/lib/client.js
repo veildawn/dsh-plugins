@@ -253,7 +253,9 @@ window.__ModuleLoader__.load({
         .Sh0Q9G_trigger,
         .iWlSmW_trigger,
         .term-composer-btn,
-        ._7KE1Ra_trigger {
+        ._7KE1Ra_trigger,
+        [data-composer-card] button[aria-haspopup="menu"][aria-label*="模型"],
+        [data-composer-card] button[aria-haspopup="menu"][aria-label*="Model" i] {
           box-sizing:border-box!important;
           width:32px!important;
           height:32px!important;
@@ -305,9 +307,14 @@ window.__ModuleLoader__.load({
         .ccegLa_modes .Sh0Q9G_triggerLabel,.ccegLa_modes .iWlSmW_triggerLabel{display:none!important}
         .Sh0Q9G_triggerLabel,.iWlSmW_triggerLabel{display:none!important}
         .Sh0Q9G_chevron,.iWlSmW_chevron{display:none!important}
-        ._7KE1Ra_root{flex:none!important;width:32px!important;max-width:32px!important;min-width:32px!important}
-        ._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon{display:none!important}
-        ._7KE1Ra_trigger::before{content:"";width:16px;height:16px;display:block;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat}
+        /* 模型选择触发器：宿主每次构建都换哈希（_7KE1Ra_* → _9r0rkG_* → …），
+           按哈希写死会在换代当天静默失效（按钮退回长胶囊、标签重新顶出来）。
+           下面这组统一圆钮规范因此同时锚定「已知哈希」与「语义属性」两侧：
+           aria-haspopup="menu" 加模型语义的 aria-label 是宿主渲染时写死的，
+           不随构建变化。 */
+        ._7KE1Ra_root,[data-composer-card] :is(button[aria-haspopup="menu"][aria-label*="模型"],button[aria-haspopup="menu"][aria-label*="Model" i]){flex:none!important;width:32px!important;max-width:32px!important;min-width:32px!important}
+        ._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon,[data-composer-card] :is(button[aria-haspopup="menu"][aria-label*="模型"],button[aria-haspopup="menu"][aria-label*="Model" i])>*{display:none!important}
+        ._7KE1Ra_trigger::before,[data-composer-card] button[aria-haspopup="menu"][aria-label*="模型"]::before,[data-composer-card] button[aria-haspopup="menu"][aria-label*="Model" i]::before{content:"";width:16px;height:16px;display:block;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5L8 1.5Z' fill='none' stroke='black' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M8 1.5V14.5M2 4.5L14 11.5M2 11.5L14 4.5' stroke='black' stroke-width='1.1'/%3E%3C/svg%3E") center/contain no-repeat}
         .dsh-mobile-composer-info{box-sizing:border-box;width:100%;padding:2px 12px 4px;font-size:11px;line-height:14px;color:var(--dsw-alias-label-tertiary);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.2px}
         /* ── 模型和推理强度条完全跟随主题工作室的「状态条效果」，不跟主题 ────
            状态条效果是独立于主题的全局视觉动效，档位由 <html data-ts-status="<档位>"> 驱动。
@@ -443,8 +450,11 @@ window.__ModuleLoader__.load({
            内部滚动区被撑开、列表既不能滚动也被裁切——这正是「模型选择无法滚动」。
            正确做法是：容器保持 overflow:hidden，只让它内部的滚动区接手滚动。 */
         [role="menu"],:is(._7KE1Ra_menu,[class$="_menu"]),:is(._3e4SsG_menu,[class$="_menu"]){box-sizing:border-box!important;z-index:1300!important;max-width:calc(100vw - 24px)!important;max-height:min(360px,calc(var(--dsh-vvh,100dvh) - 120px))!important;border-radius:14px!important;box-shadow:var(--dsw-shadow-lv3)!important;background:var(--dsw-specific-menu,var(--dsw-alias-bg-layer-3))!important;border:1px solid var(--dsw-alias-border-l2)!important;overflow:hidden!important;overscroll-behavior:contain!important}
-        /* 宿主模型菜单的内部滚动区：显式保活，避免被上面容器的 overflow 规则连带削弱 */
-        ._7KE1Ra_groups{min-height:0!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important;overscroll-behavior:contain!important}
+        /* 宿主模型菜单的内部滚动区：显式保活，避免被上面容器的 overflow 规则连带削弱。
+           宿主换代只改哈希、不改结构，所以这里同时锚定旧哈希与 aria-label 语义。
+           class* 而非 class$：滚动区是 clsx(css.groups, "scrollable")，
+           className 以 scrollable 结尾，按 $="_groups" 匹配不到。 */
+        ._7KE1Ra_groups,[role="menu"][aria-label*="模型"] [class*="_groups"],[role="group"][aria-label*="模型"] [class*="_groups"],[role="menu"][aria-label*="Model" i] [class*="_groups"],[role="group"][aria-label*="Model" i] [class*="_groups"]{min-height:0!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important;overscroll-behavior:contain!important}
         span>[role="menu"]{position:absolute!important;bottom:calc(100% + 4px)!important;left:0!important;min-width:140px!important}
         body>[role="menu"]{min-width:180px!important}
         body>[role="menu"]:has(:is(.cubgiG_item,[class$="_item"])){width:min(300px,calc(100vw - 24px))!important}
@@ -454,13 +464,19 @@ window.__ModuleLoader__.load({
         ._3e4SsG_menu{position:absolute!important;bottom:calc(100% + 4px)!important;left:0!important;right:auto!important;width:min(320px,calc(100vw - 24px))!important}
         ._3e4SsG_item{box-sizing:border-box;min-height:44px!important;padding:8px 12px!important}
         ._3e4SsG_itemName{max-width:50%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-        ._7KE1Ra_menu{position:fixed!important;top:auto!important;bottom:calc(64px + var(--dsh-keyboard-inset,0px) + var(--dsh-sab,0px))!important;right:12px!important;left:auto!important;width:min(280px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important;max-height:min(360px,calc(var(--dsh-vvh,100dvh) - 140px))!important;z-index:1400!important}
-        ._7KE1Ra_option,._7KE1Ra_cell{box-sizing:border-box!important;width:100%!important;min-width:0!important}
-        ._7KE1Ra_modelName,._7KE1Ra_description,._7KE1Ra_cellLabel,._7KE1Ra_cellValue{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-        ._7KE1Ra_cell{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:6px!important;max-width:100%!important;overflow:hidden!important}
-        ._7KE1Ra_cellLabel{flex:none!important;max-width:40%!important;color:var(--dsw-alias-label-primary)!important;white-space:nowrap!important}
-        ._7KE1Ra_cellValue{flex:1 1 auto!important;min-width:0!important;text-align:right!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-        ._7KE1Ra_cellChevron{flex:none!important}
+        /* 悬浮窗停靠：宿主的 place() 用 getBoundingClientRect 算坐标，移动端视口
+           随键盘与浏览器工具栏缩放，算出来的 top 常把浮层推到屏幕中央。这里改用
+           fixed + bottom 强制贴住底部操作栏。选择器同时锚定旧哈希与 aria-label
+           语义，宿主换哈希后仍然命中。
+           排除内层滚动区：宿主把 groups 也渲染成 role="menu"（aria-label 是
+           「模型」，外层容器是「模型与推理等级」），给它套 fixed 会让列表滚不动。 */
+        ._7KE1Ra_menu,[role="menu"][aria-label*="模型" i]:not(:has([role="menuitem"],[role="menuitemradio"])),[role="group"][aria-label*="模型" i]:not(:has([role="menuitem"],[role="menuitemradio"])){position:fixed!important;top:auto!important;bottom:calc(64px + var(--dsh-keyboard-inset,0px) + var(--dsh-sab,0px))!important;right:12px!important;left:auto!important;width:min(280px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important;max-height:min(360px,calc(var(--dsh-vvh,100dvh) - 140px))!important;z-index:1400!important}
+        ._7KE1Ra_option,._7KE1Ra_cell,[role="menu"][aria-label*="模型"] [class$="_option"],[role="menu"][aria-label*="模型"] [class$="_cell"],[role="group"][aria-label*="模型"] [class$="_option"],[role="group"][aria-label*="模型"] [class$="_cell"],[role="menu"][aria-label*="Model" i] [class$="_option"],[role="menu"][aria-label*="Model" i] [class$="_cell"],[role="group"][aria-label*="Model" i] [class$="_option"],[role="group"][aria-label*="Model" i] [class$="_cell"]{box-sizing:border-box!important;width:100%!important;min-width:0!important}
+        ._7KE1Ra_modelName,._7KE1Ra_description,._7KE1Ra_cellLabel,._7KE1Ra_cellValue,[role="menu"][aria-label*="模型"] :is([class$="_modelName"],[class$="_cellLabel"],[class$="_cellValue"]),[role="group"][aria-label*="模型"] :is([class$="_modelName"],[class$="_cellLabel"],[class$="_cellValue"]),[role="menu"][aria-label*="Model" i] :is([class$="_modelName"],[class$="_cellLabel"],[class$="_cellValue"]),[role="group"][aria-label*="Model" i] :is([class$="_modelName"],[class$="_cellLabel"],[class$="_cellValue"]){min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+        ._7KE1Ra_cell,[role="menu"][aria-label*="模型"] [class$="_cell"],[role="group"][aria-label*="模型"] [class$="_cell"],[role="menu"][aria-label*="Model" i] [class$="_cell"],[role="group"][aria-label*="Model" i] [class$="_cell"]{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:6px!important;max-width:100%!important;overflow:hidden!important}
+        ._7KE1Ra_cellLabel,[role="menu"][aria-label*="模型"] [class$="_cellLabel"],[role="group"][aria-label*="模型"] [class$="_cellLabel"],[role="menu"][aria-label*="Model" i] [class$="_cellLabel"],[role="group"][aria-label*="Model" i] [class$="_cellLabel"]{flex:none!important;max-width:40%!important;color:var(--dsw-alias-label-primary)!important;white-space:nowrap!important}
+        ._7KE1Ra_cellValue,[role="menu"][aria-label*="模型"] [class$="_cellValue"],[role="group"][aria-label*="模型"] [class$="_cellValue"],[role="menu"][aria-label*="Model" i] [class$="_cellValue"],[role="group"][aria-label*="Model" i] [class$="_cellValue"]{flex:1 1 auto!important;min-width:0!important;text-align:right!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+        ._7KE1Ra_cellChevron,[role="menu"][aria-label*="模型"] [class$="_cellChevron"],[role="group"][aria-label*="模型"] [class$="_cellChevron"],[role="menu"][aria-label*="Model" i] [class$="_cellChevron"],[role="group"][aria-label*="Model" i] [class$="_cellChevron"]{flex:none!important}
         .VOzbGW_overlay{box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw;height:var(--dsh-vvh,100dvh)!important;background:var(--dsw-alias-bg-base);display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}
         body>div[role="presentation"]:has(>:is(.VOzbGW_panel,[class$="_panel"])){box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw!important;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important}
         .VOzbGW_overlay,body>div[role="presentation"]:has(>[data-shortcut-modal="settings"]),body>div[role="presentation"]:has(>:is(.VOzbGW_panel,[class$="_panel"])){box-sizing:border-box;z-index:1100!important;position:fixed!important;inset:0!important;width:100vw;height:var(--dsh-vvh,100dvh)!important;padding:0!important;background:var(--dsw-alias-bg-base)!important;display:flex!important;flex-direction:column!important;justify-content:flex-start!important;align-items:stretch!important}
@@ -1260,8 +1276,8 @@ window.__ModuleLoader__.load({
               toolsBtn.remove()
             }
           }
-          const modelName = doc.querySelector('._7KE1Ra_triggerLabel')?.textContent?.trim()
-          const effort = doc.querySelector('._7KE1Ra_triggerEffort')?.textContent?.trim()
+          const modelName = (doc.querySelector('._7KE1Ra_triggerLabel') || doc.querySelector('[data-composer-card] [class*="triggerLabel"]'))?.textContent?.trim()
+          const effort = (doc.querySelector('._7KE1Ra_triggerEffort') || doc.querySelector('[data-composer-card] [class*="triggerEffort"]'))?.textContent?.trim()
           const cardEl = doc.querySelector('[data-composer-card]')
           if (cardEl && modelName) {
             const nextInfo = effort ? `${modelName} · ${effort}` : modelName

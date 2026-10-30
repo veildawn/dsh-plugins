@@ -462,17 +462,17 @@ test('Composer keeps complete mode labels together and wraps the trailing contro
   assert.match(css, /.Sh0Q9G_triggerLabel,.iWlSmW_triggerLabel{display:none!important}/)
   assert.match(css, /.Sh0Q9G_chevron,.iWlSmW_chevron{display:none!important}/)
   assert.match(css, /.rS3zOq_chip{[^}]*width:max-content!important;[^}]*min-width:max-content!important;[^}]*padding:0 10px!important;[^}]*white-space:nowrap!important;overflow:visible!important;flex:none!important/)
-  assert.match(css, /._7KE1Ra_root{[^}]*width:32px!important/)
+  assert.match(css, /._7KE1Ra_root,\[data-composer-card\] :is\(button\[aria-haspopup="menu"\]\[aria-label\*="模型"\],[^{]*\{[^}]*width:32px!important/)
   assert.match(css, /._7KE1Ra_trigger[^{]*{[^}]*width:32px!important;[^}]*border-radius:50%!important/)
-  assert.match(css, /._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon{display:none!important}/)
+  assert.match(css, /._7KE1Ra_triggerLabel,._7KE1Ra_triggerEffort,._7KE1Ra_chevron,._7KE1Ra_triggerIcon,\[data-composer-card\] :is\(button\[aria-haspopup="menu"\]\[aria-label\*="模型"\],[^}]*\)>\*\{display:none!important\}/)
   assert.match(css, /.dsh-mobile-composer-info{[^}]*text-align:center/)
   // 上下文 meter：内容自适应药丸（不是 32x32 圆钮），避免百分比被裁掉
   assert.match(css, /\.NXnJXa_root\{width:auto!important;[^}]*height:32px!important/)
   assert.match(css, /\.NXnJXa_trigger\{[^}]*width:auto!important;[^}]*border-radius:999px!important;[^}]*display:inline-flex!important;[^}]*gap:6px!important/)
   assert.match(css, /\.NXnJXa_trigger>span\{display:inline-block!important/)
   assert.match(css, /\.ccegLa_dock>\[data-slot="conversation\.composer\.dock"\]\{flex:1 1 auto!important;width:auto!important;min-width:0!important/)
-  assert.match(css, /\.dsh-mobile-upload-btn,\s*\.dsh-mobile-tools-btn,\s*\.Sh0Q9G_trigger,\s*\.iWlSmW_trigger,\s*\.term-composer-btn,\s*\._7KE1Ra_trigger\s*\{/,
-    '统一圆钮规范的选择器列表不再包含 meter，且同时覆盖新旧权限选择器哈希')
+  assert.match(css, /\.dsh-mobile-upload-btn,\s*\.dsh-mobile-tools-btn,\s*\.Sh0Q9G_trigger,\s*\.iWlSmW_trigger,\s*\.term-composer-btn,\s*\._7KE1Ra_trigger,\s*\[data-composer-card\] button\[aria-haspopup="menu"\]\[aria-label\*="模型"\],\s*\[data-composer-card\] button\[aria-haspopup="menu"\]\[aria-label\*="Model" i\]\s*\{/,
+    '统一圆钮规范的选择器列表不再包含 meter，且用语义属性覆盖模型选择器（不写死构建哈希）')
   // 上下文 meter 必须留在输入框内：卡片按 dock 的真实高度补底部内边距，dock 用
   // 同样的负边距收回卡内。旧实现用 :has(+dock …) + 固定 40px/-38px：浏览器不支持
   // :has()（Safari < 15.4 / Chrome < 105 / 部分移动端内核）时整条静默失效，圆环
@@ -581,9 +581,9 @@ test('Mobile dialogs and in-place menus stay usable without overwriting portal c
   assert.match(css, /\._3e4SsG_menu\{position:absolute!important;bottom:calc\(100% \+ 4px\)!important;left:0!important;right:auto!important;width:min\(320px,calc\(100vw - 24px\)\)!important\}/)
   assert.match(css, /\._3e4SsG_item\{[^}]*min-height:44px!important;padding:8px 12px!important\}/)
   assert.match(css, /\._3e4SsG_itemName\{max-width:50%!important;[^}]*text-overflow:ellipsis!important;white-space:nowrap!important\}/)
-  assert.match(css, /\._7KE1Ra_menu\{position:fixed!important;[^}]*right:12px!important;[^}]*z-index:1400!important\}/)
-  assert.match(css, /\._7KE1Ra_option,\._7KE1Ra_cell\{[^}]*width:100%!important;min-width:0!important\}/)
-  assert.match(css, /\._7KE1Ra_modelName,\._7KE1Ra_description,\._7KE1Ra_cellLabel,\._7KE1Ra_cellValue\{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important\}/)
+  assert.match(css, /\._7KE1Ra_menu,\[role="menu"\]\[aria-label\*="模型" i\]:not\(:has\(\[role="menuitem"\],[^{]*\{position:fixed!important;[^}]*right:12px!important;[^}]*z-index:1400!important\}/)
+  assert.match(css, /\._7KE1Ra_option,\._7KE1Ra_cell,\[role="menu"\]\[aria-label\*="模型"\] \[class\$="_option"\][^{]*\{[^}]*width:100%!important;min-width:0!important\}/)
+  assert.match(css, /\._7KE1Ra_modelName,\._7KE1Ra_description,\._7KE1Ra_cellLabel,\._7KE1Ra_cellValue,\[role="menu"\]\[aria-label\*="模型"\] :is\(\[class\$="_modelName"\],[^{]*\{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important\}/)
   assert.doesNotMatch(css, /\[role="dialog"\]\[aria-modal="true"\]:(?:has\(>nav\)|not\(:has\(>nav\)\))\{/)
   assert.doesNotMatch(css, /inset:auto 0 0!important/)
 
@@ -1314,11 +1314,18 @@ test('菜单容器保持 overflow:hidden，让宿主菜单内部的滚动区接�
   assert.doesNotMatch(menuBody, /overflow-y:auto!important/, '不得给容器加 overflow-y:auto')
 
   // 内部滚动区必须显式保活
-  const groups = css.match(/\._7KE1Ra_groups\{([^}]*)\}/)
-  assert.ok(groups, '缺少 _7KE1Ra_groups 滚动区规则')
+  const groups = css.match(/\._7KE1Ra_groups,\[role="menu"\]\[aria-label\*="模型"\] \[class\*="_groups"\][^{]*\{([^}]*)\}/)
+  assert.ok(groups, '缺少模型菜单内部滚动区规则')
   assert.match(groups[1], /min-height:0!important/, '滚动区需要 min-height:0 才能收缩')
   assert.match(groups[1], /overflow-y:auto!important/, '滚动区必须 overflow-y:auto')
   assert.match(groups[1], /-webkit-overflow-scrolling:touch!important/, 'iOS 需要惯性滚动')
+
+  // 停靠规则必须排除内层滚动区：宿主把 groups 也渲染成 role="menu"
+  // （外层 aria-label 是「模型与推理等级」，内层是「模型」）。少了这条排除，
+  // 给滚动区套上 position:fixed 会让列表彻底滚不动。
+  const dock = css.match(/(\[role="menu"\]\[aria-label\*="模型" i\][^{]*)\{position:fixed!important/)
+  assert.ok(dock, '缺少按 aria-label 锚定的悬浮窗停靠规则')
+  assert.match(dock[1], /:not\(:has\(\[role="menuitem"\]/, '停靠规则必须排除内层滚动区，否则列表滚不动')
 })
 
 test('移动端顶栏 3 层融合成 1 层：隐藏宿主冗余 Tabs 与 Header 占位，顶栏承接全部功能', (t) => {  const css = rawCss
@@ -1613,3 +1620,51 @@ test('every status tier the theme studio offers has a pure CSS mirrored rule tha
   assert.equal(mirroredBlock.includes('prefers-contrast'), true,
     '镜像必须尊重高对比偏好')
 })
+
+test('移动端模型菜单悬浮窗按语义属性停靠在底部输入栏上方，不依赖任何构建哈希', async (t) => {
+  // 悬浮窗必须用 position: fixed + bottom/right !important 强制停靠在底部右侧，
+  // 杜绝宿主 place() 在移动端把浮层错误定位到屏幕中央。
+  // 选择器锚定 aria-label 语义而不是类名哈希：宿主每次构建都换哈希，
+  // 写死哈希会让这条规则在换代当天静默失效（浮层回到屏幕中央）。
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  assert.match(
+    source,
+    /\[role="menu"\]\[aria-label\*="模型" i\]:not\(:has\(\[role="menuitem"\],\[role="menuitemradio"\]\)\)[^{]*\{position:fixed!important;top:auto!important;bottom:calc\(64px \+ var\(--dsh-keyboard-inset,0px\) \+ var\(--dsh-sab,0px\)\)!important;right:12px!important;left:auto!important;/,
+    '必须包含 fixed + bottom/right 的强制停靠规则，且锚定 aria-label 语义并排除内层滚动区',
+  )
+
+  // DOM 提取：宿主换代后类名哈希变了（_7KE1Ra_* → _9r0rkG_*），
+  // 靠 [class*="triggerLabel"] 兜底仍应取到模型名。
+  const f = fixture()
+  const previous = {
+    document: globalThis.document,
+    window: globalThis.window,
+    MutationObserver: globalThis.MutationObserver,
+  }
+  globalThis.document = f.doc
+  globalThis.window = f.win
+  globalThis.MutationObserver = f.Observer
+  t.after(() => {
+    globalThis.document = previous.document
+    globalThis.window = previous.window
+    globalThis.MutationObserver = previous.MutationObserver
+  })
+
+  // 模拟换代后的宿主结构：旧哈希已不存在
+  f.doc.modelLabel.className = 'SomeNew1_triggerLabel'
+  f.doc.effortLabel.className = 'SomeNew1_triggerEffort'
+  const prevQuery = f.doc.querySelector.bind(f.doc)
+  f.doc.querySelector = (selector) => {
+    if (selector.includes('class*="triggerLabel"')) return f.doc.modelLabel
+    if (selector.includes('class*="triggerEffort"')) return f.doc.effortLabel
+    if (selector.includes('triggerLabel')) return null
+    if (selector.includes('triggerEffort')) return null
+    return prevQuery(selector)
+  }
+
+  client.apply(f.ctx)
+  const infoEl = f.doc.composer.children.find((node) => node.className === 'dsh-mobile-composer-info')
+  assert.ok(infoEl, '换代后的类名下模型条必须仍能渲染（靠 class*= 语义兜底）')
+  assert.equal(infoEl.textContent, 'antigravity/gemini-3-flash · High')
+})
+
