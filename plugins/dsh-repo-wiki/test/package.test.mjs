@@ -159,6 +159,33 @@ test('the peer dependencies cover what the halves import', () => {
   }
 });
 
+test('the agent-preset floor stays installable by pnpm, not just by the host', () => {
+  // Real failure (0.2.4 → CI #521): `@deepseek-ai/dsh-agent-preset` declares
+  // ">=0.1.0-rc.6", a floor whose prerelease tuple is 0.1.0 — but that package
+  // has NEVER shipped a 0.1.0 prerelease; its history starts at 0.1.7-alpha.1.
+  //
+  // Two different semver rules were being conflated:
+  //   * the host's evaluatePluginCompatibility runs with includePrerelease, so
+  //     ">=0.1.0-rc.6" happily accepts 0.2.1-rc.5 there;
+  //   * `pnpm install` uses the default rule, where a ">=X" range only admits
+  //     prereleases whose tuple is exactly X. No published version qualifies,
+  //     so the resolver throws ERR_PNPM_NO_MATCHING_VERSION, the whole
+  //     workspace install fails, and CI dies before any test runs.
+  //     A user running `dsh plugin add @weniatall/dsh-repo-wiki` dies the same way.
+  //
+  // The floor therefore has to name a tuple that was actually published.
+  const range = manifest.peerDependencies['@deepseek-ai/dsh-agent-preset'];
+  assert.match(range, /^>=\d+\.\d+\.\d+-[a-z]+\.\d+$/u, `unexpected shape: ${range}`);
+  const floor = range.slice(2);
+  const [major, minor, patch] = floor.split('-')[0].split('.').map(Number);
+  // 0.1.0 is the tuple that was never published; anything below 0.1.7 is not
+  // guaranteed to resolve either. Keep the assertion on the known-good floor.
+  assert.ok(
+    major > 0 || minor > 1 || (minor === 1 && patch >= 7),
+    `${floor} predates the first published dsh-agent-preset; pnpm cannot resolve it`,
+  );
+});
+
 test('the host half loads and exposes the documented surface', async () => {
   const host = await import('../lib/index.js');
   assert.equal(host.name, '@weniatall/dsh-repo-wiki');
