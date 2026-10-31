@@ -60,7 +60,7 @@ test('the bundle registers under the package name', async () => {
 
 test('the bundle injects the services it actually uses', async () => {
   const { module } = await loadBundle();
-  assert.deepEqual(module.inject.sort(), ['connection', 'layout', 'slots']);
+  assert.deepEqual(module.inject.sort(), ['connection', 'layout', 'locale', 'slots']);
   assert.equal(typeof module.apply, 'function');
 });
 
@@ -81,6 +81,60 @@ test('the panel UI language follows the host locale, not the doc language', asyn
   assert.equal(systemLanguage({ language: 'ja-JP' }), 'en');
   assert.equal(systemLanguage({}), 'en', 'missing locale falls back to English');
   assert.equal(systemLanguage(null), 'en', 'no navigator falls back to English');
+});
+
+/** A locale face shaped like the host's LocaleRuntime snapshot contract. */
+function makeLocaleFace(active = 'zh') {
+  const listeners = new Set();
+  const face = {
+    getSnapshot: () => ({ active, revision: 1, locales: [{ id: 'zh' }, { id: 'en' }] }),
+    subscribe: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    __switch: (next) => {
+      active = next;
+      for (const fn of [...listeners]) fn();
+    },
+  };
+  return face;
+}
+
+test('uiLang prefers the host locale face over the navigator tag', async () => {
+  const { module } = await loadBundle();
+  const { uiLang } = module.internals;
+  assert.equal(uiLang(), 'en', 'before apply, the navigator decides (test env reports en)');
+  const harness = makeCtx({
+    get: (key) => (key === 'locale' ? makeLocaleFace('zh') : undefined),
+  });
+  module.apply(harness.ctx);
+  assert.equal(uiLang(), 'zh', 'the host face wins once bound');
+});
+
+test('uiLang falls back when the locale face reports an unknown id', async () => {
+  const { module } = await loadBundle();
+  const { uiLang } = module.internals;
+  const harness = makeCtx({
+    get: (key) => (key === 'locale' ? makeLocaleFace('fr') : undefined),
+  });
+  module.apply(harness.ctx);
+  assert.equal(uiLang(), 'en', 'an unregistered active id falls back to the navigator');
+});
+
+test('apply releases the locale face when the effect disposes', async () => {
+  const { module } = await loadBundle();
+  const disposers = [];
+  const harness = makeCtx({
+    effect: (fn) => {
+      disposers.push(fn());
+      return () => {};
+    },
+    get: (key) => (key === 'locale' ? makeLocaleFace('zh') : undefined),
+  });
+  module.apply(harness.ctx);
+  assert.equal(module.internals.uiLang(), 'zh');
+  for (const dispose of disposers) dispose();
+  assert.notEqual(module.internals.uiLang(), 'zh', 'after disposal the navigator fallback applies again');
 });
 
 test('statusLabel and tabTitle translate by the requested UI language', async () => {

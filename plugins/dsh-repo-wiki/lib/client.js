@@ -373,7 +373,7 @@
       }
 
       /**
-       * The UI language follows the host environment locale, not the
+       * The UI language follows the host locale service, not the
        * document-generation language setting: Chinese locales render the zh
        * copy, everything else falls back to English. `navigatorRef` is
        * injectable so tests can pin a locale without touching the global.
@@ -386,6 +386,42 @@
         } catch {
           return "en";
         }
+      }
+
+      /**
+       * The host's locale runtime (`ctx.locale`, provided by the locale
+       * plugin). `apply` binds it; before that, or in compositions without
+       * it, every read falls back to {@link systemLanguage}.
+       *
+       * The face's snapshot carries `active` ("zh"/"en") and a `revision`
+       * that bumps on every switch, so both the imperative reads and the
+       * React hook below see language changes without re-mounting.
+       */
+      let localeFace = null;
+
+      /** The active UI language: the host's explicit choice, else the browser tag. */
+      function uiLang() {
+        if (localeFace !== null) {
+          try {
+            const active = localeFace.getSnapshot().active;
+            if (active === "zh" || active === "en") return active;
+          } catch {
+            // a torn or disposed face reads like absence; fall through
+          }
+        }
+        return systemLanguage();
+      }
+
+      /** React hook: re-renders the caller whenever the host locale switches. */
+      function useUiLang() {
+        const [lang, setLang] = react.useState(uiLang);
+        react.useEffect(() => {
+          if (localeFace === null || typeof localeFace.subscribe !== "function") return undefined;
+          const sync = () => setLang(uiLang());
+          sync();
+          return localeFace.subscribe(sync);
+        }, []);
+        return lang;
       }
 
       function getCategoryLabel(key, lang = "zh") {
@@ -1508,6 +1544,7 @@
 
       function RepoWikiPanel(props) {
         const rpcCall = props.rpcCall;
+        const lang = useUiLang();
         const [initialSession] = react.useState(() => props.peekPanelSession ? props.peekPanelSession() : "");
         const [state, setState] = react.useState({
           workspaces: null, workspace: "", language: "", loading: false,
@@ -1783,10 +1820,10 @@
             const result = await rpcCall(method, { ...(payload ?? {}), workspace, language });
             if (scope.current.workspace === workspace && scope.current.language === language) {
               if (method === "pause" && result?.paused) {
-                setState((current) => ({ ...current, flash: t("pauseFlash", systemLanguage()) }));
+                setState((current) => ({ ...current, flash: t("pauseFlash", uiLang()) }));
               }
               if (method === "cancel" && result?.cancelled) {
-                setState((current) => ({ ...current, flash: t("cancelFlash", systemLanguage()) }));
+                setState((current) => ({ ...current, flash: t("cancelFlash", uiLang()) }));
               }
               await refresh(workspace, language, { keepSelection: true });
               if (longRunning) setState((current) => current.workspace === workspace && current.language === language
@@ -1818,7 +1855,6 @@
         const details = status?.details ?? {};
         const busy = Boolean(state.busy);
         const lockLanguage = running || launching || busy;
-        const lang = systemLanguage();
         // The document-generation language stays an independent per-wiki
         // setting (`state.language`); the chrome around it is translated by
         // the host locale. `state.language` may be "" before the first RPC,
@@ -2318,7 +2354,7 @@
         return h("button", {
           className: "rw-composer",
           type: "button",
-          title: t("openRepoWiki", systemLanguage()),
+          title: t("openRepoWiki", uiLang()),
           "aria-label": "Repo Wiki",
           disabled: props.canOpenPanel === false,
           onClick: () => props.openPanel(props.sessionId),
@@ -2368,6 +2404,7 @@
 
       function RepoSettings(props) {
         const rpcCall = props.rpcCall;
+        const lang = useUiLang();
         const [state, setState] = react.useState({
           loading: true,
           workspace: "",
@@ -2480,7 +2517,6 @@
         const dirty = Object.keys(changedSettings(values, state.baseline)).length > 0;
         // Settings chrome follows the host locale too; `values.language` is the
         // document-generation language and stays independent.
-        const lang = systemLanguage();
 
         if (state.loading) return h("div", { className: "rw-settings" },
           h("div", { className: "rw-empty" }, h("span", { className: "rw-spinner" }), t("loading", lang)));
@@ -2695,12 +2731,26 @@
 
       function apply(ctx) {
         ensureStyles();
+        // The host's locale runtime decides the UI language (settings →
+        // General → Language, else the browser's languages). Bind the face for
+        // the imperative reads and the `useUiLang` hook; a composition without
+        // the locale plugin keeps the navigator fallback. `ctx.effect` keeps
+        // the binding alive only while this plugin is mounted.
+        const locale = typeof ctx.get === "function" ? ctx.get("locale", false) : undefined;
+        if (locale !== undefined && locale !== null && typeof locale.getSnapshot === "function") {
+          localeFace = locale;
+          if (typeof ctx.effect === "function") {
+            ctx.effect(() => () => {
+              if (localeFace === locale) localeFace = null;
+            }, "repo-wiki: locale face binding");
+          }
+        }
         const rpcCall = async (method, payload) => {
           const rpc = ctx && ctx.connection && ctx.connection.rpc;
-          if (!rpc || typeof rpc.call !== "function") throw new Error(t("connectionNotReady", systemLanguage()));
+          if (!rpc || typeof rpc.call !== "function") throw new Error(t("connectionNotReady", uiLang()));
           const result = await rpc.call(CHANNEL, method, payload || {});
           if (result && result.ok === true) return result.value;
-          const error = new Error(result && result.error ? result.error.message : t("requestFailed", systemLanguage()));
+          const error = new Error(result && result.error ? result.error.message : t("requestFailed", uiLang()));
           // Keep the host's structured code: the panel branches on
           // `no-workspace` to show guidance instead of a retry button.
           error.code = result && result.error ? result.error.code : "internal-error";
@@ -2771,13 +2821,13 @@
       }
 
       exports.apply = apply;
-      exports.inject = ["slots", "connection", "layout"];
+      exports.inject = ["slots", "connection", "layout", "locale"];
       exports.internals = {
         CHANNEL, SETTINGS_SLOT, PANEL_LIST_SLOT, MAIN_SLOT, COMPOSER_SLOT, PANEL_ID,
         LANGUAGES, STATUS_LABEL, STATUS_TONE, CATALOG_TONE, KNOWLEDGE_CATEGORIES, CATEGORY_NAMES,
         flattenTree, filterTree, changedSettings, statusLabel, statusTone, showsProgress, isRetryable,
         hasContent, statusAction, serverErrorView, tabTitle, formatDate, splitPage, renderMarkdown, inline, statusDescription,
-        I18N, t, getCategoryLabel, systemLanguage, STATUS_LABEL_EN,
+        I18N, t, getCategoryLabel, systemLanguage, uiLang, useUiLang, STATUS_LABEL_EN,
       };
       return module.exports;
     },
