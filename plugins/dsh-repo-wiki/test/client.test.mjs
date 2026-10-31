@@ -333,12 +333,43 @@ test('the sidebar glyph and composer button render standalone', async () => {
   const harness = makeCtx();
   module.apply(harness.ctx);
   const row = harness.slots.find((slot) => slot.name === 'sidebar.panellist');
-  assert.equal(row.label(), 'Repo Wiki', 'the label is the row text, not the glyph');
+  assert.equal(row.label(), 'Repo Wiki', 'without a locale face the navigator (en) decides');
   const glyph = row.component({});
   assert.equal(glyph.type, 'svg', 'the sidebar row component is the glyph');
   const composer = harness.slots.find((slot) => slot.name === 'conversation.input.left');
   const button = composer.component({ ...composer.inject('session-1'), sessionId: 'session-1' });
   assert.equal(button.type, 'button');
+});
+
+test('the sidebar row label and settings nav follow a locale switch', async () => {
+  // The host re-resolves `label` on every locale revision; a captured language
+  // (or a plain string) would leave the row in its mount-time language.
+  const { module } = await loadBundle();
+  const face = makeLocaleFace('en');
+  const harness = makeCtx({ get: (key) => (key === 'locale' ? face : key === 'layout' ? { selectPanel: () => {} } : undefined) });
+  module.apply(harness.ctx);
+  const row = harness.slots.find((slot) => slot.name === 'sidebar.panellist');
+  const settings = harness.slots.find((slot) => slot.name === 'settings.section');
+  assert.equal(row.label(), 'Repo Wiki', 'English UI keeps the brand name');
+  const englishNav = settings.label();
+  assert.equal(englishNav.children.at(-1).children[0], 'Repo Wiki');
+
+  face.__switch('zh');
+  assert.equal(row.label(), '代码库 Wiki', 'the row follows the switch without re-registering');
+  const chineseNav = settings.label();
+  assert.equal(chineseNav.children.at(-1).children[0], '代码库 Wiki');
+  assert.match(JSON.stringify(chineseNav), /[\u4e00-\u9fff]/u, 'the settings nav text is Chinese');
+});
+
+test('the composer entry uses the localized product name', async () => {
+  const { module } = await loadBundle();
+  const face = makeLocaleFace('zh');
+  const harness = makeCtx({ get: (key) => (key === 'locale' ? face : key === 'layout' ? { selectPanel: () => {} } : undefined) });
+  module.apply(harness.ctx);
+  const composer = harness.slots.find((slot) => slot.name === 'conversation.input.left');
+  const button = composer.component({ ...composer.inject('session-1'), sessionId: 'session-1' });
+  assert.equal(button.props['aria-label'], '代码库 Wiki');
+  assert.equal(button.props.title, '打开代码库 Wiki');
 });
 
 test('renderMarkdown output is h-built elements, not raw markup', async () => {
@@ -440,7 +471,8 @@ test('showsProgress, hasContent and isRetryable agree with the host', async () =
 test('tabTitle reflects busy and drift states', async () => {
   const { module } = await loadBundle();
   const { tabTitle } = module.internals;
-  assert.equal(tabTitle(null), 'Repo Wiki');
+  assert.equal(tabTitle(null), '代码库 Wiki', 'the default UI language is Chinese');
+  assert.equal(tabTitle(null, 'en'), 'Repo Wiki');
   assert.match(tabTitle({ busy: true }), /生成中/u);
   assert.match(tabTitle({ status: 'WIKI_HAS_COMMIT' }), /待更新/u);
 });
@@ -581,3 +613,35 @@ test('the stylesheet is installed once', async () => {
   }
 });
 
+
+test('a locale switch re-localizes every user-visible brand surface', async () => {
+  // The 0.2.7 report behind this guard: the sidebar row and the settings nav
+  // still said "Repo Wiki" in a Chinese UI because the label was a plain
+  // string / hard-coded child, while the panel itself was translated.
+  const { module } = await loadBundle();
+  const { I18N, t } = module.internals;
+  assert.equal(I18N.zh.repoWiki, '代码库 Wiki');
+  assert.equal(I18N.en.repoWiki, 'Repo Wiki');
+  assert.equal(t('repoWiki', 'zh'), '代码库 Wiki');
+  assert.equal(t('repoWiki', 'en'), 'Repo Wiki');
+  // Chinese product copy must not smuggle the English brand back in.
+  for (const [key, value] of Object.entries(I18N.zh)) {
+    if (typeof value !== 'string' || key === 'repoWiki') continue;
+    assert.doesNotMatch(value, /\bRepo Wiki\b/u, `I18N.zh.${key} still hard-codes the English brand`);
+  }
+});
+
+test('getCategoryLabel translates the real card taxonomy in both languages', async () => {
+  const { module } = await loadBundle();
+  const { getCategoryLabel } = module.internals;
+  for (const key of ['overview', 'architecture_design', 'tech_stack', 'coding_conventions', 'unique_setup_and_commands', 'all']) {
+    assert.doesNotMatch(getCategoryLabel(key, 'en'), /_/u, `${key} leaks its raw key in English`);
+    assert.doesNotMatch(getCategoryLabel(key, 'zh'), /_/u, `${key} leaks its raw key in Chinese`);
+  }
+  assert.equal(getCategoryLabel('coding_conventions', 'en'), 'Conventions');
+  assert.equal(getCategoryLabel('unique_setup_and_commands', 'en'), 'Config & Commands');
+  assert.equal(getCategoryLabel('architecture_design', 'zh'), '架构设计');
+  // Historical spellings used by older cards keep resolving.
+  assert.equal(getCategoryLabel('conventions', 'en'), 'Conventions');
+  assert.equal(getCategoryLabel('commands', 'en'), 'Config & Commands');
+});

@@ -30,7 +30,10 @@
 
       const I18N = {
         zh: {
-          repoWiki: "Repo Wiki",
+          // The product name is localized too: the sidebar row and the settings
+          // nav entry read this key, so a Chinese UI must not show the English
+          // brand. `en` keeps "Repo Wiki".
+          repoWiki: "代码库 Wiki",
           knowledgeCard: "知识卡片",
           projects: "项目",
           backToProjects: "项目",
@@ -61,14 +64,14 @@
           pause: "暂停",
           resume: "继续生成",
           cancelGen: "取消生成",
-          generateWiki: "生成 Repo Wiki",
+          generateWiki: "生成 Wiki",
           openWiki: "打开 Wiki",
           viewProgress: "查看进度",
           starting: "启动中…",
           docLanguage: "文档语言",
-          knowledgeBanner: "Repo Wiki（为您准备）和知识卡片（为 Agent 准备）将基于您的代码库一起生成和更新。",
+          knowledgeBanner: "代码库 Wiki（为您准备）和知识卡片（为 Agent 准备）将基于您的代码库一起生成和更新。",
           noKnowledgeCards: "暂无知识卡片",
-          noKnowledgeCardsDesc: "Repo Wiki 生成时会自动从代码库提取概览、架构设计、技术栈、编码规范和配置命令，沉淀为知识卡片。",
+          noKnowledgeCardsDesc: "生成代码库 Wiki 时会自动从代码库提取概览、架构设计、技术栈、编码规范和配置命令，沉淀为知识卡片。",
           projectWallTitle: "代码库 Wiki 概览",
           projectWallSubtitle: "为每个代码仓库生成与维护结构化架构文档与 AI 知识卡片",
           noProjects: "没有已注册的项目",
@@ -89,7 +92,7 @@
           categoryConventions: "编码规范",
           categoryCommands: "配置与命令",
           // Settings
-          settingsTitle: "Repo Wiki 设置",
+          settingsTitle: "代码库 Wiki 设置",
           settingsScope: "设置作用范围",
           settingsScopeDesc: "选择设置作用范围。工作区设置会覆盖全局默认值。",
           globalDefault: "全局默认",
@@ -161,7 +164,7 @@
           setupWorkspace: "工作区",
           setupModel: "模型",
           setupLocation: "存储位置",
-          openRepoWiki: "打开 Repo Wiki",
+          openRepoWiki: "打开代码库 Wiki",
           clear: "清除",
           close: "关闭",
           progressAria: "生成进度",
@@ -424,21 +427,38 @@
         return lang;
       }
 
+      /**
+       * Knowledge-card category label.
+       *
+       * The keys come from `KNOWLEDGE_CATEGORIES` (the real card taxonomy), so
+       * the map has to cover exactly those. It is resolved through `I18N` rather
+       * than a second hand-written English table: the previous table named
+       * `conventions`/`commands`, which are catalog-status keys, and therefore
+       * rendered the raw `coding_conventions` / `unique_setup_and_commands` in
+       * an English UI. The historical spellings stay as aliases.
+       */
       function getCategoryLabel(key, lang = "zh") {
-        if (lang === "en") {
-          const map = {
-            all: "All",
-            overview: "Overview",
-            architecture: "Architecture",
-            architecture_design: "Architecture",
-            tech_stack: "Tech Stack",
-            conventions: "Conventions",
-            commands: "Config & Commands",
-          };
-          return map[key] || key;
-        }
-        return CATEGORY_NAMES[key] || key;
+        const aliased = CATEGORY_ALIASES[key] ?? key;
+        const dictKey = CATEGORY_KEYS[aliased];
+        return dictKey === undefined ? key : t(dictKey, lang);
       }
+
+      /** Historical/legacy category spellings → the canonical card category. */
+      const CATEGORY_ALIASES = {
+        architecture: "architecture_design",
+        conventions: "coding_conventions",
+        commands: "unique_setup_and_commands",
+      };
+
+      /** Canonical card category → its `I18N` key. */
+      const CATEGORY_KEYS = {
+        all: "categoryAll",
+        overview: "categoryOverview",
+        architecture_design: "categoryArchitecture",
+        tech_stack: "categoryTechStack",
+        coding_conventions: "categoryConventions",
+        unique_setup_and_commands: "categoryCommands",
+      };
 
       const LANGUAGES = [
         { value: "zh", label: "简体中文" },
@@ -2300,7 +2320,7 @@
             state.treeCollapsed ? null : h("div", { className: "rw-tree-wrap" }, rows.length ? tree : h("div", { className: "rw-empty" }, state.query ? t("noMatchPages", lang) : t("tocEmpty", lang)))), detail);
         }
 
-        return h("div", { className: "rw-root", "aria-label": "Repo Wiki" },
+        return h("div", { className: "rw-root", "aria-label": t("repoWiki", lang) },
           header,
           statusArea,
           serverError,
@@ -2351,11 +2371,14 @@
 
       /** The composer shortcut only opens the panel for this session. */
       function RepoWikiComposerButton(props) {
+        // `useUiLang` (not a one-off `uiLang()` read) so the tooltip and the
+        // accessible name follow a language switch while the button is mounted.
+        const lang = useUiLang();
         return h("button", {
           className: "rw-composer",
           type: "button",
-          title: t("openRepoWiki", uiLang()),
-          "aria-label": "Repo Wiki",
+          title: t("openRepoWiki", lang),
+          "aria-label": t("repoWiki", lang),
           disabled: props.canOpenPanel === false,
           onClick: () => props.openPanel(props.sessionId),
         },
@@ -2389,13 +2412,17 @@
 
       /** Settings-page nav label: clean single handcrafted icon plus text label. */
       function RepoWikiNavIcon() {
+        // The label is resolved by the host's `resolveSlotLabel` on every locale
+        // revision, so it must be a thunk that reads the *current* UI language —
+        // a captured `lang` would freeze the text at mount time.
+        const lang = uiLang();
         return h("span", {
           className: "rw-nav-label",
           "data-settings-nav-label": "dsh-repo-wiki",
           style: { display: "inline-flex", alignItems: "center", gap: "8px" },
         },
           h(IconRepoWiki, { size: 16 }),
-          h("span", null, "Repo Wiki"));
+          h("span", null, t("repoWiki", lang)));
       }
 
       /* ----------------------------------------------------------------- *
@@ -2794,11 +2821,17 @@
         // the `main` seat keyed by the same id is its body. This is the pair the
         // host's own plugin-manager and schedule panels use: `layout.selectPanel`
         // swaps the main area to whatever the nav row selected.
+        //
+        // `label` must be a thunk: the host re-resolves it on every locale
+        // revision (`ctx.locale.subscribe(syncPanels)` in ui-sidebar), which is
+        // what makes the row follow a language switch without a reload. A plain
+        // string—or a thunk that captured the language at registration—would
+        // leave the row in its mount-time language.
         ctx.slots.inject(PANEL_LIST_SLOT, () => ctx.slots.register({
           name: PANEL_LIST_SLOT,
           id: PANEL_ID,
           order: 20,
-          label: () => "Repo Wiki",
+          label: () => t("repoWiki", uiLang()),
         }, RepoWikiPanelIcon));
 
         ctx.slots.inject(MAIN_SLOT, () => ctx.slots.register({

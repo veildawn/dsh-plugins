@@ -93,9 +93,12 @@ export function failureHint(error) {
   const code = String(error?.details?.code ?? error?.code ?? '');
   if (/quota|balance|payment|insufficient/iu.test(code)) return '模型配额或余额不足，请充值或更换提供商后重试。';
   if (/auth|unauthori[sz]ed|credential/iu.test(code)) return '模型认证失败，请检查提供商的登录状态或凭据。';
+  if (/prepared LLM call|INVALID_PREPARED_CALL/iu.test(code)) return '模型调用参数在派发前被改写，请升级到最新版本后重试。';
   const message = String(error?.message ?? error ?? '');
+  if (/prepared LLM call|INVALID_PREPARED_CALL/iu.test(message)) return '模型调用参数在派发前被改写，请升级到最新版本后重试。';
   if (/no parsable JSON|listed no catalogs/iu.test(message)) return '模型没有返回可用的目录，请重试或更换模型。';
   if (/returned no text/iu.test(message)) return '模型没有返回内容，请检查模型配置后重试。';
+  if (/truncated|max-tokens/iu.test(message)) return '模型输出被输出预算截断（思考内容占用过多），请更换模型或调高输出上限后重试。';
   if (/unauthori[sz]ed|authentication|invalid.?api.?key|\b401\b|\b403\b/iu.test(message)) return '模型认证失败，请检查提供商的登录状态或凭据。';
   if (/rate.?limit|throttl|\b429\b/iu.test(message)) return '模型请求受到限流，请稍后重试。';
   if (/quota|insufficient.?balance|insufficient.?quota|payment/iu.test(message)) return '模型配额或余额不足，请充值或更换提供商后重试。';
@@ -212,7 +215,9 @@ export function createUserMessage(text) {
  */
 export async function callModel(ctx, settings, request) {
   const llm = typeof ctx?.get === 'function' ? ctx.get('llm', false) : undefined;
-  if (llm === undefined || llm === null || typeof llm.prepareCall !== 'function') {
+  const hasStream = llm !== undefined && llm !== null && typeof llm.stream === 'function';
+  const hasPrepare = llm !== undefined && llm !== null && typeof llm.prepareCall === 'function';
+  if (!hasStream && !hasPrepare) {
     throw new WikiError(
       ERROR_CODES.llmUnavailable,
       'the host exposes no llm service; mount a provider adapter to enable generation',
@@ -227,16 +232,34 @@ export async function callModel(ctx, settings, request) {
   // including thinking, and a reasoning model burns that budget before any
   // prose appears (glm-5.3-flash spent all 8192 on reasoning alone). Omitting
   // it lets the provider's own default apply.
-  const call = await llm.prepareCall(route, signal);
   const options = {
-    ...call.config,
+    provider: route.provider,
+    model: route.model,
     messages: [createUserMessage(request.user)],
     system: request.system,
     signal,
   };
 
+  // Dispatch through the service's own `stream` entry point instead of
+  // `prepareCall()` + `prepared.stream(...)`. A prepared call re-checks its
+  // frozen resolved config at dispatch, while the `llm/stream` waterfall runs
+  // in between: `@weniatall/dsh-ai-proxy` fills the route's preferred
+  // `reasoningEffort` there when the caller omitted one. The guard reads that
+  // legitimate default as a mutation and fails every request with
+  // `INVALID_PREPARED_CALL`, which the panel could only report as the generic
+  // "模型请求或目录解析失败". `llm.stream()` resolves the config after the
+  // waterfall, so defaults and dispatch agree. The prepared path stays for a
+  // host that exposes only `prepareCall`.
+  let chunks;
+  if (hasStream) {
+    chunks = llm.stream(options);
+  } else {
+    const call = await llm.prepareCall(route, signal);
+    chunks = call.stream({ ...options, ...call.config });
+  }
+
   const accumulator = new TextAccumulator();
-  for await (const chunk of call.stream(options)) {
+  for await (const chunk of chunks) {
     signal?.throwIfAborted();
     accumulator.push(chunk);
   }
@@ -249,6 +272,19 @@ export async function callModel(ctx, settings, request) {
       kind: finish.kind,
       code: failure.code ?? '',
     });
+  }
+  if (finish?.kind === 'max-tokens') {
+    // Truncation is only fatal when it produced nothing usable — a reasoning
+    // model can burn the whole output budget before any prose appears. A page
+    // that is merely cut short still carries real content, so its text is
+    // returned and the caller decides; the planning stage's JSON parser is the
+    // one that must fail, and it already does.
+    if (accumulator.text() === '') {
+      throw new WikiError(ERROR_CODES.internal, 'the model response was truncated by its output budget', {
+        kind: finish.kind,
+        code: 'max-tokens',
+      });
+    }
   }
 
   const text = accumulator.text();
@@ -862,7 +898,12 @@ export class WikiPipeline {
    */
   async requireLlm(settings) {
     const llm = typeof this.ctx?.get === 'function' ? this.ctx.get('llm', false) : undefined;
-    if (llm === undefined || llm === null || typeof llm.prepareCall !== 'function') {
+    // `callModel` dispatches through `llm.stream` and only falls back to
+    // `prepareCall`; accept either shape here so the preflight cannot refuse a
+    // host that would in fact serve generation.
+    const usable = llm !== undefined && llm !== null
+      && (typeof llm.stream === 'function' || typeof llm.prepareCall === 'function');
+    if (!usable) {
       throw new WikiError(
         ERROR_CODES.llmUnavailable,
         'the host exposes no llm service; configure a model provider to enable generation',

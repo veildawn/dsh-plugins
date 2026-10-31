@@ -50,12 +50,23 @@ function makeCtx(responses) {
   const prompts = [];
   const llm = {
     listProviders: () => [{ id: 'test-provider' }, { id: 'deepseek-official' }],
+    // The service's own stream entry point: what `callModel` dispatches through.
+    async *stream(options) {
+      call += 1;
+      prompts.push(options);
+      const entry = responses[Math.min(call - 1, responses.length - 1)];
+      const value = typeof entry === 'function' ? entry(call, options) : entry;
+      if (value instanceof Error) throw value;
+      yield { type: 'text-delta', index: 0, text: value };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+    },
+    // Kept so the prepared-call fallback path stays exercised elsewhere.
     async prepareCall(config) {
       return {
         config,
         async *stream(options) {
           call += 1;
-          prompts.push(config);
+          prompts.push(options);
           const entry = responses[Math.min(call - 1, responses.length - 1)];
           const value = typeof entry === 'function' ? entry(call, options) : entry;
           if (value instanceof Error) throw value;
@@ -800,4 +811,99 @@ test('a terminal error finish fails the stage instead of returning empty text', 
   const pipeline = new WikiPipeline({ get: () => llm }, {});
   const result = await pipeline.start(workspace, SETTINGS);
   assert.equal(result.status, 'DIRECTORY_FAILED');
+});
+
+test('callModel dispatches through llm.stream so route middleware defaults survive', async () => {
+  // Regression for `INVALID_PREPARED_CALL`: `prepareCall()` freezes a resolved
+  // config, the `llm/stream` waterfall may then fill an omitted default (the
+  // ai-proxy route materializes `reasoningEffort` there), and the prepared call
+  // rejects the middleware's change at dispatch. Every generation failed with
+  // the generic "模型请求或目录解析失败" because of it.
+  const { callModel } = await import('../lib/pipeline.js');
+  const seen = [];
+  const llm = {
+    listProviders: () => [{ id: 'test-provider' }],
+    async *stream(options) {
+      seen.push(options);
+      // Stand-in for the middleware-owned default.
+      if (options.reasoningEffort === undefined) options.reasoningEffort = 'high';
+      yield { type: 'text-delta', index: 0, text: 'ok' };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+    },
+    // A prepared call is used only when the service has no `stream`.
+    async prepareCall() {
+      throw new Error('prepareCall must not be used when llm.stream exists');
+    },
+  };
+  const text = await callModel(
+    { get: (key) => (key === 'llm' ? llm : undefined) },
+    { ...SETTINGS },
+    { system: 'sys', user: 'hello' },
+  );
+  assert.equal(text, 'ok');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].provider, 'test-provider');
+  assert.equal(seen[0].model, 'test-model');
+  assert.equal(seen[0].system, 'sys');
+});
+
+test('callModel still works on a host that only exposes prepareCall', async () => {
+  const { callModel } = await import('../lib/pipeline.js');
+  const llm = {
+    listProviders: () => [{ id: 'test-provider' }],
+    async prepareCall(route) {
+      return {
+        config: { ...route, reasoningEffort: 'high' },
+        async *stream(options) {
+          assert.equal(options.reasoningEffort, 'high', 'the prepared config reaches dispatch');
+          yield { type: 'text-delta', index: 0, text: 'ok' };
+          yield { type: 'finish', reason: { kind: 'stop' } };
+        },
+      };
+    },
+  };
+  const text = await callModel(
+    { get: (key) => (key === 'llm' ? llm : undefined) },
+    { ...SETTINGS },
+    { system: 'sys', user: 'hello' },
+  );
+  assert.equal(text, 'ok');
+});
+
+test('an empty max-tokens finish reports truncation instead of "no parsable JSON"', async () => {
+  const { callModel } = await import('../lib/pipeline.js');
+  const llm = {
+    listProviders: () => [{ id: 'test-provider' }],
+    async *stream() {
+      // Nothing but reasoning arrived before the budget ran out.
+      yield { type: 'finish', reason: { kind: 'max-tokens' } };
+    },
+  };
+  await assert.rejects(
+    callModel({ get: (key) => (key === 'llm' ? llm : undefined) }, { ...SETTINGS }, { system: 's', user: 'u' }),
+    (error) => {
+      assert.match(error.message, /truncated/u);
+      assert.equal(error.details.code, 'max-tokens');
+      return true;
+    },
+  );
+});
+
+test('a partly-written max-tokens page still returns its text', async () => {
+  // Losing a whole page because the model ran out of budget mid-sentence is
+  // worse than keeping the trimmed content; only an empty result is fatal.
+  const { callModel } = await import('../lib/pipeline.js');
+  const llm = {
+    listProviders: () => [{ id: 'test-provider' }],
+    async *stream() {
+      yield { type: 'text-delta', index: 0, text: '## 概述\n这段没写完' };
+      yield { type: 'finish', reason: { kind: 'max-tokens' } };
+    },
+  };
+  const text = await callModel(
+    { get: (key) => (key === 'llm' ? llm : undefined) },
+    { ...SETTINGS },
+    { system: 's', user: 'u' },
+  );
+  assert.match(text, /概述/u);
 });
