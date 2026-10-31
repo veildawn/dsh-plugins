@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-repo-wiki",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Qoder Repo Wiki 等价的仓库知识库插件：在宿主内用 ctx.llm 跑「目录规划 → 逐页写作」两阶段流水线，把结构化 Markdown 知识库落进仓库的 <dataDir>/repowiki，沿用 Qoder 的状态机、目录模型、导出布局与 wiki_plan.yaml 语义，并提供六个 *_wiki 工具与左侧全局面板。",
   "type": "module",
   "main": "lib/index.js",

@@ -139,7 +139,63 @@
           discardAndSwitch: "放弃修改并切换",
           continueEditing: "继续编辑",
           expand: "展开",
-          collapse: "收起"
+          collapse: "收起",
+          retryFailedPages: "重试失败页面",
+          incrementalUpdate: "增量更新",
+          importAction: "导入",
+          regenerateAction: "重新生成",
+          retryAction: "重试",
+          tabGenerating: "生成中",
+          tabError: "出错",
+          tabPendingUpdate: "待更新",
+          tabPendingImport: "待导入",
+          pauseFlash: "暂停请求已发送，当前模型调用结束后暂停。",
+          cancelFlash: "取消请求已发送，已完成的页面会保留。",
+          noWorkspaceHint: "请先在左侧添加工作区，再选择要查看的仓库。",
+          modelIncomplete: "模型配置不完整，请在设置中检查",
+          llmUnavailable: "模型服务不可用，请在设置中检查",
+          hostDefaultSuffix: "（宿主默认）",
+          hostDefaultFallback: "宿主默认模型（请在设置中确认）",
+          cannotLoadWiki: "无法加载 Wiki。",
+          setupDesc: "将扫描仓库文件并规划结构化文档。",
+          setupWorkspace: "工作区",
+          setupModel: "模型",
+          setupLocation: "存储位置",
+          openRepoWiki: "打开 Repo Wiki",
+          clear: "清除",
+          close: "关闭",
+          progressAria: "生成进度",
+          errorPrefix: "错误：",
+          indexingTitle: "索引进行中",
+          indexingDesc: "正在建立索引，请稍候。",
+          descInitializing: "正在扫描仓库结构",
+          descPlanningDirectory: "正在规划文档目录",
+          descGeneratingPages: "正在生成文档内容",
+          descGeneratingProgress: (done, total, failed) => `已完成 ${done}/${total}${failed > 0 ? `，失败 ${failed}` : ""}`,
+          descCompletedAll: (done, total) => `已完成 ${done}/${total}`,
+          descCompletedNoPages: "文档生成完成",
+          descPartlyCompleted: (done, total, failed) => `已完成 ${done}/${total}，失败 ${failed}`,
+          descPaused: "生成已暂停",
+          descQueued: "排队等待处理",
+          descWaitingIncrement: "等待开始分析代码变更",
+          descWaiting: "等待开始分析",
+          descChooseLanguage: "选择语言后可以生成知识库",
+          descWikiExist: "已有 Wiki，可以查看或重新生成。",
+          descHasCommit: "代码已更新，可增量更新 Wiki",
+          descHasChange: "检测到本地 repowiki 目录有更新，是否导入到数据库？",
+          descLossCommit: "无法复用已有 Wiki 进行更新，是否重新生成 Wiki？",
+          descLoadFail: "Git 目录变更导致 Wiki 加载失败。 是否重新生成？",
+          descServiceRecovering: "服务自动恢复中，请等待或重启",
+          descNoFiles: "当前目录没有可分析的文件",
+          descTooManyFiles: (max) => `文件数超过上限 ${max}`,
+          descTooManyWorkspaces: "已超出账号可分析的代码库数量限制。",
+          descBetaLimit: "您已达到该功能 Beta 期间提供的免费体验限额，暂时无法继续体验，请等待该功能正式发布后按需增购。",
+          descNeedsGit: "增量更新需要 Git 版本控制项目",
+          descNoCommits: "当前工程无提交记录，无法生成 Wiki。请提交代码。",
+          descNetworkError: "请检查网络连接后重试。",
+          descFailed: "生成失败，请重试",
+          connectionNotReady: "连接服务尚未就绪",
+          requestFailed: "请求失败"
         },
         en: {
           repoWiki: "Repo Wiki",
@@ -251,13 +307,85 @@
           discardAndSwitch: "Discard & Switch",
           continueEditing: "Continue Editing",
           expand: "Expand",
-          collapse: "Collapse"
+          collapse: "Collapse",
+          retryFailedPages: "Retry Failed Pages",
+          incrementalUpdate: "Incremental Update",
+          importAction: "Import",
+          regenerateAction: "Regenerate",
+          retryAction: "Retry",
+          tabGenerating: "Generating",
+          tabError: "Error",
+          tabPendingUpdate: "Update Ready",
+          tabPendingImport: "Import Ready",
+          pauseFlash: "Pause requested; it takes effect after the current model call finishes.",
+          cancelFlash: "Cancel requested; completed pages will be kept.",
+          noWorkspaceHint: "Add a workspace in the sidebar first, then pick a repository to view.",
+          modelIncomplete: "Model config incomplete; check Settings",
+          llmUnavailable: "Model service unavailable; check Settings",
+          hostDefaultSuffix: " (host default)",
+          hostDefaultFallback: "Host default model (confirm in Settings)",
+          cannotLoadWiki: "Cannot load Wiki.",
+          setupDesc: "Scans repository files and plans structured documentation.",
+          setupWorkspace: "Workspace",
+          setupModel: "Model",
+          setupLocation: "Location",
+          openRepoWiki: "Open Repo Wiki",
+          clear: "Clear",
+          close: "Close",
+          progressAria: "Progress",
+          errorPrefix: "Error: ",
+          indexingTitle: "Indexing in Progress",
+          indexingDesc: "Indexing, please wait.",
+          descInitializing: "Scanning repository structure",
+          descPlanningDirectory: "Planning document outline",
+          descGeneratingPages: "Generating document content",
+          descGeneratingProgress: (done, total, failed) => `Completed ${done}/${total}${failed > 0 ? `, ${failed} failed` : ""}`,
+          descCompletedAll: (done, total) => `Completed ${done}/${total}`,
+          descCompletedNoPages: "Documentation complete",
+          descPartlyCompleted: (done, total, failed) => `Completed ${done}/${total}, ${failed} failed`,
+          descPaused: "Generation paused",
+          descQueued: "Queued for processing",
+          descWaitingIncrement: "Waiting to analyze code changes",
+          descWaiting: "Waiting to start analysis",
+          descChooseLanguage: "Pick a language to generate the knowledge base",
+          descWikiExist: "Wiki exists; view it or regenerate.",
+          descHasCommit: "Code updated; incremental update available",
+          descHasChange: "Local repowiki directory changed. Import into the database?",
+          descLossCommit: "Cannot reuse the existing Wiki for updating. Regenerate?",
+          descLoadFail: "Wiki failed to load after Git changes. Regenerate?",
+          descServiceRecovering: "Service is recovering; wait or restart",
+          descNoFiles: "No analyzable files in this directory",
+          descTooManyFiles: (max) => `File count exceeds the limit ${max}`,
+          descTooManyWorkspaces: "Account limit for analyzable repositories reached.",
+          descBetaLimit: "You have reached the free Beta quota for this feature; it will be available for purchase at general release.",
+          descNeedsGit: "Incremental update requires a Git repository",
+          descNoCommits: "No commits in this repository; commit code first to generate a Wiki.",
+          descNetworkError: "Check the network connection and retry.",
+          descFailed: "Generation failed; please retry",
+          connectionNotReady: "Connection service is not ready",
+          requestFailed: "Request failed"
         }
       };
 
       function t(key, lang = "zh") {
         const dict = I18N[lang] || I18N.zh;
         return dict[key] || I18N.zh[key] || key;
+      }
+
+      /**
+       * The UI language follows the host environment locale, not the
+       * document-generation language setting: Chinese locales render the zh
+       * copy, everything else falls back to English. `navigatorRef` is
+       * injectable so tests can pin a locale without touching the global.
+       */
+      function systemLanguage(navigatorRef) {
+        const nav = navigatorRef ?? (typeof navigator !== "undefined" ? navigator : null);
+        try {
+          const tag = nav && typeof nav.language === "string" ? nav.language.toLowerCase() : "";
+          return tag.startsWith("zh") ? "zh" : "en";
+        } catch {
+          return "en";
+        }
       }
 
       function getCategoryLabel(key, lang = "zh") {
@@ -314,6 +442,35 @@
         WIKI_LOSS_COMMIT: "Wiki 丢失提交",
         WIKI_LOAD_FAIL: "Wiki 加载失败",
         SERVICE_RECOVERING: "服务自动恢复中，请等待或重启",
+      };
+
+      /** English twin of `STATUS_LABEL`, selected by the UI language. */
+      const STATUS_LABEL_EN = {
+        WIKI_INIT: "Not generated",
+        WAITING: "Waiting",
+        LINING: "Queued",
+        INITIALIZING: "Initializing",
+        DIRECTORY_GENERATING: "Planning directory",
+        DOCUMENT_GENERATING: "Generating pages",
+        PAUSED: "Paused",
+        COMPLETED: "Completed",
+        PARTLY_COMPLETED: "Partially completed",
+        INITIALIZING_FAILED: "Initialization failed",
+        DIRECTORY_FAILED: "Directory planning failed",
+        DOCUMENT_FAILED: "Page generation failed",
+        NO_FILE_FAILED: "No files",
+        TOO_MANY_FILES_FAILED: "Too many files",
+        NOT_SOURCE_CONTROL_FAILED: "Not version controlled",
+        NO_COMMIT_HISTORY_FAILED: "No commit history",
+        TOO_MANY_WORKSPACE_FAILED: "Repository limit reached",
+        INSUFFICIENT_REMAINING_SEATS_FAILED: "Trial quota exhausted",
+        NETWORK_ERROR: "Network error",
+        WIKI_EXIST: "Wiki exists",
+        WIKI_HAS_COMMIT: "Update available",
+        WIKI_HAS_CHANGE: "Import ready",
+        WIKI_LOSS_COMMIT: "Wiki commits lost",
+        WIKI_LOAD_FAIL: "Wiki load failed",
+        SERVICE_RECOVERING: "Service recovering, wait or restart",
       };
 
       const STATUS_TONE = {
@@ -700,8 +857,9 @@
       }
 
       /** The status label, falling back to the raw value. */
-      function statusLabel(status) {
-        return STATUS_LABEL[status] ?? String(status ?? "");
+      function statusLabel(status, lang = "zh") {
+        const table = lang === "en" ? STATUS_LABEL_EN : STATUS_LABEL;
+        return table[status] ?? String(status ?? "");
       }
 
       /** The status tone, falling back to muted. */
@@ -753,24 +911,24 @@
        * `retry` reruns only the unfinished pages; `synchronize` imports
        * on-disk edits; infrastructure failures retry the whole run.
        */
-      function statusAction(status) {
+      function statusAction(status, lang = "zh") {
         switch (status) {
           case "PARTLY_COMPLETED":
-            return { label: "重试失败页面", method: "retry" };
+            return { label: t("retryFailedPages", lang), method: "retry" };
           case "WIKI_HAS_COMMIT":
-            return { label: "增量更新", method: "update" };
+            return { label: t("incrementalUpdate", lang), method: "update" };
           case "WIKI_HAS_CHANGE":
-            return { label: "导入", method: "synchronize", payload: { direction: "file_to_db" } };
+            return { label: t("importAction", lang), method: "synchronize", payload: { direction: "file_to_db" } };
           case "COMPLETED":
           case "WIKI_EXIST":
           case "WIKI_LOAD_FAIL":
           case "WIKI_LOSS_COMMIT":
-            return { label: "重新生成", method: "regenerate" };
+            return { label: t("regenerateAction", lang), method: "regenerate" };
           case "INITIALIZING_FAILED":
           case "DIRECTORY_FAILED":
           case "DOCUMENT_FAILED":
           case "NETWORK_ERROR":
-            return { label: "重试", method: "regenerate" };
+            return { label: t("retryAction", lang), method: "regenerate" };
           default:
             return null;
         }
@@ -780,23 +938,24 @@
        * Qoder's `Ngo` precondition view: a `wiki.pre.*` server error code at
        * WIKI_INIT replaces the welcome copy with a dedicated title.
        */
-      function serverErrorView(status, details) {
+      function serverErrorView(status, details, lang = "zh") {
         if (status !== "WIKI_INIT" && status !== "" && status !== undefined && status !== null) return null;
         const code = details && typeof details.server_error_code === "string" ? details.server_error_code : "";
         if (!code.startsWith("wiki.pre.")) return null;
         return code === "wiki.pre.indexing"
-          ? { title: "Indexing in Progress", desc: "Indexing, please wait" }
+          ? { title: t("indexingTitle", lang), desc: t("indexingDesc", lang) }
           : { title: code, desc: "" };
       }
 
       /** The tab title, showing a status dot when something needs attention. */
-      function tabTitle(state) {
-        if (!state) return "Repo Wiki";
-        if (state.busy) return "Repo Wiki · 生成中";
-        if (state.error) return "Repo Wiki · 出错";
-        if (state.status === "WIKI_HAS_COMMIT") return "Repo Wiki · 待更新";
-        if (state.status === "WIKI_HAS_CHANGE") return "Repo Wiki · 待导入";
-        return "Repo Wiki";
+      function tabTitle(state, lang = "zh") {
+        const brand = t("repoWiki", lang);
+        if (!state) return brand;
+        if (state.busy) return `${brand} · ${t("tabGenerating", lang)}`;
+        if (state.error) return `${brand} · ${t("tabError", lang)}`;
+        if (state.status === "WIKI_HAS_COMMIT") return `${brand} · ${t("tabPendingUpdate", lang)}`;
+        if (state.status === "WIKI_HAS_CHANGE") return `${brand} · ${t("tabPendingImport", lang)}`;
+        return brand;
       }
 
       /** Format an ISO timestamp for display, or return an empty string. */
@@ -1331,17 +1490,16 @@
        * Enumerate workspaces through RPC instead of conditionally calling a
        * host store hook. Every panel request names its selected workspace.
        */
-      const NO_WORKSPACE_HINT = "请先在左侧添加工作区，再选择要查看的仓库。";
 
-      function modelRouteLabel(values, models) {
+      function modelRouteLabel(values, models, lang = "zh") {
         values = values ?? {};
         const provider = String(values.provider ?? "").trim();
         const model = String(values.model ?? "").trim();
         if (provider && model) return `${provider} / ${model}`;
-        if (provider || model) return "模型配置不完整，请在设置中检查";
-        if (models?.llmAvailable === false) return "模型服务不可用，请在设置中检查";
-        if (models?.defaultRoute) return `${models.defaultRoute.provider} / ${models.defaultRoute.model}（宿主默认）`;
-        return "宿主默认模型（请在设置中确认）";
+        if (provider || model) return t("modelIncomplete", lang);
+        if (models?.llmAvailable === false) return t("llmUnavailable", lang);
+        if (models?.defaultRoute) return `${models.defaultRoute.provider} / ${models.defaultRoute.model}${t("hostDefaultSuffix", lang)}`;
+        return t("hostDefaultFallback", lang);
       }
 
       /* ----------------------------------------------------------------- *
@@ -1625,10 +1783,10 @@
             const result = await rpcCall(method, { ...(payload ?? {}), workspace, language });
             if (scope.current.workspace === workspace && scope.current.language === language) {
               if (method === "pause" && result?.paused) {
-                setState((current) => ({ ...current, flash: "暂停请求已发送，当前模型调用结束后暂停。" }));
+                setState((current) => ({ ...current, flash: t("pauseFlash", systemLanguage()) }));
               }
               if (method === "cancel" && result?.cancelled) {
-                setState((current) => ({ ...current, flash: "取消请求已发送，已完成的页面会保留。" }));
+                setState((current) => ({ ...current, flash: t("cancelFlash", systemLanguage()) }));
               }
               await refresh(workspace, language, { keepSelection: true });
               if (longRunning) setState((current) => current.workspace === workspace && current.language === language
@@ -1660,7 +1818,12 @@
         const details = status?.details ?? {};
         const busy = Boolean(state.busy);
         const lockLanguage = running || launching || busy;
-        const lang = state.language || "zh";
+        const lang = systemLanguage();
+        // The document-generation language stays an independent per-wiki
+        // setting (`state.language`); the chrome around it is translated by
+        // the host locale. `state.language` may be "" before the first RPC,
+        // so the selector falls back to the server's default.
+        const docLang = state.language || "zh";
 
         const languageSelect = data ? h("label", { className: "rw-field", style: { margin: 0, marginRight: "6px", flexDirection: "row", alignItems: "center", gap: "6px" } },
           h(IconGlobe, null),
@@ -1685,7 +1848,7 @@
         } else if (!launching) {
           const action = statusCode === "DIRECTORY_FAILED" && state.catalogs.length === 0
             ? { label: t("retry", lang), method: "start" }
-            : (statusAction(statusCode)
+            : (statusAction(statusCode, lang)
               ?? (/FAILED$/.test(statusCode) || statusCode === "NETWORK_ERROR" ? { label: t("retry", lang), method: "start" } : null));
           if (statusCode === "COMPLETED") actions.push(h("button", { key: "update", className: "rw-btn", "data-tone": "primary", type: "button", disabled: busy,
             onClick: () => void perform("update", null, true) }, t("checkUpdates", lang)));
@@ -1753,7 +1916,7 @@
             }, h(IconRefresh)) : h("button", { className: "rw-btn", type: "button", onClick: () => void loadWorkspaces() }, h(IconRefresh), " ", t("refreshList", lang))),
 
           // Progress line along bottom edge of topBar
-          running ? h("div", { className: "rw-progress-line", role: "progressbar", "aria-label": "Progress", "aria-valuenow": progress },
+          running ? h("div", { className: "rw-progress-line", role: "progressbar", "aria-label": t("progressAria", lang), "aria-valuenow": progress },
             h("div", { className: "rw-progress-line-fill", style: { width: `${progress}%` } })) : null
         );
 
@@ -1765,7 +1928,7 @@
 
         const serverError = (statusTone(statusCode) === "err" && (details.server_error_hint || details.server_error_code || status?.error))
           ? h("div", { className: "rw-error", role: "alert", style: { margin: "8px 16px 0" } },
-              details.server_error_hint || status?.error || `Error: ${details.server_error_code}`)
+              details.server_error_hint || status?.error || `${t("errorPrefix", lang)}${details.server_error_code}`)
           : null;
 
         const confirmation = state.confirm ? h("div", { className: "rw-confirm", role: "alert", style: { margin: "10px 16px 0" } },
@@ -1793,7 +1956,7 @@
           if (items.length === 0) {
             return h("div", { className: "rw-empty rw-setup" },
               h("strong", null, t("noProjects", lang)),
-              h("span", null, NO_WORKSPACE_HINT),
+              h("span", null, t("noWorkspaceHint", lang)),
               h("button", { className: "rw-btn", type: "button", onClick: () => void loadWorkspaces() }, t("refreshList", lang)));
           }
           return h("div", { className: "rw-projects" },
@@ -1853,7 +2016,7 @@
           }
           if (state.knowledgeError) {
             return h("div", { className: "rw-empty rw-error" },
-              h("div", null, `Error: ${state.knowledgeError}`),
+              h("div", null, `${t("errorPrefix", lang)}${state.knowledgeError}`),
               h("button", { className: "rw-btn", type: "button", onClick: () => void loadKnowledgeCards(state.workspace, state.language) }, t("retry", lang)));
           }
           const allCards = state.knowledgeCards ?? [];
@@ -1891,7 +2054,7 @@
                 onChange: (event) => setState((current) => ({ ...current, knowledgeQuery: event.target.value })),
                 onKeyDown: (event) => { if (event.key === "Escape") { event.preventDefault(); setState((current) => ({ ...current, knowledgeQuery: "" })); } }
               }),
-              state.knowledgeQuery ? h("button", { className: "rw-icon-btn", type: "button", "aria-label": "Clear", onClick: () => setState((current) => ({ ...current, knowledgeQuery: "" })) }, h(IconClose)) : null),
+              state.knowledgeQuery ? h("button", { className: "rw-icon-btn", type: "button", "aria-label": t("clear", lang), onClick: () => setState((current) => ({ ...current, knowledgeQuery: "" })) }, h(IconClose)) : null),
             h("div", { className: "rw-kc-categories" },
               KNOWLEDGE_CATEGORIES.map((cat) => {
                 const count = cat.key === "all" ? allCards.length : allCards.filter((c) => c.category === cat.key).length;
@@ -1964,7 +2127,7 @@
               h("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
                 h(IconBulb),
                 h("span", { className: "rw-kc-banner-text" }, t("knowledgeBanner", lang))),
-              h("button", { className: "rw-icon-btn", type: "button", "aria-label": "Close", onClick: () => setState((current) => ({ ...current, dismissKnowledgeBanner: true })) }, h(IconClose))) : null,
+              h("button", { className: "rw-icon-btn", type: "button", "aria-label": t("close", lang), onClick: () => setState((current) => ({ ...current, dismissKnowledgeBanner: true })) }, h(IconClose))) : null,
             h("div", { className: "rw-split" }, sidebar, detail));
         };
 
@@ -1976,19 +2139,19 @@
         } else if (state.loading && !data) {
           body = h("div", { className: "rw-empty" }, h("span", { className: "rw-spinner" }), t("loading", lang));
         } else if (!data) {
-          body = h("div", { className: "rw-empty" }, h("span", null, "Cannot load Wiki."),
+          body = h("div", { className: "rw-empty" }, h("span", null, t("cannotLoadWiki", lang)),
             h("button", { className: "rw-btn", type: "button", onClick: () => void refresh(state.workspace, state.language) }, t("retry", lang)));
         } else if (state.activeTab === "knowledgeCard") {
           body = knowledgeView();
         } else if (statusCode === "WIKI_INIT" && !running && !launching && state.catalogs.length === 0) {
-          const preflightError = serverErrorView(statusCode, details);
+          const preflightError = serverErrorView(statusCode, details, lang);
           body = h("div", { className: "rw-empty rw-setup" },
             h("strong", null, preflightError ? preflightError.title : t("generateWiki", lang)),
-            h("span", null, preflightError?.desc || "Will scan repo files and plan structured documentation."),
+            h("span", null, preflightError?.desc || t("setupDesc", lang)),
             h("dl", { className: "rw-setup-details" },
-              h("dt", null, "Workspace"), h("dd", null, state.workspace),
-              h("dt", null, "Model"), h("dd", null, modelRouteLabel(details.user_config, state.models)),
-              h("dt", null, "Location"), h("dd", null, `${state.workspace}/.dsh/repowiki`)),
+              h("dt", null, t("setupWorkspace", lang)), h("dd", null, state.workspace),
+              h("dt", null, t("setupModel", lang)), h("dd", null, modelRouteLabel(details.user_config, state.models, lang)),
+              h("dt", null, t("setupLocation", lang)), h("dd", null, `${state.workspace}/.dsh/repowiki`)),
             h("button", { className: "rw-btn", "data-tone": "primary", type: "button", disabled: busy || state.models?.llmAvailable === false,
               onClick: () => void perform("start", null, true) }, t("generateWiki", lang)));
         } else if (state.catalogs.length === 0 && !running && !launching) {
@@ -2096,7 +2259,7 @@
               h("input", { className: "rw-input", type: "search", placeholder: t("searchPlaceholder", lang),
                 "aria-label": t("searchPlaceholder", lang), value: state.query, onChange: (event) => setState((current) => ({ ...current, query: event.target.value })),
                 onKeyDown: (event) => { if (event.key === "Escape") { event.preventDefault(); setState((current) => ({ ...current, query: "" })); } } }),
-              state.query ? h("button", { className: "rw-icon-btn", type: "button", "aria-label": "Clear", onClick: () => setState((current) => ({ ...current, query: "" })) }, h(IconClose)) : null),
+              state.query ? h("button", { className: "rw-icon-btn", type: "button", "aria-label": t("clear", lang), onClick: () => setState((current) => ({ ...current, query: "" })) }, h(IconClose)) : null),
             !state.treeCollapsed && state.query.trim() ? h("div", { className: "rw-search-status", role: "status" }, t("matchPages", lang)(matchCount)) : null,
             state.treeCollapsed ? null : h("div", { className: "rw-tree-wrap" }, rows.length ? tree : h("div", { className: "rw-empty" }, state.query ? t("noMatchPages", lang) : t("tocEmpty", lang)))), detail);
         }
@@ -2111,38 +2274,38 @@
           h("div", { className: "rw-body" }, body));
       }
 
-      function statusDescription(status, details) {
+      function statusDescription(status, details, lang = "zh") {
         const total = details && details.total_catalogs ? details.total_catalogs : 0;
         const done = details && details.completed_catalogs ? details.completed_catalogs : 0;
         const failed = details && details.failed_catalogs ? details.failed_catalogs : 0;
-        if (status === "INITIALIZING") return "正在扫描仓库结构";
-        if (status === "DIRECTORY_GENERATING") return "正在规划文档目录";
+        if (status === "INITIALIZING") return t("descInitializing", lang);
+        if (status === "DIRECTORY_GENERATING") return t("descPlanningDirectory", lang);
         if (status === "DOCUMENT_GENERATING") {
-          if (total > 0) return `已完成 ${done}/${total}${failed > 0 ? `，失败 ${failed}` : ""}`;
-          return "正在生成文档内容";
+          if (total > 0) return t("descGeneratingProgress", lang)(done, total, failed);
+          return t("descGeneratingPages", lang);
         }
-        if (status === "COMPLETED") return total > 0 ? `已完成 ${done}/${total}` : "文档生成完成";
-        if (status === "PARTLY_COMPLETED") return `已完成 ${done}/${total}，失败 ${failed}`;
-        if (status === "PAUSED") return "生成已暂停";
-        if (status === "LINING") return "排队等待处理";
+        if (status === "COMPLETED") return total > 0 ? t("descCompletedAll", lang)(done, total) : t("descCompletedNoPages", lang);
+        if (status === "PARTLY_COMPLETED") return t("descPartlyCompleted", lang)(done, total, failed);
+        if (status === "PAUSED") return t("descPaused", lang);
+        if (status === "LINING") return t("descQueued", lang);
         if (status === "WAITING") {
-          return details && details.generation_type === "INCREMENT" ? "等待开始分析代码变更" : "等待开始分析";
+          return details && details.generation_type === "INCREMENT" ? t("descWaitingIncrement", lang) : t("descWaiting", lang);
         }
-        if (status === "WIKI_INIT") return "选择语言后可以生成知识库";
-        if (status === "WIKI_EXIST") return "已有 Wiki，可以查看或重新生成。";
-        if (status === "WIKI_HAS_COMMIT") return "代码已更新，可增量更新 Wiki";
-        if (status === "WIKI_HAS_CHANGE") return "检测到本地 repowiki 目录有更新，是否导入到数据库？";
-        if (status === "WIKI_LOSS_COMMIT") return "无法复用已有 Wiki 进行更新，是否重新生成 Wiki？";
-        if (status === "WIKI_LOAD_FAIL") return "Git 目录变更导致 Wiki 加载失败。 是否重新生成？";
-        if (status === "SERVICE_RECOVERING") return "服务自动恢复中，请等待或重启";
-        if (status === "NO_FILE_FAILED") return "当前目录没有可分析的文件";
-        if (status === "TOO_MANY_FILES_FAILED") return `文件数超过上限 ${details.max_file_count ?? 10000}`;
-        if (status === "TOO_MANY_WORKSPACE_FAILED") return "已超出账号可分析的代码库数量限制。";
-        if (status === "INSUFFICIENT_REMAINING_SEATS_FAILED") return "您已达到该功能 Beta 期间提供的免费体验限额，暂时无法继续体验，请等待该功能正式发布后按需增购。";
-        if (status === "NOT_SOURCE_CONTROL_FAILED") return "增量更新需要 Git 版本控制项目";
-        if (status === "NO_COMMIT_HISTORY_FAILED") return "当前工程无提交记录，无法生成 Wiki。请提交代码。";
-        if (status === "NETWORK_ERROR") return "请检查网络连接后重试。";
-        if (status && status.indexOf("FAILED") >= 0) return "生成失败，请重试";
+        if (status === "WIKI_INIT") return t("descChooseLanguage", lang);
+        if (status === "WIKI_EXIST") return t("descWikiExist", lang);
+        if (status === "WIKI_HAS_COMMIT") return t("descHasCommit", lang);
+        if (status === "WIKI_HAS_CHANGE") return t("descHasChange", lang);
+        if (status === "WIKI_LOSS_COMMIT") return t("descLossCommit", lang);
+        if (status === "WIKI_LOAD_FAIL") return t("descLoadFail", lang);
+        if (status === "SERVICE_RECOVERING") return t("descServiceRecovering", lang);
+        if (status === "NO_FILE_FAILED") return t("descNoFiles", lang);
+        if (status === "TOO_MANY_FILES_FAILED") return t("descTooManyFiles", lang)(details.max_file_count ?? 10000);
+        if (status === "TOO_MANY_WORKSPACE_FAILED") return t("descTooManyWorkspaces", lang);
+        if (status === "INSUFFICIENT_REMAINING_SEATS_FAILED") return t("descBetaLimit", lang);
+        if (status === "NOT_SOURCE_CONTROL_FAILED") return t("descNeedsGit", lang);
+        if (status === "NO_COMMIT_HISTORY_FAILED") return t("descNoCommits", lang);
+        if (status === "NETWORK_ERROR") return t("descNetworkError", lang);
+        if (status && status.indexOf("FAILED") >= 0) return t("descFailed", lang);
         return "";
       }
 
@@ -2155,7 +2318,7 @@
         return h("button", {
           className: "rw-composer",
           type: "button",
-          title: "打开 Repo Wiki",
+          title: t("openRepoWiki", systemLanguage()),
           "aria-label": "Repo Wiki",
           disabled: props.canOpenPanel === false,
           onClick: () => props.openPanel(props.sessionId),
@@ -2315,7 +2478,9 @@
 
         const values = state.values ?? {};
         const dirty = Object.keys(changedSettings(values, state.baseline)).length > 0;
-        const lang = values.language || "zh";
+        // Settings chrome follows the host locale too; `values.language` is the
+        // document-generation language and stays independent.
+        const lang = systemLanguage();
 
         if (state.loading) return h("div", { className: "rw-settings" },
           h("div", { className: "rw-empty" }, h("span", { className: "rw-spinner" }), t("loading", lang)));
@@ -2532,10 +2697,10 @@
         ensureStyles();
         const rpcCall = async (method, payload) => {
           const rpc = ctx && ctx.connection && ctx.connection.rpc;
-          if (!rpc || typeof rpc.call !== "function") throw new Error("连接服务尚未就绪");
+          if (!rpc || typeof rpc.call !== "function") throw new Error(t("connectionNotReady", systemLanguage()));
           const result = await rpc.call(CHANNEL, method, payload || {});
           if (result && result.ok === true) return result.value;
-          const error = new Error(result && result.error ? result.error.message : "请求失败");
+          const error = new Error(result && result.error ? result.error.message : t("requestFailed", systemLanguage()));
           // Keep the host's structured code: the panel branches on
           // `no-workspace` to show guidance instead of a retry button.
           error.code = result && result.error ? result.error.code : "internal-error";
@@ -2612,7 +2777,7 @@
         LANGUAGES, STATUS_LABEL, STATUS_TONE, CATALOG_TONE, KNOWLEDGE_CATEGORIES, CATEGORY_NAMES,
         flattenTree, filterTree, changedSettings, statusLabel, statusTone, showsProgress, isRetryable,
         hasContent, statusAction, serverErrorView, tabTitle, formatDate, splitPage, renderMarkdown, inline, statusDescription,
-        I18N, t, getCategoryLabel,
+        I18N, t, getCategoryLabel, systemLanguage, STATUS_LABEL_EN,
       };
       return module.exports;
     },

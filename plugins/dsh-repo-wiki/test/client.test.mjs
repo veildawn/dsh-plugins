@@ -71,6 +71,34 @@ test('internals expose the pure helpers', async () => {
   }
 });
 
+test('the panel UI language follows the host locale, not the doc language', async () => {
+  const { module } = await loadBundle();
+  const { systemLanguage } = module.internals;
+  assert.equal(typeof systemLanguage, 'function', 'systemLanguage must be exported');
+  assert.equal(systemLanguage({ language: 'zh-CN' }), 'zh');
+  assert.equal(systemLanguage({ language: 'zh-TW' }), 'zh');
+  assert.equal(systemLanguage({ language: 'en-US' }), 'en');
+  assert.equal(systemLanguage({ language: 'ja-JP' }), 'en');
+  assert.equal(systemLanguage({}), 'en', 'missing locale falls back to English');
+  assert.equal(systemLanguage(null), 'en', 'no navigator falls back to English');
+});
+
+test('statusLabel and tabTitle translate by the requested UI language', async () => {
+  const { module } = await loadBundle();
+  const { statusLabel, tabTitle, statusAction, statusDescription, STATUS_LABEL_EN } = module.internals;
+  assert.equal(statusLabel('COMPLETED'), '已完成');
+  assert.equal(statusLabel('COMPLETED', 'en'), 'Completed');
+  assert.equal(statusLabel('MADE_UP', 'en'), 'MADE_UP');
+  assert.ok(STATUS_LABEL_EN.WIKI_INIT, 'the English status table must exist');
+  assert.match(tabTitle({ busy: true }, 'en'), /Generating/u);
+  assert.match(tabTitle({ busy: true }, 'zh'), /生成中/u);
+  assert.equal(tabTitle(null, 'en'), 'Repo Wiki');
+  assert.equal(statusAction('WIKI_HAS_COMMIT', 'en').label, 'Incremental Update');
+  assert.equal(statusAction('WIKI_HAS_COMMIT', 'zh').label, '增量更新');
+  assert.equal(statusDescription('INITIALIZING', {}, 'en'), 'Scanning repository structure');
+  assert.equal(statusDescription('INITIALIZING', {}, 'zh'), '正在扫描仓库结构');
+});
+
 /* ------------------------------------------------------------------------- *
  * apply(): slot and tab-type registration
  * ------------------------------------------------------------------------- */
