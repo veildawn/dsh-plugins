@@ -79,8 +79,6 @@ const PLAN_SAMPLE_BYTES = 6000;
 const PAGE_SAMPLE_BYTES = 8000;
 /** Maximum dependent files pasted into one writing prompt. */
 const PAGE_SAMPLE_FILES = 12;
-/** Default per-call token budget. */
-const DEFAULT_MAX_TOKENS = 8192;
 
 /** Raised when the pipeline is asked to run while it already is. */
 export class PipelineBusyError extends WikiError {
@@ -209,7 +207,7 @@ export function createUserMessage(text) {
  * the panel and the tools; only generation reports `llm-unavailable`.
  * @param {object} ctx cordis context
  * @param {object} settings
- * @param {{ system: string, user: string, signal?: AbortSignal, maxTokens?: number, purpose?: string }} request
+ * @param {{ system: string, user: string, signal?: AbortSignal, purpose?: string }} request
  * @returns {Promise<string>}
  */
 export async function callModel(ctx, settings, request) {
@@ -222,11 +220,14 @@ export async function callModel(ctx, settings, request) {
   }
 
   const route = await resolveRoute(ctx, settings);
-  const maxTokens = Number.isInteger(request.maxTokens) && request.maxTokens > 0 ? request.maxTokens : DEFAULT_MAX_TOKENS;
   const signal = request.signal;
   signal?.throwIfAborted();
 
-  const call = await llm.prepareCall({ ...route, maxTokens }, signal);
+  // No output budget is sent: an explicit maxTokens caps the whole completion
+  // including thinking, and a reasoning model burns that budget before any
+  // prose appears (glm-5.3-flash spent all 8192 on reasoning alone). Omitting
+  // it lets the provider's own default apply.
+  const call = await llm.prepareCall(route, signal);
   const options = {
     ...call.config,
     messages: [createUserMessage(request.user)],
