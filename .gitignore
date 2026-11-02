@@ -2,6 +2,7 @@ node_modules/
 *.tgz
 *.tar.gz
 .DS_Store
+.zcode/
 *.log
 pnpm-lock.yaml
 cookie.txt
