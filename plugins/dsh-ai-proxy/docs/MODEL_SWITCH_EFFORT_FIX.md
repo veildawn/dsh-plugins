@@ -2,7 +2,7 @@
 
 **结论先行**：这是 `dsh-ai-proxy` 插件的缺陷。切模型时，上一个模型的 `reasoning.effort`
 被原样带给了新模型；当该档位不在新模型的 effort ladder 内时，网关忠实拒绝并返回
-400。修复点在插件侧，**网关（`ai-proxy-service`）与 `ai-protocol` 无需改动**。
+400。修复点在插件侧，**网关（[ai-proxy-releases](https://github.com/veildawn/ai-proxy-releases)）与 [`ai-protocol`](https://github.com/veildawn/ai-protocol) 无需改动**。
 
 本文件是排查结论 + 落地方案 + 单测草稿，供在 `plugins/dsh-ai-proxy` 实施。
 按仓库 `AGENTS.md`：仅改代码 + `npm test`，**不要擅自 `dsh plugin add` / 重启服务**。
@@ -20,7 +20,7 @@
 ```
 
 HTTP 400。`param:null` 是 OpenAI 错误 envelope 里恒定的空槽，`invalid_request_error`
-对应 400，都是网关 `ai-proxy-service/internal/translator/errors.go` 对上游 400 的
+对应 400，都是网关（[ai-proxy-releases](https://github.com/veildawn/ai-proxy-releases)）对上游 400 的
 **正确**归一化，不是网关 bug。
 
 ## 2. 根因
@@ -30,7 +30,7 @@ HTTP 400。`param:null` 是 OpenAI 错误 envelope 里恒定的空槽，`invalid
 
 ### 2.1 上游 fold 的硬编码接受集
 
-`ai-protocol` 的 `geminiresponses/request.go` → `applyReasoningEffort`：
+[`ai-protocol`](https://github.com/veildawn/ai-protocol) 的 `geminiresponses/request.go` → `applyReasoningEffort`：
 
 ```
 minimal / low / medium / high / none / disable
@@ -61,7 +61,7 @@ minimal / low / medium / high / none / disable
 ## 3. 责任判定
 
 - **插件**：切模型后未按新模型 ladder 收敛 effort。← 要修
-- **网关 / ai-protocol**：正确。忠实拒绝目标模型无法表达的参数，而非静默猜一个
+- **网关**（[ai-proxy-releases](https://github.com/veildawn/ai-proxy-releases)）/ [`ai-protocol`](https://github.com/veildawn/ai-protocol)：正确。忠实拒绝目标模型无法表达的参数，而非静默猜一个
   `thinkingBudget`。**不要为迁就越界参数去放宽网关校验**——那会掩盖客户端 bug，
   并违背「degraded 也先告知」的设计。
 
@@ -211,10 +211,10 @@ test('streamOptionsWithPreferredEffort: a stale out-of-range effort is recompute
 
 ## 7. 关联信息
 
-- 网关仓库：`/home/ai_bot/CodeSpace/ai-proxy/ai-proxy-service`（本次只发了一个无关的
+- 网关公开发布：[ai-proxy-releases](https://github.com/veildawn/ai-proxy-releases)（本次只发了一个无关的
   thought-signature 修复 v0.23.1，与本问题无关，未改错误路径）
-- `ai-protocol` 接受集：`geminiresponses/request.go` 的 `applyReasoningEffort`
-- 错误归一化：`ai-proxy-service/internal/translator/errors.go` 的 `NormalizeErrorFor`
+- [`ai-protocol`](https://github.com/veildawn/ai-protocol) 接受集：`geminiresponses/request.go` 的 `applyReasoningEffort`
+- 错误归一化：[ai-proxy-releases](https://github.com/veildawn/ai-proxy-releases) 对上游 400 的 `NormalizeErrorFor`
 - 插件 effort 常量与函数：`plugins/dsh-ai-proxy/lib/index.js`
   （`EFFORT_ORDER` L105、`resolveDefaultEffort` L114、`ladderToReasoningEfforts` L233、
   `streamOptionsWithPreferredEffort` L267、`preferredEffort` L282）
