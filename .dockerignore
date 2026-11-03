@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+**/node_modules
+README.md
+scripts
+plugins/*/test
+**/design-mockups
+**/*.tgz
+
+# 本地运行 / 调试产物：不参与镜像构建，且体量接近 1GB
+.dsh
+.kiro
+.pnpm-store
+.rea
+.tmp
