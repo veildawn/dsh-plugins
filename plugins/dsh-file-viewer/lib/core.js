@@ -31,16 +31,17 @@ export const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 export const MAX_TEXT_BYTES = 8 * 1024 * 1024
 
 /**
- * Largest document shipped whole for Markdown/JSON rendering. Those formats
- * are meaningless in line windows — half a document does not render — so they
- * travel complete, and past this budget the viewer honestly falls back to the
- * paged source view instead of rendering a partial document.
+ * Largest document shipped whole for Markdown/JSON/HTML rendering. Those formats
+ * are meaningless in line windows — half a document does not render, and half an
+ * HTML page is not a page — so they travel complete, and past this budget the
+ * viewer honestly falls back to the paged source view instead of rendering a
+ * partial document.
  */
 export const MAX_PREVIEW_BYTES = 2 * 1024 * 1024
 
 /** Formats rendered from a whole document rather than a line window. */
 export function isWholeDocumentKind(kind) {
-  return kind === 'markdown' || kind === 'json'
+  return kind === 'markdown' || kind === 'json' || kind === 'html'
 }
 
 /**
@@ -605,6 +606,11 @@ export function kindOf(path) {
   const ext = extensionOf(path)
   if (ext === 'md' || ext === 'markdown' || ext === 'mdx') return 'markdown'
   if (ext === 'json' || ext === 'jsonc' || ext === 'json5') return 'json'
+  // A page is previewed by running it, not by reading it, so it gets its own
+  // kind. `.svg` deliberately stays under `image`: it is a picture first and a
+  // document second, and the image viewer's zoom and rotate are worth more to it
+  // than a script sandbox it almost never needs.
+  if (ext === 'html' || ext === 'htm') return 'html'
   if (IMAGE_EXTENSIONS.includes(ext)) return 'image'
   if (ext === 'pdf') return 'pdf'
   if (ext === 'xlsx' || ext === 'xlsm' || ext === 'xls') return 'sheet'

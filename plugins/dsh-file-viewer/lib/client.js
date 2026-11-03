@@ -751,6 +751,23 @@ window.__ModuleLoader__.load({
       .fv-content div[class*="_markdown_"] :where(pre,code){font-size:0.95em}
       .fv-content div[class*="_markdown_"] table{font-size:inherit}
       .fv-content .fv-sheet-tabs{position:sticky;top:0;margin:-12px -12px 10px;padding:12px 12px 8px}
+      /* HTML preview: the frame owns all the remaining height, and must not
+         shrink — a page with its own scrolling inside a flex parent collapses to
+         zero height without min-height:0 up the chain. */
+      .fv-html-shell{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;min-width:0}
+      .fv-html-frame{flex:1 1 auto;width:100%;min-height:0;border:0;background:#fff;display:block}
+      /* The sandbox is a capability limit the reader should know about, not a
+         warning: muted, small, and out of the way under the page. */
+      .fv-html-note{flex:none;padding:4px 12px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l1)}
+      /* A page is white in every theme — it brings its own colours and would
+         otherwise be dark ink on a dark drawer. */
+      .fv-html-shell{background:#fff}
+      .fv-html-modes{display:inline-flex;flex:none;gap:2px;padding:2px;border-radius:8px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1))}
+      .fv-html-mode{height:24px;padding:0 10px;border:none;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xs-13);cursor:pointer}
+      .fv-html-mode:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .fv-html-mode[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary);font-weight:600}
+      .fv-html-mode:disabled{cursor:default;opacity:.5}
+
       .fv-tab{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
       .fv-tab[aria-selected="true"]{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}
       .fv-tab-diff{display:inline-flex;align-items:center;gap:4px}
@@ -801,6 +818,18 @@ window.__ModuleLoader__.load({
       .fv-side-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-side-tab[aria-selected="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary);font-weight:600}
       .fv-side-tab svg{display:block;flex:none}
+      /* The refresh lives inside the 文件 tab, at its trailing edge. It is small
+         and square so it reads as a control belonging to the tab, not as another
+         label, and the -4px right margin pulls it flush to the tab's padding so
+         the pair looks deliberate rather than crowded. */
+      .fv-side-tab .fv-side-refresh{display:inline-flex;flex:none;align-items:center;justify-content:center;width:20px;height:20px;margin:0 -4px 0 1px;padding:0;border:none;border-radius:4px;background:none;color:inherit;opacity:.7;cursor:pointer}
+      .fv-side-tab .fv-side-refresh:hover:not(:disabled){background:color-mix(in srgb,currentColor 16%,transparent);opacity:1}
+      .fv-side-tab .fv-side-refresh:disabled{cursor:default;opacity:.45}
+      .fv-side-refresh[data-spinning="true"] svg{animation:fv-spin .8s linear infinite}
+      @keyframes fv-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+      /* Honouring the system preference matters here because the spin is the only
+         signal that a refresh is running. */
+      @media(prefers-reduced-motion:reduce){.fv-side-refresh[data-spinning="true"] svg{animation:none;opacity:.6}}
       .fv-git-panel{overflow:hidden!important}
       .fv-git{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;gap:2px;padding-bottom:6px}
       .fv-git-toolbar{display:flex;flex:none;flex-direction:column;gap:4px;padding:2px 2px 6px;border-bottom:1px solid var(--dsw-alias-border-l1)}
@@ -1103,6 +1132,10 @@ window.__ModuleLoader__.load({
            target while the secondary text stays compact. */
         .fv-side-tabs{margin:-6px -6px 4px!important;padding:2px!important}
         .fv-side-tab{height:32px!important;font-size:13px!important}
+        /* Inside the tab it must stay small enough to leave the label room on a
+           narrow phone; the tab itself is already a 32px touch target, so the
+           icon can be compact without hurting reachability. */
+        .fv-side-tab .fv-side-refresh{width:22px!important;height:22px!important}
         .fv-select{height:32px!important;font-size:13px!important;line-height:30px!important}
         .fv-git-checkout{height:32px!important;padding:0 12px!important;font-size:13px!important}
         .fv-git-commit{min-height:44px!important;padding:8px!important}
@@ -4794,6 +4827,171 @@ window.__ModuleLoader__.load({
             })));
       }
 
+      /**
+       * An HTML page, previewed by actually running it.
+       *
+       * A page is not something to read line by line — "preview" for HTML means
+       * "does it work", which only running it answers. The frame below is the
+       * whole feature; everything else here is about making that safe and
+       * reversible.
+       *
+       * ## Why the sandbox has no `allow-same-origin`
+       *
+       * That one flag is the difference between a preview and a hole. With it,
+       * the framed page shares this origin: it can read `localStorage` (where the
+       * Host keeps its credentials), call the Host's RPC endpoints with the app's
+       * own cookies, and reach into the parent document. Worse, a page holding
+       * both `allow-scripts` and `allow-same-origin` can simply remove its own
+       * `sandbox` attribute and reload itself — the sandbox stops being a
+       * boundary at all.
+       *
+       * Without it the frame gets an opaque origin: scripts still run, CSS still
+       * applies, but `localStorage` throws, `document.cookie` is empty, and the
+       * parent DOM is unreachable. Scripts stay enabled deliberately, because a
+       * static snapshot of an interactive page is exactly the useless thing this
+       * feature exists to replace.
+       *
+       * The trade is real and stated rather than hidden: a page cannot use
+       * storage or same-site cookies here, so a page that depends on them looks
+       * broken in the preview while working fine when opened directly. The note
+       * under the frame says so instead of letting the reader guess.
+       *
+       * ## Why `srcdoc` rather than a blob URL
+       *
+       * A `blob:` URL inherits this origin and has to be revoked by hand;
+       * `srcdoc` does neither. The cost is that relative references inside the
+       * page (`./style.css`, `../img/logo.png`) do not resolve — a self-contained
+       * page, which is what a generated report or prototype is, renders exactly
+       * as it would anywhere else. The 源码 view is the escape hatch for the
+       * rest.
+       *
+       * @param props - the file's metadata, its root, and the shared chrome.
+       * @returns the preview pane.
+       */
+      function HtmlView({ meta, root, backControl, sizeControl, copyControl, fontControl }) {
+        // `ready` carries the page source; `too-large` means the Host declined to
+        // send the whole document, so only the source view is honest.
+        // `data` is the whole `read` reply, not just the page source: when the
+        // document is too large to ship whole the same reply still carries a
+        // window of lines, and that window is the only source view available.
+        const [state, setState] = react.useState({ status: "loading", data: null, error: null });
+        // Preview first: the reason to open a page is to see it run.
+        const [mode, setMode] = react.useState("preview");
+        // Bumping this remounts the frame, which is how "run it again" reloads
+        // the page without touching the source.
+        const [nonce, setNonce] = react.useState(0);
+
+        react.useEffect(() => {
+          let live = true;
+          setState({ status: "loading", data: null, error: null });
+          // No `offset`/`limit` override: the default window is what a too-large
+          // page falls back to, and asking for one line (`limit: 1`) would leave
+          // that fallback showing a single line of a very long file.
+          // `isWholeDocumentKind('html')` is what makes the Host answer with the
+          // complete document instead of that window — see core.js.
+          request("read", { root, path: meta.path }).then((value) => {
+            if (!live) return;
+            if (typeof value.text !== "string") {
+              // Over MAX_PREVIEW_BYTES: a window was sent, not a document.
+              // Rendering a fragment of a page would be a lie, so say so — and
+              // show the window as source, which is what the reply does carry.
+              setState({ status: "too-large", data: value, error: null });
+              setMode("source");
+              return;
+            }
+            setState({ status: "ready", data: value, error: null });
+          }).catch((error) => {
+            if (live) setState({ status: "error", data: null, error });
+          });
+          return () => { live = false; };
+        }, [root, meta.path]);
+
+        if (state.status === "loading") {
+          return react.createElement("div", { className: "fv-empty-pane" },
+            react.createElement("div", { className: "fv-note" }, "正在读取页面…"));
+        }
+        if (state.status === "error") {
+          return react.createElement("div", { className: "fv-empty-pane" },
+            react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error)));
+        }
+
+        const canPreview = state.status === "ready";
+        const showingPreview = mode === "preview" && canPreview;
+
+        const modeSwitch = react.createElement("div", { className: "fv-html-modes", role: "group", "aria-label": "页面视图" },
+          react.createElement("button", {
+            type: "button",
+            className: "fv-html-mode",
+            "aria-pressed": showingPreview ? "true" : "false",
+            disabled: !canPreview,
+            title: canPreview ? "运行这个页面" : "页面过大，只能查看源码",
+            onClick: () => setMode("preview"),
+          }, "预览"),
+          react.createElement("button", {
+            type: "button",
+            className: "fv-html-mode",
+            "aria-pressed": showingPreview ? "false" : "true",
+            onClick: () => setMode("source"),
+          }, "源码"));
+
+        const rerunButton = showingPreview
+          ? react.createElement("button", {
+            type: "button",
+            className: "fv-icon-button",
+            "aria-label": "重新运行",
+            title: "重新运行这个页面",
+            onClick: () => setNonce((n) => n + 1),
+          }, react.createElement(SvgIconRefresh, { size: 14 }))
+          : null;
+
+        const headBar = react.createElement("div", { className: "fv-sheet-tabs", role: "toolbar" },
+          react.createElement("div", { className: "fv-sheet-tabs-start" }, backControl, copyControl, modeSwitch),
+          // The size stepper applies to the source view only: the preview renders
+          // the page's own typography, and resizing that would misrepresent it.
+          react.createElement("div", { className: "fv-sheet-tabs-end" }, rerunButton, showingPreview ? null : fontControl, sizeControl));
+
+        if (showingPreview) {
+          return react.createElement(react.Fragment, null, headBar,
+            react.createElement("div", { className: "fv-html-shell" },
+              react.createElement("iframe", {
+                // Read the module comment before touching this line: adding
+                // `allow-same-origin` turns the preview into a same-origin hole,
+                // and a page could then rewrite its own sandbox away.
+                key: nonce,
+                className: "fv-html-frame",
+                title: meta.name + " 预览",
+                sandbox: "allow-scripts allow-forms allow-modals allow-popups allow-downloads",
+                referrerPolicy: "no-referrer",
+                srcDoc: state.data.text,
+              }),
+              react.createElement("div", { className: "fv-html-note" },
+                "沙箱预览：脚本可以运行，但读不到本站的存储与 Cookie。")));
+        }
+
+        // Source mode. When the document came whole it is one string, and the
+        // rows are built from it here — asking the Host to re-read and re-split
+        // text already in hand would be a second round trip for nothing. When it
+        // did not, the reply's own window is the source view, complete with the
+        // absolute line numbers a paged window carries.
+        const rows = state.status === "ready"
+          ? state.data.text.split(/\r?\n/).map((text, index) => ({ number: index + 1, text }))
+          : (Array.isArray(state.data?.lines) ? state.data.lines : []);
+        return react.createElement(react.Fragment, null, headBar,
+          state.status === "too-large"
+            ? react.createElement("div", { className: "fv-note" },
+              "页面超过预览上限，只能查看源码。")
+            : null,
+          react.createElement("div", { className: "fv-content" },
+            react.createElement(ReadBlock, {
+              label: meta.name,
+              lines: rows,
+              totalLines: rows.length,
+              lang: "html",
+              maxLines: rows.length,
+              labels: READ_BLOCK_LABELS,
+            })));
+      }
+
       /** PDFs and generic binaries: fetch bytes once, hand a blob URL to the browser iframe. */
       function BinaryView({ meta, root }) {
         const [state, setState] = react.useState({ status: "loading", url: "", error: null });
@@ -5307,7 +5505,7 @@ window.__ModuleLoader__.load({
         // has its own zoom, and a sheet's cells are not prose.
         const textish = meta !== null
           && !meta.tooLarge
-          && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json");
+          && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json" || meta.kind === "html");
         const fontControl = textish
           ? react.createElement(FontSizeControl, { value: fontSize, onChange: onFontSizeChange })
           : null;
@@ -5364,10 +5562,21 @@ window.__ModuleLoader__.load({
             react.createElement("div", { className: "fv-sheet-tabs-end" }, fontControl, sizeControl))
           : null;
 
+        // A page from history is NOT previewed, and deliberately not listed as
+        // previewable: `gitCommitFile` answers with a paged window, never the
+        // whole document, so there is no complete source to run. Falling through
+        // to the working-tree reader instead would be the worst outcome — it
+        // would silently show the CURRENT file under a tab claiming to be a
+        // historical one.
         if (fromHistory && meta.kind !== "text" && meta.kind !== "markdown" && meta.kind !== "json") {
           return react.createElement(react.Fragment, null, headBar, banner,
             react.createElement("div", { className: "fv-note" },
               "该提交中的文件是 " + meta.kind + " 格式，历史版本暂不支持预览。"));
+        }
+        if (meta.kind === "html") {
+          // The page brings its own toolbar (it needs the 预览/源码 switch), so it
+          // renders the shared chrome itself rather than receiving `headBar`.
+          return react.createElement(HtmlView, { key, meta, root, backControl, sizeControl, copyControl, fontControl });
         }
         if (meta.kind === "image") return react.createElement(react.Fragment, null, headBar, react.createElement(ImageView, { key, meta, root }));
         if (meta.kind === "pdf") return react.createElement(react.Fragment, null, headBar, react.createElement(BinaryView, { key, meta, root }));
@@ -5383,7 +5592,7 @@ window.__ModuleLoader__.load({
 
 
       /** Right-click context menu for file and directory items. */
-      function ContextMenu({ menu, rootPath, onClose, onMention, onToast, onDownload, onDelete }) {
+      function ContextMenu({ menu, rootPath, onClose, onMention, onToast, onDownload, onDelete, onRefresh }) {
         const ref = react.useRef(null);
         const mountTimeRef = react.useRef(Date.now());
         react.useEffect(() => {
@@ -5451,6 +5660,16 @@ window.__ModuleLoader__.load({
           onClose();
           if (onDelete) onDelete(entry);
         };
+
+        // A directory-level refresh exists because the tree-wide button is a
+        // blunt instrument: it re-reads every expanded directory, when the one
+        // that changed is usually the one under the pointer.
+        const handleRefresh = (e) => {
+          e.stopPropagation();
+          onClose();
+          if (onRefresh) onRefresh(entry);
+        };
+        const isDirectoryEntry = entry.type === "directory" || entry.isDirectory === true;
 
         const winW = typeof window !== "undefined" ? window.innerWidth : 1000;
         const winH = typeof window !== "undefined" ? window.innerHeight : 800;
@@ -5526,6 +5745,19 @@ window.__ModuleLoader__.load({
             },
               react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "@"),
               react.createElement("span", { className: "fv-context-item-label" }, "引用到输入框 (@)")),
+            // Only a directory has a listing to re-read. Placed above the
+            // divider so it never neighbours delete, and worded with the
+            // directory's own name so it is obvious what gets refreshed.
+            isDirectoryEntry
+              ? react.createElement("button", {
+                type: "button",
+                className: "fv-context-item",
+                role: "menuitem",
+                onClick: handleRefresh,
+              },
+                react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "🔄"),
+                react.createElement("span", { className: "fv-context-item-label" }, "刷新此目录"))
+              : null,
             entry.type !== "directory" && !entry.isDirectory
               ? react.createElement("button", {
                 type: "button",
@@ -6028,6 +6260,13 @@ window.__ModuleLoader__.load({
          * offer the escape hatch.
          */
         const [planWaitStage, setPlanWaitStage] = react.useState(0);
+        // Whether the tree is mid-refresh, so the control can show its spin and
+        // refuse a second click. Declared here with the other hooks rather than
+        // next to `refreshTree` below: that point in the body is past this
+        // component's early returns, and a hook there changes the hook count
+        // between renders ("Rendered more hooks than during the previous
+        // render"). A guard test scans for exactly this mistake.
+        const [refreshing, setRefreshing] = react.useState(false);
         // Which sidebar pane is showing, and whether the main pane is a commit
         // rather than a file. Both live here because the drawer owns the split.
         //
@@ -7200,6 +7439,101 @@ window.__ModuleLoader__.load({
 
         const activeRoot = roots.find((row) => row.id === root);
         const treeRows = flattenTree({ expanded, nodes });
+
+        /**
+         * Reload the listings named by `dirs`.
+         *
+         * The tree caches one listing per directory, which is what makes
+         * expanding feel instant — but it also means a file created by a shell
+         * command, a git checkout, or another editor never appears until the
+         * drawer is closed and reopened. That is the whole reason refreshing
+         * exists.
+         *
+         * Two callers, one implementation: the toolbar button re-reads
+         * everything on screen, and a directory's context menu re-reads just
+         * that one. Keeping them on the same path means the generation bump,
+         * the "do not blank the tree" rule and the settle bookkeeping cannot
+         * drift apart.
+         *
+         * The shape of the tree is deliberately preserved: `expanded` is never
+         * touched and `nodes` is replaced in place, because a refresh that
+         * collapsed the tree or flashed it empty would make the reader hunt for
+         * their place again.
+         *
+         * @param {string[]} dirs - root-relative directory paths to re-read.
+         */
+        const refreshDirectories = (dirs) => {
+          const targets = [...new Set(dirs)];
+          if (root === "" || targets.length === 0) return;
+          // Bumping the generation is what makes any *older in-flight* listing
+          // stale, so a refresh that overlaps the arrival load cannot be
+          // overwritten by the earlier answer.
+          treeGeneration.current += 1;
+          setRefreshing(true);
+          let outstanding = targets.length;
+          const settle = () => {
+            outstanding -= 1;
+            if (outstanding <= 0) setRefreshing(false);
+          };
+          for (const dirPath of targets) {
+            const generation = treeGeneration.current;
+            // A directory that is about to be re-read keeps its children on
+            // screen: flipping it to "loading" would collapse the subtree the
+            // reader is looking at, because a loading row has no children.
+            request("list", { root, path: dirPath, hidden }).then((value) => {
+              if (treeGeneration.current !== generation) return;
+              setNodes((current) => new Map(current).set(dirPath, { status: "ready", entries: value.entries || [] }));
+              if (dirPath === "") setError(null);
+              settle();
+            }).catch((problem) => {
+              if (treeGeneration.current !== generation) return;
+              setNodes((current) => new Map(current).set(dirPath, { status: "error", error: problem }));
+              if (dirPath === "") setError(problem);
+              settle();
+            });
+          }
+        };
+
+        /** Re-read the root and every expanded directory — the toolbar button. */
+        const refreshTree = () => {
+          if (refreshing) return;
+          refreshDirectories(["", ...expanded]);
+        };
+
+        /**
+         * Re-read one directory from its context menu.
+         *
+         * A directory that is expanded also gets its children re-read, because
+         * the row the reader is looking at may be collapsed-shallow while a
+         * child directory they just opened is the stale one. A file entry has
+         * nothing to refresh, which is why the menu hides the item there.
+         *
+         * @param {{path?: string, type?: string, isDirectory?: boolean}} entry - the right-clicked row.
+         */
+        const refreshEntry = (entry) => {
+          const target = entry !== null && entry !== undefined && typeof entry.path === "string" ? entry.path : "";
+          const isDirectory = entry !== null && entry !== undefined
+            && (entry.type === "directory" || entry.isDirectory === true);
+          // The root row has an empty path, which is a legitimate target.
+          if (!isDirectory) return;
+          if (refreshing) {
+            showToast("正在刷新，请稍候");
+            return;
+          }
+          const children = expanded.has(target) ? [...expanded].filter((p) => p.startsWith(target + "/")) : [];
+          refreshDirectories([target, ...children]);
+        };
+
+        /** The refresh control, offered only where a tree is actually on screen. */
+        const refreshButton = react.createElement("button", {
+          type: "button",
+          className: "fv-side-refresh",
+          "data-spinning": refreshing ? "true" : "false",
+          "aria-label": "刷新目录",
+          title: refreshing ? "正在刷新…" : "刷新目录树（重新读取已展开的目录）",
+          disabled: refreshing,
+          onClick: refreshTree,
+        }, react.createElement(SvgIconRefresh, { size: 13 }));
         // The plan list replaces the tree only while a plan is the thing on
         /**
          * The sidebar's two-pane switch, kept out of the tree component so the
@@ -7222,7 +7556,14 @@ window.__ModuleLoader__.load({
               // of having them.
               setSide("files");
             },
-          }, "文件"),
+          },
+            "文件",
+            // The refresh belongs to the files pane, so it lives inside that
+            // tab rather than beside it: a third sibling read as a third view
+            // ("why is there an icon in the tab row?"), and it stole width from
+            // the two labels. Inside the tab it is unambiguous about what it
+            // refreshes, and it disappears with the pane it belongs to.
+            side === "files" ? refreshButton : null),
           react.createElement("button", {
             type: "button",
             role: "tab",
@@ -7285,7 +7626,7 @@ window.__ModuleLoader__.load({
           ? react.createElement("span", { className: "fv-main-size" }, formatBytes(meta.size))
           : null;
 
-        const langControl = meta !== null && !showCommit && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json")
+        const langControl = meta !== null && !showCommit && !meta.tooLarge && (meta.kind === "text" || meta.kind === "markdown" || meta.kind === "json" || meta.kind === "html")
           ? react.createElement(LanguagePicker, {
             choice: localeTagOfActive,
             catalog: languageCatalog,
@@ -7646,6 +7987,7 @@ window.__ModuleLoader__.load({
                 onToast: showToast,
                 onDownload: handleDownloadItem,
                 onDelete: requestDelete,
+                onRefresh: refreshEntry,
               })
               : null,
             // The tab menu is a separate component with a separate subject; it

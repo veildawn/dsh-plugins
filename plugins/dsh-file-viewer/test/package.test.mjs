@@ -1087,7 +1087,12 @@ test('the language picker offers auto plus the host catalog', () => {
   assert.match(source, /const localeTagOfActive = activeTab === null \? "auto" : \(activeTab\.lang \|\| "auto"\)/)
   assert.match(source, /lang: localeTagOfActive/)
   // The picker is contextual to a source view; an image or sheet has no grammar.
-  assert.match(source, /meta\.kind === "text" \|\| meta\.kind === "markdown" \|\| meta\.kind === "json"\)/)
+  // HTML is a source view too: its 源码 pane is highlighted, so pinning the
+  // grammar there is meaningful.
+  assert.match(
+    source,
+    /meta\.kind === "text" \|\| meta\.kind === "markdown" \|\| meta\.kind === "json" \|\| meta\.kind === "html"\)/,
+  )
 })
 
 test('the picker keeps its provenance as a tooltip instead of toolbar text', () => {
