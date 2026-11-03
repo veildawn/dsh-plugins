@@ -9,3 +9,14 @@ cookie.txt
 
 # 设计过程产物（效果图、对比截图），不进代码仓库
 plugins/*/design-mockups/
+
+# 本地运行 / 调试产物：DSH 运行目录（repo-wiki 产物、会话记录）、Kiro 规约工作区、
+# 本地 pnpm store、逆向分析脚本与临时文件，均不属于仓库源码
+.dsh/
+.kiro/
+.pnpm-store/
+.rea/
+.tmp/
+
+# 桌面截图等临时图片（仓库根目录）
+/*.png
