@@ -1262,6 +1262,24 @@ test('网关端口冲突进入 status，其余网卡照常监听', async () => {
   }
 })
 
+test('DSH_LAN_GATEWAY=0 时回环宿主和桌面端都不起局域网反代', (t) => {
+  const previous = process.env.DSH_LAN_GATEWAY
+  t.after(() => {
+    if (previous === undefined) delete process.env.DSH_LAN_GATEWAY
+    else process.env.DSH_LAN_GATEWAY = previous
+  })
+  const { ctx, webServer } = makeHost()
+  webServer.host = '127.0.0.1'
+  process.env.DSH_LAN_GATEWAY = '0'
+  assert.equal(internals.isLanGatewayDisabled(), true)
+  assert.equal(internals.shouldStartLanGateway(ctx), false, '容器用这个开关关掉会签发 launch token 的网关')
+  assert.equal(internals.shouldStartLanGateway(desktopView(ctx)), false, '显式关闭也覆盖桌面端')
+  process.env.DSH_LAN_GATEWAY = '1'
+  assert.equal(internals.shouldStartLanGateway(ctx), true, '其它取值保持回环宿主起反代')
+  delete process.env.DSH_LAN_GATEWAY
+  assert.equal(internals.shouldStartLanGateway(ctx), true)
+})
+
 test('宿主绑回环时由插件反代提供局域网入口', () => {
   // 桌面端固定 127.0.0.1；web profile 也可以这么配（0.2.x 拒绝 0.0.0.0），
   // 两种情况下局域网入口都只能由插件自己的反代端口提供。

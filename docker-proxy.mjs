@@ -1,15 +1,19 @@
 import net from 'node:net'
+import { publishedPort, upstreamPort } from './docker-ports.mjs'
 
-const port = Number(process.env.DSH_PORT ?? '3080')
-if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-  throw new Error('DSH_PORT must be an integer between 1 and 65535')
-}
+const port = publishedPort()
+const upstream = upstreamPort()
 
 const server = net.createServer((client) => {
-  const upstream = net.createConnection({ host: '127.0.0.1', port: 3081 })
-  client.pipe(upstream).pipe(client)
-  client.on('error', () => upstream.destroy())
-  upstream.on('error', () => client.destroy())
+  const upstreamSocket = net.createConnection({ host: '127.0.0.1', port: upstream })
+  client.pipe(upstreamSocket).pipe(client)
+  client.on('error', () => upstreamSocket.destroy())
+  upstreamSocket.on('error', () => client.destroy())
+})
+
+server.on('error', (error) => {
+  console.error(error.message)
+  process.exit(1)
 })
 
 server.listen({ host: '0.0.0.0', port })
