@@ -562,6 +562,31 @@ async function mountTree() {
         await sleep(150)
       })
     },
+    /**
+     * Right-click the active tab and pick 定位文件.
+     *
+     * Shared because three tests need it and the menu is reached the same way
+     * every time: contextmenu on the cell, then a click on the item.
+     */
+    locateActiveTab: async () => {
+      const cell = container.querySelector('.fv-tab-cell')
+      assert(cell, 'the tab must be rendered')
+      await React.act(async () => {
+        cell.dispatchEvent(new globalThis.window.MouseEvent('contextmenu', {
+          bubbles: true,
+          clientX: 40,
+          clientY: 40,
+        }))
+        await sleep(80)
+      })
+      const item = [...container.querySelectorAll('[role="menuitem"]')]
+        .find((node) => node.textContent?.includes('定位文件'))
+      assert(item, 'the tab menu must offer 定位文件')
+      await React.act(async () => {
+        item.dispatchEvent(new globalThis.window.MouseEvent('click', { bubbles: true }))
+        await sleep(250)
+      })
+    },
     cleanup: async () => {
       await React.act(async () => { reactRoot.unmount() })
       container.remove()
@@ -646,6 +671,115 @@ test('the tab menu can point the tree at a file the reader collapsed', async () 
       tree.rows(),
       ['src', 'src/lib', 'src/lib/a.ts', 'src/lib/b.ts'],
       'the reveal must open the path again, even though the file never changed',
+    )
+  } finally {
+    await tree.cleanup()
+  }
+})
+
+/**
+ * Give the tree a viewport, since jsdom reports every box as 0.
+ *
+ * `scrollTargetForRow` answers "already visible" for a zero-height row inside a
+ * zero-height window, so a real scroll can never happen in jsdom without this —
+ * which is exactly why the bug shipped: the highlight was asserted, the scroll
+ * never was.
+ */
+function giveTreeViewport(tree, { rowTop, rowHeight = 32, height = 200, scrollTop = 0 }) {
+  const host = tree.container.querySelector('.fv-tree')
+  assert(host, 'the tree scroller must exist')
+  const calls = []
+  // `clientHeight` is a getter on Element and jsdom keeps it at 0 for anything
+  // without layout, so it has to be redefined rather than assigned.
+  Object.defineProperty(host, 'clientHeight', { configurable: true, get: () => height })
+  Object.defineProperty(host, 'scrollTop', { configurable: true, writable: true, value: scrollTop })
+  host.getBoundingClientRect = () => ({ top: 0, left: 0, right: 300, width: 300, height, bottom: height })
+  host.scrollTo = (options) => { calls.push(options) }
+  const rowOf = () => host.querySelector('.fv-row-seat[data-active="true"]')
+  // The row may not exist yet (a collapsed path has no row), in which case it
+  // cannot be measured — jsdom would report 0x0 and `scrollTargetForRow` would
+  // call it "already visible".
+  const patchRow = () => {
+    const row = rowOf()
+    if (row === null) return null
+    row.getBoundingClientRect = () => ({
+      top: rowTop,
+      left: 0,
+      right: 300,
+      width: 300,
+      height: rowHeight,
+      bottom: rowTop + rowHeight,
+    })
+    return row
+  }
+  patchRow()
+  return { host, calls, row: rowOf, patchRow }
+}
+
+test('定位文件 scrolls the row into view instead of only highlighting it', async () => {
+  const tree = await mountTree()
+  try {
+    await tree.open('src/lib/a.ts')
+    // The reported situation: the file IS the current row, but the tree is
+    // scrolled to the top and the row sits 400px down — lit up and invisible.
+    const view = giveTreeViewport(tree, { rowTop: 400 })
+
+    await tree.locateActiveTab()
+
+    assert.equal(view.calls.length, 1, '定位文件 must scroll the tree; highlighting alone leaves the file offscreen')
+    // Centred: 400 - (200 - 32) / 2 = 316.
+    assert.equal(view.calls[0].top, 316, 'the row must be centred in the tree viewport')
+  } finally {
+    await tree.cleanup()
+  }
+})
+
+test('定位文件 still answers when the row is already on screen', async () => {
+  const tree = await mountTree()
+  try {
+    await tree.open('src/lib/a.ts')
+    const view = giveTreeViewport(tree, { rowTop: 40 })
+
+    await tree.locateActiveTab()
+
+    // No scroll: moving a row the reader can already see is motion with no
+    // information in it, and it would fight a deliberate scroll position.
+    assert.equal(view.calls.length, 0, 'an already visible row must not be scrolled')
+    // But the click must not be silent either — the outline says which row.
+    assert.ok(
+      view.row().classList.contains('fv-row-located'),
+      'the located row must be marked so the menu has a visible answer',
+    )
+  } finally {
+    await tree.cleanup()
+  }
+})
+
+test('定位文件 reaches a row whose ancestors had to be reopened first', async () => {
+  const tree = await mountTree()
+  try {
+    await tree.open('src/lib/a.ts')
+    await tree.clickDirectory('src')
+    assert.deepEqual(tree.rows(), ['src'], 'precondition: the path is collapsed')
+
+    // The row does not exist while collapsed, so the first pass has nothing to
+    // scroll to. The reveal opens the directory, and the row only appears in the
+    // commit AFTER that — which is why the scroll effect also watches `expanded`.
+    const view = giveTreeViewport(tree, { rowTop: 400 })
+    await tree.locateActiveTab()
+
+    assert.deepEqual(
+      tree.rows(),
+      ['src', 'src/lib', 'src/lib/a.ts', 'src/lib/b.ts'],
+      'the ancestors must be open before the row can be scrolled to',
+    )
+    // The row is a brand new element, so the geometry stubbed above does not
+    // apply to it and `scrollTargetForRow` correctly sees a 0x0 row. What proves
+    // the effect came back for it is the outline: it is only added by a pass that
+    // found the row, and it does not depend on any box.
+    assert.ok(
+      view.row().classList.contains('fv-row-located'),
+      'the row that arrived a commit late must still be answered',
     )
   } finally {
     await tree.cleanup()

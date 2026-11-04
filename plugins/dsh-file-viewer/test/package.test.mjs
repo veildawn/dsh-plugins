@@ -4049,10 +4049,27 @@ test('the tree highlight follows the active tab, and its rule can actually match
     /\}, \[open, root, activeFilePath, revealStamp\]\);/,
     'the reveal effect must key on the file and the explicit reveal request, never on the tree state it writes',
   )
+  // The scroll effect is the mirror image, and its dependency list is the
+  // opposite for the opposite reason. It WRITES nothing: it only reads
+  // `treeScrolledForRef` and moves a scroller, so watching tree state cannot make
+  // it fight itself the way the reveal effect did. What it must watch is every
+  // way the row can start existing after this effect has already run:
+  //
+  // - `revealStamp` — 定位文件 was clicked. The reveal effect clears the ticket,
+  //   but a cleared ticket only reaches an effect that watches the stamp; keyed
+  //   on the file alone the click expanded the ancestors and stopped there, so
+  //   the file stayed offscreen. That was the reported bug.
+  // - `expanded` — those ancestors are opened with a `setState`, so the row only
+  //   appears in the commit AFTER this one.
+  // - `nodes` — an ancestor had never been listed and its children come from the
+  //   host, one commit later again.
+  //
+  // Re-running more often is safe because of the ticket asserted just above: a
+  // second pass for the same file returns before it touches the scroller.
   assert.match(
     source,
-    /\}, \[open, activeFilePath\]\);\n\n        react\.useEffect\(\(\) => \{\n          if \(!open\) return undefined;\n          const onKeyDown/,
-    'the scroll effect must key on the file only as well',
+    /\}, \[open, activeFilePath, revealStamp, expanded, nodes\]\);\n\n        react\.useEffect\(\(\) => \{\n          if \(!open\) return undefined;\n          const onKeyDown/,
+    'the scroll effect must re-run whenever the row it wants can newly exist',
   )
   // Reading the tree through refs is what lets the reveal stay keyed on the file
   // while still seeing what is currently open.
@@ -4073,7 +4090,11 @@ test('the tree highlight follows the active tab, and its rule can actually match
   // where its rules are unit tested.
   assert.equal(typeof internals.scrollTargetForRow, 'function')
   assert.match(source, /const target = scrollTargetForRow\(\{/)
-  assert.match(source, /if \(target === null\) return;/)
+  // A null target still means "already visible, do not move anything" — it is
+  // no longer an early return because a manual 定位文件 must be answered either
+  // way. The outline below is what answers it, and it never moves the scroller.
+  assert.match(source, /if \(target !== null\) \{/)
+  assert.match(source, /row\.classList\.add\("fv-row-located"\)/)
 
   // The mobile rules override the row's layout with `!important`, so the
   // highlight must not depend on anything they reset. They set flex/padding
@@ -4172,8 +4193,17 @@ test('a tab can point the tree at the file it shows', () => {
   assert.match(source, /const asked = revealStamp !== revealStampHandledRef\.current;/)
   assert.match(source, /if \(treeRevealedForRef\.current === activeFilePath && !asked\) return;/)
   // A manual reveal also re-arms the scroll ticket, or the row would be opened
-  // but never brought into view.
-  assert.match(source, /if \(asked\) treeScrolledForRef\.current = "";/)
+  // but never brought into view. Re-arming alone used to be all it did, and that
+  // was the bug: the ticket was cleared for an effect that never re-ran. The
+  // pending flag is what carries "and this one the reader asked for" across to
+  // the scroll effect, which uses it to answer with an outline even when the row
+  // is already on screen and no scroll would happen.
+  assert.match(
+    source,
+    /if \(asked\) \{\s*\n\s*treeScrolledForRef\.current = "";\s*\n\s*manualLocateRef\.current = revealStamp;\s*\n\s*\}/,
+    'a manual reveal must re-arm the scroll and leave the request for the scroll effect',
+  )
+  assert.match(source, /const manualLocateRef = react\.useRef\(0\);/)
 })
 
 test('a tab offers refresh, close, close others and close all', () => {

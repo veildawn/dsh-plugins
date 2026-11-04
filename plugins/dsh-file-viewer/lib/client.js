@@ -596,6 +596,18 @@ window.__ModuleLoader__.load({
       .fv-row-seat[aria-current="true"]>.fv-row,.fv-row[aria-current="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
       .fv-row-seat[aria-current="true"]>.fv-row{box-shadow:inset 2px 0 0 0 var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary);font-weight:600}
       .fv-row-seat[aria-current="true"]>.fv-row .fv-row-name{color:var(--dsw-alias-label-primary)}
+      /* 「定位文件」的确认反馈。滚到视区是主要效果，但文件本来就在视区里时
+         一次滚动是无意义的位移——读者点了菜单却什么都没看见，会以为没生效。
+         这一下描边只回答「就是这一行」，不做位移，所以不影响读者的滚动位置。
+         由 JS 临时加类、动画结束即撤；reduced-motion 下直接不闪。 */
+      .fv-row-seat.fv-row-located>.fv-row{animation:fv-locate-flash 1s ease-out}
+      @keyframes fv-locate-flash{
+        0%,55%{box-shadow:inset 0 0 0 2px var(--dsw-alias-brand-primary,#4d6bfe)}
+        100%{box-shadow:inset 0 0 0 2px transparent}
+      }
+      @media (prefers-reduced-motion: reduce){
+        .fv-row-seat.fv-row-located>.fv-row{animation:none}
+      }
       /* 键盘聚焦与"当前文件"是两件事：焦点框只在键盘操作时出现，避免鼠标点完
          还留一个和选中态抢眼的方框。 */
       .fv-row-seat[aria-current="true"]>.fv-row:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:-2px}
@@ -7914,6 +7926,20 @@ window.__ModuleLoader__.load({
         const treeRevealedForRef = react.useRef("");
         const treeScrolledForRef = react.useRef("");
         /**
+         * The `revealStamp` of a pending 定位文件 click, or 0.
+         *
+         * Set by the reveal effect when it sees a manual request, consumed by the
+         * scroll effect once the row exists. They are separate effects and React
+         * runs them in order, so a ref is the channel between them — the scroll
+         * effect cannot tell a manual reveal from an automatic one after the
+         * reveal effect has already bumped `revealStampHandledRef`.
+         *
+         * It survives until a row is found: with a cold tree the ancestors have
+         * to be fetched first, and the reader's request must not be dropped just
+         * because the first attempt ran before there was anything to point at.
+         */
+        const manualLocateRef = react.useRef(0);
+        /**
          * A request from the reader to reveal the file again.
          *
          * The automatic reveal is once-per-file on purpose (see above): after it
@@ -7953,8 +7979,13 @@ window.__ModuleLoader__.load({
           if (treeRevealedForRef.current === activeFilePath && !asked) return;
           revealStampHandledRef.current = revealStamp;
           treeRevealedForRef.current = activeFilePath;
-          // A manual reveal also re-arms the scroll, which has its own ticket.
-          if (asked) treeScrolledForRef.current = "";
+          // A manual reveal also re-arms the scroll, which has its own ticket,
+          // and leaves the request for the scroll effect to answer with an outline
+          // — that effect also re-arms now, because it watches `revealStamp`.
+          if (asked) {
+            treeScrolledForRef.current = "";
+            manualLocateRef.current = revealStamp;
+          }
 
           const chain = ancestorsOf(activeFilePath);
           const current = expandedRef.current;
@@ -7983,18 +8014,27 @@ window.__ModuleLoader__.load({
           if (!open) {
             // Reopening is a fresh look at the same tree, so reveal again.
             treeScrolledForRef.current = "";
+            // A request made against a drawer that is now closed has nothing
+            // left to point at; carrying it into the next open would flash a row
+            // nobody asked about.
+            manualLocateRef.current = 0;
             return;
           }
           if (activeFilePath === "" || treeScrolledForRef.current === activeFilePath) return;
           const host = treeScrollRef.current;
           if (host === null || host === undefined) return;
           const row = host.querySelector('[data-active="true"]');
-          // Still waiting for an ancestor listing; the row will appear later and
-          // this effect runs again once it does. `nodesRef` is not a dependency
-          // (that was the bug), so the re-run is driven by the render that the
-          // arriving listing causes.
+          // Still waiting for an ancestor listing: the row does not exist yet, so
+          // leave the ticket unset and let a later run take it. That later run
+          // only happens because `nodes` is a dependency below — React does not
+          // re-run an effect merely because the component re-rendered, so the
+          // arriving listing needs to change something this effect watches.
           if (row === null) return;
           treeScrolledForRef.current = activeFilePath;
+          // A manual 定位文件 is answered even when the row is already visible:
+          // the reader asked "where is it", and silence reads as a broken menu.
+          const manual = manualLocateRef.current !== 0;
+          manualLocateRef.current = 0;
           // Already on screen: scrolling would be motion with no information in
           // it, and it would fight a reader who has scrolled deliberately.
           const target = scrollTargetForRow({
@@ -8004,24 +8044,45 @@ window.__ModuleLoader__.load({
             hostHeight: host.clientHeight,
             scrollTop: host.scrollTop,
           });
-          if (target === null) return;
-          const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-          // Drive the tree's own scroller rather than scrollIntoView, which
-          // would also scroll the page and the content pane behind the drawer.
-          // `scrollTo` is absent in non-visual environments (jsdom, some webview
-          // shims); falling back to the assignment keeps the reveal working
-          // without animation there instead of throwing inside an effect.
-          if (typeof host.scrollTo === "function") {
-            host.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
-          } else {
-            host.scrollTop = target;
+          if (target !== null) {
+            const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+            // Drive the tree's own scroller rather than scrollIntoView, which
+            // would also scroll the page and the content pane behind the drawer.
+            // `scrollTo` is absent in non-visual environments (jsdom, some webview
+            // shims); falling back to the assignment keeps the reveal working
+            // without animation there instead of throwing inside an effect.
+            if (typeof host.scrollTo === "function") {
+              host.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
+            } else {
+              host.scrollTop = target;
+            }
           }
-          // No `expanded` / `nodes` here either. This effect has to re-run when a
-          // listing arrives (so the row finally exists to scroll to), and it
-          // does — because that listing causes a render, and `activeFilePath`
-          // stays the key. Depending on `nodes` additionally made it re-run for
-          // every unrelated directory that finished loading.
-        }, [open, activeFilePath]);
+          if (manual) {
+            // The outline only says "this row"; it never moves anything, so it
+            // cannot fight a reader who scrolled on purpose. Removed by the
+            // animation's own duration; if React has replaced the element in the
+            // meantime the call is a harmless no-op.
+            row.classList.add("fv-row-located");
+            window.setTimeout(() => { row.classList.remove("fv-row-located"); }, 1000);
+          }
+          // Three dependencies beyond the obvious ones, each covering a way the
+          // row can fail to exist yet. An effect does not re-run because the
+          // component re-rendered; it re-runs because something it watches
+          // changed, so each of these is a different reason the row appears late:
+          //
+          // - `revealStamp` — 定位文件 clicked while the row was offscreen. The
+          //   reveal effect clears the ticket, but without this the click would
+          //   only expand the ancestors and leave the file where it was, which is
+          //   the complaint this fixes.
+          // - `expanded` — the ancestors were collapsed and the reveal effect
+          //   just opened them. That is a `setState`, so the row only exists in
+          //   the DOM of the commit AFTER this effect has already run.
+          // - `nodes` — an ancestor directory had never been listed. Its children
+          //   arrive from the host, again one commit later.
+          //
+          // All three cost one `querySelector` when they fire, and the ticket set
+          // above stops a second scroll for the same file.
+        }, [open, activeFilePath, revealStamp, expanded, nodes]);
 
         react.useEffect(() => {
           if (!open) return undefined;
