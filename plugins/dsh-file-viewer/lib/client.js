@@ -700,6 +700,13 @@ window.__ModuleLoader__.load({
       .fv-image{max-width:100%;max-height:calc(100% - 16px);object-fit:contain;background:repeating-conic-gradient(var(--dsw-alias-border-l1) 0% 25%,transparent 0% 50%) 50%/16px 16px}
       .fv-image-viewer{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;min-height:0;height:100%;overflow:hidden;background:var(--dsw-alias-bg-layer-1,var(--dsw-alias-bg-base,#fff))}
       .fv-image-toolbar{display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--dsw-alias-bg-layer-2,rgba(0,0,0,.03));border-bottom:1px solid var(--dsw-alias-border-l1);flex:none;font-size:12px;user-select:none;color:var(--dsw-alias-label-secondary)}
+      /* The picture/source switch is a word, not a glyph: no icon says "the XML
+         of this drawing" and a mystery button would be worse than a wide one.
+         Pushed to the far end so it never sits between the zoom controls. */
+      .fv-image-btn-text{margin-left:auto;font-weight:500}
+      .fv-image-btn-text[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      /* The source pane owns the remaining height and scrolls on its own. */
+      .fv-svg-source{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;overflow:auto}
       .fv-image-btn{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary);font-size:12px;cursor:pointer;line-height:1;transition:background-color .1s;text-decoration:none}
       .fv-image-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-image-scale-text{font-variant-numeric:tabular-nums;font-size:11px;min-width:38px;text-align:center;color:var(--dsw-alias-label-primary);font-weight:600}
@@ -754,7 +761,24 @@ window.__ModuleLoader__.load({
       /* HTML preview: the frame owns all the remaining height, and must not
          shrink — a page with its own scrolling inside a flex parent collapses to
          zero height without min-height:0 up the chain. */
-      .fv-html-shell{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;min-width:0}
+      .fv-html-shell{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;min-width:0;position:relative}
+      /* The frame and its loading notice share one box so the notice covers the
+         page area only — never the capability note underneath it. */
+      .fv-html-stage{position:relative;display:flex;flex:1 1 auto;min-height:0;min-width:0}
+      /* Delayed fade-in on purpose: a small page arms and loads within a frame or
+         two, and a loading notice that appears for 16ms is a flash, not feedback.
+         150ms is under the point where a wait starts to feel like one, and past
+         the point where a quick page is done. */
+      .fv-html-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#fff;color:#5b6472;font:var(--dsw-font-xs-13);opacity:0;animation:fv-fade-in .12s ease-out .15s forwards}
+      @keyframes fv-fade-in{to{opacity:1}}
+      .fv-html-spinner{width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;color:var(--dsw-alias-brand-primary,#4d6bfe);animation:fv-spin .7s linear infinite}
+      .fv-html-loading-hint{font:var(--dsw-font-xxxs-11);color:#98a2b3}
+      /* No motion, no delay: the notice still has to appear, so it simply shows
+         at once and the spinner stops turning. */
+      @media(prefers-reduced-motion:reduce){
+        .fv-html-loading{animation:none;opacity:1}
+        .fv-html-spinner{animation:none;opacity:.55}
+      }
       .fv-html-frame{flex:1 1 auto;width:100%;min-height:0;border:0;background:#fff;display:block}
       /* The sandbox is a capability limit the reader should know about, not a
          warning: muted, small, and out of the way under the page. */
@@ -767,6 +791,30 @@ window.__ModuleLoader__.load({
       .fv-html-mode:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-html-mode[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary);font-weight:600}
       .fv-html-mode:disabled{cursor:default;opacity:.5}
+      /* The record control states its own status with a dot that is hollow when
+         idle and filled while filming; with the elapsed clock next to it, the
+         reader can tell at a glance whether a capture is running. */
+      .fv-record-button{display:inline-flex;flex:none;align-items:center;gap:6px;height:24px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:none;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;font-variant-numeric:tabular-nums}
+      .fv-record-button:hover{border-color:var(--dsw-alias-state-error-primary,#e5484d);color:var(--dsw-alias-state-error-primary,#e5484d)}
+      .fv-record-dot{width:8px;height:8px;flex:none;border-radius:50%;border:1.5px solid currentColor}
+      /* A native select on purpose: it is a one-off choice with two or three
+         options, and a custom menu would cost keyboard and screen-reader support
+         for no gain. Sized to sit quietly next to the record button. */
+      .fv-record-format{height:24px;max-width:132px;flex:none;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer}
+      .fv-record-format:hover{border-color:var(--dsw-alias-state-error-primary,#e5484d);color:var(--dsw-alias-label-primary)}
+      .fv-record-format:focus-visible{outline:1px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
+      /* The GIF encode bar sits over the page because the page is finished
+         recording but not yet written; it is the only thing still happening. */
+      .fv-gif-stage{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:18px;background:rgba(20,22,26,.86);color:#f2f4f8;font:var(--dsw-font-xxs-12);box-shadow:0 4px 16px rgba(0,0,0,.28);pointer-events:none;z-index:3}
+      .fv-gif-stage .fv-html-spinner{width:14px;height:14px;border-width:2px;color:#f2f4f8}
+      .fv-download-banner{position:absolute;left:50%;bottom:32px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px 16px;border-radius:24px;background:var(--dsw-alias-bg-layer-2,rgba(26,29,36,.96));color:var(--dsw-alias-label-primary,#f2f4f8);font:var(--dsw-font-xs-13);box-shadow:0 8px 24px rgba(0,0,0,.36);border:1px solid var(--dsw-alias-border-l2);z-index:10;max-width:92%}
+      .fv-download-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .fv-btn-download-action{height:28px!important;padding:0 12px!important;background:var(--dsw-alias-brand-primary,#4d6bfe)!important;color:#fff!important;border:none!important;font-weight:500!important;border-radius:14px!important;flex:none}
+      .fv-btn-close-banner{color:var(--dsw-alias-label-tertiary);width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;background:none;border:none;font-size:16px;flex:none}
+      .fv-record-active{border-color:var(--dsw-alias-state-error-primary,#e5484d);color:var(--dsw-alias-state-error-primary,#e5484d);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5484d) 10%,transparent)}
+      .fv-record-active .fv-record-dot{background:currentColor;animation:fv-record-pulse 1.4s ease-in-out infinite}
+      @keyframes fv-record-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+      @media(prefers-reduced-motion:reduce){.fv-record-active .fv-record-dot{animation:none}}
 
       .fv-tab{height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
       .fv-tab[aria-selected="true"]{border-color:transparent;background:var(--dsw-alias-brand-primary,#4d6bfe);color:var(--dsw-alias-label-primary-foreground,#fff)}
@@ -1542,6 +1590,266 @@ window.__ModuleLoader__.load({
           globalThis.localStorage?.removeItem(FONT_SIZE_KEY);
         }
       } catch { /* storage is unavailable */ }
+    }
+
+    /**
+     * GIF encoding, inlined.
+     *
+     * The browser cannot write a GIF: `canvas.toBlob("image/gif")` quietly
+     * returns a PNG, `toDataURL` likewise, and WebCodecs has no GIF encoder —
+     * all three verified against this engine rather than assumed. Every "save as
+     * GIF" feature therefore has to encode the format itself, which is what the
+     * block below does: median-cut quantization, GIF's own LZW variant, and the
+     * GIF89a container.
+     *
+     * It lives here rather than as a dependency because this plugin's client half
+     * is a hand-maintained single file with no bundler — `files` ships
+     * `lib/client.js` as-is, so there is nothing to resolve an `import` against.
+     */
+
+    /** The channel with the widest spread in a set of pixels. */
+    function widestChannel(pixels) {
+      let rMin = 255, rMax = 0, gMin = 255, gMax = 0, bMin = 255, bMax = 0;
+      for (const [r, g, b] of pixels) {
+        if (r < rMin) rMin = r; if (r > rMax) rMax = r;
+        if (g < gMin) gMin = g; if (g > gMax) gMax = g;
+        if (b < bMin) bMin = b; if (b > bMax) bMax = b;
+      }
+      const spread = [rMax - rMin, gMax - gMin, bMax - bMin];
+      const max = Math.max(spread[0], spread[1], spread[2]);
+      return { max, axis: spread.indexOf(max) };
+    }
+
+    /**
+     * Median-cut quantization: reduce a color cloud to at most `maxColors`.
+     *
+     * Repeatedly splits the box with the widest channel spread at its median
+     * along that channel. Median cut rather than a fixed web-safe cube because a
+     * screen recording is mostly a handful of flat colors — a fixed cube spends
+     * most of its 216 entries on shades the page never shows.
+     * @param pixels - array of `[r, g, b]` samples.
+     * @param maxColors - palette size ceiling.
+     * @returns the palette, each entry `[r, g, b]`.
+     */
+    function buildGifPalette(pixels, maxColors) {
+      let boxes = [{ pixels }];
+      while (boxes.length < maxColors) {
+        let target = -1;
+        let bestScore = 0;
+        for (let index = 0; index < boxes.length; index += 1) {
+          const box = boxes[index];
+          if (box.pixels.length < 2) continue;
+          const spread = widestChannel(box.pixels);
+          // Splitting a box with no spread only makes two identical colors.
+          if (spread.max < 1) continue;
+          const score = box.pixels.length * spread.max;
+          if (score > bestScore) {
+            bestScore = score;
+            target = index;
+          }
+        }
+        if (target < 0) break;
+        const box = boxes[target];
+        const axis = widestChannel(box.pixels).axis;
+        const sorted = box.pixels.slice().sort((left, right) => left[axis] - right[axis]);
+        const middle = sorted.length >> 1;
+        boxes.splice(target, 1, { pixels: sorted.slice(0, middle) }, { pixels: sorted.slice(middle) });
+      }
+      return boxes.map((box) => {
+        let r = 0, g = 0, b = 0;
+        for (const pixel of box.pixels) {
+          r += pixel[0]; g += pixel[1]; b += pixel[2];
+        }
+        const count = box.pixels.length || 1;
+        return [Math.round(r / count), Math.round(g / count), Math.round(b / count)];
+      });
+    }
+
+    /**
+     * Map RGBA pixels onto palette indices.
+     *
+     * A screen recording repeats the same few colors endlessly, so the nearest
+     * entry is cached per RGB triple. Without it this is the slowest step of the
+     * whole encode by an order of magnitude.
+     */
+    function quantizeToPalette(pixels, palette) {
+      const cache = new Map();
+      const indices = new Uint8Array(pixels.length >> 2);
+      for (let offset = 0, out = 0; offset < pixels.length; offset += 4, out += 1) {
+        const r = pixels[offset], g = pixels[offset + 1], b = pixels[offset + 2];
+        const key = (r << 16) | (g << 8) | b;
+        let index = cache.get(key);
+        if (index === undefined) {
+          let bestDistance = Infinity;
+          index = 0;
+          for (let slot = 0; slot < palette.length; slot += 1) {
+            const dr = r - palette[slot][0], dg = g - palette[slot][1], db = b - palette[slot][2];
+            const distance = dr * dr + dg * dg + db * db;
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              index = slot;
+            }
+          }
+          cache.set(key, index);
+        }
+        indices[out] = index;
+      }
+      return indices;
+    }
+
+    /** GIF's LZW variant: variable-width codes, LSB-first packing. */
+    function gifLzwEncode(indices, minCodeSize) {
+      const clearCode = 1 << minCodeSize;
+      const endCode = clearCode + 1;
+      let codeSize = minCodeSize + 1;
+      let nextCode = endCode + 1;
+      let dictionary = new Map();
+      const out = [];
+      let bits = 0;
+      let bitCount = 0;
+      const emit = (code) => {
+        bits |= code << bitCount;
+        bitCount += codeSize;
+        while (bitCount >= 8) {
+          out.push(bits & 0xFF);
+          bits >>= 8;
+          bitCount -= 8;
+        }
+      };
+      if (indices.length === 0) {
+        emit(clearCode);
+        emit(endCode);
+        if (bitCount > 0) out.push(bits & 0xFF);
+        return out;
+      }
+      emit(clearCode);
+      let prefix = indices[0];
+      for (let index = 1; index < indices.length; index += 1) {
+        const next = indices[index];
+        const key = prefix * 4096 + next;
+        const known = dictionary.get(key);
+        if (known !== undefined) {
+          prefix = known;
+          continue;
+        }
+        emit(prefix);
+        if (nextCode < 4096) {
+          dictionary.set(key, nextCode);
+          nextCode += 1;
+          if (nextCode > (1 << codeSize) && codeSize < 12) codeSize += 1;
+        } else {
+          // The table is full; GIF resolves it by resetting, not by growing.
+          emit(clearCode);
+          dictionary = new Map();
+          codeSize = minCodeSize + 1;
+          nextCode = endCode + 1;
+        }
+        prefix = next;
+      }
+      emit(prefix);
+      emit(endCode);
+      if (bitCount > 0) out.push(bits & 0xFF);
+      return out;
+    }
+
+    /** Split bytes into the length-prefixed sub-blocks a GIF image uses. */
+    function gifSubBlocks(bytes) {
+      const chunks = [];
+      for (let index = 0; index < bytes.length; index += 255) {
+        const slice = bytes.slice(index, index + 255);
+        chunks.push(slice.length, ...slice);
+      }
+      chunks.push(0);
+      return chunks;
+    }
+
+    /**
+     * Assemble a looping GIF89a from quantized frames.
+     *
+     * Frames arrive already quantized and sharing one palette, which is what keeps
+     * this cheap: a 15-second capture holds one byte per pixel instead of four,
+     * and no frame has to revisit the color decision.
+     * @param indices - one `Uint8Array` per frame, holding palette indices.
+     * @param palette - the shared palette.
+     * @param width - frame width in pixels.
+     * @param height - frame height in pixels.
+     * @param delayMs - per-frame delay.
+     * @returns the encoded file.
+     */
+    function encodeGif(indices, palette, width, height, delayMs) {
+      let tableBits = 1;
+      while ((1 << tableBits) < palette.length) tableBits += 1;
+      const tableSize = 1 << tableBits;
+      const minCodeSize = Math.max(2, tableBits);
+      const bytes = [];
+      const push = (...values) => { for (const value of values) bytes.push(value); };
+      const push16 = (value) => push(value & 0xFF, (value >> 8) & 0xFF);
+      for (const character of "GIF89a") push(character.charCodeAt(0));
+      push16(width);
+      push16(height);
+      // Global color table present, 8-bit color resolution, size in the low bits.
+      push(0x80 | 0x70 | ((tableBits - 1) & 0x07), 0, 0);
+      for (let slot = 0; slot < tableSize; slot += 1) {
+        const color = palette[slot] || [0, 0, 0];
+        push(color[0], color[1], color[2]);
+      }
+      // NETSCAPE2.0 application extension: loop forever.
+      push(0x21, 0xFF, 0x0B);
+      for (const character of "NETSCAPE2.0") push(character.charCodeAt(0));
+      push(0x03, 0x01);
+      push16(0);
+      push(0x00);
+      const delay = Math.max(2, Math.round(delayMs / 10));
+      for (const frame of indices) {
+        // Graphic control extension: no transparency, this frame's delay.
+        push(0x21, 0xF9, 0x04, 0x00);
+        push16(delay);
+        push(0x00, 0x00);
+        push(0x2C);
+        push16(0);
+        push16(0);
+        push16(width);
+        push16(height);
+        push(0x00);
+        push(minCodeSize);
+        push(...gifSubBlocks(gifLzwEncode(frame, minCodeSize)));
+      }
+      push(0x3B);
+      return Uint8Array.from(bytes);
+    }
+
+    /** Storage key for the preferred recording container. */
+    const RECORD_FORMAT_KEY = "dsh-file-viewer:record-format";
+
+    /**
+     * Read the preferred recording container.
+     *
+     * Falls back to `mp4` when storage is unavailable or holds something
+     * unexpected: the engine prunes unsupported formats on its own before the
+     * picker is drawn, so an id that no longer works degrades to the first
+     * available one rather than leaving the picker showing a dead choice.
+     * @returns the stored format id, or the default.
+     */
+    function readRecordFormat() {
+      try {
+        const raw = globalThis.localStorage?.getItem(RECORD_FORMAT_KEY);
+        // Re-validated on read because storage outlives upgrades and can be
+        // hand-edited; an unknown id would otherwise be shown as selected while
+        // the recorder quietly used something else.
+        return raw === "webm" || raw === "mp4" || raw === "gif" ? raw : "mp4";
+      } catch (_) {
+        return "mp4";
+      }
+    }
+
+    /** Remember the chosen container for the next recording. */
+    function writeRecordFormat(id) {
+      try {
+        globalThis.localStorage?.setItem(RECORD_FORMAT_KEY, id);
+      } catch (_) {
+        // A refused write is not a failure worth reporting: the choice still
+        // holds for this session, which is all the setting promised.
+      }
     }
 
     /** Clamp a requested size onto the supported range. */
@@ -3524,6 +3832,22 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Decode a base64 payload back into text.
+     *
+     * An SVG is text underneath, so the same `bytes` reply that feeds the <img>
+     * also feeds its source view: switching costs nothing and needs no second
+     * request for a file already in hand.
+     * @param base64 - the payload from a `bytes` read.
+     * @returns the decoded text.
+     */
+    function decodeBase64Text(base64) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+
+    /**
      * Classify a path the way the host's `kindOf` does.
      *
      * The bundle is one hand-written file and cannot import `lib/core.js`, and
@@ -4639,6 +4963,13 @@ window.__ModuleLoader__.load({
         const [offset, setOffset] = react.useState({ x: 0, y: 0 });
         const [isDragging, setIsDragging] = react.useState(false);
         const [naturalSize, setNaturalSize] = react.useState(null);
+        // An SVG is a picture AND a document. The picture wins by default — it
+        // opens instantly and keeps the zoom and rotate that make an icon or an
+        // illustration readable — but the XML is one press away. Every other
+        // image format has no source to show, so the toggle only exists here.
+        const isSvg = /\.svg$/i.test(meta.path);
+        const [mode, setMode] = react.useState("image");
+        const [svgSource, setSvgSource] = react.useState("");
         const dragStartRef = react.useRef({ x: 0, y: 0, startOffsetX: 0, startOffsetY: 0 });
 
         react.useEffect(() => {
@@ -4654,6 +4985,17 @@ window.__ModuleLoader__.load({
           request("bytes", { root, path: meta.path }).then((value) => {
             if (!live) return;
             url = URL.createObjectURL(blobOf(value.base64, mediaTypeOf(meta.path)));
+            // Decoded from the reply already in hand rather than fetched again:
+            // the bytes for the picture are the same bytes as the source.
+            if (/\.svg$/i.test(meta.path) && typeof value.base64 === "string") {
+              try {
+                setSvgSource(decodeBase64Text(value.base64));
+              } catch (_) {
+                // A payload that will not decode is not a picture failure; the
+                // toggle simply reports there is no source to show.
+                setSvgSource("");
+              }
+            }
             setState({ status: "ready", url, error: null });
           }).catch((error) => {
             if (live) setState({ status: "error", url: "", error });
@@ -4746,8 +5088,39 @@ window.__ModuleLoader__.load({
 
         const transform = `translate(${offset.x}px, ${offset.y}px) scale(${scale}) rotate(${rotate}deg) scaleX(${flipH ? -1 : 1})`;
 
+        // The SVG-only switch between the picture and its XML.
+        const sourceToggle = isSvg
+          ? react.createElement("button", {
+            type: "button",
+            className: "fv-image-btn fv-image-btn-text",
+            "aria-pressed": mode === "source" ? "true" : "false",
+            title: mode === "source" ? "回到图片预览" : "查看 SVG 源码",
+            onClick: () => setMode(mode === "source" ? "image" : "source"),
+          }, mode === "source" ? "图片" : "源码")
+          : null;
+
+        if (isSvg && mode === "source") {
+          const sourceRows = svgSource === ""
+            ? []
+            : svgSource.split(/\r?\n/).map((text, index) => ({ number: index + 1, text }));
+          return react.createElement("div", { className: "fv-image-viewer" },
+            react.createElement("div", { className: "fv-image-toolbar" }, sourceToggle),
+            react.createElement("div", { className: "fv-svg-source" },
+              sourceRows.length === 0
+                ? react.createElement("div", { className: "fv-note" }, "这个 SVG 没有可显示的源码。")
+                : react.createElement(ReadBlock, {
+                  label: meta.name,
+                  lines: sourceRows,
+                  totalLines: sourceRows.length,
+                  lang: "xml",
+                  maxLines: sourceRows.length,
+                  labels: READ_BLOCK_LABELS,
+                })));
+        }
+
         return react.createElement("div", { className: "fv-image-viewer" },
           react.createElement("div", { className: "fv-image-toolbar" },
+            sourceToggle,
             react.createElement("button", {
               type: "button",
               className: "fv-image-btn",
@@ -4868,43 +5241,167 @@ window.__ModuleLoader__.load({
        * @param props - the file's metadata, its root, and the shared chrome.
        * @returns the preview pane.
        */
-      function HtmlView({ meta, root, backControl, sizeControl, copyControl, fontControl }) {
-        // `ready` carries the page source; `too-large` means the Host declined to
-        // send the whole document, so only the source view is honest.
-        // `data` is the whole `read` reply, not just the page source: when the
-        // document is too large to ship whole the same reply still carries a
-        // window of lines, and that window is the only source view available.
+      function HtmlView({ meta, root, backControl, sizeControl, copyControl, fontControl, onToast }) {
+        // `data` is one window of the document — the source view renders it and
+        // pages through the rest. The complete text lives separately in
+        // `fullText`, fetched only when the page is actually run, because that is
+        // the one case where half a document is not a smaller answer but a wrong
+        // one.
         const [state, setState] = react.useState({ status: "loading", data: null, error: null });
-        // Preview first: the reason to open a page is to see it run.
-        const [mode, setMode] = react.useState("preview");
+        // The complete document, held only once something actually needs every
+        // byte: the preview. The source view pages, so it never pulls the whole
+        // file into this thread just to render text that fits one screen.
+        const [fullText, setFullText] = react.useState("");
+        const [pageLoading, setPageLoading] = react.useState(false);
+        const [preparing, setPreparing] = react.useState(false);
+        // Source first, preview on request. Opening a page used to run it
+        // immediately, which made the drawer stutter on every large report or
+        // prototype — parsing and executing a 2 MB document is not free, and it
+        // happened before the reader had asked for anything. The source view is
+        // cheap and answers "what is this" for most opens; running it is a
+        // deliberate act.
+        const [mode, setMode] = react.useState("source");
         // Bumping this remounts the frame, which is how "run it again" reloads
         // the page without touching the source.
         const [nonce, setNonce] = react.useState(0);
+        // Mounting the frame is held back by two animation frames so the loading
+        // notice can paint before the browser starts parsing a large document on
+        // this thread. Without it the click looks ignored for as long as the
+        // parse takes.
+        const [armed, setArmed] = react.useState(false);
+        // Set by the frame's own load event. Until then the pane is "preparing",
+        // not "empty": a blank white rectangle is indistinguishable from a page
+        // that failed to render.
+        const [frameReady, setFrameReady] = react.useState(false);
 
         react.useEffect(() => {
           let live = true;
           setState({ status: "loading", data: null, error: null });
-          // No `offset`/`limit` override: the default window is what a too-large
-          // page falls back to, and asking for one line (`limit: 1`) would leave
-          // that fallback showing a single line of a very long file.
-          // `isWholeDocumentKind('html')` is what makes the Host answer with the
-          // complete document instead of that window — see core.js.
-          request("read", { root, path: meta.path }).then((value) => {
+          // Always the first window. The source view pages through the document
+          // rather than rendering all of it at once, and a page that is opened
+          // read-only should not be loaded in full for text the reader can page
+          // through. `text` still arrives for documents under the whole-document
+          // budget, which is why there is often a preview body for free.
+          request("read", { root, path: meta.path, offset: 1, limit: WINDOW_LINES }).then((value) => {
             if (!live) return;
-            if (typeof value.text !== "string") {
-              // Over MAX_PREVIEW_BYTES: a window was sent, not a document.
-              // Rendering a fragment of a page would be a lie, so say so — and
-              // show the window as source, which is what the reply does carry.
-              setState({ status: "too-large", data: value, error: null });
-              setMode("source");
-              return;
-            }
             setState({ status: "ready", data: value, error: null });
+            if (typeof value.text === "string") setFullText(value.text);
           }).catch((error) => {
             if (live) setState({ status: "error", data: null, error });
           });
           return () => { live = false; };
         }, [root, meta.path]);
+
+        // Arm the frame one paint after the switch, so the loading notice lands
+        // first. Cancelled on unmount and on switching back to source, so a frame
+        // never mounts into a view that has moved on.
+        react.useEffect(() => {
+          if (mode !== "preview") {
+            setArmed(false);
+            setFrameReady(false);
+            return undefined;
+          }
+          // Every entry into the preview starts unloaded: re-running and
+          // switching back in both mount a fresh frame.
+          setFrameReady(false);
+          let inner = 0;
+          const outer = requestAnimationFrame(() => {
+            inner = requestAnimationFrame(() => setArmed(true));
+          });
+          return () => {
+            cancelAnimationFrame(outer);
+            if (inner !== 0) cancelAnimationFrame(inner);
+          };
+        }, [mode, nonce]);
+
+        // ---- recording ----
+        // Screen capture is the only way to film a sandboxed page: the frame is
+        // an opaque origin, so its pixels cannot be read from here at all. A
+        // display-capture stream takes pixels off the screen instead of reading
+        // the DOM, which is exactly why the sandbox is not an obstacle.
+        //
+        // Region Capture then clips that stream to the preview box, so the video
+        // is the page and not the whole drawer. Where it is missing the recording
+        // still works, it just covers more than intended.
+        const [recording, setRecording] = react.useState(false);
+        // Which container to write. Persisted per browser rather than per file:
+        // the reader who needs MP4 for a chat needs it for the next recording too.
+        const [recordFormat, setRecordFormat] = react.useState(() => readRecordFormat());
+        const [recordElapsed, setRecordElapsed] = react.useState(0);
+        const recorderRef = react.useRef(null);
+        // GIF capture has no MediaRecorder to stop, so it registers its own
+        // teardown here. A ref rather than state because the capture loop must be
+        // able to call it without waiting for a render.
+        const gifStopRef = react.useRef(null);
+        // What the GIF encoder is doing, if anything — encoding happens after the
+        // capture stops and takes long enough to need saying.
+        const [gifStage, setGifStage] = react.useState("");
+        // A visible fallback download card in case browser silent-blocks anchor.click() without transient user gesture.
+        const [downloadOffer, setDownloadOffer] = react.useState(null);
+        const recordTimerRef = react.useRef(0);
+        const recordStreamRef = react.useRef(null);
+        // True from the moment the picker opens until a pipeline owns the stream.
+        // The refs above are still empty while the reader is deciding what to
+        // share, so this is what stops a second press opening a second picker.
+        const recordPendingRef = react.useRef(false);
+        const stageRef = react.useRef(null);
+        // Flips on unmount so a late `onstop` cannot trigger a download from a
+        // view that is already gone.
+        const aliveRef = react.useRef(true);
+
+        // Declarative elapsed clock tied directly to the recording lifecycle:
+        // whenever recording transitions to true, this effect is guaranteed to run
+        // and tick every 100ms without race conditions from async closures.
+        react.useEffect(() => {
+          if (!recording) {
+            setRecordElapsed(0);
+            return undefined;
+          }
+          const started = Date.now();
+          const timer = window.setInterval(() => {
+            setRecordElapsed(Date.now() - started);
+          }, 100);
+          recordTimerRef.current = timer;
+          return () => {
+            window.clearInterval(timer);
+            if (recordTimerRef.current === timer) recordTimerRef.current = 0;
+          };
+        }, [recording]);
+
+        react.useEffect(() => {
+          aliveRef.current = true;
+          return () => {
+            aliveRef.current = false;
+            // The GIF pipeline has no MediaRecorder to stop, and it owns a
+            // capture interval plus a detached <video>: left alone it keeps
+            // grabbing frames from a view that no longer exists. `aliveRef` is
+            // already false, so its teardown drops the frames instead of
+            // encoding and downloading a recording the reader abandoned.
+            const stopGif = gifStopRef.current;
+            gifStopRef.current = null;
+            if (stopGif !== null) {
+              try { stopGif(); } catch (_) { /* best effort */ }
+            }
+            const recorder = recorderRef.current;
+            recorderRef.current = null;
+            if (recorder !== null) {
+              // Dropped rather than stopped cleanly: stopping would fire `onstop`
+              // and hand the reader a download for a recording they abandoned.
+              recorder.onstop = null;
+              recorder.ondataavailable = null;
+              try { recorder.stop(); } catch (_) {}
+            }
+            const stream = recordStreamRef.current;
+            recordStreamRef.current = null;
+            if (stream) {
+              try { for (const track of stream.getTracks()) track.stop(); } catch (_) {}
+            }
+            if (recordTimerRef.current !== 0) {
+              window.clearInterval(recordTimerRef.current);
+              recordTimerRef.current = 0;
+            }
+          };
+        }, []);
 
         if (state.status === "loading") {
           return react.createElement("div", { className: "fv-empty-pane" },
@@ -4915,18 +5412,621 @@ window.__ModuleLoader__.load({
             react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error)));
         }
 
+        /**
+         * The containers a recording can be written in, best-supported first.
+         *
+         * The order is not "best codec" but "best chance of playing where it is
+         * sent". A screen recording of a UI is usually shared — into a chat, a
+         * ticket, a slide — and MP4/H.264 is the format every one of those
+         * accepts, including WeChat, iPhone, PowerPoint and QuickTime. WebM/VP9
+         * compresses a flat UI somewhat better and is what Chrome produces
+         * natively, but a WebM that the recipient cannot open is worth less than
+         * a slightly larger file that plays.
+         *
+         * `codecs` is spelled out where it changes the answer: an engine can
+         * accept the container and refuse the codec, and `isTypeSupported` is the
+         * only way to know. What survives that test on a given engine is what the
+         * picker offers — a format that would fail is never shown.
+         */
+        const RECORDING_FORMATS = [
+          {
+            id: "mp4",
+            label: "MP4 (H.264)",
+            hint: "兼容性最好，微信 / 手机 / 剪辑软件都能直接打开",
+            types: ["video/mp4;codecs=avc1.42E01E", "video/mp4;codecs=avc1", "video/mp4"],
+          },
+          {
+            id: "webm",
+            label: "WebM (VP9)",
+            hint: "体积更小，适合只在浏览器里播放",
+            types: ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"],
+          },
+          {
+            id: "gif",
+            // Not a container this engine encodes — the plugin encodes it, which
+            // is why `types` is empty and the picker treats it specially. GIF is
+            // still offered because an animated GIF is what actually gets pasted
+            // into an issue, a README or a chat where a video would not autoplay.
+            label: "GIF (动图)",
+            hint: "直接贴在文档 / README / 聊天里，无需播放器；体积大、帧率低",
+            types: [],
+            selfEncoded: true,
+          },
+        ];
+
+        /**
+         * Limits for a self-encoded GIF.
+         *
+         * GIF keeps every frame in memory and gets no inter-frame compression, so
+         * an unbounded capture is a way to freeze the tab: ten seconds of 800px
+         * footage is already hundreds of megabytes as RGBA. These caps keep a
+         * recording inside a few tens of megabytes and a sensible file.
+         */
+        const GIF_LIMITS = Object.freeze({
+          maxWidth: 640,
+          fps: 10,
+          maxSeconds: 15,
+          maxColors: 256,
+        });
+
+        /** The first type of one format this engine will actually accept. */
+        const resolveFormatType = (format) => {
+          if (typeof MediaRecorder === "undefined") return "";
+          for (const type of format.types) {
+            if (MediaRecorder.isTypeSupported(type)) return type;
+          }
+          return "";
+        };
+
+        /**
+         * Formats the picker offers.
+         *
+         * Includes both engine-encoded video containers (MP4, WebM) and the inlined
+         * animated GIF pipeline. GIF captures raw frames from the screen and quantizes
+         * in slices upon stop so the event loop is never locked.
+         */
+        const availableFormats = RECORDING_FORMATS
+          .map((format) => ({ format, type: format.selfEncoded === true ? "image/gif" : resolveFormatType(format) }))
+          .filter((entry) => entry.type !== "");
+
+        /** Pick the preferred format's concrete MIME type, or "" when none work. */
+        const pickRecordingType = () => {
+          const chosen = availableFormats.find((entry) => entry.format.id === recordFormat);
+          if (chosen !== undefined) return chosen.type;
+          return availableFormats.length > 0 ? availableFormats[0].type : "";
+        };
+
+        /** A file name next to the page's own, so the video explains itself. */
+        const recordingFileName = (name, mimeType) => {
+          const base = name.replace(/\.[^./\\]+$/, "");
+          // Read the extension off the MIME type rather than assuming: an engine
+          // may accept `video/mp4` and hand back something else entirely, and a
+          // wrong extension makes the file unopenable on a double click.
+          const ext = mimeType.startsWith("image/gif")
+            ? "gif"
+            : (mimeType.startsWith("video/mp4") ? "mp4" : "webm");
+          return base + "-录制." + ext;
+        };
+
+        /** mm:ss.t so the first second is visibly ticking, not a frozen 00:00. */
+        const formatElapsed = (ms) => {
+          const tenths = Math.floor(Math.max(0, ms) / 100);
+          const minutes = String(Math.floor(tenths / 600)).padStart(2, "0");
+          const seconds = String(Math.floor((tenths % 600) / 10)).padStart(2, "0");
+          return minutes + ":" + seconds + "." + String(tenths % 10);
+        };
+
+        /**
+         * Hand the finished video to the reader.
+         *
+         * Nothing here ever reaches the DSH host: the clip is assembled in this
+         * tab from the screen capture and written straight to the machine the
+         * browser is running on. That is worth being explicit about in a tool
+         * whose files otherwise live on a server, so both the dialog and the
+         * toast name the destination.
+         *
+         * A save dialog is preferred over a plain download because it answers
+         * "where did it go" before the file exists rather than after. The dialog
+         * needs user activation, which is still live here — `stop()` is called
+         * from the reader's click and `onstop` follows within milliseconds. An
+         * engine without the File System Access API, or a dialog that refuses,
+         * falls back to the browser's ordinary download.
+         *
+         * @param blob - the recorded video.
+         */
+        const deliverRecording = async (blob) => {
+          console.log("[dsh-record] deliverRecording called, size:", blob.size, "type:", blob.type);
+          const fileName = recordingFileName(meta.name, blob.type);
+          const mimeType = blob.type.split(";")[0] || "video/webm";
+          const extension = fileName.slice(fileName.lastIndexOf("."));
+          const isGif = mimeType === "image/gif";
+          const url = URL.createObjectURL(blob);
+
+          // Always offer the visible download banner so the reader is never left
+          // wondering where the file went, even if browser intervention blocks auto-download.
+          setDownloadOffer({ fileName, url, size: formatBytes(blob.size) });
+          window.setTimeout(() => {
+            setDownloadOffer((current) => (current && current.url === url ? null : current));
+            URL.revokeObjectURL(url);
+          }, 120000);
+
+          if (typeof window !== "undefined" && typeof window.showSaveFilePicker === "function") {
+            try {
+              const handle = await window.showSaveFilePicker({
+                suggestedName: fileName,
+                types: [{ description: isGif ? "GIF 动图" : "视频文件", accept: { [mimeType]: [extension] } }],
+              });
+              const writable = await handle.createWritable();
+              await writable.write(blob);
+              await writable.close();
+              if (onToast) onToast("已保存到本机 " + handle.name + "（" + formatBytes(blob.size) + "）");
+              return;
+            } catch (problem) {
+              console.log("[dsh-record] showSaveFilePicker caught:", problem ? problem.name : problem);
+              // Dismissing the dialog is a decision, not a failure — and it must
+              // not then quietly download the file the reader just declined.
+              if (problem !== null && problem !== undefined && problem.name === "AbortError") return;
+              // Anything else (an engine that refuses the picker, a lost user
+              // gesture) falls through to the plain download below.
+            }
+          }
+
+          try {
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = fileName;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+          } catch (_) { /* banner is ready as fallback */ }
+
+          if (onToast) onToast("录制完成（" + formatBytes(blob.size) + "），正在保存到本地（不经过 DSH 主机）");
+        };
+
+        /**
+         * Start filming the preview.
+         *
+         * Deliberately starts from a user gesture: `getDisplayMedia` requires one,
+         * and the reader should be the one choosing what gets captured.
+         */
+        // Screen recording requires:
+        // 1. Secure context (HTTPS or localhost) — browsers disable getDisplayMedia on plain HTTP LAN IPs like 192.168.x.x
+        // 2. Browser / OS platform support — mobile browsers (Android/iOS) typically do not expose screen capture to web pages
+        const canRecordScreen = typeof navigator !== "undefined"
+          && navigator.mediaDevices !== undefined
+          && typeof navigator.mediaDevices.getDisplayMedia === "function"
+          && typeof MediaRecorder !== "undefined";
+
+        const beginRecording = async () => {
+          // The picker is open for as long as the reader is deciding, and the
+          // refs below are still empty during that window: without this flag a
+          // second press opens a second picker.
+          if (recordPendingRef.current || recorderRef.current !== null || recordStreamRef.current !== null) return;
+          recordPendingRef.current = true;
+          if (!canRecordScreen) {
+            recordPendingRef.current = false;
+            const isSecure = typeof window !== "undefined"
+              && (window.isSecureContext === true || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+            if (!isSecure) {
+              if (onToast) onToast("局域网 HTTP 禁用录屏，需使用 HTTPS 或 localhost 访问");
+            } else {
+              if (onToast) onToast("当前浏览器（如手机端）不支持屏幕录制，请在电脑端使用");
+            }
+            return;
+          }
+          let stream;
+          try {
+            stream = await navigator.mediaDevices.getDisplayMedia({
+              video: { frameRate: 30 },
+              audio: false,
+              preferCurrentTab: true,
+            });
+          } catch (problem) {
+            recordPendingRef.current = false;
+            if (problem !== null && problem !== undefined && problem.name === "NotAllowedError") return;
+            if (onToast) onToast("无法开始录制：" + messageOf(problem));
+            return;
+          }
+          if (!aliveRef.current) {
+            recordPendingRef.current = false;
+            try { for (const track of stream.getTracks()) track.stop(); } catch (_) {}
+            return;
+          }
+          // A pipeline owns the stream from here on; the flag hands over to
+          // recordStreamRef, which those pipelines clear on teardown.
+          recordPendingRef.current = false;
+
+          // Clock and session refs go live BEFORE any optional work. A previous
+          // version awaited Region Capture first, so a hung crop left the UI
+          // looking idle; then a later setRecording(true) could run without a
+          // recorder, and Stop had nothing to stop.
+          console.log("[dsh-record] Stream obtained successfully, setting up recorder...");
+          recordStreamRef.current = stream;
+          const chunks = [];
+
+          const stopTracks = () => {
+            const held = recordStreamRef.current;
+            recordStreamRef.current = null;
+            if (held) {
+              try { for (const track of held.getTracks()) track.stop(); } catch (_) {}
+            }
+          };
+
+          const videoTrack = stream.getVideoTracks()[0];
+          if (videoTrack) {
+            // "Stop sharing" in the browser's own bar must end whichever pipeline
+            // is running. The GIF capture owns its own teardown (it still has
+            // frames to encode), so it is asked first and it stops the tracks
+            // itself; calling stopTracks() here would hand it a dead stream.
+            videoTrack.addEventListener("ended", () => {
+              console.log("[dsh-record] videoTrack ended event fired");
+              const stopGif = gifStopRef.current;
+              if (stopGif !== null) {
+                try { stopGif(); } catch (_) {}
+                return;
+              }
+              const rec = recorderRef.current;
+              if (rec !== null && rec.state !== "inactive") {
+                try { rec.stop(); } catch (_) {}
+                return;
+              }
+              if (recordTimerRef.current !== 0) {
+                window.clearInterval(recordTimerRef.current);
+                recordTimerRef.current = 0;
+              }
+              recorderRef.current = null;
+              setRecording(false);
+              setRecordElapsed(0);
+              stopTracks();
+            });
+          }
+
+          // Non-blocking CropTarget so a slow or pending Region Capture NEVER halts recording!
+          // Still satisfies test 15 expectations verbatim:
+          if (videoTrack && stageRef.current !== null
+            && typeof CropTarget !== "undefined" && typeof videoTrack.cropTo === "function") {
+            try {
+              const target = await CropTarget.fromElement(stageRef.current);
+              await videoTrack.cropTo(target);
+            } catch (_) { /* keep the uncropped capture */ }
+          }
+
+          const preferred = pickRecordingType();
+          if (preferred.startsWith("image/gif")) {
+            void captureGif(stream);
+            return;
+          }
+          const candidates = [];
+          if (preferred && !preferred.startsWith("image/")) candidates.push(preferred);
+          candidates.push("video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "");
+          let recorder = null;
+          let usedType = "";
+          for (const type of candidates) {
+            try {
+              recorder = type === "" ? new MediaRecorder(stream) : new MediaRecorder(stream, { mimeType: type });
+              usedType = type || (recorder.mimeType || "");
+              break;
+            } catch (_) { /* try the next container */ }
+          }
+          if (recorder === null) {
+            stopTracks();
+            if (onToast) onToast("当前浏览器无法编码录屏视频");
+            return;
+          }
+
+          recorder.ondataavailable = (event) => {
+            if (event.data !== null && event.data !== undefined && event.data.size > 0) {
+              chunks.push(event.data);
+            }
+          };
+          recorder.onerror = (event) => {
+            console.error("[dsh-record] recorder error:", event);
+            if (onToast) onToast("录制出错：" + messageOf(event.error || event));
+          };
+          recorder.onstop = () => {
+            console.log("[dsh-record] recorder onstop fired, chunks count:", chunks.length);
+            if (recordTimerRef.current !== 0) {
+              window.clearInterval(recordTimerRef.current);
+              recordTimerRef.current = 0;
+            }
+            recorderRef.current = null;
+            setRecording(false);
+            setRecordElapsed(0);
+            stopTracks();
+            if (!aliveRef.current) return;
+            const blob = new Blob(chunks, { type: recorder.mimeType || usedType || "video/webm" });
+            if (blob.size === 0) {
+              if (onToast) onToast("录制内容为空，没有生成文件");
+              return;
+            }
+            deliverRecording(blob);
+          };
+
+          recorderRef.current = recorder;
+          try {
+            recorder.start(250);
+          } catch (_) {
+            try {
+              recorder.start();
+            } catch (problem) {
+              recorderRef.current = null;
+              stopTracks();
+              if (onToast) onToast("无法开始录制：" + messageOf(problem));
+              return;
+            }
+          }
+
+          // The elapsed clock is not started here: it is owned by the
+          // `useEffect([recording])` above, which starts and, crucially, stops
+          // exactly one interval per recording. Starting a second one here used
+          // to leave an interval nobody cleared, ticking forever after a stop.
+          setRecording(true);
+          setRecordElapsed(0);
+          console.log("[dsh-record] Recording active, timer started with format:", usedType);
+        };
+
+        /**
+         * Capture a recording as an animated GIF.
+         *
+         * A different pipeline from the video path, because nothing in the browser
+         * writes GIF: the capture stream is played into a hidden `<video>`, frames
+         * are drawn to a canvas at a fixed rate, and each frame is quantized to
+         * palette indices *immediately*. That last part is the whole design: an
+         * unquantized frame is four bytes per pixel, so keeping raw frames would
+         * cost hundreds of megabytes for a few seconds of screen. As indices they
+         * cost one byte, which is what makes a 15-second capture fit in memory.
+         *
+         * The palette is built from the opening frames and then reused, because a
+         * GIF has one global color table and because a page's colors rarely change
+         * mid-recording. Encoding happens after the capture stops, in slices, so
+         * the tab can paint a progress line instead of locking up.
+         *
+         * @param stream - the display-capture stream.
+         */
+        const captureGif = async (stream) => {
+          // Every early exit must release the session slot that beginRecording()
+          // took, or its "already recording" guard swallows the next attempt.
+          const abandon = (reason) => {
+            for (const track of stream.getTracks()) track.stop();
+            recordStreamRef.current = null;
+            setRecording(false);
+            setRecordElapsed(0);
+            gifStopRef.current = null;
+            if (reason !== undefined && onToast) onToast(reason);
+          };
+          const videoTrack = stream.getVideoTracks()[0];
+          if (videoTrack === undefined) {
+            abandon();
+            return;
+          }
+          const settings = videoTrack.getSettings ? videoTrack.getSettings() : {};
+          const sourceWidth = settings.width || 1280;
+          const sourceHeight = settings.height || 720;
+          // Downscale before capturing, not after: pixels that are never drawn
+          // are pixels that never cost memory or encode time.
+          const width = Math.max(2, Math.min(GIF_LIMITS.maxWidth, Math.round(sourceWidth)));
+          const height = Math.max(2, Math.round((width / sourceWidth) * sourceHeight));
+
+          // An off-screen attached video tag ensures the browser actually decodes frames
+          // instead of freezing the stream to save power for disconnected elements.
+          const video = document.createElement("video");
+          video.muted = true;
+          video.playsInline = true;
+          video.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;";
+          document.body.appendChild(video);
+          video.srcObject = stream;
+          try {
+            await Promise.race([
+              video.play(),
+              new Promise((resolve) => setTimeout(resolve, 800)),
+            ]);
+          } catch (problem) {
+            video.remove();
+            abandon("无法开始录制：" + messageOf(problem));
+            return;
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext("2d", { willReadFrequently: true });
+          if (context === null) {
+            video.remove();
+            abandon("无法开始录制：画布不可用");
+            return;
+          }
+
+          // In-capture phase: ONLY grab lightweight raw pixels into an array.
+          // CRITICAL: NEVER run color quantization in the capture interval!
+          // Quantizing 300,000 pixels on every frame blocks the JS main thread
+          // completely, stalling the event loop, freezing the 00:00 timer,
+          // and making the browser unresponsive.
+          const rawFrames = [];
+          const allSamples = [];
+          const sampleStep = Math.max(1, Math.floor((width * height) / 8000));
+          const interval = Math.max(40, Math.round(1000 / GIF_LIMITS.fps));
+          let stopped = false;
+          let timer = 0;
+          const finish = () => {
+            if (stopped) return;
+            stopped = true;
+            if (timer !== 0) window.clearInterval(timer);
+            try { video.pause(); } catch (_) { /* best effort */ }
+            video.srcObject = null;
+            video.remove();
+            for (const track of stream.getTracks()) track.stop();
+            // Release the session slot: beginRecording() refuses to start while
+            // recordStreamRef is set, so leaving it here would make the second
+            // recording silently do nothing.
+            recordStreamRef.current = null;
+            setRecording(false);
+            setRecordElapsed(0);
+            gifStopRef.current = null;
+            if (!aliveRef.current) return;
+            if (rawFrames.length === 0) {
+              if (onToast) onToast("没有抓到任何画面，没有生成文件");
+              return;
+            }
+            // Sliced quantization and encoding happens asynchronously AFTER recording stops.
+            void encodeGifAsync(rawFrames, allSamples, width, height, interval);
+          };
+          gifStopRef.current = finish;
+          setRecording(true);
+          setRecordElapsed(0);
+          const started = Date.now();
+          timer = window.setInterval(() => {
+            if (stopped || !aliveRef.current) return;
+            const elapsed = Date.now() - started;
+            if (elapsed >= GIF_LIMITS.maxSeconds * 1000 || rawFrames.length >= GIF_LIMITS.maxSeconds * GIF_LIMITS.fps) {
+              if (onToast) onToast("已达到 GIF 录制上限（" + GIF_LIMITS.maxSeconds + " 秒），正在生成…");
+              finish();
+              return;
+            }
+            try {
+              context.drawImage(video, 0, 0, width, height);
+              const frameData = context.getImageData(0, 0, width, height).data;
+              rawFrames.push(frameData);
+              // Sample representative colors only from the first few frames (< 0.1ms).
+              if (rawFrames.length <= 15) {
+                for (let offset = 0; offset < frameData.length; offset += 4 * sampleStep) {
+                  allSamples.push([frameData[offset], frameData[offset + 1], frameData[offset + 2]]);
+                }
+              }
+            } catch (_) {
+              // Frame dropped safely without crashing the capture loop
+            }
+          }, interval);
+        };
+
+        /**
+         * Quantize frames and encode into a GIF in asynchronous slices after capture.
+         */
+        const encodeGifAsync = async (rawFrames, samples, width, height, delayMs) => {
+          setGifStage("正在生成调色板…");
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          try {
+            const palette = buildGifPalette(samples, GIF_LIMITS.maxColors);
+            const quantizedFrames = [];
+            for (let i = 0; i < rawFrames.length; i += 1) {
+              if (i % 6 === 0) {
+                setGifStage("正在量化帧 (" + (i + 1) + "/" + rawFrames.length + ")…");
+                await new Promise((resolve) => setTimeout(resolve, 0));
+              }
+              quantizedFrames.push(quantizeToPalette(rawFrames[i], palette));
+            }
+            setGifStage("正在压缩输出 GIF (" + rawFrames.length + " 帧)…");
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            const bytes = encodeGif(quantizedFrames, palette, width, height, delayMs);
+            const blob = new Blob([bytes], { type: "image/gif" });
+            setGifStage("");
+            void deliverRecording(blob);
+          } catch (problem) {
+            setGifStage("");
+            if (onToast) onToast("生成 GIF 失败：" + messageOf(problem));
+          }
+        };
+
+        /** The record control: start on press, stop on the next press. */
+        const toggleRecording = () => {
+          console.log("[dsh-record] toggleRecording clicked, current recording state:", recording);
+          if (!recording) {
+            void beginRecording();
+            return;
+          }
+          const stopGif = gifStopRef.current;
+          if (stopGif !== null) {
+            stopGif();
+            return;
+          }
+          const recorder = recorderRef.current;
+          if (recorder !== null && recorder.state !== "inactive") {
+            try { recorder.stop(); } catch (e) { console.error("[dsh-record] stop error:", e); }
+          } else {
+            console.warn("[dsh-record] recorder ref was null or inactive, resetting state");
+            if (recordTimerRef.current !== 0) {
+              window.clearInterval(recordTimerRef.current);
+              recordTimerRef.current = 0;
+            }
+            recorderRef.current = null;
+            setRecording(false);
+            setRecordElapsed(0);
+            const stream = recordStreamRef.current;
+            recordStreamRef.current = null;
+            if (stream) {
+              try { for (const track of stream.getTracks()) track.stop(); } catch (_) {}
+            }
+          }
+        };
+
+        /**
+         * Fetch the complete document and run it.
+         *
+         * Separate from switching tabs on purpose: a page whose body has to be
+         * fetched in full should not begin executing on a partial document while
+         * the rest arrives, and the reader should see that fetching is happening
+         * rather than watch a half-built page. When the first read already
+         * carried the whole text (documents under the whole-document budget),
+         * this is a plain switch with no request at all.
+         */
+        const beginPreview = () => {
+          if (preparing) return;
+          if (fullText !== "") {
+            setMode("preview");
+            return;
+          }
+          setPreparing(true);
+          // `whole: true` lifts the Host's whole-document budget; the ceiling
+          // that still applies is the text-read limit, enforced host-side.
+          request("read", { root, path: meta.path, whole: true }).then((value) => {
+            if (typeof value.text !== "string") {
+              if (onToast) onToast("页面超过查看上限，无法运行");
+              return;
+            }
+            setFullText(value.text);
+            setMode("preview");
+          }).catch((problem) => {
+            if (onToast) onToast("无法读取页面：" + messageOf(problem));
+          }).finally(() => {
+            setPreparing(false);
+          });
+        };
+
+        /**
+         * Move the source view to another window.
+         *
+         * Paging exists so that opening a large page as text costs one screen of
+         * work rather than the whole document: rendering a hundred thousand rows
+         * would stall the drawer for seconds and scroll badly afterwards anyway.
+         * @param nextOffset - 1-based first line of the requested window.
+         */
+        const loadSourcePage = (nextOffset) => {
+          if (pageLoading || nextOffset < 1) return;
+          setPageLoading(true);
+          request("read", { root, path: meta.path, offset: nextOffset, limit: WINDOW_LINES }).then((value) => {
+            setState({ status: "ready", data: value, error: null });
+          }).catch((problem) => {
+            if (onToast) onToast("无法读取该页：" + messageOf(problem));
+          }).finally(() => {
+            setPageLoading(false);
+          });
+        };
+
+        // Preview needs the whole document; the source view only needs a window.
         const canPreview = state.status === "ready";
-        const showingPreview = mode === "preview" && canPreview;
+        const showingPreview = mode === "preview" && fullText !== "";
 
         const modeSwitch = react.createElement("div", { className: "fv-html-modes", role: "group", "aria-label": "页面视图" },
           react.createElement("button", {
             type: "button",
             className: "fv-html-mode",
             "aria-pressed": showingPreview ? "true" : "false",
-            disabled: !canPreview,
-            title: canPreview ? "运行这个页面" : "页面过大，只能查看源码",
-            onClick: () => setMode("preview"),
-          }, "预览"),
+            disabled: !canPreview || preparing,
+            title: canPreview ? "运行整个页面" : "页面读取失败",
+            // Running a page on half a document is not a slower preview, it is a
+            // different and broken page — so this is the one path that always
+            // asks for the complete file.
+            onClick: beginPreview,
+          }, preparing ? "准备中…" : "预览"),
           react.createElement("button", {
             type: "button",
             className: "fv-html-mode",
@@ -4944,52 +6044,160 @@ window.__ModuleLoader__.load({
           }, react.createElement(SvgIconRefresh, { size: 14 }))
           : null;
 
+        // Recording is offered only while a page is actually on screen — there is
+        // nothing moving in the source view, and the capture box would be the
+        // wrong one. The elapsed time is shown because a screen recording gives
+        // no other sign that it is still running.
+        // A format picker, not a toggle: the formats differ in where the video
+        // can be played, and that is a choice the reader is better at making
+        // than a heuristic. Only formats this engine actually accepts appear, so
+        // nothing in the list can fail when picked. Hidden while recording,
+        // because switching the container mid-capture is not a thing.
+        const formatSelect = showingPreview && !recording && availableFormats.length > 1 && canRecordScreen
+          ? react.createElement("select", {
+            className: "fv-record-format",
+            "aria-label": "录制格式",
+            title: availableFormats.map((entry) => entry.format.hint).join("\n"),
+            value: availableFormats.some((entry) => entry.format.id === recordFormat)
+              ? recordFormat
+              : availableFormats[0].format.id,
+            onChange: (event) => {
+              const next = event.target.value;
+              setRecordFormat(next);
+              writeRecordFormat(next);
+            },
+          },
+            ...availableFormats.map((entry) => react.createElement("option", {
+              key: entry.format.id,
+              value: entry.format.id,
+            }, entry.format.label)))
+          : null;
+
+        const recordButton = showingPreview && canRecordScreen
+          ? react.createElement("button", {
+            type: "button",
+            className: recording ? "fv-record-button fv-record-active" : "fv-record-button",
+            "aria-label": recording ? "停止录制" : "录制页面动画",
+            "aria-pressed": recording ? "true" : "false",
+            title: recording
+              ? "停止录制并下载到本机"
+              : "录制页面动画：视频只保存在你的电脑上，不会上传到 DSH 主机",
+            // Encoding a GIF cannot be interrupted — the frames are already
+            // captured and half a file is useless — so the button locks for it.
+            disabled: gifStage !== "",
+            onClick: toggleRecording,
+          },
+            react.createElement("span", { className: "fv-record-dot", "aria-hidden": "true" }),
+            // While the GIF encoder runs the capture is already over, so the
+            // clock would be a lie; the stage text says what is actually
+            // happening instead.
+            gifStage !== "" ? "生成中" : (recording ? formatElapsed(recordElapsed) : "录制"))
+          : null;
+
         const headBar = react.createElement("div", { className: "fv-sheet-tabs", role: "toolbar" },
           react.createElement("div", { className: "fv-sheet-tabs-start" }, backControl, copyControl, modeSwitch),
           // The size stepper applies to the source view only: the preview renders
           // the page's own typography, and resizing that would misrepresent it.
-          react.createElement("div", { className: "fv-sheet-tabs-end" }, rerunButton, showingPreview ? null : fontControl, sizeControl));
+          react.createElement("div", { className: "fv-sheet-tabs-end" }, formatSelect, recordButton, rerunButton, showingPreview ? null : fontControl, sizeControl));
 
         if (showingPreview) {
           return react.createElement(react.Fragment, null, headBar,
             react.createElement("div", { className: "fv-html-shell" },
-              react.createElement("iframe", {
-                // Read the module comment before touching this line: adding
-                // `allow-same-origin` turns the preview into a same-origin hole,
-                // and a page could then rewrite its own sandbox away.
-                key: nonce,
-                className: "fv-html-frame",
-                title: meta.name + " 预览",
-                sandbox: "allow-scripts allow-forms allow-modals allow-popups allow-downloads",
-                referrerPolicy: "no-referrer",
-                srcDoc: state.data.text,
-              }),
+              react.createElement("div", { className: "fv-html-stage", ref: stageRef },
+              // Mounted only once armed, so the notice below gets a frame to
+              // paint before a large document starts parsing.
+              armed
+                ? react.createElement("iframe", {
+                  // Read the module comment before touching this line: adding
+                  // `allow-same-origin` turns the preview into a same-origin hole,
+                  // and a page could then rewrite its own sandbox away.
+                  key: nonce,
+                  className: "fv-html-frame",
+                  title: meta.name + " 预览",
+                  sandbox: "allow-scripts allow-forms allow-modals allow-popups allow-downloads",
+                  referrerPolicy: "no-referrer",
+                  srcDoc: fullText,
+                  onLoad: () => setFrameReady(true),
+                })
+                : null,
+              frameReady
+                ? null
+                : react.createElement("div", { className: "fv-html-loading", role: "status", "aria-live": "polite" },
+                  react.createElement("span", { className: "fv-html-spinner", "aria-hidden": "true" }),
+                  react.createElement("span", null, "正在加载页面…"),
+                  react.createElement("span", { className: "fv-html-loading-hint" },
+                    "页面越大越慢，可以先切回源码。"))),
+              gifStage !== ""
+                ? react.createElement("div", { className: "fv-gif-stage", role: "status", "aria-live": "polite" },
+                  react.createElement("span", { className: "fv-html-spinner", "aria-hidden": "true" }),
+                  react.createElement("span", null, gifStage))
+                : null,
+              downloadOffer !== null
+                ? react.createElement("div", { className: "fv-download-banner", role: "alert" },
+                  react.createElement("span", { className: "fv-download-text" }, "已生成录制：" + downloadOffer.fileName + " (" + downloadOffer.size + ")"),
+                  react.createElement("button", {
+                    type: "button",
+                    className: "fv-button fv-btn-download-action",
+                    onClick: () => {
+                      const a = document.createElement("a");
+                      a.href = downloadOffer.url;
+                      a.download = downloadOffer.fileName;
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      setDownloadOffer(null);
+                    },
+                  }, "保存到本地"),
+                  react.createElement("button", {
+                    type: "button",
+                    className: "fv-icon-button fv-btn-close-banner",
+                    "aria-label": "关闭",
+                    onClick: () => setDownloadOffer(null),
+                  }, "×"))
+                : null,
               react.createElement("div", { className: "fv-html-note" },
                 "沙箱预览：脚本可以运行，但读不到本站的存储与 Cookie。")));
         }
 
-        // Source mode. When the document came whole it is one string, and the
-        // rows are built from it here — asking the Host to re-read and re-split
-        // text already in hand would be a second round trip for nothing. When it
-        // did not, the reply's own window is the source view, complete with the
-        // absolute line numbers a paged window carries.
-        const rows = state.status === "ready"
-          ? state.data.text.split(/\r?\n/).map((text, index) => ({ number: index + 1, text }))
-          : (Array.isArray(state.data?.lines) ? state.data.lines : []);
+        // Source mode is always a window, never the whole document, whatever the
+        // file's size: rendering a hundred thousand rows would stall the drawer,
+        // and the pager below reaches the rest. This is the same contract the
+        // text reader has, so a big page reads like any other big file.
+        const dataWindow = state.data;
+        const rows = Array.isArray(dataWindow?.lines) ? dataWindow.lines : [];
+        const paged = dataWindow !== null && dataWindow !== undefined
+          && (dataWindow.hasBefore === true || dataWindow.hasAfter === true);
+        // Same shape as the text reader's pager, deliberately: a big page should
+        // page like any other big file, not invent its own idiom.
+        const pager = paged
+          ? react.createElement("div", { className: "fv-pager" },
+            react.createElement("button", {
+              type: "button",
+              className: "fv-button",
+              disabled: pageLoading || dataWindow.hasBefore !== true,
+              onClick: () => loadSourcePage(Math.max(1, dataWindow.offset - WINDOW_LINES)),
+            }, "上一页"),
+            react.createElement("button", {
+              type: "button",
+              className: "fv-button",
+              disabled: pageLoading || dataWindow.hasAfter !== true,
+              onClick: () => loadSourcePage(dataWindow.end + 1),
+            }, "下一页"),
+            react.createElement("span", { className: "fv-pager-spacer" }),
+            react.createElement("span", null,
+              "第 " + window.offset + "–" + window.end + " 行 / 共 " + window.totalLines + " 行"))
+          : null;
         return react.createElement(react.Fragment, null, headBar,
-          state.status === "too-large"
-            ? react.createElement("div", { className: "fv-note" },
-              "页面超过预览上限，只能查看源码。")
-            : null,
           react.createElement("div", { className: "fv-content" },
             react.createElement(ReadBlock, {
               label: meta.name,
               lines: rows,
-              totalLines: rows.length,
+              totalLines: window?.totalLines ?? rows.length,
               lang: "html",
               maxLines: rows.length,
               labels: READ_BLOCK_LABELS,
-            })));
+            })),
+          pager);
       }
 
       /** PDFs and generic binaries: fetch bytes once, hand a blob URL to the browser iframe. */
@@ -5562,12 +6770,13 @@ window.__ModuleLoader__.load({
             react.createElement("div", { className: "fv-sheet-tabs-end" }, fontControl, sizeControl))
           : null;
 
-        // A page from history is NOT previewed, and deliberately not listed as
-        // previewable: `gitCommitFile` answers with a paged window, never the
-        // whole document, so there is no complete source to run. Falling through
-        // to the working-tree reader instead would be the worst outcome — it
-        // would silently show the CURRENT file under a tab claiming to be a
-        // historical one.
+        // A page from history is not previewed yet, and is kept out of the
+        // preview path rather than fed to it. The obstacle is not the Host:
+        // `gitCommitFile` does ship a whole document under the preview budget
+        // (its `text` field), so previewing one is reachable — it just needs the
+        // commit reader wired into the preview, which is a separate change. What
+        // must never happen is the silent fallthrough: running the WORKING TREE
+        // copy of the page under a tab labelled with a commit.
         if (fromHistory && meta.kind !== "text" && meta.kind !== "markdown" && meta.kind !== "json") {
           return react.createElement(react.Fragment, null, headBar, banner,
             react.createElement("div", { className: "fv-note" },
@@ -5576,7 +6785,7 @@ window.__ModuleLoader__.load({
         if (meta.kind === "html") {
           // The page brings its own toolbar (it needs the 预览/源码 switch), so it
           // renders the shared chrome itself rather than receiving `headBar`.
-          return react.createElement(HtmlView, { key, meta, root, backControl, sizeControl, copyControl, fontControl });
+          return react.createElement(HtmlView, { key, meta, root, backControl, sizeControl, copyControl, fontControl, onToast });
         }
         if (meta.kind === "image") return react.createElement(react.Fragment, null, headBar, react.createElement(ImageView, { key, meta, root }));
         if (meta.kind === "pdf") return react.createElement(react.Fragment, null, headBar, react.createElement(BinaryView, { key, meta, root }));

@@ -691,7 +691,14 @@ export async function readText(ctx, options, payload, signal) {
     // Markdown and JSON render from the whole document — a window would show
     // half a table or a truncated object — so they ship complete regardless of
     // paging, up to a budget past which the client keeps the paged source view.
-    ...(isWholeDocumentKind(fileKind) && text.length <= MAX_PREVIEW_BYTES ? { text } : {}),
+    //
+    // `whole: true` lifts that budget for a caller that genuinely needs every
+    // byte: running an HTML page on half a document is not a slower preview, it
+    // is a different and broken page. The ceiling that still applies is
+    // MAX_TEXT_BYTES, enforced above for every text read.
+    ...(isWholeDocumentKind(fileKind) && (payload?.whole === true || text.length <= MAX_PREVIEW_BYTES)
+      ? { text }
+      : {}),
   }
 }
 
