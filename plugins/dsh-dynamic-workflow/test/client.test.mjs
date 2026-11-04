@@ -39,7 +39,7 @@ function texts(node, out = []) {
 
 test('bundle registers under the package id and injects styles', () => {
   assert.equal(registration.id, '@weniatall/dsh-dynamic-workflow');
-  assert.deepEqual(mod.inject, ['slots', 'connection', 'locale']);
+  assert.deepEqual(mod.inject, ['slots', 'connection', 'locale', 'uiWorkspace']);
   assert.ok(styles.some((s) => s.id === 'dsh-dynamic-workflow-styles'));
 });
 

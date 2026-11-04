@@ -174,7 +174,7 @@ export function createWorkflowLibrary({ globalDir, now = Date.now }) {
  * origin). The model is asked to call the `workflow` tool with the saved
  * arguments verbatim; explicit args override the saved defaults key by key.
  */
-export function launchPrompt(saved, overrideArgs) {
+export function launchPrompt(saved, overrideArgs, lang = 'en') {
   const extra = checkArgs(overrideArgs);
   const base = saved.args && typeof saved.args === 'object' ? saved.args : undefined;
   const args = extra !== undefined || base !== undefined ? { ...(base ?? {}), ...(extra ?? {}) } : undefined;
@@ -183,14 +183,16 @@ export function launchPrompt(saved, overrideArgs) {
     script: saved.script,
     ...(args !== undefined ? { args } : {}),
   };
-  return [
-    `Run the saved workflow "${saved.name}" (${saved.scope}).`,
-    'Call the `workflow` tool exactly once with the JSON arguments below, verbatim — do not edit the script or meta. When it finishes, summarize its result for me.',
-    '',
-    '```json',
-    JSON.stringify(call, null, 2),
-    '```',
-  ].join('\n');
+  const head = lang === 'zh'
+    ? [
+      `运行已保存的 workflow「${saved.name}」（${saved.scope === 'global' ? '全局' : '项目'}）。`,
+      '用下面的 JSON 参数原样调用一次 `workflow` 工具，不要修改脚本或 meta。运行结束后用中文总结结果。',
+    ]
+    : [
+      `Run the saved workflow "${saved.name}" (${saved.scope}).`,
+      'Call the `workflow` tool exactly once with the JSON arguments below, verbatim — do not edit the script or meta. When it finishes, summarize its result for me.',
+    ];
+  return [...head, '', '```json', JSON.stringify(call, null, 2), '```'].join('\n');
 }
 
 /**
@@ -234,7 +236,14 @@ export function parseCommandInput(raw) {
  * ask the model to design a dynamic workflow for the task and run it with the
  * `workflow` tool (ZCode's behaviour for free-text `/workflow`).
  */
-export function authorPrompt(task) {
+export function authorPrompt(task, lang = 'en') {
+  if (lang === 'zh') {
+    return [
+      `为这个任务设计并运行一个动态 workflow：${task}`,
+      '',
+      '只调用一次 `workflow` 工具。在 `meta.phases` 里声明各阶段，每个阶段开始时调用 `phase()`，用清晰的 label 发起 `agent()` 调用，让进度以节点形式显示在输入框上方。阶段标题和 agent label 用中文，`meta.name` 取一个简短的名称。运行结束后用中文总结结果。',
+    ].join('\n');
+  }
   return [
     `Design and run a dynamic workflow for this task: ${task}`,
     '',

@@ -64,6 +64,7 @@
         savedOk: ["已保存为 {name}，可用 /workflow {name} 重新运行", "Saved as {name}; re-run with /workflow {name}"],
         noScript: ["该运行没有记录到脚本，无法保存", "This run has no recorded script to save"],
         dismiss: ["关闭", "Dismiss"],
+        openAgent: ["点击查看该 agent 的会话", "Click to open this agent's session"],
         aria: ["动态编排进度", "Workflow progress"],
         empty: ["暂无节点", "No nodes yet"],
         connectionNotReady: ["连接未就绪", "Connection not ready"],
@@ -126,6 +127,13 @@
 .dwf-node[data-s="running"]{border-left-color:var(--dsw-alias-brand-primary,#4d6bfe);animation:dwf-pulse 1.6s ease-in-out infinite}
 .dwf-node[data-s="completed"]{border-left-color:var(--dsw-alias-state-success-primary,#2a9d55)}
 .dwf-node[data-s="failed"]{border-left-color:var(--dsw-alias-state-error-primary,#d93025)}
+.dwf-node[data-open="true"]{cursor:pointer}
+.dwf-node[data-open="true"]:hover{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover))}
+.dwf-node:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:1px}
+.dwf-bar{height:3px;border-radius:2px;background:var(--dsw-alias-border-l1);overflow:hidden}
+.dwf-bar>span{display:block;height:100%;background:var(--dsw-alias-brand-primary,#4d6bfe);transition:width .3s ease}
+.dwf-bar[data-s="failed"]>span,.dwf-bar[data-s="error"]>span{background:var(--dsw-alias-state-error-primary,#d93025)}
+.dwf-bar[data-s="completed"]>span{background:var(--dsw-alias-state-success-primary,#2a9d55)}
 .dwf-node-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dwf-node-meta{color:var(--dsw-alias-label-tertiary);font-size:11px;display:flex;justify-content:space-between;gap:6px;font-variant-numeric:tabular-nums}
 .dwf-empty{font-size:12px;color:var(--dsw-alias-label-tertiary)}
@@ -152,7 +160,7 @@
       // -------------------------------------------------------------------
       // Graph: phase lanes → agent nodes, arrows between lanes
       // -------------------------------------------------------------------
-      function Graph({ run, lang }) {
+      function Graph({ run, lang, openNode }) {
         const lanes = run.graph && Array.isArray(run.graph.lanes) ? run.graph.lanes : [];
         if (lanes.length === 0) return h("div", { className: "dwf-empty" }, t(lang, "empty"));
         const bySeq = new Map((run.nodes || []).map((node) => [node.seq, node]));
@@ -166,7 +174,15 @@
               h("span", { className: "dwf-badge", "data-s": lane.state }, t(lang, `state_${lane.state}`))),
             nodes.length === 0
               ? h("div", { className: "dwf-empty" }, "—")
-              : nodes.map((node) => h("div", { key: node.seq, className: "dwf-node", "data-s": node.status, "data-seq": node.seq, title: node.label },
+              : nodes.map((node) => h("div", {
+                key: node.seq, className: "dwf-node", "data-s": node.status, "data-seq": node.seq,
+                "data-open": String(Boolean(openNode && node.childId)),
+                title: openNode && node.childId ? `${node.label} — ${t(lang, "openAgent")}` : node.label,
+                role: openNode && node.childId ? "button" : undefined,
+                tabIndex: openNode && node.childId ? 0 : undefined,
+                onClick: openNode && node.childId ? () => openNode(node) : undefined,
+                onKeyDown: openNode && node.childId ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNode(node); } } : undefined,
+              },
                 h("div", { className: "dwf-node-label" }, `#${node.seq} ${node.label}`),
                 h("div", { className: "dwf-node-meta" },
                   h("span", null, t(lang, `status_${node.status}`)),
@@ -175,10 +191,14 @@
         return h("div", { className: "dwf-graph", role: "list" }, children);
       }
 
+      function doneCount(run) {
+        const counts = run.counts || {};
+        return (counts.completed || 0) + (counts.failed || 0) + (counts.cancelled || 0) + (counts.interrupted || 0);
+      }
+
       /** Header progress line: done/total agents, current phase, elapsed. */
       function progressText(run, lang) {
-        const counts = run.counts || {};
-        const done = (counts.completed || 0) + (counts.failed || 0) + (counts.cancelled || 0) + (counts.interrupted || 0);
+        const done = doneCount(run);
         const parts = [t(lang, "agents", { done, n: run.agents || 0 })];
         if (run.currentPhase) parts.push(run.currentPhase);
         parts.push(formatDuration(run.startedAt, run.endedAt));
@@ -197,13 +217,13 @@
       }
 
       function WorkflowDock(props) {
-        const { rpcCall, sessionId } = props;
+        const { rpcCall, sessionId, openSession } = props;
         const lang = useLang();
         const [run, setRun] = react.useState(null);
         const [collapsed, setCollapsed] = react.useState(false);
         const [busy, setBusy] = react.useState(false);
         const [flash, setFlash] = react.useState({ text: "", err: false });
-        const [live] = react.useState(() => ({ dismissed: new Set(), runId: null }));
+        const [live] = react.useState(() => ({ dismissed: new Set(), runId: null, status: null }));
 
         // Long-poll the host; every revision re-reads this session's newest run.
         react.useEffect(() => {
@@ -226,6 +246,10 @@
               setCollapsed(false);
               setFlash({ text: "", err: false });
             }
+            // A clean finish folds the card to its header, like the host todo dock;
+            // a failure stays open so the failed node is visible.
+            if (live.status === "running" && detail.status === "completed") setCollapsed(true);
+            live.status = detail.status;
             setRun(detail);
           };
           const loop = async () => {
@@ -288,7 +312,9 @@
                 h("span", { className: "dwf-progress" }, progressText(run, lang))),
               finished ? h("button", { className: "dwf-x", type: "button", title: t(lang, "dismiss"), "aria-label": t(lang, "dismiss"), onClick: dismiss }, "×") : null),
             collapsed ? null : [
-              h(Graph, { key: "graph", run, lang }),
+              h("div", { key: "bar", className: "dwf-bar", "data-s": run.status, role: "progressbar", "aria-valuemin": 0, "aria-valuemax": run.agents || 0, "aria-valuenow": doneCount(run) },
+                h("span", { style: { width: `${run.agents ? Math.round((doneCount(run) / run.agents) * 100) : (finished ? 100 : 0)}%` } })),
+              h(Graph, { key: "graph", run, lang, openNode: typeof openSession === "function" ? (node) => openSession(sessionId, node.childId) : undefined }),
               run.error ? h("div", { key: "err", className: "dwf-flash", "data-err": "true" }, run.error) : null,
               finished ? h("div", { key: "actions", className: "dwf-actions" },
                 h("button", { className: "dwf-btn", type: "button", disabled: busy || !run.hasScript, title: run.hasScript ? "" : t(lang, "noScript"), onClick: () => save("project") }, t(lang, "saveProject")),
@@ -314,17 +340,23 @@
           if (result && result.ok === true) return result.value;
           throw new Error(result && result.error ? result.error.message : t(uiLang(), "requestFailed"));
         };
+        // Open an agent's child session the way the host's workflow card does.
+        const openChild = (parentSessionId, childSessionId) => {
+          const workspace = service("uiWorkspace");
+          if (!workspace || typeof workspace.openSession !== "function" || !childSessionId) return;
+          try { workspace.openSession(childSessionId); } catch (error) { console.warn("[dsh-dynamic-workflow] cannot open agent session:", error); }
+        };
         ctx.slots.inject(DOCK_SLOT, () => ctx.slots.register({
           name: DOCK_SLOT,
           id: DOCK_ID,
           order: DOCK_ORDER,
-          inject: (sessionId) => ({ rpcCall, sessionId }),
+          inject: (sessionId) => ({ rpcCall, sessionId, openSession: openChild }),
         }, WorkflowDock));
       }
 
       exports.apply = apply;
-      exports.inject = ["slots", "connection", "locale"];
-      exports.internals = { CHANNEL, DOCK_SLOT, DOCK_ID, DOCK_ORDER, STRINGS, t, uiLang, formatDuration, progressText, pickRun, Graph, WorkflowDock };
+      exports.inject = ["slots", "connection", "locale", "uiWorkspace"];
+      exports.internals = { CHANNEL, DOCK_SLOT, DOCK_ID, DOCK_ORDER, STRINGS, t, uiLang, formatDuration, progressText, doneCount, pickRun, Graph, WorkflowDock };
       return module.exports;
     },
   });

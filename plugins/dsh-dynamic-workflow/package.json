@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-dynamic-workflow",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "动态编排可视化：把 workflow 工具的每次运行折成 phase 泳道 + agent 节点的实时编排卡片，像任务列表一样浮在输入框上方；支持把脚本保存为项目/全局 workflow 并用 /workflow 重新启动（对齐 ZCode /workflow）。",
   "type": "module",
   "main": "lib/index.js",
@@ -31,7 +31,8 @@
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-client-connection": ">=0.1.0-rc.6",
     "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.6",
-    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.6"
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-workspace": ">=0.1.0-rc.6"
   },
   "dsh": {
     "bundle": {
@@ -41,7 +42,8 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-locale"
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ],
       "platform": "web"
     }

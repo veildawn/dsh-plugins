@@ -23,8 +23,10 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
-import { createRunStore } from './store.js?dsh-dynamic-workflow=0.1.1';
-import { authorPrompt, createWorkflowLibrary, launchPrompt, parseCommandInput } from './library.js?dsh-dynamic-workflow=0.1.1';
+import { createRunStore } from './store.js?dsh-dynamic-workflow=0.1.2';
+import { authorPrompt, createWorkflowLibrary, launchPrompt, parseCommandInput } from './library.js?dsh-dynamic-workflow=0.1.2';
+import { readLocalePreference, resolveLanguage } from './language.js?dsh-dynamic-workflow=0.1.2';
+import { message } from './messages.js?dsh-dynamic-workflow=0.1.2';
 
 export const name = 'dynamic-workflow';
 export const RPC_CHANNEL = '/dsh-dynamic-workflow';
@@ -35,6 +37,17 @@ const MAX_WATCH_MS = 25_000;
 
 function dshHome() {
   return process.env.DSH_HOME || path.join(homedir(), '.dsh');
+}
+
+/** The profile patch where the Web client stores the user's language choice. */
+function profilePatchPath(env = process.env) {
+  const profile = typeof env.DSH_PROFILE === 'string' && env.DSH_PROFILE !== '' ? env.DSH_PROFILE : 'web';
+  return path.join(dshHome(), 'profiles', profile, 'cordis.patch.yml');
+}
+
+/** DSH's language: an explicit client hint, else the profile setting, else the OS. */
+export function hostLanguage(reported) {
+  return resolveLanguage({ panel: reported, localePreference: readLocalePreference(profilePatchPath()) });
 }
 
 function safeGet(ctx, key) {
@@ -172,12 +185,12 @@ function createWatchHub(store) {
 }
 
 /** Launch a saved workflow into a session as a follow-up turn. */
-async function launch(ctx, library, { sessionId, name: workflowName, scope, args }) {
+async function launch(ctx, library, { sessionId, name: workflowName, scope, args, lang }) {
   const agent = safeGet(ctx, 'agents')?.get?.(sessionId);
   if (!agent || typeof agent.followup !== 'function') throw new RpcError('session-unavailable', `session ${sessionId} is not live`);
   const saved = await library.get(workflowName, { scope, cwd: sessionCwd(ctx, sessionId) });
   if (saved === null) throw new RpcError('not-found', `workflow "${workflowName}" is not saved`);
-  agent.followup(await userMessage(launchPrompt(saved, args)));
+  agent.followup(await userMessage(launchPrompt(saved, args, lang)));
   return { launched: saved.name, scope: saved.scope };
 }
 
@@ -230,6 +243,7 @@ export async function dispatch(ctx, deps, method, payload) {
         name: str(payload.name, 'name', { max: 64 }),
         scope: payload.scope,
         args: payload.args,
+        lang: hostLanguage(payload.language),
       });
     default:
       throw new RpcError('unknown-method', `unknown method ${method}`);
@@ -238,11 +252,13 @@ export async function dispatch(ctx, deps, method, payload) {
 
 /** `/workflow` slash command: list saved workflows or launch one. */
 function commandDefinition(ctx, library) {
+  const lang0 = hostLanguage();
   return {
     name: 'workflow',
-    description: 'Orchestrate a task as a dynamic workflow, or run a saved one: /workflow <task | name> [json-args]',
-    input: { hint: '<task or saved name> [json-args]' },
+    description: message(lang0, 'description'),
+    input: { hint: message(lang0, 'hint') },
     async handler(invocation) {
+      const lang = hostLanguage();
       const sessionId = invocation.agent?.session?.id ?? invocation.agent?.sessionId;
       const cwd = invocation.agent?.session?.header?.cwd ?? sessionCwd(ctx, sessionId);
       let parsed;
@@ -251,22 +267,23 @@ function commandDefinition(ctx, library) {
       } catch (error) {
         return { kind: 'error', text: error.message };
       }
+      const scopeLabel = (scope) => message(lang, scope === 'global' ? 'scope_global' : 'scope_project');
       if (parsed.text === '') {
         const all = await library.list({ cwd });
-        if (all.length === 0) return { kind: 'success', text: 'No saved workflows. Use /workflow <task> to orchestrate one, then save it from the card above the input.' };
+        if (all.length === 0) return { kind: 'success', text: message(lang, 'noSaved') };
         return {
           kind: 'success',
-          text: all.map((wf) => `- ${wf.name} [${wf.scope}]${wf.description ? ` — ${wf.description}` : ''}`).join('\n'),
+          text: [message(lang, 'savedHeader'), ...all.map((wf) => `- ${wf.name} [${scopeLabel(wf.scope)}]${wf.description ? ` — ${wf.description}` : ''}`)].join('\n'),
         };
       }
       const saved = parsed.name === '' ? null : await library.get(parsed.name, { scope: parsed.scope, cwd });
       if (saved !== null) {
-        invocation.agent.followup(await userMessage(launchPrompt(saved, parsed.args)));
-        return { kind: 'success', text: `Launching workflow "${saved.name}" (${saved.scope})` };
+        invocation.agent.followup(await userMessage(launchPrompt(saved, parsed.args, lang)));
+        return { kind: 'success', text: message(lang, 'launching', { name: saved.name, scope: scopeLabel(saved.scope) }) };
       }
       // No saved workflow by that name: treat the input as a task to orchestrate.
-      invocation.agent.followup(await userMessage(authorPrompt(parsed.text)));
-      return { kind: 'success', text: `Orchestrating a workflow for: ${parsed.text}` };
+      invocation.agent.followup(await userMessage(authorPrompt(parsed.text, lang)));
+      return { kind: 'success', text: message(lang, 'orchestrating', { task: parsed.text }) };
     },
   };
 }

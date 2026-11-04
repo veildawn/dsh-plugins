@@ -5,6 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 process.env.DSH_HOME = await mkdtemp(path.join(tmpdir(), 'dwf-home-'));
+// Pin the language; the host otherwise follows the machine's locale.
+process.env.LC_ALL = 'en_US.UTF-8';
 const workspace = await mkdtemp(path.join(tmpdir(), 'dwf-ws-'));
 
 const { apply, inject, name, RPC_CHANNEL } = await import('../lib/index.js');
@@ -108,4 +110,19 @@ test('end to end: observe a run, watch, save it, launch it, slash command', asyn
   assert.equal((await call(state, 'run', { runId: 'R' })).error.code, 'not-found');
   assert.equal((await call(state, 'launch', { sessionId: 'nope', name: 'fanout' })).error.code, 'session-unavailable');
   assert.equal((await call(state, 'bogus')).error.code, 'unknown-method');
+});
+
+test('/workflow replies and prompts follow the DSH language', async () => {
+  const { ctx, state, followups, agent } = makeCtx();
+  apply(ctx, { persist: false });
+  process.env.LC_ALL = 'zh_CN.UTF-8';
+  try {
+    const listed = await state.command.handler({ agent, rawInput: '' });
+    assert.match(listed.text, /已保存的 workflow|还没有保存的 workflow/u);
+    const authored = await state.command.handler({ agent, rawInput: ' 审查项目问题' });
+    assert.match(authored.text, /正在为任务编排/u);
+    assert.match(followups.at(-1).content[0].text, /为这个任务设计并运行一个动态 workflow：审查项目问题/u);
+  } finally {
+    process.env.LC_ALL = 'en_US.UTF-8';
+  }
 });
