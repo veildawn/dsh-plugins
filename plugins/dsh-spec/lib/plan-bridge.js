@@ -14,7 +14,7 @@
  * @module dsh-spec/plan
  */
 
-import { planProjectionDefinition, planState } from './plan.js?dsh-spec=0.8.1';
+import { planProjectionDefinition, planState } from './plan.js?dsh-spec=0.8.2';
 
 /** Cordis plugin name; must match the preset row `name`. */
 export const name = '@weniatall/dsh-spec/plan';

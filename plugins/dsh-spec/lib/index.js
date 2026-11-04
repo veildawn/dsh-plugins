@@ -22,16 +22,16 @@ import {
   RPC_CHANNEL,
   TOOL_NAMES,
   name,
-} from './constants.js?dsh-spec=0.8.1';
-import { readLocalePreference, resolveLanguage } from './language.js?dsh-spec=0.8.1';
-import { localizeIssues } from './messages.js?dsh-spec=0.8.1';
+} from './constants.js?dsh-spec=0.8.2';
+import { readLocalePreference, resolveLanguage } from './language.js?dsh-spec=0.8.2';
+import { localizeIssues } from './messages.js?dsh-spec=0.8.2';
 import {
   DEFAULT_SPEC_TYPE,
   DEFAULT_WORKFLOW,
   SpecError,
   checkSpec,
   summaryOf,
-} from './model.js?dsh-spec=0.8.1';
+} from './model.js?dsh-spec=0.8.2';
 import {
   checkSpecOp,
   createSpec,
@@ -48,7 +48,7 @@ import {
   stateView,
   taskUpdateOp,
   writeSpecOp,
-} from './ops.js?dsh-spec=0.8.1';
+} from './ops.js?dsh-spec=0.8.2';
 import {
   bindSession,
   profilePatchPath,
@@ -57,7 +57,7 @@ import {
   readSpecIndex,
   saveSessionDraft,
   unbindSession,
-} from './store.js?dsh-spec=0.8.1';
+} from './store.js?dsh-spec=0.8.2';
 
 export { DEFAULT_SETTINGS, NS, RPC_CHANNEL, TOOL_NAMES, name };
 

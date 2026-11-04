@@ -401,7 +401,7 @@ test('the panel\'s language localizes its findings, and only the panel\'s', asyn
   assert.match(compound.message, /含多个 SHALL 子句/u);
   // The rule and its structured params survive: the panel rebuilds the sentence
   // from them, and a later locale switch must be able to re-localize.
-  assert.deepEqual(compound.params, { where: 'Requirement 1, criterion 1' });
+  assert.deepEqual(compound.params, { where: 'Requirement 1, criterion 1', requirement: '1', criterion: '1' });
 
   const en = await host.call('get', { feature: 'lang-panel', language: 'en' });
   assert.match(en.value.issues.find((item) => item.rule === 'ears/compound-criterion').message, /multiple SHALL clauses/u);

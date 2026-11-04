@@ -75,10 +75,13 @@ export const ZH = Object.freeze({
   'bugfix/missing-unchanged-behavior': '缺少必需章节：### Unchanged Behavior (Regression Prevention)',
   'bugfix/unexpected-section': '章节 "{heading}" 属于 design 文档，不应出现在 bugfix 文档中',
 
-  'ears/missing-pattern': '{where} 不符合 EARS 句式（WHEN/WHILE/IF/WHERE … SHALL …）',
-  'ears/missing-shall': '{where} 没有 SHALL 子句',
-  'ears/vague-verb': '{where} 使用了含糊或兜底动词（"{verb}"），请写明可观测的响应',
-  'ears/compound-criterion': '{where} 含多个 SHALL 子句，建议拆分',
+  // `{at}` is the localized location (`第 5 条需求第 3 项`), rebuilt from the
+  // requirement and criterion numbers the producer attached. A finding written
+  // before those fields existed falls back to its English `where`.
+  'ears/missing-pattern': '{at}不符合 EARS 句式（WHEN/WHILE/IF/WHERE … SHALL …）',
+  'ears/missing-shall': '{at}没有 SHALL 子句',
+  'ears/vague-verb': '{at}使用了含糊或兜底动词（"{verb}"），请写明可观测的响应',
+  'ears/compound-criterion': '{at}含多个 SHALL 子句，建议拆分',
 
   'spec/missing-document': '文档尚未编写：{file}',
   'spec/unknown-requirement': '任务 {taskId} 引用了不存在的需求 {requirement}',
@@ -105,7 +108,31 @@ export function localizeIssue(issue, language) {
   if (language !== 'zh') return english;
   const template = issue?.rule === undefined ? undefined : ZH[issue.rule];
   if (template === undefined) return english;
-  return fill(template, issue.params);
+  return fill(template, paramsOf(issue.params));
+}
+
+/**
+ * The holes a Chinese template fills, including the location ones.
+ *
+ * The validator publishes `requirement` and `criterion` as numbers-as-strings,
+ * and the English `where` beside them. A localized sentence wants its own
+ * phrasing (Chinese puts the numbers before the noun: `第 5 条需求第 3 项`), so
+ * `at` is composed here rather than translated from the English sentence.
+ * Chinese uses no space between the location and the rest, which is why the
+ * templates start directly with the predicate.
+ *
+ * @param {object} [params]
+ * @returns {object}
+ */
+function paramsOf(params) {
+  if (params === null || typeof params !== 'object') return params;
+  if (params.requirement !== undefined && params.criterion !== undefined) {
+    return { ...params, at: `第 ${params.requirement} 条需求第 ${params.criterion} 项` };
+  }
+  // Pre-0.8.2 findings carry only the composed English `where`. Show it as it
+  // is rather than a literal `{at}`: a stale finding must read, not glitch.
+  if (typeof params.where === 'string' && params.where !== '') return { ...params, at: params.where };
+  return { ...params, at: '' };
 }
 
 /**

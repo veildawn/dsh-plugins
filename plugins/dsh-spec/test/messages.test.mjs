@@ -67,9 +67,16 @@ test('the five compound-criterion hints the user saw read as one sentence in Chi
   // The exact finding the panel showed five times: "contains multiple SHALL
   // clauses; consider splitting it". In Chinese it must name the clause and
   // say what to do.
-  const issue = { severity: 'info', rule: 'ears/compound-criterion', message: 'Requirement 5, criterion 3 contains multiple SHALL clauses; consider splitting it', params: { where: 'Requirement 5, criterion 3' } };
+  const issue = { severity: 'info', rule: 'ears/compound-criterion', message: 'Requirement 5, criterion 3 contains multiple SHALL clauses; consider splitting it', params: { where: 'Requirement 5, criterion 3', requirement: '5', criterion: '3' } };
   const zh = localizeIssue(issue, 'zh');
-  assert.match(zh, /Requirement 5, criterion 3/u);
-  assert.match(zh, /建议拆分/u);
-  assert.doesNotMatch(zh, /contains multiple SHALL clauses/u);
+  // The location is Chinese too: a translated sentence wrapping an English
+  // "Requirement 5, criterion 3" is exactly the half-translated state this
+  // rule was fixed for.
+  assert.equal(zh, '第 5 条需求第 3 项含多个 SHALL 子句，建议拆分');
+  assert.doesNotMatch(zh, /Requirement|criterion|contains multiple/u);
+
+  // A finding written before the structured fields existed still localizes,
+  // with its English location left as the only thing that stays English.
+  const legacy = { ...issue, params: { where: 'Requirement 5, criterion 3' } };
+  assert.equal(localizeIssue(legacy, 'zh'), 'Requirement 5, criterion 3含多个 SHALL 子句，建议拆分');
 });

@@ -348,20 +348,25 @@ export function lintRequirementsSemantics(text) {
     const body = clause[2].trim();
     if (body === '') continue;
     const where = `Requirement ${requirement}, criterion ${clause[1]}`;
+    // The location travels in pieces as well as pre-composed: `where` is the
+    // English sentence the Agent reads, `requirement`/`criterion` are what a
+    // localized copy rebuilds its own sentence from (`第 5 条需求第 3 项`), so the
+    // panel is never half translated.
+    const at = { where, requirement, criterion: clause[1] };
     // Template placeholders (`THE [System_Name] SHALL [response]`) are scaffolding,
     // not requirements: semantic linting starts once the brackets are gone.
     if (/\[[^\]]+\]/u.test(body)) continue;
     if (!EARS_KEYWORDS.test(body)) {
-      found.push(issue('warning', `${where} is not in an EARS pattern (WHEN/WHILE/IF/WHERE … SHALL …)`, 'ears/missing-pattern', index, { where }));
+      found.push(issue('warning', `${where} is not in an EARS pattern (WHEN/WHILE/IF/WHERE … SHALL …)`, 'ears/missing-pattern', index, at));
     }
     if (!/\bSHALL\b/u.test(body)) {
-      found.push(issue('warning', `${where} has no SHALL clause`, 'ears/missing-shall', index, { where }));
+      found.push(issue('warning', `${where} has no SHALL clause`, 'ears/missing-shall', index, at));
     }
     if (VAGUE.test(body)) {
-      found.push(issue('warning', `${where} uses a vague or escape-clause verb ("${body.match(VAGUE)?.[0]}"); state an observable response`, 'ears/vague-verb', index, { where, verb: body.match(VAGUE)?.[0] }));
+      found.push(issue('warning', `${where} uses a vague or escape-clause verb ("${body.match(VAGUE)?.[0]}"); state an observable response`, 'ears/vague-verb', index, { ...at, verb: body.match(VAGUE)?.[0] }));
     }
     if (/\band\b/iu.test(body) && (body.match(/\bSHALL\b/gu) ?? []).length > 1) {
-      found.push(issue('info', `${where} contains multiple SHALL clauses; consider splitting it`, 'ears/compound-criterion', index, { where }));
+      found.push(issue('info', `${where} contains multiple SHALL clauses; consider splitting it`, 'ears/compound-criterion', index, at));
     }
   }
   return found;

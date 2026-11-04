@@ -28,7 +28,7 @@ import {
   loadSpec,
   resolveFeatureName,
   specsRoot,
-} from './model.js?dsh-spec=0.8.1';
+} from './model.js?dsh-spec=0.8.2';
 import {
   applyStatusChanges,
   metadataPathFor,
@@ -37,8 +37,8 @@ import {
   readyTasks,
   recordExecution,
   recordPbtResult,
-} from './tasks.js?dsh-spec=0.8.1';
-import { documentSet, requirementsFileName } from './templates.js?dsh-spec=0.8.1';
+} from './tasks.js?dsh-spec=0.8.2';
+import { documentSet, requirementsFileName } from './templates.js?dsh-spec=0.8.2';
 
 const locks = new Map();
 
