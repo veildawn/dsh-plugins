@@ -471,10 +471,22 @@ export function getServerNetworkInfo(ctx) {
 }
 
 /**
+ * `DSH_LAN_GATEWAY=0` 关闭局域网反代，桌面端和 web profile 都生效。
+ *
+ * 容器里的 DSH 只能绑回环，这条反代会改到每一块非回环网卡，并用进程 launch token
+ * 给转发请求补上已登录会话。容器网卡属于 Docker 网络，未发布的端口对其它容器仍可达，
+ * 所以镜像默认带上这个开关。不设置或设成其它值时保持原来的行为。
+ */
+export function isLanGatewayDisabled(env = process.env) {
+  return env?.DSH_LAN_GATEWAY === '0'
+}
+
+/**
  * 是否需要起局域网反代：宿主只监听回环时（桌面端固定如此，web profile 也可以这么配），
  * 局域网入口只能由插件自己的端口提供。
  */
 export function shouldStartLanGateway(ctx) {
+  if (isLanGatewayDisabled()) return false
   if (isDesktopHostedProfile(ctx)) return true
   const webServer = ctx.webServer ?? ctx.get?.('webServer')
   return isLoopbackHost(String(webServer?.host ?? ''))
@@ -1046,6 +1058,7 @@ export const internals = {
   normalizeBindHost,
   isLoopbackHost,
   isDesktopHostedProfile,
+  isLanGatewayDisabled,
   shouldStartLanGateway,
   getServerNetworkInfo,
   lanGatewayRuntime: () => lanGatewayRuntime,

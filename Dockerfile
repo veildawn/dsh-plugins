@@ -16,38 +16,43 @@ RUN mkdir -p /packages && for plugin in dsh-mobile-adapter dsh-remote-control ds
 
 FROM node:24-bookworm-slim
 
-ARG DSH_VERSION=0.1.0-rc.7
+# 0.1.0-rc.7 still evaluates connection's webRuntime binding. The current
+# remote-control and ai-proxy patches omit that inject on purpose (DSH 0.2.1+
+# no longer activates the provider), so this image tracks the 0.2.1 line.
+ARG DSH_VERSION=0.2.1-rc.5
 
 ENV DSH_HOME=/home/node/.dsh \
     DSH_TELEMETRY_DISABLED=1 \
-    DSH_PORT=3080
+    DSH_PORT=3080 \
+    DSH_LAN_GATEWAY=0
 
 # DSH delegates external-plugin management to pnpm. A tiny Node proxy forwards
 # the loopback-only DSH server to the container port without weakening DSH's
 # own bind-address policy.
-RUN npm install --global --omit=dev pnpm@11.7.0 @deepseek-ai/dsh@${DSH_VERSION} \
+RUN npm install --global --omit=dev pnpm@11.7.0 "@deepseek-ai/dsh@${DSH_VERSION}" \
     && npm cache clean --force \
-    && mkdir -p "${DSH_HOME}" \
-    && chown -R node:node "${DSH_HOME}"
+    && mkdir -p /opt/dsh-home-seed "${DSH_HOME}" \
+    && chown -R node:node /opt/dsh-home-seed "${DSH_HOME}"
 
-COPY --chown=node:node --from=plugin-packages /packages /tmp/dsh-plugins
+# Tarballs live outside DSH_HOME so a volume mounted there cannot hide them.
+COPY --chown=node:node --from=plugin-packages /packages /opt/dsh-plugins
+COPY --chown=node:node docker-entrypoint.sh /usr/local/bin/dsh-web
+COPY --chown=node:node docker-proxy.mjs docker-ports.mjs docker-sync-plugins.mjs /usr/local/lib/
 
 USER node
 
-# `dsh plugin` initializes the web profile and registers every bundle in its
-# layer stack. Tarballs mean these are genuine installed packages, not links
-# back to the build context.
-RUN dsh plugin --profile web add /tmp/dsh-plugins/dsh-mobile-adapter.tgz \
-    && dsh plugin --profile web add /tmp/dsh-plugins/dsh-remote-control.tgz \
-    && dsh plugin --profile web add /tmp/dsh-plugins/dsh-ai-proxy.tgz \
+# Install into the seed, not the volume path. Startup copies this seed when
+# the mounted home has no web profile, then re-adds a tarball only when its
+# version differs from the one already installed.
+RUN export DSH_HOME=/opt/dsh-home-seed \
+    && dsh plugin --profile web add /opt/dsh-plugins/dsh-mobile-adapter.tgz \
+    && dsh plugin --profile web add /opt/dsh-plugins/dsh-remote-control.tgz \
+    && dsh plugin --profile web add /opt/dsh-plugins/dsh-ai-proxy.tgz \
     && dsh --profile web --dump-config > /tmp/dsh-config.yml \
     && grep -Fq 'dsh-mobile-adapter' /tmp/dsh-config.yml \
     && grep -Fq 'dsh-remote-control' /tmp/dsh-config.yml \
     && grep -Fq 'dsh-ai-proxy' /tmp/dsh-config.yml \
-    && rm -rf /tmp/dsh-plugins /tmp/dsh-config.yml
-
-COPY --chown=node:node docker-entrypoint.sh /usr/local/bin/dsh-web
-COPY --chown=node:node docker-proxy.mjs /usr/local/lib/dsh-proxy.mjs
+    && rm -f /tmp/dsh-config.yml
 
 EXPOSE 3080
 VOLUME ["/home/node/.dsh"]
