@@ -1102,7 +1102,9 @@ test("the view's inject preserves the current session for RPC calls", async () =
   const view = entryOf(host, "conversation.view");
   const sessions = { byId: { "session-two": { projectionValues: { agentPreset: "spec" } } } };
   await settle(view.component, { ...view.options.inject("session-two"), useSessions: (select) => select(sessions) });
-  assert.deepEqual(calls[0], { channel: "/dsh-spec", method: "describe", payload: { sessionId: "session-two" } });
+  // The language rides along so the findings come back localized in the same
+  // language the panel renders (the server cannot see the browser's locale).
+  assert.deepEqual(calls[0], { channel: "/dsh-spec", method: "describe", payload: { sessionId: "session-two", language: "zh" } });
 });
 
 test("the view renders nothing for a session that is not in Spec mode", async () => {

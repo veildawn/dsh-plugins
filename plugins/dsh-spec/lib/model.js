@@ -26,7 +26,7 @@ import {
   documentKindOf,
   lintRequirementsSemantics,
   validateDocument,
-} from './validate.js?dsh-spec=0.8.0';
+} from './validate.js?dsh-spec=0.8.1';
 import {
   attachWaveInfo,
   parseDependencyGraph,
@@ -34,9 +34,9 @@ import {
   readyTasks,
   reconcileDependencyGraph,
   taskProgress,
-} from './tasks.js?dsh-spec=0.8.0';
+} from './tasks.js?dsh-spec=0.8.1';
 
-export { SPEC_TYPES, WORKFLOW_TYPES, DOCUMENT_TYPES, documentKindOf } from './validate.js?dsh-spec=0.8.0';
+export { SPEC_TYPES, WORKFLOW_TYPES, DOCUMENT_TYPES, documentKindOf } from './validate.js?dsh-spec=0.8.1';
 
 /** Directory Kiro uses for specs and settings. */
 export const KIRO_DIR = '.kiro';

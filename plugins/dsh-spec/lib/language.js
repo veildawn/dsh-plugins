@@ -12,18 +12,23 @@
  * Resolution order, highest first:
  *
  *   1. an explicit `language` in the plugin's own settings (power users),
- *   2. the host's `locale.preference` (what the user picked in DSH),
- *   3. the OS locale (`AppleLocale` / `LANG` / `Intl`),
- *   4. English.
+ *   2. the language the Web panel reports (`payload.language`): the browser has
+ *      already asked the host's locale runtime, so this is the user's actual
+ *      choice and outranks anything the server can guess,
+ *   3. the host's `locale.preference` (what the user picked in DSH),
+ *   4. the OS locale (`AppleLocale` / `LANG` / `Intl`),
+ *   5. English.
  *
- * Nothing here is cached: the panel asks again on every settings save, and the
- * prompt provider re-reads per assembly, so a language switch reaches the very
- * next model step.
+ * Nothing here is memoized except the macOS global-preferences parse (see
+ * {@link appleLocale}, which keys its cache on the file's mtime): the panel asks
+ * again on every settings save, and the prompt provider re-reads per assembly,
+ * so a language switch reaches the very next model step.
  *
  * @module dsh-spec/language
  */
 
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 /** Languages the plugin ships copy for. */
@@ -80,6 +85,54 @@ export function readLocalePreference(file) {
   return undefined;
 }
 
+/**
+ * macOS' `AppleLocale` (e.g. `zh_CN`), or `undefined`.
+ *
+ * The global preferences file is a *binary* plist on every modern macOS, so
+ * reading it as text finds neither the key nor the value — which is how a
+ * Chinese Mac reported "en" to the server while the browser said "zh-CN".
+ * `plutil` renders the binary form; the text path stays for an XML plist or an
+ * old system without `plutil`. Result is cached per process: the file changes
+ * only when the user changes their region, and this sits on a prompt-assembly
+ * path that must not spawn a process every step.
+ */
+let appleLocaleCache = null;
+
+function appleLocale(env) {
+  const file = path.join(env.HOME ?? '', 'Library', 'Preferences', '.GlobalPreferences.plist');
+  let stamp = 0;
+  try {
+    stamp = statSync(file).mtimeMs;
+  } catch {
+    return undefined;
+  }
+  if (appleLocaleCache !== null && appleLocaleCache.file === file && appleLocaleCache.stamp === stamp) {
+    return appleLocaleCache.value;
+  }
+  let value;
+  try {
+    const raw = execFileSync('/usr/bin/plutil', ['-extract', 'AppleLocale', 'raw', '-o', '-', file], {
+      encoding: 'utf8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (raw !== '') value = raw;
+  } catch {
+    // plutil absent or the key is missing: fall through to the text read
+  }
+  if (value === undefined) {
+    try {
+      const text = readFileSync(file, 'utf8');
+      const match = /<key>AppleLocale<\/key>\s*<string>([^<]+)<\/string>/u.exec(text);
+      if (match !== null) value = match[1];
+    } catch {
+      // no readable global preferences
+    }
+  }
+  appleLocaleCache = { file, stamp, value };
+  return value;
+}
+
 /** The OS language, read where each platform actually keeps it. */
 export function systemLanguage(platform = process.platform, env = process.env) {
   const variables = [env.LC_ALL, env.LC_MESSAGES, env.LANG];
@@ -90,17 +143,8 @@ export function systemLanguage(platform = process.platform, env = process.env) {
   if (platform === 'darwin') {
     // `LANG` is routinely unset in the launchd environment the Web service runs
     // in, while macOS keeps the user's choice in the global preferences domain.
-    try {
-      const plist = path.join(env.HOME ?? '', 'Library', 'Preferences', '.GlobalPreferences.plist');
-      const text = readFileSync(plist, 'utf8');
-      const match = /<key>AppleLocale<\/key>\s*<string>([^<]+)<\/string>/u.exec(text);
-      if (match !== null) {
-        const language = normalizeLanguage(match[1]);
-        if (language !== undefined) return language;
-      }
-    } catch {
-      // no readable global preferences: fall through
-    }
+    const language = normalizeLanguage(appleLocale(env));
+    if (language !== undefined) return language;
   }
   try {
     const resolved = new Intl.DateTimeFormat().resolvedOptions().locale;
@@ -115,11 +159,17 @@ export function systemLanguage(platform = process.platform, env = process.env) {
 /**
  * The active language, from the resolved chain.
  *
- * @param {{settings?: {language?: string}, localePreference?: string, system?: string}} input
+ * `panel` is what the browser reports (`payload.language`) — the host's locale
+ * runtime already answered there, so it is the closest thing to the user's own
+ * choice and outranks the server's guess at it. It still loses to an explicit
+ * plugin setting, which is the one override a user asked for by name.
+ *
+ * @param {{settings?: {language?: string}, panel?: string, localePreference?: string, system?: string}} input
  * @returns {'zh'|'en'}
  */
 export function resolveLanguage(input = {}) {
   return normalizeLanguage(input.settings?.language)
+    ?? normalizeLanguage(input.panel)
     ?? normalizeLanguage(input.localePreference)
     ?? normalizeLanguage(input.system)
     ?? systemLanguage();

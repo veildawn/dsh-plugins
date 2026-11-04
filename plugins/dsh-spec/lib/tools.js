@@ -12,12 +12,12 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_SETTINGS } from './constants.js?dsh-spec=0.8.0';
-import { SPEC_TYPES, WORKFLOW_TYPES, specsRoot } from './model.js?dsh-spec=0.8.0';
-import { parseTasks, readyTasks, taskProgress } from './tasks.js?dsh-spec=0.8.0';
-import { profilePatchPath, settingsFilePath } from './store.js?dsh-spec=0.8.0';
-import { TOOL_NAMES } from './constants.js?dsh-spec=0.8.0';
-import { languageInstruction, readLocalePreference, resolveLanguage } from './language.js?dsh-spec=0.8.0';
+import { DEFAULT_SETTINGS } from './constants.js?dsh-spec=0.8.1';
+import { SPEC_TYPES, WORKFLOW_TYPES, specsRoot } from './model.js?dsh-spec=0.8.1';
+import { parseTasks, readyTasks, taskProgress } from './tasks.js?dsh-spec=0.8.1';
+import { profilePatchPath, settingsFilePath } from './store.js?dsh-spec=0.8.1';
+import { TOOL_NAMES } from './constants.js?dsh-spec=0.8.1';
+import { languageInstruction, readLocalePreference, resolveLanguage } from './language.js?dsh-spec=0.8.1';
 import {
   checkSpecOp,
   configSettings,
@@ -30,7 +30,7 @@ import {
   taskUpdateOp,
   workspaceFor,
   writeSpecOp,
-} from './ops.js?dsh-spec=0.8.0';
+} from './ops.js?dsh-spec=0.8.1';
 
 /** Cordis plugin name; must match the preset row `name`. */
 export const name = '@weniatall/dsh-spec/tools';

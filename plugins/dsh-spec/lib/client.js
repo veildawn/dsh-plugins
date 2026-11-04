@@ -1336,7 +1336,11 @@
         const loadList = async () => {
           const token = ++tokens.list;
           try {
-            const list = await rpcCall("describe", withSession({}));
+            // The language travels with the read: findings come back already
+            // localized, in the same language this panel renders in. The server
+            // cannot see the browser's locale runtime, so asking it to guess
+            // meant a Chinese panel whose findings were English.
+            const list = await rpcCall("describe", withSession({ language: uiLang() }));
             if (token !== tokens.list) return null;
             setState((current) => ({ ...current, list, error: "" }));
             return list;
@@ -1351,7 +1355,7 @@
           if (!feature) return null;
           const token = ++tokens.detail;
           try {
-            const detail = await rpcCall("get", withSession({ feature }));
+            const detail = await rpcCall("get", withSession({ feature, language: uiLang() }));
             if (token !== tokens.detail) return null;
             setState((current) => (current.selected === feature ? { ...current, detail, error: "" } : current));
             return detail;
@@ -1424,9 +1428,12 @@
           };
         }, [active, sessionId]);
 
+        // `lang` is a dependency because the server-localized findings are part
+        // of `detail`: switching the host language must re-read them, not just
+        // repaint the labels.
         react.useEffect(() => {
           if (state.selected) void loadDetail(state.selected);
-        }, [state.selected]);
+        }, [state.selected, lang]);
 
         react.useEffect(() => {
           if (state.selected && state.document) void loadDocument(state.selected, state.document);

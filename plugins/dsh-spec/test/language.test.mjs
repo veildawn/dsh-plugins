@@ -86,3 +86,12 @@ test('the prompt line names the language and keeps the format contract English',
   assert.match(en, /Write all spec prose in English/u);
   assert.match(en, /`## Task Dependency Graph`/u);
 });
+
+test('the panel\'s report outranks the server\'s guess but not an explicit setting', () => {
+  assert.equal(language.resolveLanguage({ settings: {}, panel: 'zh-CN', system: 'en' }), 'zh');
+  // A pin is the one answer a user gave by name.
+  assert.equal(language.resolveLanguage({ settings: { language: 'en' }, panel: 'zh' }), 'en');
+  // An empty or unknown report falls through instead of forcing `en`.
+  assert.equal(language.resolveLanguage({ settings: {}, panel: '', localePreference: 'zh', system: 'en' }), 'zh');
+  assert.equal(language.resolveLanguage({ settings: {}, panel: 'fr-FR', system: 'zh' }), 'zh');
+});

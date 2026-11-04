@@ -22,8 +22,8 @@ import {
   featureNameFor,
   specsRoot,
   summaryOf,
-} from './model.js?dsh-spec=0.8.0';
-import { TASK_STATUSES, leafTasks, readyTasks, taskProgress } from './tasks.js?dsh-spec=0.8.0';
+} from './model.js?dsh-spec=0.8.1';
+import { TASK_STATUSES, leafTasks, readyTasks, taskProgress } from './tasks.js?dsh-spec=0.8.1';
 import {
   createSpecDirectory,
   readJson,
@@ -35,10 +35,10 @@ import {
   updateTaskStatus,
   writeDocument,
   writeJson,
-} from './store.js?dsh-spec=0.8.0';
-import { publishPlan } from './plan-bridge.js?dsh-spec=0.8.0';
-import { DEFAULT_SETTINGS, TOOL_NAMES } from './constants.js?dsh-spec=0.8.0';
-import { LANGUAGES } from './language.js?dsh-spec=0.8.0';
+} from './store.js?dsh-spec=0.8.1';
+import { publishPlan } from './plan-bridge.js?dsh-spec=0.8.1';
+import { DEFAULT_SETTINGS, TOOL_NAMES } from './constants.js?dsh-spec=0.8.1';
+import { LANGUAGES } from './language.js?dsh-spec=0.8.1';
 
 
 /** Task status aliases accepted from agents, mapped to Kiro's enum. */

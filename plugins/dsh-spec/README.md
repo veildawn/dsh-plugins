@@ -519,6 +519,18 @@ dock 条目补上 `inject`（此前它拿不到 RPC 句柄），并在挂载时�
 标题、列表、表格、代码块、行内标记、链接都成型，未知语法退化成文本而不是被丢弃，
 仍然不使用 `dangerouslySetInnerHTML`。正文区同时改成独立滚动容器，长文档不再把表头挤走。
 
+### 0.8.0 → 0.8.1：面板与提示不再各说各话
+
+0.8.0 上线后实测暴露一处分叉：面板文案是中文（浏览器 `zh-CN`），五条「提示」却是英文。原因是
+校验提示在**服务端**本地化，而服务端解析语言时既读不到浏览器拿到的 DSH 选择（用户从没在
+设置里切过语言，profile patch 里没有 `- id: locale`），也读不到 macOS 的系统语言——全局偏好是
+二进制 plist，按文本解析永远失败，最终回落到英文。
+
+0.8.1 的修法是把答案从唯一知道它的地方带过去：面板在 `describe` / `get` 里上报自己的
+`language`，服务端优先采用（仍低于显式设置），界面与提示从此同一门语言；macOS 的系统语言改走
+`plutil` 读取并按 mtime 缓存。另外面板的 `lang` 成为详情读取的依赖——切换语言会重新拉取，
+而不只是重绘标签。
+
 ### 0.7.4 → 0.8.0：界面与文档语言跟随 DSH
 
 在此之前界面全部写死中文，Agent 写文档用哪门语言全凭模型自己的判断——用户切到英文界面，
@@ -531,11 +543,17 @@ dock 条目补上 `inject`（此前它拿不到 RPC 句柄），并在挂载时�
 | 校验提示 | 服务端 `get` 时按规则 id + 参数重建 | 「提示 / Requirement 5, criterion 3 含多个 SHALL 子句，建议拆分」 |
 | 文档语言 | 提示词策略段末尾一句话 | `languageInstruction()`，同步写进 Agent 的系统提示词 |
 
-**语言是怎么读到的**：宿主的 `locale` 插件把用户的选择写进当前 profile 的
-`cordis.patch.yml`（`- id: locale` / `config.preference`），没有 RPC 暴露它——所以服务端直接读
-那个文件（只读，按行扫，注释不算）。没有偏好时依次回落系统语言与英文。想钉死**文档与校验提示**的语言（比如系统是
-英文但规格要写中文）就在 `Spec 设置` 里显式选，这一项会覆盖以上全部；界面文案始终跟随 DSH，
-不受这一项影响。
+**语言是怎么读到的**：面板每次读取（`describe` / `get`）都把它当前的语言一起送上去——
+浏览器已经问过宿主的 `locale` 运行时，所以这就是用户的选择本身，服务端以它为准，界面文案与
+校验提示因此不可能各说各话（0.8.0 初版正是在这里分叉：面板中文、提示英文，因为服务端读不到
+浏览器看到的那份选择）。服务端自己的回落链还在，供没有面板的调用使用：插件设置
+（`Spec 设置` 里显式选，覆盖一切）→ 面板上报 → profile 的 `cordis.patch.yml`（`- id: locale` /
+`config.preference`，只读按行扫，注释不算）→ 系统语言 → 英文。macOS 的系统语言从
+`AppleLocale` 读——全局偏好是二进制 plist，按文本读永远读不到，现在走 `plutil` 并按文件
+mtime 缓存（提示词装配路径上不能每轮起一个进程）。
+
+想钉死**文档与校验提示**的语言（比如系统是英文但规格要写中文）就在 `Spec 设置` 里显式选，
+这一项会覆盖以上全部；界面文案始终跟随 DSH，不受这一项影响。
 
 **骨架不翻译**：`### Requirement N:`、`## Acceptance Criteria`、`WHEN/WHILE/IF/WHERE/THE/SHALL`、
 `**User Story:**`、`**Validates: Requirements X.Y**`、`## Task Dependency Graph` 与 JSON 波次图
@@ -552,7 +570,7 @@ peerDependencies），宿主自带该插件，换包即可。已有会话不需�
 npm test
 ```
 
-200 项用例，全部零依赖、无网络：
+202 项用例，全部零依赖、无网络：
 
 - `test/validate.test.mjs` — Kiro 规则码与模板自校验；
 - `test/tasks.test.mjs` — 复选框语法、层级、可选标记、父任务传播与派生、波次依赖、原位写回、meta；
@@ -564,7 +582,7 @@ npm test
 - `test/client.test.mjs` — 对话视图注册与 Spec 模式门控、视图切换入口、草稿/绑定、文档导航与重挂载重读、任务写回、设置面板、输入区任务面板；
 - `test/markdown.test.mjs` — 文档渲染：标题/列表/表格/代码块/行内标记、围栏内的 `#` 不当标题、表格分隔行不进数据、未知语法不丢内容、HTML 只作字符；
 - `test/plan.test.mjs` — 任务面板模型：波次分组、并行 in_progress、checkpoint 排除、漏图叶子保留、叶子计数、投影折叠与跨回合保留、发布只追加一条整份计划；
-- `test/language.test.mjs` — 语言解析链：DSH 偏好怎么从 profile patch 读出、注释不算、未切换时无偏好、设置 → DSH → 系统 → 英文、提示词语言行保留英文骨架；
+- `test/language.test.mjs` — 语言解析链：DSH 偏好怎么从 profile patch 读出、注释不算、未切换时无偏好、设置 → 面板 → DSH → 系统 → 英文、提示词语言行保留英文骨架；
 - `test/messages.test.mjs` — 校验提示中文化：每条规则都有中文、未翻译的规则回落英文、占位符一定被填、文档名与标题保持原样、中文化不改动原对象；
 - `test/package.test.mjs` — 包契约、双层 bundle patch、IIFE 自注册、内部依赖版本一致性、零运行时依赖；
 - `test/upgrade.test.mjs` — 同进程缓存旧 store/ops、失败入口链接后，热升级 RPC、绑定、草稿与预设工具。

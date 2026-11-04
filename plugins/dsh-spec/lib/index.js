@@ -22,16 +22,16 @@ import {
   RPC_CHANNEL,
   TOOL_NAMES,
   name,
-} from './constants.js?dsh-spec=0.8.0';
-import { readLocalePreference, resolveLanguage } from './language.js?dsh-spec=0.8.0';
-import { localizeIssues } from './messages.js?dsh-spec=0.8.0';
+} from './constants.js?dsh-spec=0.8.1';
+import { readLocalePreference, resolveLanguage } from './language.js?dsh-spec=0.8.1';
+import { localizeIssues } from './messages.js?dsh-spec=0.8.1';
 import {
   DEFAULT_SPEC_TYPE,
   DEFAULT_WORKFLOW,
   SpecError,
   checkSpec,
   summaryOf,
-} from './model.js?dsh-spec=0.8.0';
+} from './model.js?dsh-spec=0.8.1';
 import {
   checkSpecOp,
   createSpec,
@@ -48,7 +48,7 @@ import {
   stateView,
   taskUpdateOp,
   writeSpecOp,
-} from './ops.js?dsh-spec=0.8.0';
+} from './ops.js?dsh-spec=0.8.1';
 import {
   bindSession,
   profilePatchPath,
@@ -57,7 +57,7 @@ import {
   readSpecIndex,
   saveSessionDraft,
   unbindSession,
-} from './store.js?dsh-spec=0.8.0';
+} from './store.js?dsh-spec=0.8.1';
 
 export { DEFAULT_SETTINGS, NS, RPC_CHANNEL, TOOL_NAMES, name };
 
@@ -173,9 +173,20 @@ async function sessionDraft(ctx, payload) {
   };
 }
 
-/** The UI language for this panel: plugin setting, then the DSH preference, then the OS. */
-function panelLanguage(settings) {
-  return resolveLanguage({ settings, localePreference: readLocalePreference(profilePatchPath()) });
+/**
+ * The UI language for this panel.
+ *
+ * `reported` is the browser's answer, which is also what the panel's own copy
+ * renders in — the two halves must never disagree, or the panel speaks Chinese
+ * while its findings are English. Settings still win (an explicit pin), and the
+ * DSH preference, the OS and English are the fallbacks for a caller that is not
+ * the panel (the Agent's prompt, an older bundle).
+ *
+ * @param {object} settings
+ * @param {string} [reported] - `payload.language` sent by the panel
+ */
+function panelLanguage(settings, reported) {
+  return resolveLanguage({ settings, panel: reported, localePreference: readLocalePreference(profilePatchPath()) });
 }
 
 async function rpcDescribe(ctx, config, payload) {
@@ -186,10 +197,11 @@ async function rpcDescribe(ctx, config, payload) {
     workspace: located.workspace,
     root: located.root,
     settings: publicSettings(effective),
-    // The language everything user-facing renders in. Resolved here (settings →
-    // the locale the user picked in DSH → the OS) rather than in the panel,
-    // which has no way to read the host's preference over RPC.
-    language: panelLanguage(effective.settings),
+    // The language everything user-facing renders in. The panel's own report
+    // comes first (it is the only caller that can see the host's locale
+    // runtime); settings, the DSH preference and the OS are the fallbacks for
+    // anything calling without one.
+    language: panelLanguage(effective.settings, payload.language),
     specs: listView(specs),
     presetActive: presetActive(ctx, typeof payload.sessionId === 'string' ? payload.sessionId : undefined),
     // Optional: lets the composer lock its type picker once a spec exists.
@@ -207,7 +219,7 @@ async function rpcGet(ctx, config, payload) {
   // The panel is read by a person: findings arrive in their language. The
   // Agent's copy (`spec_check`) stays English — that is the contract it is
   // graded against.
-  return { ...state, issues: localizeIssues(state.issues, panelLanguage(effective.settings)) };
+  return { ...state, issues: localizeIssues(state.issues, panelLanguage(effective.settings, payload.language)) };
 }
 
 /** Record which spec this session is working on. */

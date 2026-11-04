@@ -360,3 +360,58 @@ test('a custom kiroDir drives listing, writing and checking consistently', async
   // The alternate root is the only one populated.
   await assert.rejects(readFile(path.join(workspace, '.kiro', 'specs', created.value.feature, 'design.md'), 'utf8'), { code: 'ENOENT' });
 });
+
+test('the panel\'s language localizes its findings, and only the panel\'s', async () => {
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const workspace = await mkdtemp(path.join(tmpdir(), 'dsh-spec-lang-ws-'));
+  const specDir = path.join(workspace, '.kiro', 'specs', 'lang-panel');
+  await mkdir(specDir, { recursive: true });
+  await writeFile(path.join(specDir, '.config.kiro'), JSON.stringify({ specType: 'feature', workflowType: 'requirements-first' }));
+  // Two SHALL clauses in one criterion: a stable `ears/compound-criterion` hit.
+  await writeFile(path.join(specDir, 'requirements.md'), [
+    '# Requirements Document',
+    '',
+    '## Introduction',
+    '',
+    'A small spec.',
+    '',
+    '## Requirements',
+    '',
+    '### Requirement 1: Checkout',
+    '',
+    '**User Story:** AS a buyer, I WANT to pay, SO THAT I get the goods.',
+    '',
+    '#### Acceptance Criteria',
+    '',
+    '1. WHEN the cart is full, THE system SHALL charge the card AND SHALL send a receipt.',
+    '',
+  ].join('\n'));
+
+  const host = makeCtx({
+    get: (key) => ({
+      sessions: { get: () => ({ header: { cwd: workspace } }) },
+      workspaceRegistry: { list: () => [{ path: workspace }] },
+    })[key],
+  });
+
+  const zh = await host.call('get', { feature: 'lang-panel', language: 'zh-CN' });
+  assert.equal(zh.ok, true, zh.error?.message);
+  const compound = zh.value.issues.find((item) => item.rule === 'ears/compound-criterion');
+  assert.ok(compound, 'the fixture produces the finding this test localizes');
+  assert.match(compound.message, /含多个 SHALL 子句/u);
+  // The rule and its structured params survive: the panel rebuilds the sentence
+  // from them, and a later locale switch must be able to re-localize.
+  assert.deepEqual(compound.params, { where: 'Requirement 1, criterion 1' });
+
+  const en = await host.call('get', { feature: 'lang-panel', language: 'en' });
+  assert.match(en.value.issues.find((item) => item.rule === 'ears/compound-criterion').message, /multiple SHALL clauses/u);
+
+  // The Agent's copy is the contract it is graded against, so `check` stays English.
+  const check = await host.call('check', { feature: 'lang-panel', language: 'zh-CN' });
+  assert.match(check.value.specs[0].issues.find((item) => item.rule === 'ears/compound-criterion').message, /multiple SHALL clauses/u);
+
+  // A caller that does not report a language still gets a whole-language answer,
+  // never a half-localized one.
+  const described = await host.call('describe', {});
+  assert.ok(['zh', 'en'].includes(described.value.language), described.value.language);
+});

@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-spec",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Kiro 兼容的 SPEC 规约插件：在 .kiro/specs/<feature> 下维护 requirements/design/tasks 三份 Markdown，提供文档模板、Kiro 格式校验、EARS 语义检查、任务复选框状态机、Task Dependency Graph 波次调度与 tasks.meta.json 记录。以「Spec 模式」Agent 预设提供 spec_* 工具与规约提示词，宿主行只提供 Web 面板的 RPC 通道。",
   "type": "module",
   "main": "lib/index.js",
