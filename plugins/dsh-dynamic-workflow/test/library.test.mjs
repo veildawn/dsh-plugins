@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createWorkflowLibrary, launchPrompt, normalizeName, parseCommandInput } from '../lib/library.js';
+import { authorPrompt, createWorkflowLibrary, launchPrompt, normalizeName, parseCommandInput } from '../lib/library.js';
 
 const meta = { name: 'Code Review', description: 'review', phases: [{ title: 'Find' }, { title: 'Verify' }] };
 
@@ -17,6 +17,7 @@ async function setup() {
 test('names normalize to safe file stems', () => {
   assert.equal(normalizeName('Code Review'), 'code-review');
   assert.equal(normalizeName('../etc/passwd'), 'etc-passwd');
+  assert.equal(normalizeName('审查项目问题'), '审查项目问题');
   assert.throws(() => normalizeName('***'));
 });
 
@@ -62,9 +63,20 @@ test('launch prompt carries the saved call verbatim with merged args', () => {
 });
 
 test('/workflow input grammar', () => {
-  assert.deepEqual(parseCommandInput(''), { name: '', scope: undefined, args: undefined });
-  assert.deepEqual(parseCommandInput(' review --global {"x":1}'), { name: 'review', scope: 'global', args: { x: 1 } });
-  assert.deepEqual(parseCommandInput('review'), { name: 'review', scope: undefined, args: undefined });
-  assert.throws(() => parseCommandInput('review {bad'));
-  assert.throws(() => parseCommandInput('a b'));
+  assert.deepEqual(parseCommandInput(''), { name: '', scope: undefined, args: undefined, text: '' });
+  assert.deepEqual(parseCommandInput(' review --global {"x":1}'), { name: 'review', scope: 'global', args: { x: 1 }, text: 'review {"x":1}' });
+  assert.equal(parseCommandInput('review').name, 'review');
+  assert.equal(parseCommandInput('审查项目问题').name, '审查项目问题');
+  // Free text is a task, not a saved name.
+  const task = parseCommandInput('审查 项目 问题');
+  assert.equal(task.name, '');
+  assert.equal(task.text, '审查 项目 问题');
+  assert.equal(parseCommandInput('review {bad').name, '');
+});
+
+test('author prompt asks for one workflow call with phases', () => {
+  const prompt = authorPrompt('审查项目问题');
+  assert.match(prompt, /审查项目问题/u);
+  assert.match(prompt, /`workflow` tool exactly once/u);
+  assert.match(prompt, /meta\.phases/u);
 });

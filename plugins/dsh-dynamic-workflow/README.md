@@ -9,22 +9,23 @@
 
 ## 功能
 
-- **编排图面板**：对话区「对话 / 轨迹」右侧新增「编排 / Workflows」视图页签。每个 phase 是一条泳道，泳道之间用箭头连接，每次 `agent()` 调用是一张节点卡片（序号、标签、状态、耗时）。数据来自引擎的 `workflow/*` 事件和会话的 `tool-workflow/*` 记录，面板通过长轮询 `watch` 实时刷新。
+- **浮动编排卡片**：和宿主的任务列表一样，挂在输入框上方的 `conversation.input.dock`（order -5，位于任务列表之上、dsh-spec 计划之下）。本会话一开始运行 `workflow` 就自动浮出：头部显示名称、状态、`完成数/总数 个 agent`、当前阶段与耗时，可折叠；展开后是 phase 泳道（左→右、箭头相连）与 agent 节点卡（状态、耗时，运行中闪动）。运行结束后卡片保留，可「保存到项目 / 保存为全局」或 × 关闭；新的运行会重新浮出。数据通过长轮询 `watch` 实时刷新。
 - **运行记录**：保存到 `$DSH_HOME/dynamic-workflow/runs`，最多 200 条。重启时仍为「运行中」的记录会标为「已中断」。
 - **保存 workflow**：在运行详情里点「保存到项目」或「保存为全局」：
   - 项目：`<工作区>/.dsh/workflows/<name>.json`
   - 全局：`$DSH_HOME/dynamic-workflow/workflows/<name>.json`
 
   同名时项目覆盖全局。
-- **重新启动**：可以在面板的「已保存」页签填写 JSON 参数后点「启动」，也可以输入：
+- **`/workflow` 命令**：
 
   ```text
   /workflow                       # 列出已保存的 workflow
-  /workflow review                # 启动
+  /workflow review                # 启动已保存的 review
+  /workflow 审查项目问题           # 没有同名保存项时，让模型为该任务编排并运行一个 workflow
   /workflow review --global {"path":"src"}
   ```
 
-  启动时插件会向当前会话追加一个用户回合，要求模型原样调用一次 `workflow` 工具。参数会按键覆盖保存时的默认值。
+  名称支持中文。命中已保存 workflow 时，插件追加一个用户回合要求模型原样调用一次 `workflow` 工具，参数按键覆盖保存时的默认值；未命中时，整段输入作为任务描述，要求模型声明 `meta.phases` 并编排运行。
 
 ## 结构
 
@@ -33,16 +34,15 @@
 | `lib/index.js` | 宿主行：订阅事件，提供 `/dsh-dynamic-workflow` RPC（trusted-host），注册 `/workflow` |
 | `lib/store.js` | 运行记录与编排图（泳道、节点、边） |
 | `lib/library.js` | 已保存 workflow 的读写、启动提示词和命令参数解析 |
-| `lib/client.js` | Web 面板（`conversation.view`） |
+| `lib/client.js` | 输入框上方的浮动编排卡片（`conversation.input.dock`） |
 
 ## 安装
 
 ```bash
 cd plugins/dsh-dynamic-workflow && npm test && npm pack
-dsh plugin --profile web add ./plugins/dsh-dynamic-workflow/weniatall-dsh-dynamic-workflow-0.1.0.tgz
+dsh plugin --profile web add ./plugins/dsh-dynamic-workflow/weniatall-dsh-dynamic-workflow-0.1.1.tgz
 ```
 
 ## 三端行为
 
-- **Web**：面板占用对话视图，不建全屏浮层。
-- **Windows 桌面版 / 全屏**：同样是对话视图，由宿主负责避让标题栏，插件不涉及顶边几何。
+- **Web / Windows 桌面版 / 全屏**：卡片位于输入区上方的宿主 dock 内，不贴窗口顶边，不涉及标题栏避让。

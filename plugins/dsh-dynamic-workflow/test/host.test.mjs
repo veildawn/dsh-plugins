@@ -99,8 +99,10 @@ test('end to end: observe a run, watch, save it, launch it, slash command', asyn
   const ran = await state.command.handler({ agent, rawInput: ' fanout' });
   assert.equal(ran.kind, 'success');
   assert.equal(followups.length, 2);
-  const missing = await state.command.handler({ agent, rawInput: ' nope' });
-  assert.equal(missing.kind, 'error');
+  const authored = await state.command.handler({ agent, rawInput: ' 审查项目问题' });
+  assert.equal(authored.kind, 'success');
+  assert.equal(followups.length, 3);
+  assert.match(followups[2].content[0].text, /Design and run a dynamic workflow for this task: 审查项目问题/u);
 
   assert.equal((await call(state, 'deleteRun', { runId: 'R' })).value.deleted, true);
   assert.equal((await call(state, 'run', { runId: 'R' })).error.code, 'not-found');

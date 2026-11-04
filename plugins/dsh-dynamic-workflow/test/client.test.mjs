@@ -43,7 +43,7 @@ test('bundle registers under the package id and injects styles', () => {
   assert.ok(styles.some((s) => s.id === 'dsh-dynamic-workflow-styles'));
 });
 
-test('apply registers a conversation.view tab with a localized label', () => {
+test('apply registers a floating card in the composer dock', () => {
   const registered = [];
   mod.apply({
     slots: { inject: (_slot, fn) => fn(), register: (entry, component) => registered.push({ entry, component }) },
@@ -51,10 +51,21 @@ test('apply registers a conversation.view tab with a localized label', () => {
     get: () => undefined,
   });
   assert.equal(registered.length, 1);
-  assert.equal(registered[0].entry.name, 'conversation.view');
-  assert.equal(registered[0].entry.id, 'dynamic-workflow');
-  assert.equal(registered[0].entry.label(), '编排');
+  assert.equal(registered[0].entry.name, 'conversation.input.dock');
+  assert.equal(registered[0].entry.id, 'dsh-dynamic-workflow');
+  assert.ok(registered[0].entry.order < 0);
   assert.equal(typeof registered[0].entry.inject('s1').rpcCall, 'function');
+});
+
+test('dock renders nothing until a run exists, and hides dismissed finished runs', () => {
+  assert.equal(mod.internals.WorkflowDock({ rpcCall: async () => ({}), sessionId: 's1' }), null);
+  const { pickRun } = mod.internals;
+  const done = { id: 'a', status: 'completed' };
+  assert.equal(pickRun([], new Set()), null);
+  assert.equal(pickRun([done], new Set()), done);
+  assert.equal(pickRun([done], new Set(['a'])), null);
+  const running = { id: 'a', status: 'running' };
+  assert.equal(pickRun([running], new Set(['a'])), running);
 });
 
 test('graph renders lanes left to right with nodes and arrows', () => {
@@ -76,7 +87,7 @@ test('graph renders lanes left to right with nodes and arrows', () => {
   const flat = texts(tree);
   assert.ok(flat.includes('Find') && flat.includes('Verify') && flat.includes('→'));
   assert.ok(flat.includes('#3 verifier'));
-  assert.ok(flat.includes('check'));
+  assert.equal(tree.children[2].props.title, 'check');
   assert.equal(tree.children.length, 3);
 });
 
@@ -84,7 +95,8 @@ test('strings exist in both languages', () => {
   for (const [key, pair] of Object.entries(mod.internals.STRINGS)) {
     assert.equal(pair.length, 2, key);
   }
-  assert.equal(mod.internals.t('en', 'agents', { n: 3 }), '3 agents');
+  assert.equal(mod.internals.t('en', 'agents', { done: 1, n: 3 }), '1/3 agents');
+  assert.equal(mod.internals.progressText({ counts: { completed: 1 }, agents: 2, currentPhase: 'Find', startedAt: 1000, endedAt: 3000 }, 'zh'), '1/2 个 agent · Find · 2s');
   assert.equal(mod.internals.formatDuration(0, 0), '');
   assert.equal(mod.internals.formatDuration(1000, 66000), '1m05s');
 });

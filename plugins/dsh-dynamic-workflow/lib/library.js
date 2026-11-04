@@ -20,7 +20,8 @@ export const MAX_SCRIPT = 256_000;
 export const MAX_ARGS_BYTES = 4096;
 export const MAX_DESCRIPTION = 500;
 
-const NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
+/** Letters and digits of any script (so 中文 names work), plus `.`, `_`, `-`. */
+const NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,63}$/u;
 
 export class LibraryError extends Error {
   constructor(code, message) {
@@ -32,7 +33,7 @@ export class LibraryError extends Error {
 /** Normalize a free-form name into a safe file stem, or throw. */
 export function normalizeName(raw) {
   if (typeof raw !== 'string') throw new LibraryError('invalid-argument', 'workflow name is required');
-  const name = raw.trim().toLowerCase().replace(/[\s/\\]+/gu, '-').replace(/[^a-z0-9._-]/gu, '').replace(/^[._-]+/u, '').slice(0, 64);
+  const name = raw.trim().toLowerCase().replace(/[\s/\\]+/gu, '-').replace(/[^\p{L}\p{N}._-]/gu, '').replace(/^[._-]+/u, '').slice(0, 64);
   if (!NAME_RE.test(name)) throw new LibraryError('invalid-argument', `invalid workflow name "${raw}"`);
   return name;
 }
@@ -198,23 +199,45 @@ export function launchPrompt(saved, overrideArgs) {
  */
 export function parseCommandInput(raw) {
   let rest = typeof raw === 'string' ? raw.trim() : '';
-  if (rest === '') return { name: '', scope: undefined, args: undefined };
+  if (rest === '') return { name: '', scope: undefined, args: undefined, text: '' };
   let scope;
   rest = rest.replace(/(^|\s)--(global|project)(?=\s|$)/gu, (_, lead, which) => {
     scope = which;
     return lead;
   }).trim();
+  rest = rest.replace(/\s+/gu, ' ');
+  const text = rest;
   const brace = rest.indexOf('{');
   const head = (brace === -1 ? rest : rest.slice(0, brace)).trim();
   let args;
+  let jsonOk = true;
   if (brace !== -1) {
     try {
       args = JSON.parse(rest.slice(brace));
+      checkArgs(args);
     } catch {
-      throw new LibraryError('invalid-argument', 'args must be a JSON object, e.g. /workflow review {"path":"src"}');
+      args = undefined;
+      jsonOk = false;
     }
-    checkArgs(args);
   }
-  if (head.split(/\s+/u).length > 1) throw new LibraryError('invalid-argument', 'usage: /workflow <name> [--global|--project] [json-args]');
-  return { name: head === '' ? '' : normalizeName(head), scope, args };
+  // A single token (optionally followed by JSON args) may name a saved
+  // workflow. Anything else is a task description for the model to orchestrate.
+  let name = '';
+  if (jsonOk && head !== '' && !/\s/u.test(head)) {
+    try { name = normalizeName(head); } catch { name = ''; }
+  }
+  return { name, scope, args, text };
+}
+
+/**
+ * The follow-up turn for `/workflow <task>` when no saved workflow matches:
+ * ask the model to design a dynamic workflow for the task and run it with the
+ * `workflow` tool (ZCode's behaviour for free-text `/workflow`).
+ */
+export function authorPrompt(task) {
+  return [
+    `Design and run a dynamic workflow for this task: ${task}`,
+    '',
+    'Use the `workflow` tool exactly once. Declare the stages in `meta.phases`, call `phase()` as each stage starts, and fan out `agent()` calls with clear labels so the progress shows up as nodes. Give `meta.name` a short name for the task. When it finishes, summarize the result for me.',
+  ].join('\n');
 }

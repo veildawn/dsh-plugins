@@ -23,8 +23,8 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
-import { createRunStore } from './store.js?dsh-dynamic-workflow=0.1.0';
-import { createWorkflowLibrary, launchPrompt, parseCommandInput } from './library.js?dsh-dynamic-workflow=0.1.0';
+import { createRunStore } from './store.js?dsh-dynamic-workflow=0.1.1';
+import { authorPrompt, createWorkflowLibrary, launchPrompt, parseCommandInput } from './library.js?dsh-dynamic-workflow=0.1.1';
 
 export const name = 'dynamic-workflow';
 export const RPC_CHANNEL = '/dsh-dynamic-workflow';
@@ -240,8 +240,8 @@ export async function dispatch(ctx, deps, method, payload) {
 function commandDefinition(ctx, library) {
   return {
     name: 'workflow',
-    description: 'Run a saved dynamic workflow: /workflow <name> [json-args]; /workflow lists them',
-    input: { hint: '<name> [json-args]' },
+    description: 'Orchestrate a task as a dynamic workflow, or run a saved one: /workflow <task | name> [json-args]',
+    input: { hint: '<task or saved name> [json-args]' },
     async handler(invocation) {
       const sessionId = invocation.agent?.session?.id ?? invocation.agent?.sessionId;
       const cwd = invocation.agent?.session?.header?.cwd ?? sessionCwd(ctx, sessionId);
@@ -251,18 +251,22 @@ function commandDefinition(ctx, library) {
       } catch (error) {
         return { kind: 'error', text: error.message };
       }
-      if (parsed.name === '') {
+      if (parsed.text === '') {
         const all = await library.list({ cwd });
-        if (all.length === 0) return { kind: 'success', text: 'No saved workflows. Save one from the 编排 / Workflows tab after a run.' };
+        if (all.length === 0) return { kind: 'success', text: 'No saved workflows. Use /workflow <task> to orchestrate one, then save it from the card above the input.' };
         return {
           kind: 'success',
           text: all.map((wf) => `- ${wf.name} [${wf.scope}]${wf.description ? ` — ${wf.description}` : ''}`).join('\n'),
         };
       }
-      const saved = await library.get(parsed.name, { scope: parsed.scope, cwd });
-      if (saved === null) return { kind: 'error', text: `workflow "${parsed.name}" is not saved` };
-      invocation.agent.followup(await userMessage(launchPrompt(saved, parsed.args)));
-      return { kind: 'success', text: `Launching workflow "${saved.name}" (${saved.scope})` };
+      const saved = parsed.name === '' ? null : await library.get(parsed.name, { scope: parsed.scope, cwd });
+      if (saved !== null) {
+        invocation.agent.followup(await userMessage(launchPrompt(saved, parsed.args)));
+        return { kind: 'success', text: `Launching workflow "${saved.name}" (${saved.scope})` };
+      }
+      // No saved workflow by that name: treat the input as a task to orchestrate.
+      invocation.agent.followup(await userMessage(authorPrompt(parsed.text)));
+      return { kind: 'success', text: `Orchestrating a workflow for: ${parsed.text}` };
     },
   };
 }
