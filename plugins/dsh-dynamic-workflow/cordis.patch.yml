@@ -1,0 +1,14 @@
+# Ensure @deepseek-ai/dsh-client-connection has webStartup + webServer injected
+# so rpc.handle can register HTTP routes. webRuntime is intentionally NOT
+# injected (it no longer activates on DSH 0.2.1+). A patch row's `inject`
+# replaces the previous one wholesale, so webStartup must stay listed.
+- id: connection
+  inject:
+    - webStartup
+    - webServer
+
+# Host row: observes workflow runs, serves /dsh-dynamic-workflow and /workflow.
+# `id` must match `name` exported by lib/index.js.
+- insert:
+    - id: dynamic-workflow
+      name: '@weniatall/dsh-dynamic-workflow'
