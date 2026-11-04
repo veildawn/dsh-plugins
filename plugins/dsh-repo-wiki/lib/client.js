@@ -23,7 +23,6 @@
       const PANEL_LIST_SLOT = "sidebar.panellist";
       /** Keyed main-content seat, selected by `layout.selectPanel(id)`. */
       const MAIN_SLOT = "main";
-      const COMPOSER_SLOT = "conversation.input.left";
       /** Panel id: the nav row's id and the main seat's key. */
       const PANEL_ID = "repo-wiki";
       const NAV_STYLE_ID = "dsh-repo-wiki-nav-styles";
@@ -164,7 +163,6 @@
           setupWorkspace: "工作区",
           setupModel: "模型",
           setupLocation: "存储位置",
-          openRepoWiki: "打开代码库 Wiki",
           clear: "清除",
           close: "关闭",
           progressAria: "生成进度",
@@ -332,7 +330,6 @@
           setupWorkspace: "Workspace",
           setupModel: "Model",
           setupLocation: "Location",
-          openRepoWiki: "Open Repo Wiki",
           clear: "Clear",
           close: "Close",
           progressAria: "Progress",
@@ -818,11 +815,6 @@
         .rw-check-row{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
         .rw-num{box-sizing:border-box;width:100%;height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;outline:none;transition:border-color .15s,box-shadow .15s}
         .rw-num:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 20%,transparent)}
-        .rw-composer{box-sizing:border-box;display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:none;border-radius:999px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;flex:none;line-height:1;transition:color .12s,background-color .12s,transform .1s}
-        .rw-composer:hover{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary)}
-        .rw-composer:active{transform:scale(.95)}
-        .rw-composer[data-busy="true"]{color:var(--dsw-alias-brand-primary,#4d6bfe)}
-        .rw-composer svg{display:block}
         button:has([data-settings-nav-label="dsh-repo-wiki"]) > svg:first-child{display:none !important}
         .rw-nav-label{display:inline-flex;align-items:center;gap:8px}
         .rw-nav-label svg{flex:none}
@@ -1565,7 +1557,6 @@
       function RepoWikiPanel(props) {
         const rpcCall = props.rpcCall;
         const lang = useUiLang();
-        const [initialSession] = react.useState(() => props.peekPanelSession ? props.peekPanelSession() : "");
         const [state, setState] = react.useState({
           workspaces: null, workspace: "", language: "", loading: false,
           error: "", data: null, catalogs: [], selected: null, content: "",
@@ -1591,25 +1582,13 @@
 
         const loadWorkspaces = react.useCallback(async () => {
           try {
-            const result = await rpcCall("workspaces", {
-              includeStatus: true,
-              ...(initialSession ? { sessionId: initialSession } : {}),
-            });
+            const result = await rpcCall("workspaces", { includeStatus: true });
             const workspaces = Array.isArray(result.items) ? result.items : [];
-            // A composer entry deep-links into its session's project; the nav
-            // row shows the project wall instead.
-            const linked = initialSession && result.sessionWorkspace
-              && workspaces.some((item) => item.path === result.sessionWorkspace)
-              ? result.sessionWorkspace : "";
             setState((current) => ({ ...current, workspaces, error: "" }));
-            if (linked && scope.current.workspace === "") {
-              scope.current = { workspace: linked, language: "" };
-              setState((current) => ({ ...current, workspace: linked, loading: true }));
-            }
           } catch (error) {
             setState((current) => ({ ...current, workspaces: [], error: String(error?.message ?? error) }));
           }
-        }, [rpcCall, initialSession]);
+        }, [rpcCall]);
 
         /** Merge a fresh status into the project wall card for `workspace`. */
         const applySummary = react.useCallback((workspace, language, status, catalogs) => {
@@ -1662,7 +1641,6 @@
         }, [rpcCall, applySummary]);
 
         react.useEffect(() => {
-          props.clearPanelSession?.(initialSession);
           void loadWorkspaces();
           void rpcCall("models", {}).then((models) => setState((current) => ({ ...current, models }))).catch(() => {});
         }, [loadWorkspaces, rpcCall]);
@@ -2365,26 +2343,6 @@
         return "";
       }
 
-      /* ----------------------------------------------------------------- *
-       * Composer entry
-       * ----------------------------------------------------------------- */
-
-      /** The composer shortcut only opens the panel for this session. */
-      function RepoWikiComposerButton(props) {
-        // `useUiLang` (not a one-off `uiLang()` read) so the tooltip and the
-        // accessible name follow a language switch while the button is mounted.
-        const lang = useUiLang();
-        return h("button", {
-          className: "rw-composer",
-          type: "button",
-          title: t("openRepoWiki", lang),
-          "aria-label": t("repoWiki", lang),
-          disabled: props.canOpenPanel === false,
-          onClick: () => props.openPanel(props.sessionId),
-        },
-        h(IconRepoWiki, { size: 16 }));
-      }
-
       /**
        * The left-sidebar nav row glyph.
        *
@@ -2783,31 +2741,6 @@
           error.code = result && result.error ? result.error.code : "internal-error";
           throw error;
         };
-        // `layout` may be absent (older host, or a composition without the main
-        // column service); the composer entry then degrades to a no-op rather
-        // than throwing during activation.
-        // `layout.selectPanel` is the host's own main-panel switch; it throws
-        // when no main slot owns the key, so a click handler must not let that
-        // escape as an unhandled rejection.
-        const layout = typeof ctx.get === "function" ? ctx.get("layout", false) : undefined;
-        let panelSessionId = "";
-        const openPanel = (sessionId) => {
-          if (!layout || typeof layout.selectPanel !== "function") return;
-          try {
-            panelSessionId = typeof sessionId === "string" ? sessionId : "";
-            layout.selectPanel(PANEL_ID);
-          } catch (error) {
-            panelSessionId = "";
-            if (typeof console !== "undefined" && console.warn) {
-              console.warn("dsh-repo-wiki: cannot open the Repo Wiki panel:", error && error.message ? error.message : error);
-            }
-          }
-        };
-        const peekPanelSession = () => panelSessionId;
-        const clearPanelSession = (sessionId) => {
-          if (panelSessionId === sessionId) panelSessionId = "";
-        };
-        const canOpenPanel = Boolean(layout && typeof layout.selectPanel === "function");
 
         ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
           name: SETTINGS_SLOT,
@@ -2837,26 +2770,14 @@
         ctx.slots.inject(MAIN_SLOT, () => ctx.slots.register({
           name: MAIN_SLOT,
           key: PANEL_ID,
-          inject: () => ({ rpcCall, peekPanelSession, clearPanelSession }),
+          inject: () => ({ rpcCall }),
         }, RepoWikiPanel));
-
-        ctx.slots.inject(COMPOSER_SLOT, () => ctx.slots.register({
-          name: COMPOSER_SLOT,
-          id: "dsh-repo-wiki-composer",
-          order: 2,
-          inject: (sessionId) => ({
-            rpcCall,
-            sessionId,
-            openPanel,
-            canOpenPanel,
-          }),
-        }, RepoWikiComposerButton));
       }
 
       exports.apply = apply;
-      exports.inject = ["slots", "connection", "layout", "locale"];
+      exports.inject = ["slots", "connection", "locale"];
       exports.internals = {
-        CHANNEL, SETTINGS_SLOT, PANEL_LIST_SLOT, MAIN_SLOT, COMPOSER_SLOT, PANEL_ID,
+        CHANNEL, SETTINGS_SLOT, PANEL_LIST_SLOT, MAIN_SLOT, PANEL_ID,
         LANGUAGES, STATUS_LABEL, STATUS_TONE, CATALOG_TONE, KNOWLEDGE_CATEGORIES, CATEGORY_NAMES,
         flattenTree, filterTree, changedSettings, statusLabel, statusTone, showsProgress, isRetryable,
         hasContent, statusAction, serverErrorView, tabTitle, formatDate, splitPage, renderMarkdown, inline, statusDescription,

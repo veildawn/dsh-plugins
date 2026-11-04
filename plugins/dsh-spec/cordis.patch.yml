@@ -1,0 +1,41 @@
+# Ensure @deepseek-ai/dsh-client-connection has webStartup + webServer injected
+# so rpc.handle can register HTTP routes.
+# NOTE: webRuntime is intentionally NOT injected: the dsh-web-app web-runtime
+# row that provides it no longer activates on DSH desktop 0.2.1+, so injecting
+# it makes `connection` wait forever and no RPC channel gets registered --
+# the SPA fallback then answers POST with HTTP 405.
+# webStartup must stay listed because a patch row's `inject` REPLACES the
+# previous one wholesale (last write wins), and the connection row's own
+# config reads ctx.webStartup.trustedHosts.
+- id: connection
+  inject:
+    - webStartup
+    - webServer
+
+# Cordis bundle patch: the dsh-spec HOST row.
+#
+# The host row is deliberately inert for every Agent: it registers no tools and
+# no system-prompt contributions, and injects only `connection` so it can serve
+# the /dsh-spec RPC channel the Web panel calls. The eight `spec_*` tools and
+# the Kiro policy section live in the `spec` Agent preset, published by
+# ./presets/spec.patch.yml and mounted as `@weniatall/dsh-spec/tools`.
+#
+# Keeping the row id `spec` is what makes an upgrade a plain package replace:
+# a profile that already carries this row has its definition swapped in place.
+#
+# `name` is the cordis loader module identifier and must be the package name,
+# otherwise `import(name)` looks for a package that does not exist and the
+# plugin silently fails to load. `@` is a YAML reserved character, so the
+# scalar must be quoted.
+- insert:
+    - id: spec
+      name: '@weniatall/dsh-spec'
+      config:
+        kiroDir: .kiro
+        prompt:
+          enabled: true
+          includeActiveSpecs: true
+          maxSpecs: 5
+        strict: false
+        defaultSpecType: feature
+        defaultWorkflow: requirements-first

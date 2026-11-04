@@ -1,0 +1,80 @@
+{
+  "name": "@weniatall/dsh-spec",
+  "version": "0.8.0",
+  "description": "Kiro 兼容的 SPEC 规约插件：在 .kiro/specs/<feature> 下维护 requirements/design/tasks 三份 Markdown，提供文档模板、Kiro 格式校验、EARS 语义检查、任务复选框状态机、Task Dependency Graph 波次调度与 tasks.meta.json 记录。以「Spec 模式」Agent 预设提供 spec_* 工具与规约提示词，宿主行只提供 Web 面板的 RPC 通道。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./tools": "./lib/tools.js",
+    "./plan": "./lib/plan-bridge.js",
+    "./client": "./lib/client.js",
+    "./model": "./lib/model.js",
+    "./tasks": "./lib/tasks.js",
+    "./templates": "./lib/templates.js",
+    "./validate": "./lib/validate.js",
+    "./store": "./lib/store.js",
+    "./constants": "./lib/constants.js",
+    "./ops": "./lib/ops.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": [
+        "./cordis.patch.yml",
+        "./presets/spec.patch.yml"
+      ]
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "presets",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=20.3"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "spec",
+    "kiro",
+    "ears",
+    "requirements",
+    "spec-driven-development"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent-preset": ">=0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.6"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/veildawn/dsh-plugins.git",
+    "directory": "plugins/dsh-spec"
+  },
+  "homepage": "https://github.com/veildawn/dsh-plugins/tree/main/plugins/dsh-spec#readme",
+  "bugs": {
+    "url": "https://github.com/veildawn/dsh-plugins/issues"
+  }
+}

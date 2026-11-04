@@ -60,7 +60,7 @@ test('the bundle registers under the package name', async () => {
 
 test('the bundle injects the services it actually uses', async () => {
   const { module } = await loadBundle();
-  assert.deepEqual(module.inject.sort(), ['connection', 'layout', 'locale', 'slots']);
+  assert.deepEqual(module.inject.sort(), ['connection', 'locale', 'slots']);
   assert.equal(typeof module.apply, 'function');
 });
 
@@ -161,7 +161,6 @@ function makeCtx(overrides = {}) {
   const slots = [];
   const tabTypes = [];
   const effects = [];
-  let selected = null;
   const ctx = {
     connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
     slots: {
@@ -188,12 +187,11 @@ function makeCtx(overrides = {}) {
           },
         };
       }
-      if (key === 'layout') return { selectPanel: (id) => { selected = id; } };
       return undefined;
     },
     ...overrides,
   };
-  return { ctx, slots, tabTypes, effects, selectedPanel: () => selected };
+  return { ctx, slots, tabTypes, effects };
 }
 
 test('apply registers the left panel row and its keyed main seat', async () => {
@@ -203,7 +201,6 @@ test('apply registers the left panel row and its keyed main seat', async () => {
 
   const names = harness.slots.map((slot) => slot.name);
   assert.deepEqual(names.sort(), [
-    'conversation.input.left',
     'main',
     'settings.section',
     'sidebar.panellist',
@@ -231,62 +228,6 @@ test('the panel registers no right-sidebar tab type', async () => {
   );
 });
 
-test('the composer button opens the panel through layout.selectPanel', async () => {
-  const { module } = await loadBundle();
-  const harness = makeCtx();
-  module.apply(harness.ctx);
-  const composer = harness.slots.find((slot) => slot.name === 'conversation.input.left');
-  const props = composer.inject('session-1');
-  props.openPanel();
-  assert.equal(harness.selectedPanel(), 'repo-wiki');
-});
-
-test('the composer shortcut opens the current session without starting generation', async () => {
-  const { module } = await loadBundle();
-  const calls = [];
-  const harness = makeCtx({ connection: { rpc: { call: async (...args) => { calls.push(args); return { ok: true, value: {} }; } } } });
-  module.apply(harness.ctx);
-  const composer = harness.slots.find((slot) => slot.name === 'conversation.input.left');
-  const button = composer.component(composer.inject('session-1'));
-  button.props.onClick();
-  assert.equal(harness.selectedPanel(), 'repo-wiki');
-  const panel = harness.slots.find((slot) => slot.name === 'main');
-  const context = panel.inject();
-  assert.equal(context.peekPanelSession(), 'session-1');
-  assert.equal(context.peekPanelSession(), 'session-1', 'reading during a repeated render must not consume the context');
-  context.clearPanelSession('session-1');
-  assert.equal(context.peekPanelSession(), '');
-  assert.deepEqual(calls, [], 'opening the panel must not make a generation request');
-});
-
-test('a failing selectPanel is swallowed rather than thrown from the click handler', async () => {
-  const { module } = await loadBundle();
-  const warnings = [];
-  const previousWarn = console.warn;
-  console.warn = (message) => warnings.push(String(message));
-  try {
-    const harness = makeCtx({
-      get: (key) => (key === 'layout'
-        ? { selectPanel: () => { throw new Error('layout.selectPanel: main panel "repo-wiki" is not registered'); } }
-        : undefined),
-    });
-    module.apply(harness.ctx);
-    const composer = harness.slots.find((slot) => slot.name === 'conversation.input.left');
-    const props = composer.inject('session-1');
-    assert.doesNotThrow(() => props.openPanel());
-    assert.ok(warnings.some((message) => message.includes('cannot open')));
-  } finally {
-    console.warn = previousWarn;
-  }
-});
-
-test('apply survives a host without layout', async () => {
-  const { module } = await loadBundle();
-  const harness = makeCtx({ get: () => undefined });
-  assert.doesNotThrow(() => module.apply(harness.ctx));
-  assert.equal(harness.slots.length, 4, 'the slots still register');
-});
-
 /* ------------------------------------------------------------------------- *
  * Render smoke tests
  *
@@ -308,10 +249,10 @@ test('every registered slot component renders without throwing', async () => {
   for (const slot of harness.slots) {
     const Component = slot.component;
     assert.equal(typeof Component, 'function', `${slot.name} must register a component`);
-    const props = typeof slot.inject === 'function' ? slot.inject('session-1') : {};
+    const props = typeof slot.inject === 'function' ? slot.inject() : {};
     // `useState`/`useEffect`/`useCallback` are inert in the fake React, so a
     // single call exercises the component body without a reconciler.
-    const tree = Component({ ...props, sessionId: 'session-1' });
+    const tree = Component(props);
     assert.ok(tree !== undefined, `${slot.name} rendered nothing`);
   }
 });
@@ -328,7 +269,7 @@ test('the settings nav label renders an icon instead of throwing', async () => {
   assert.ok(label.children.length > 0, 'the nav label carries the glyph and the text');
 });
 
-test('the sidebar glyph and composer button render standalone', async () => {
+test('the sidebar glyph renders standalone', async () => {
   const { module } = await loadBundle();
   const harness = makeCtx();
   module.apply(harness.ctx);
@@ -336,9 +277,19 @@ test('the sidebar glyph and composer button render standalone', async () => {
   assert.equal(row.label(), 'Repo Wiki', 'without a locale face the navigator (en) decides');
   const glyph = row.component({});
   assert.equal(glyph.type, 'svg', 'the sidebar row component is the glyph');
-  const composer = harness.slots.find((slot) => slot.name === 'conversation.input.left');
-  const button = composer.component({ ...composer.inject('session-1'), sessionId: 'session-1' });
-  assert.equal(button.type, 'button');
+});
+
+test('the plugin adds no button to the conversation input', async () => {
+  // The composer shortcut was removed: the left-sidebar row is the only entry
+  // point, so a re-added registration here would be an unintended second door.
+  const { module } = await loadBundle();
+  const harness = makeCtx();
+  module.apply(harness.ctx);
+  assert.equal(
+    harness.slots.some((slot) => slot.name.startsWith('conversation.')),
+    false,
+    'no conversation slot registration',
+  );
 });
 
 test('the sidebar row label and settings nav follow a locale switch', async () => {
@@ -346,7 +297,7 @@ test('the sidebar row label and settings nav follow a locale switch', async () =
   // (or a plain string) would leave the row in its mount-time language.
   const { module } = await loadBundle();
   const face = makeLocaleFace('en');
-  const harness = makeCtx({ get: (key) => (key === 'locale' ? face : key === 'layout' ? { selectPanel: () => {} } : undefined) });
+  const harness = makeCtx({ get: (key) => (key === 'locale' ? face : undefined) });
   module.apply(harness.ctx);
   const row = harness.slots.find((slot) => slot.name === 'sidebar.panellist');
   const settings = harness.slots.find((slot) => slot.name === 'settings.section');
@@ -361,17 +312,6 @@ test('the sidebar row label and settings nav follow a locale switch', async () =
   assert.match(JSON.stringify(chineseNav), /[\u4e00-\u9fff]/u, 'the settings nav text is Chinese');
 });
 
-test('the composer entry uses the localized product name', async () => {
-  const { module } = await loadBundle();
-  const face = makeLocaleFace('zh');
-  const harness = makeCtx({ get: (key) => (key === 'locale' ? face : key === 'layout' ? { selectPanel: () => {} } : undefined) });
-  module.apply(harness.ctx);
-  const composer = harness.slots.find((slot) => slot.name === 'conversation.input.left');
-  const button = composer.component({ ...composer.inject('session-1'), sessionId: 'session-1' });
-  assert.equal(button.props['aria-label'], '代码库 Wiki');
-  assert.equal(button.props.title, '打开代码库 Wiki');
-});
-
 test('renderMarkdown output is h-built elements, not raw markup', async () => {
   const { module } = await loadBundle();
   const { renderMarkdown } = module.internals;
@@ -384,7 +324,7 @@ test('apply survives a host with no sidebar at all', async () => {
   const { module } = await loadBundle();
   const harness = makeCtx({ get: () => undefined });
   assert.doesNotThrow(() => module.apply(harness.ctx));
-  assert.equal(harness.slots.length, 4);
+  assert.equal(harness.slots.length, 3);
 });
 
 /* ------------------------------------------------------------------------- *
