@@ -1,14 +1,14 @@
 /**
- * Run store: folds DSH workflow-engine events and the parent session's
- * `tool-workflow/*` records into one graph per run, the same shape ZCode's
- * causality graph renders (phases as lanes, agents as nodes, phase edges in
- * declaration order).
+ * Run store: folds DSH workflow-engine events, static `workflow` script plans,
+ * and the parent session's `tool-workflow/*` records into one graph per run
+ * (phases as station lanes, agents & script blocks as capsule pills, phase edges
+ * in declaration order).
  *
  * Every handler is an idempotent upsert, because the same fact can arrive
  * twice: once from the engine (`workflow/agent-start`) and once from the
  * session log (`tool-workflow/agent-start`). Either source alone is enough to
  * build the graph; the engine adds phases and log lines, the session adds the
- * owning session id.
+ * owning session id and `workflow` tool script.
  *
  * @module dsh-dynamic-workflow/store
  */
@@ -33,11 +33,527 @@ function stopToStatus(reason) {
   return 'error';
 }
 
+function promptPreviewLabel(prompt) {
+  if (typeof prompt !== 'string') return '';
+  const trimmed = prompt.trim();
+  if (trimmed === '') return '';
+  const nl = trimmed.indexOf('\n');
+  const line = nl === -1 ? trimmed : trimmed.slice(0, nl).trim();
+  return line.length <= 48 ? line : `${line.slice(0, 47)}…`;
+}
+
+const REGEX_PREV_PUNC = new Set(['(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';']);
+const REGEX_PREV_KW = new Set(['return', 'throw', 'case', 'typeof', 'void', 'delete', 'in', 'of', 'await', 'yield']);
+
+/**
+ * Lightweight JS lexical scanner for workflow scripts. Strips comments and
+ * extracts string/template literals, identifiers, and punctuation without
+ * executing untrusted code or failing on syntax extensions.
+ */
+function tokenizeScript(source) {
+  const tokens = [];
+  const len = source.length;
+  let i = 0;
+
+  const canStartRegex = () => {
+    const prev = tokens[tokens.length - 1];
+    if (!prev) return true;
+    if (prev.type === 'punc' && REGEX_PREV_PUNC.has(prev.value)) return true;
+    if (prev.type === 'id' && REGEX_PREV_KW.has(prev.value)) return true;
+    return false;
+  };
+
+  const readEscapedQuote = (quote) => {
+    let out = '';
+    i += 1;
+    while (i < len) {
+      const ch = source[i];
+      if (ch === '\\') {
+        const next = source[i + 1];
+        if (next === 'n') out += '\n';
+        else if (next === 't') out += '\t';
+        else if (next !== undefined) out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === quote) {
+        i += 1;
+        break;
+      }
+      out += ch;
+      i += 1;
+    }
+    return out;
+  };
+
+  const readTemplate = (emit = true) => {
+    const parts = [];
+    let current = '';
+    let dynamic = false;
+    i += 1; // skip opening `
+    while (i < len) {
+      const ch = source[i];
+      if (ch === '\\') {
+        const next = source[i + 1];
+        if (next !== undefined) current += next === 'n' ? '\n' : next;
+        i += 2;
+        continue;
+      }
+      if (ch === '`') {
+        i += 1;
+        break;
+      }
+      if (ch === '$' && source[i + 1] === '{') {
+        parts.push(current);
+        current = '';
+        dynamic = true;
+        i += 2;
+        let depth = 1;
+        while (i < len && depth > 0) {
+          const c = source[i];
+          if (c === '\'' || c === '"') { readEscapedQuote(c); continue; }
+          if (c === '`') { readTemplate(false); continue; }
+          if (c === '/' && source[i + 1] === '/') {
+            i += 2;
+            while (i < len && source[i] !== '\n') i += 1;
+            continue;
+          }
+          if (c === '/' && source[i + 1] === '*') {
+            i += 2;
+            while (i < len && !(source[i] === '*' && source[i + 1] === '/')) i += 1;
+            i += 2;
+            continue;
+          }
+          if (c === '{') depth += 1;
+          else if (c === '}') depth -= 1;
+          i += 1;
+        }
+        continue;
+      }
+      current += ch;
+      i += 1;
+    }
+    parts.push(current);
+    if (emit) tokens.push({ type: dynamic ? 'tpl' : 'str', value: parts[0] ?? '', parts });
+  };
+
+  while (i < len) {
+    const ch = source[i];
+    if (ch <= ' ') { i += 1; continue; }
+    if (ch === '/' && source[i + 1] === '/') {
+      i += 2;
+      while (i < len && source[i] !== '\n') i += 1;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      i += 2;
+      while (i < len && !(source[i] === '*' && source[i + 1] === '/')) i += 1;
+      i += 2;
+      continue;
+    }
+    if (ch === '\'' || ch === '"') {
+      tokens.push({ type: 'str', value: readEscapedQuote(ch) });
+      continue;
+    }
+    if (ch === '`') {
+      readTemplate();
+      continue;
+    }
+    if (ch === '/' && canStartRegex()) {
+      i += 1;
+      let inClass = false;
+      while (i < len) {
+        const c = source[i];
+        if (c === '\\') { i += 2; continue; }
+        if (c === '[') inClass = true;
+        else if (c === ']') inClass = false;
+        else if (c === '/' && !inClass) { i += 1; break; }
+        else if (c === '\n') break;
+        i += 1;
+      }
+      while (i < len && /[a-z]/i.test(source[i])) i += 1;
+      tokens.push({ type: 'rx', value: '' });
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(ch)) {
+      const start = i;
+      i += 1;
+      while (i < len && /[A-Za-z0-9_$]/.test(source[i])) i += 1;
+      tokens.push({ type: 'id', value: source.slice(start, i) });
+      continue;
+    }
+    if ('(){}[],:;.?=!+-*&|<>'.includes(ch)) {
+      tokens.push({ type: 'punc', value: ch });
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return tokens;
+}
+
+function findMatchingClose(tokens, openIndex, openChar, closeChar) {
+  let depth = 0;
+  for (let i = openIndex; i < tokens.length; i += 1) {
+    const tok = tokens[i];
+    if (tok.type === 'punc') {
+      if (tok.value === openChar) depth += 1;
+      else if (tok.value === closeChar) {
+        depth -= 1;
+        if (depth === 0) return i;
+      }
+    }
+  }
+  return tokens.length - 1;
+}
+
+function cleanTemplateLabel(parts) {
+  if (!Array.isArray(parts)) return '';
+  const cleaned = parts
+    .map((seg) => seg.replace(/^[\s·•\-_:：/\\|#]+|[\s·•\-_:：/\\|#]+$/gu, '').trim())
+    .filter(Boolean);
+  if (cleaned.length === 0) return '';
+  const joined = text(cleaned.join('·'), 200);
+  return /^(?:agent|subagent)s?$/iu.test(joined) ? '' : joined;
+}
+
+function resolveStaticStr(tok, constStrings) {
+  if (!tok) return '';
+  if (tok.type === 'str') return tok.value;
+  if (tok.type === 'id' && constStrings && constStrings.has(tok.value)) return constStrings.get(tok.value);
+  return '';
+}
+
+function readAgentCallOptions(tokens, start, end, constStrings) {
+  // Locate top-level comma separating `prompt` from `opts` inside `agent(...)`.
+  let depth = 0;
+  let comma = -1;
+  for (let i = start; i < end; i += 1) {
+    const tok = tokens[i];
+    if (tok.type === 'punc') {
+      if (tok.value === '(' || tok.value === '{' || tok.value === '[') depth += 1;
+      else if (tok.value === ')' || tok.value === '}' || tok.value === ']') depth -= 1;
+      else if (tok.value === ',' && depth === 0) { comma = i; break; }
+    }
+  }
+  const opts = { label: '', phase: '', model: '', provider: '', hasStaticLabel: false, hasLabelKey: false };
+  if (comma === -1) return opts;
+  let brace = -1;
+  for (let i = comma + 1; i < end; i += 1) {
+    if (tokens[i].type === 'punc' && tokens[i].value === '{') { brace = i; break; }
+    if (tokens[i].type !== 'punc') break;
+  }
+  if (brace === -1) return opts;
+  const braceEnd = Math.min(end, findMatchingClose(tokens, brace, '{', '}'));
+  let innerDepth = 0;
+  for (let i = brace + 1; i < braceEnd; i += 1) {
+    const tok = tokens[i];
+    if (tok.type === 'punc') {
+      if (tok.value === '(' || tok.value === '{' || tok.value === '[') innerDepth += 1;
+      else if (tok.value === ')' || tok.value === '}' || tok.value === ']') innerDepth -= 1;
+      continue;
+    }
+    if (innerDepth !== 0) continue;
+    const prevTok = tokens[i - 1];
+    const atPropStart = prevTok && prevTok.type === 'punc' && (prevTok.value === '{' || prevTok.value === ',');
+    if (!atPropStart) continue;
+    const key = (tok.type === 'id' || tok.type === 'str') ? tok.value : '';
+    if (!key) continue;
+    const nextTok = tokens[i + 1];
+    if (nextTok && nextTok.type === 'punc' && nextTok.value === ':') {
+      const val = tokens[i + 2];
+      if (!val) continue;
+      if (key === 'label') {
+        opts.hasLabelKey = true;
+        const staticVal = resolveStaticStr(val, constStrings).trim();
+        if (staticVal !== '') {
+          opts.label = staticVal;
+          opts.hasStaticLabel = true;
+        } else if (val.type === 'tpl') {
+          opts.label = cleanTemplateLabel(val.parts);
+        }
+      } else if (key === 'phase' || key === 'model' || key === 'provider') {
+        const staticVal = resolveStaticStr(val, constStrings);
+        if (staticVal !== '') opts[key] = staticVal;
+      }
+      continue;
+    }
+    // ES6 property shorthand: `{ label }` / `{ label, phase, model, provider }`
+    if (tok.type === 'id' && (!nextTok || (nextTok.type === 'punc' && (nextTok.value === ',' || nextTok.value === '}' || nextTok.value === '=')))) {
+      if (key === 'label') {
+        opts.hasLabelKey = true;
+        const staticVal = resolveStaticStr(tok, constStrings).trim();
+        if (staticVal !== '') {
+          opts.label = staticVal;
+          opts.hasStaticLabel = true;
+        }
+      } else if (key === 'phase' || key === 'model' || key === 'provider') {
+        const staticVal = resolveStaticStr(tok, constStrings);
+        if (staticVal !== '') opts[key] = staticVal;
+      }
+    }
+  }
+  return opts;
+}
+
+const SCRIPT_WORK_METHODS = new Set(['filter', 'reduce', 'flatMap', 'every', 'some', 'sort', 'parse', 'stringify']);
+
+/**
+ * Pre-analyze a `workflow` script into planned phases, `agent()` sites, and
+ * `>_ 脚本` orchestration steps so future phases and skipped conditional agents
+ * appear on the timeline immediately before runtime events fire.
+ */
+export function parseScriptPlan(script) {
+  const empty = { phases: [], byPhase: new Map() };
+  if (typeof script !== 'string' || script.trim() === '') return empty;
+  const tokens = tokenizeScript(script.slice(0, MAX_SCRIPT));
+  if (tokens.length === 0) return empty;
+
+  const phases = [];
+  const byPhase = new Map();
+  const hasScriptItem = new Set();
+  const constStrings = new Map();
+  const blockPhaseStack = [];
+  let currentPhase = null;
+
+  const ensurePhase = (title) => {
+    if (!byPhase.has(title)) {
+      byPhase.set(title, []);
+      if (title !== UNPHASED && !phases.includes(title)) phases.push(title);
+    }
+    return byPhase.get(title);
+  };
+
+  const addScriptStep = (title) => {
+    if (title === null || title === UNPHASED || hasScriptItem.has(title)) return;
+    hasScriptItem.add(title);
+    ensurePhase(title).push({ kind: 'script', label: '', phase: title });
+  };
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const tok = tokens[i];
+    if (tok.type === 'punc') {
+      if (tok.value === '{') blockPhaseStack.push(null);
+      else if (tok.value === '}' && blockPhaseStack.length > 0) blockPhaseStack.pop();
+      continue;
+    }
+    const prev = tokens[i - 1];
+    const isDotProp = prev && prev.type === 'punc' && prev.value === '.';
+    const isDecl = prev && prev.type === 'id' && (prev.value === 'function' || prev.value === 'const' || prev.value === 'let' || prev.value === 'var');
+
+    if (isDecl && tok.type === 'id' && prev.value !== 'function') {
+      const eq = tokens[i + 1];
+      const rhs = tokens[i + 2];
+      const afterRhs = tokens[i + 3];
+      if (blockPhaseStack.length === 0 && eq?.type === 'punc' && eq.value === '=' && rhs?.type === 'str' && (!afterRhs || (afterRhs.type === 'punc' && (afterRhs.value === ';' || afterRhs.value === ',')) || afterRhs.type === 'id')) {
+        constStrings.set(tok.value, rhs.value);
+      } else {
+        constStrings.delete(tok.value);
+      }
+    } else if (!isDotProp && tok.type === 'id' && tokens[i + 1]?.type === 'punc' && tokens[i + 1].value === '=') {
+      constStrings.delete(tok.value);
+    }
+
+    if (tok.type === 'id' && !isDotProp && !isDecl && tok.value === 'phase') {
+      const next = tokens[i + 1];
+      const arg = tokens[i + 2];
+      const phaseTitle = (arg?.type === 'str' || arg?.type === 'tpl') ? arg.value : resolveStaticStr(arg, constStrings);
+      if (next?.type === 'punc' && next.value === '(' && phaseTitle.trim() !== '') {
+        currentPhase = text(phaseTitle, 128);
+        if (blockPhaseStack.length > 0) blockPhaseStack[blockPhaseStack.length - 1] = currentPhase;
+        ensurePhase(currentPhase);
+        i = findMatchingClose(tokens, i + 1, '(', ')');
+        continue;
+      }
+    }
+
+    if (tok.type === 'id' && !isDotProp && !isDecl && tok.value === 'agent') {
+      const next = tokens[i + 1];
+      if (next?.type === 'punc' && next.value === '(') {
+        const closeIdx = findMatchingClose(tokens, i + 1, '(', ')');
+        const firstArg = tokens[i + 2];
+        const promptStr = (firstArg?.type === 'str' || firstArg?.type === 'tpl') ? firstArg.value : resolveStaticStr(firstArg, constStrings);
+        const opts = readAgentCallOptions(tokens, i + 2, closeIdx, constStrings);
+        const explicitPhase = opts.phase ? text(opts.phase, 128) : '';
+        const targetPhase = explicitPhase || (currentPhase ?? UNPHASED);
+        if (explicitPhase && blockPhaseStack.length > 0) {
+          blockPhaseStack[blockPhaseStack.length - 1] = explicitPhase;
+        }
+        const rawFallback = promptPreviewLabel(promptStr);
+        const fallback = /^(?:agent|subagent)$/iu.test(rawFallback) ? '' : rawFallback;
+        const label = text(opts.label, 200) || (opts.hasLabelKey ? '' : fallback);
+        if (label || targetPhase !== UNPHASED) {
+          ensurePhase(targetPhase).push({
+            kind: 'agent',
+            label: label || '',
+            dynamicLabel: !opts.hasStaticLabel && (opts.hasLabelKey || firstArg?.type !== 'str' || fallback === ''),
+            phase: targetPhase,
+            model: opts.model ? text(opts.model, 120) : null,
+            provider: opts.provider ? text(opts.provider, 120) : null,
+          });
+        }
+        i = closeIdx;
+        continue;
+      }
+    }
+
+    const activeScriptPhase = (blockPhaseStack.length > 0 ? blockPhaseStack[blockPhaseStack.length - 1] : null) ?? currentPhase;
+    if (activeScriptPhase !== null) {
+      if (tok.type === 'id' && !isDotProp && !isDecl && tok.value === 'log' && tokens[i + 1]?.type === 'punc' && tokens[i + 1].value === '(') {
+        addScriptStep(activeScriptPhase);
+      } else if (tok.type === 'id' && !isDotProp && (tok.value === 'for' || tok.value === 'while' || tok.value === 'switch' || tok.value === 'try')) {
+        addScriptStep(activeScriptPhase);
+      } else if (tok.type === 'id' && isDotProp && SCRIPT_WORK_METHODS.has(tok.value) && tokens[i + 1]?.type === 'punc' && tokens[i + 1].value === '(') {
+        addScriptStep(activeScriptPhase);
+      }
+    }
+  }
+
+  // Any explicitly entered `phase("...")` block in the script that spawns zero agents is a pure script phase.
+  for (const title of phases) {
+    const items = byPhase.get(title);
+    if (items && items.length === 0) addScriptStep(title);
+  }
+
+  return { phases, byPhase };
+}
+
+function getPlan(run) {
+  if (!run.script) return { phases: [], byPhase: new Map() };
+  if (run._planCache && run._planCacheScript === run.script) return run._planCache;
+  const parsed = parseScriptPlan(run.script);
+  Object.defineProperty(run, '_planCache', { value: parsed, writable: true, configurable: true, enumerable: false });
+  Object.defineProperty(run, '_planCacheScript', { value: run.script, writable: true, configurable: true, enumerable: false });
+  return parsed;
+}
+
+/** Nodes with their model: the child's observed model, else the phase's declared one. */
+function nodesWithModels(run) {
+  return run.nodes.map((node) => {
+    const declared = run.declaredPhases.find((phase) => phase.title === node.phase);
+    return {
+      ...node,
+      model: node.model ?? declared?.model ?? null,
+      modelDeclared: node.model == null && Boolean(declared?.model),
+    };
+  });
+}
+
+function reconcileLaneItems(laneIndex, title, laneState, visited, declared, liveNodes, planned) {
+  if (!planned || planned.length === 0) {
+    return liveNodes.map((node) => ({
+      ...node,
+      key: `n${node.seq}`,
+      kind: 'agent',
+    }));
+  }
+
+  // Count how many planned slots share each static label in this phase.
+  const labelQuota = new Map();
+  for (const item of planned) {
+    if (item.kind === 'agent' && !item.dynamicLabel) {
+      labelQuota.set(item.label, (labelQuota.get(item.label) ?? 0) + 1);
+    }
+  }
+
+  const usedSeqs = new Set();
+  const resolved = planned.map((planItem, idx) => {
+    if (planItem.kind !== 'agent') return { planItem, idx, matched: [] };
+    if (planItem.dynamicLabel) {
+      // Dynamic fanout (`pipeline` / `parallel` without static label): claim unmatched live nodes.
+      const unclaimed = liveNodes.filter((n) => !usedSeqs.has(n.seq) && !labelQuota.has(n.label));
+      for (const n of unclaimed) usedSeqs.add(n.seq);
+      return { planItem, idx, matched: unclaimed };
+    }
+    const candidates = liveNodes.filter((n) => !usedSeqs.has(n.seq) && n.label === planItem.label);
+    const remainingSlots = labelQuota.get(planItem.label) ?? 1;
+    labelQuota.set(planItem.label, Math.max(0, remainingSlots - 1));
+    const take = remainingSlots > 1 ? candidates.slice(0, 1) : candidates;
+    for (const n of take) usedSeqs.add(n.seq);
+    return { planItem, idx, matched: take };
+  });
+
+  const items = [];
+  for (let idx = 0; idx < resolved.length; idx += 1) {
+    const entry = resolved[idx];
+    const { planItem } = entry;
+    if (planItem.kind === 'script') {
+      let status = 'pending';
+      if (visited) {
+        if (laneState === 'done') {
+          status = 'completed';
+        } else if (laneState === 'failed') {
+          const anyAgentFailed = liveNodes.some((n) => n.status === 'failed');
+          const afterStarted = resolved.slice(idx + 1).some((r) => r.matched.length > 0);
+          status = afterStarted ? 'completed' : (anyAgentFailed ? 'pending' : 'failed');
+        } else if (laneState === 'cancelled') {
+          const afterStarted = resolved.slice(idx + 1).some((r) => r.matched.length > 0);
+          const haltedBefore = resolved.slice(0, idx).some((r) =>
+            r.planItem.kind === 'agent' && (
+              r.matched.some((n) => n.status === 'cancelled' || n.status === 'interrupted')
+              || (!r.planItem.dynamicLabel && r.matched.length === 0 && liveNodes.length === 0)
+            ),
+          );
+          status = afterStarted ? 'completed' : (haltedBefore ? 'pending' : 'cancelled');
+        } else if (laneState === 'running') {
+          const afterStarted = resolved.slice(idx + 1).some((r) => r.matched.length > 0);
+          const beforeBlocking = resolved.slice(0, idx).some((r) =>
+            r.planItem.kind === 'agent' && (r.matched.some((n) => n.status === 'running') || (!r.planItem.dynamicLabel && r.matched.length === 0 && liveNodes.length === 0)),
+          );
+          if (afterStarted) status = 'completed';
+          else if (beforeBlocking) status = 'pending';
+          else status = 'running';
+        }
+      }
+      items.push({
+        key: `script-${laneIndex}-${idx}`,
+        kind: 'script',
+        seq: null,
+        label: planItem.label || '',
+        phase: title,
+        status,
+      });
+      continue;
+    }
+
+    if (entry.matched.length > 0) {
+      for (const node of entry.matched) {
+        items.push({ ...node, key: `n${node.seq}`, kind: 'agent' });
+      }
+    } else if (!planItem.dynamicLabel || liveNodes.length === 0) {
+      items.push({
+        key: `plan-${laneIndex}-${idx}`,
+        kind: 'agent',
+        seq: null,
+        label: planItem.label,
+        phase: title,
+        childId: null,
+        provider: planItem.provider ?? null,
+        model: planItem.model ?? declared?.model ?? null,
+        modelDeclared: Boolean(planItem.model || declared?.model),
+        status: 'pending',
+        startedAt: null,
+        endedAt: null,
+      });
+    }
+  }
+
+  for (const node of liveNodes) {
+    if (!usedSeqs.has(node.seq)) {
+      items.push({ ...node, key: `n${node.seq}`, kind: 'agent' });
+    }
+  }
+  return items;
+}
+
 /**
  * Build the phase lanes for one run: declared phases first, in `meta.phases`
- * order, then phases only seen at runtime, then an unphased lane when needed.
+ * order, then phases discovered statically in `script` or seen at runtime,
+ * then an unphased lane when needed.
  */
 export function phaseLanes(run) {
+  const plan = getPlan(run);
+  const allNodes = nodesWithModels(run);
   const order = [];
   const seen = new Set();
   const push = (title) => {
@@ -46,18 +562,51 @@ export function phaseLanes(run) {
     order.push(title);
   };
   for (const phase of run.declaredPhases) push(phase.title);
+  for (const title of plan.phases) push(title);
   for (const title of run.seenPhases) push(title);
-  for (const node of run.nodes) push(node.phase ?? UNPHASED);
+  for (const node of allNodes) push(node.phase ?? UNPHASED);
+  if (order.length > 1 && order.includes(UNPHASED)) {
+    const hasUnphasedWork = allNodes.some((n) => (n.phase ?? UNPHASED) === UNPHASED);
+    if (!hasUnphasedWork) order.splice(order.indexOf(UNPHASED), 1);
+  }
+
+  const roleSlots = new Map();
+  const lastSeen = run.seenPhases[run.seenPhases.length - 1] ?? null;
+
   return order.map((title, index) => {
     const declared = run.declaredPhases.find((phase) => phase.title === title);
-    const nodes = run.nodes.filter((node) => (node.phase ?? UNPHASED) === title);
+    const nodes = allNodes.filter((node) => (node.phase ?? UNPHASED) === title);
     const counts = { running: 0, completed: 0, failed: 0, cancelled: 0, interrupted: 0 };
     for (const node of nodes) counts[node.status] = (counts[node.status] ?? 0) + 1;
+    const visited = run.seenPhases.includes(title) || nodes.length > 0;
+
     let state = 'pending';
     if (counts.running > 0) state = 'running';
-    else if (nodes.length > 0) state = counts.failed > 0 ? 'failed' : 'done';
-    if (state === 'pending' && run.currentPhase === title && run.status === 'running') state = 'running';
-    if (state === 'pending' && run.status !== 'running' && nodes.length === 0) state = 'skipped';
+    else if (run.status === 'running' && run.currentPhase === title && counts.failed === 0) state = 'running';
+    else if (nodes.length > 0) {
+      if (counts.failed > 0) state = 'failed';
+      else if ((counts.cancelled > 0 || counts.interrupted > 0) && counts.completed < nodes.length) state = 'cancelled';
+      else state = 'done';
+    }
+    if (state === 'pending' && visited && (run.currentPhase !== title || run.status !== 'running')) {
+      if (run.status === 'error' && lastSeen === title) state = 'failed';
+      else if ((run.status === 'cancelled' || run.status === 'interrupted') && lastSeen === title) state = 'cancelled';
+      else state = 'done';
+    }
+    if (state === 'pending' && run.status !== 'running' && !visited) state = 'skipped';
+
+    const items = reconcileLaneItems(index, title, state, visited, declared, nodes, plan.byPhase.get(title));
+    const seenInLane = new Map();
+    for (const item of items) {
+      if (item.kind !== 'agent') continue;
+      const roleName = item.label || title || 'subagent';
+      const occ = (seenInLane.get(roleName) ?? 0) + 1;
+      seenInLane.set(roleName, occ);
+      const roleKey = `${roleName}@${occ}`;
+      if (!roleSlots.has(roleKey)) roleSlots.set(roleKey, roleSlots.size);
+      item.avatarSlot = roleSlots.get(roleKey);
+    }
+
     return {
       id: `p${index}`,
       title,
@@ -67,6 +616,7 @@ export function phaseLanes(run) {
       state,
       counts,
       nodes: nodes.map((node) => node.seq),
+      items,
     };
   });
 }
@@ -78,9 +628,27 @@ export function phaseEdges(lanes) {
   return edges;
 }
 
+function activeRunModel(run) {
+  for (const node of run.nodes) {
+    if (node.status === 'running' && node.model) return node.model;
+  }
+  for (let i = run.nodes.length - 1; i >= 0; i -= 1) {
+    if (run.nodes[i].model) return run.nodes[i].model;
+  }
+  if (run.currentPhase) {
+    const activeDeclared = run.declaredPhases.find((p) => p.title === run.currentPhase);
+    if (activeDeclared?.model) return activeDeclared.model;
+  }
+  for (const phase of run.declaredPhases) {
+    if (phase.model) return phase.model;
+  }
+  return run.sessionModel || null;
+}
+
 export function summaryOf(run) {
   const counts = { running: 0, completed: 0, failed: 0, cancelled: 0, interrupted: 0 };
   for (const node of run.nodes) counts[node.status] = (counts[node.status] ?? 0) + 1;
+  const plan = getPlan(run);
   return {
     id: run.id,
     name: run.name,
@@ -92,7 +660,9 @@ export function summaryOf(run) {
     endedAt: run.endedAt,
     agents: run.nodes.length,
     counts,
-    phases: run.declaredPhases.length || run.seenPhases.length,
+    phases: run.declaredPhases.length || plan.phases.length || run.seenPhases.length,
+    model: activeRunModel(run),
+    background: run.background,
     error: run.error,
     rev: run.rev,
     hasScript: run.script !== '',
@@ -115,14 +685,6 @@ export function detailOf(run) {
   };
 }
 
-/** Nodes with their model: the child's observed model, else the phase's declared one. */
-function nodesWithModels(run) {
-  return run.nodes.map((node) => {
-    const declared = run.declaredPhases.find((phase) => phase.title === node.phase);
-    return { ...node, model: node.model ?? declared?.model ?? null, modelDeclared: node.model == null && Boolean(declared?.model) };
-  });
-}
-
 /** What the composer dock needs: the graph and nodes, without script, args and logs. */
 export function dockDetailOf(run) {
   const lanes = phaseLanes(run);
@@ -139,6 +701,8 @@ function freshRun(id, now) {
     declaredPhases: [],
     seenPhases: [],
     sessionId: null,
+    sessionProvider: null,
+    sessionModel: null,
     callId: null,
     status: 'running',
     currentPhase: null,
@@ -195,6 +759,8 @@ export function createRunStore(options = {}) {
   const timers = new Map();
   /** childId -> { runId, seq }: lets a child session's model reach its node. */
   const childIndex = new Map();
+  /** sessionId -> { provider, model }: fallback parent-session model for active runs. */
+  const sessionModels = new Map();
   let rev = 0;
   let closed = false;
 
@@ -250,6 +816,15 @@ export function createRunStore(options = {}) {
     return run;
   }
 
+  function inheritSessionModel(run) {
+    if (!run.sessionId || run.sessionModel) return;
+    const known = sessionModels.get(run.sessionId);
+    if (known) {
+      run.sessionModel = known.model;
+      run.sessionProvider = known.provider;
+    }
+  }
+
   /** Attach the oldest unmatched `workflow` tool call of this session with the same name. */
   function claimCall(run) {
     if (run.sessionId === null || run.script !== '') return;
@@ -281,6 +856,13 @@ export function createRunStore(options = {}) {
         startedAt: now(),
         endedAt: null,
       };
+      if (node.childId !== null) {
+        const knownChild = sessionModels.get(node.childId);
+        if (knownChild) {
+          node.model = knownChild.model;
+          node.provider = knownChild.provider;
+        }
+      }
       run.nodes.push(node);
       run.nodes.sort((a, b) => a.seq - b.seq);
       if (node.childId !== null) childIndex.set(node.childId, { runId: run.id, seq });
@@ -386,6 +968,7 @@ export function createRunStore(options = {}) {
       const run = ensure(data.runId);
       run.sessionId = sessionId;
       if (run.name === '' && typeof data.name === 'string') run.name = text(data.name, 200);
+      inheritSessionModel(run);
       claimCall(run);
       touch(run);
     },
@@ -419,15 +1002,38 @@ export function createRunStore(options = {}) {
     /** A child session reported its model (selection or first assistant message). */
     childModel(childId, provider, model) {
       if (typeof childId !== 'string' || typeof model !== 'string' || model === '') return false;
+      const cleanModel = text(model, 120);
+      const cleanProvider = typeof provider === 'string' ? text(provider, 120) : null;
+      sessionModels.set(childId, { provider: cleanProvider, model: cleanModel });
       const ref = childIndex.get(childId);
       if (ref === undefined) return false;
       const run = runs.get(ref.runId);
       const node = run?.nodes.find((candidate) => candidate.seq === ref.seq);
-      if (!node || (node.model === model && node.provider === (provider ?? null))) return false;
-      node.model = text(model, 120);
-      node.provider = typeof provider === 'string' ? text(provider, 120) : null;
+      if (!node || (node.model === cleanModel && node.provider === cleanProvider)) return false;
+      node.model = cleanModel;
+      node.provider = cleanProvider;
       touch(run);
       return true;
+    },
+
+    /** Any session (parent or child) reported its model selection or active LLM route. */
+    sessionModel(sessionId, provider, model) {
+      if (typeof sessionId !== 'string' || typeof model !== 'string' || model === '') return false;
+      const cleanModel = text(model, 120);
+      const cleanProvider = typeof provider === 'string' ? text(provider, 120) : null;
+      sessionModels.set(sessionId, { provider: cleanProvider, model: cleanModel });
+      let changed = api.childModel(sessionId, cleanProvider, cleanModel);
+      for (const run of runs.values()) {
+        if (run.sessionId === sessionId && run.status === 'running') {
+          if (run.sessionModel !== cleanModel || run.sessionProvider !== cleanProvider) {
+            run.sessionModel = cleanModel;
+            run.sessionProvider = cleanProvider;
+            touch(run);
+            changed = true;
+          }
+        }
+      }
+      return changed;
     },
 
     /** The newest run of a session, raw, or undefined. */

@@ -14,8 +14,19 @@ const { apply, inject, name, RPC_CHANNEL } = await import('../lib/index.js');
 function makeCtx() {
   const listeners = new Map();
   const followups = [];
+  const cancelled = [];
+  const killedJobs = [];
+  const jobsList = [];
   const state = { handler: null, channel: null, options: null, command: null };
-  const agent = { session: { id: 's1', header: { cwd: workspace } }, followup: (message) => followups.push(message) };
+  const agent = {
+    session: {
+      id: 's1',
+      header: { cwd: workspace },
+      requestHeader: () => ({ config: { provider: 'deepseek', model: 'deepseek-v4.1-flash' } }),
+    },
+    followup: (message) => followups.push(message),
+    cancel: (reason, opts) => cancelled.push({ reason, opts }),
+  };
   const ctx = {
     logger: { warn() {} },
     on(event, fn) {
@@ -29,6 +40,15 @@ function makeCtx() {
     get(key) {
       if (key === 'sessions') return { get: (id) => (id === 's1' ? agent.session : undefined) };
       if (key === 'agents') return { get: (id) => (id === 's1' ? agent : undefined) };
+      if (key === 'jobs') {
+        return {
+          list: () => jobsList,
+          kill: (jobId, sessionId, reason) => {
+            killedJobs.push({ jobId, sessionId, reason });
+            return 'stopping';
+          },
+        };
+      }
       return undefined;
     },
     inject(_names, fn) {
@@ -45,7 +65,7 @@ function makeCtx() {
       },
     },
   };
-  return { ctx, state, followups, agent };
+  return { ctx, state, followups, cancelled, killedJobs, jobsList, agent };
 }
 
 const call = async (state, method, payload = {}) => state.handler(method, payload);
@@ -134,4 +154,34 @@ test('/workflow replies and prompts follow the DSH language', async () => {
   } finally {
     process.env.LC_ALL = 'en_US.UTF-8';
   }
+});
+
+test('seeds parent session model and stops foreground or background workflow runs via stop RPC', async () => {
+  const { ctx, state, cancelled, killedJobs, jobsList } = makeCtx();
+  apply(ctx, { persist: false });
+  const meta = { name: ' stopper', description: 'stop check', phases: [{ title: 'Build' }] };
+
+  ctx.emit('session/event', { id: 's1' }, {
+    type: 'tool/call',
+    data: { name: 'workflow', callId: 'call-fg', arguments: JSON.stringify({ meta, script: 'phase("Build"); return 1;' }) },
+  });
+  ctx.emit('session/event', { id: 's1' }, { type: 'tool-workflow/run-start', data: { runId: 'R-fg', name: meta.name } });
+  const dock = (await call(state, 'dock', { sessionId: 's1', since: -1 })).value;
+  assert.equal(dock.run.model, 'deepseek-v4.1-flash');
+
+  // Stop foreground run -> cancels parent agent turn keeping inbox
+  const stoppedFg = (await call(state, 'stop', { sessionId: 's1', runId: 'R-fg' })).value;
+  assert.equal(stoppedFg.via, 'agent');
+  assert.equal(cancelled.length, 1);
+  assert.deepEqual(cancelled[0].opts, { keepInbox: true });
+
+  // Stop background run -> kills matching background workflow job
+  jobsList.push({ id: 'job-99', kind: 'workflow', status: 'running', label: meta.name, toolCall: { callId: 'call-fg' } });
+  const stoppedBg = (await call(state, 'stop', { sessionId: 's1', runId: 'R-fg' })).value;
+  assert.equal(stoppedBg.via, 'job');
+  assert.equal(stoppedBg.jobId, 'job-99');
+  assert.equal(killedJobs.length, 1);
+  assert.equal(killedJobs[0].jobId, 'job-99');
+
+  assert.equal((await call(state, 'stop', { sessionId: 'missing' })).error.code, 'session-unavailable');
 });

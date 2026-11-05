@@ -1,6 +1,6 @@
 {
   "name": "@weniatall/dsh-dynamic-workflow",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "description": "动态编排可视化：把 workflow 工具的每次运行折成 phase 泳道 + agent 节点的实时编排卡片，像任务列表一样浮在输入框上方；支持把脚本保存为项目/全局 workflow 并用 /workflow 重新启动（对齐 ZCode /workflow）。",
   "type": "module",
   "main": "lib/index.js",

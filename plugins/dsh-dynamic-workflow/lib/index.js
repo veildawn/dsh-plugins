@@ -23,10 +23,10 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
-import { createRunStore, dockDetailOf } from './store.js?dsh-dynamic-workflow=0.1.3';
-import { authorPrompt, createWorkflowLibrary, launchPrompt, parseCommandInput } from './library.js?dsh-dynamic-workflow=0.1.3';
-import { readLocalePreference, resolveLanguage } from './language.js?dsh-dynamic-workflow=0.1.3';
-import { message } from './messages.js?dsh-dynamic-workflow=0.1.3';
+import { createRunStore, dockDetailOf } from './store.js?dsh-dynamic-workflow=0.1.5';
+import { authorPrompt, createWorkflowLibrary, launchPrompt, parseCommandInput } from './library.js?dsh-dynamic-workflow=0.1.5';
+import { readLocalePreference, resolveLanguage } from './language.js?dsh-dynamic-workflow=0.1.5';
+import { message } from './messages.js?dsh-dynamic-workflow=0.1.5';
 
 export const name = 'dynamic-workflow';
 export const RPC_CHANNEL = '/dsh-dynamic-workflow';
@@ -100,6 +100,19 @@ async function userMessage(text) {
   return Object.freeze({ id: randomUUID(), role: 'user', ...input });
 }
 
+function seedSessionModel(ctx, store, sessionId) {
+  if (typeof sessionId !== 'string' || sessionId === '') return;
+  try {
+    const header = safeGet(ctx, 'sessions')?.get?.(sessionId)?.requestHeader?.();
+    if (header?.config?.model) {
+      store.sessionModel(sessionId, header.config.provider, header.config.model);
+      return;
+    }
+    const def = safeGet(ctx, 'agentDefaultModel')?.currentSelection?.();
+    if (def?.model) store.sessionModel(sessionId, def.provider, def.model);
+  } catch { /* optional host services */ }
+}
+
 /**
  * Wire the store to the host's event bus. Exported for tests.
  * @returns {() => void} detach
@@ -129,17 +142,21 @@ export function subscribe(ctx, store, notify) {
     const data = event?.data;
     switch (event?.type) {
       case 'tool/call':
-        if (data?.name === WORKFLOW_TOOL) store.toolCall(sessionId, data.callId, data.arguments);
+        if (data?.name === WORKFLOW_TOOL) {
+          seedSessionModel(ctx, store, sessionId);
+          store.toolCall(sessionId, data.callId, data.arguments);
+        }
         break;
       case 'model/selection':
-        store.childModel(sessionId, data?.provider, data?.model);
+        store.sessionModel(sessionId, data?.provider, data?.model);
         break;
       case 'assistant/message': {
         const source = data?.message?.source;
-        if (source?.kind === 'model') store.childModel(sessionId, source.provider, source.model);
+        if (source?.kind === 'model') store.sessionModel(sessionId, source.provider, source.model);
         break;
       }
       case 'tool-workflow/run-start':
+        seedSessionModel(ctx, store, sessionId);
         store.sessionRunStart(sessionId, data);
         break;
       case 'tool-workflow/agent-start':
@@ -209,6 +226,32 @@ async function dockWait(store, hub, sessionId, since, timeoutMs) {
   }
 }
 
+/** Stop an active foreground or background workflow run in `sessionId`. */
+function stopRun(ctx, store, { sessionId, runId }) {
+  const run = runId ? store.raw(runId) : store.latest(sessionId);
+  const targetSessionId = run?.sessionId || sessionId;
+  const jobs = safeGet(ctx, 'jobs');
+  if (jobs && typeof jobs.list === 'function' && typeof jobs.kill === 'function') {
+    try {
+      const visible = jobs.list(targetSessionId) ?? [];
+      const active = visible.filter((job) => job && job.kind === 'workflow' && (job.status === 'running' || job.status === 'stopping'));
+      const matched = active.find((job) => run?.callId && job.toolCall?.callId === run.callId)
+        ?? active.find((job) => run?.name && job.label === run.name)
+        ?? (run?.background ? active[0] : undefined);
+      if (matched) {
+        const outcome = jobs.kill(matched.id, targetSessionId, 'cancelled by the user');
+        return { stopped: true, via: 'job', jobId: matched.id, outcome };
+      }
+    } catch { /* fall through to session cancel */ }
+  }
+  const agent = safeGet(ctx, 'agents')?.get?.(targetSessionId);
+  if (agent && typeof agent.cancel === 'function') {
+    agent.cancel({ kind: 'user' }, { keepInbox: true });
+    return { stopped: true, via: 'agent' };
+  }
+  throw new RpcError('session-unavailable', `session ${targetSessionId} cannot be stopped`);
+}
+
 /** Launch a saved workflow into a session as a follow-up turn. */
 async function launch(ctx, library, { sessionId, name: workflowName, scope, args, lang }) {
   const agent = safeGet(ctx, 'agents')?.get?.(sessionId);
@@ -239,6 +282,11 @@ export async function dispatch(ctx, deps, method, payload) {
     }
     case 'dock':
       return dockWait(store, hub, str(payload.sessionId, 'sessionId'), payload.since, payload.timeoutMs);
+    case 'stop':
+      return stopRun(ctx, store, {
+        sessionId: str(payload.sessionId, 'sessionId'),
+        runId: str(payload.runId, 'runId', { optional: true }),
+      });
     case 'runs':
       return store.list(payload.all === true ? {} : { sessionId });
     case 'run': {
