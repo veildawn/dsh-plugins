@@ -5,9 +5,11 @@
  * host's task list uses). As soon as the model starts a `workflow` run in this
  * session the card appears above the input box and shows the orchestration
  * live: phase lanes left to right joined by arrows, one node per `agent()`
- * call with its status and duration. A finished run stays until dismissed and
- * can be saved as a project or global workflow, to re-run with `/workflow`.
- * Live updates come from long-polling the host's `watch` method.
+ * call with its status, model and duration. A clean finish folds the card and
+ * hides it a few seconds later. The host's message-flow workflow card is
+ * replaced by a one-line row (same `workflow-run` key) so the run is not shown
+ * twice; clicking the row opens this card. Live updates come from the host's
+ * session-scoped `dock` long-poll.
  */
 (function () {
   window.__ModuleLoader__.load({
@@ -25,6 +27,19 @@
       // Above the host's todo dock (0), below dsh-spec's plan (-10).
       const DOCK_ORDER = -5;
       const STYLE_ID = "dsh-dynamic-workflow-styles";
+      const CHAT_SLOT = "conversation.chat.node";
+      const CHAT_KEY = "workflow-run";
+      // Smaller priority wins a keyed cell; this shadows the host's card.
+      const CHAT_PRIORITY = -100;
+      const HIDE_AFTER_MS = 6000;
+
+      // Chat row -> dock: "show this session's card". Module-level so the two
+      // slot entries need no shared host service.
+      const revealers = new Map();
+      function reveal(sessionId) {
+        const fn = revealers.get(sessionId);
+        if (typeof fn === "function") fn();
+      }
 
       // -------------------------------------------------------------------
       // Language
@@ -59,10 +74,8 @@
         title: ["编排", "Workflow"],
         agents: ["{done}/{n} 个 agent", "{done}/{n} agents"],
         phaseNone: ["（未分组）", "(no phase)"],
-        saveProject: ["保存到项目", "Save to project"],
-        saveGlobal: ["保存为全局", "Save globally"],
-        savedOk: ["已保存为 {name}，可用 /workflow {name} 重新运行", "Saved as {name}; re-run with /workflow {name}"],
-        noScript: ["该运行没有记录到脚本，无法保存", "This run has no recorded script to save"],
+        showDock: ["在输入框上方查看编排", "Show the orchestration above the input"],
+        modelPlanned: ["计划", "planned"],
         dismiss: ["关闭", "Dismiss"],
         openAgent: ["点击查看该 agent 的会话", "Click to open this agent's session"],
         aria: ["动态编排进度", "Workflow progress"],
@@ -136,11 +149,13 @@
 .dwf-bar[data-s="completed"]>span{background:var(--dsw-alias-state-success-primary,#2a9d55)}
 .dwf-node-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dwf-node-meta{color:var(--dsw-alias-label-tertiary);font-size:11px;display:flex;justify-content:space-between;gap:6px;font-variant-numeric:tabular-nums}
+.dwf-node-model{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--dsw-font-code,monospace);font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.dwf-node-model[data-planned="true"]{color:var(--dsw-alias-label-tertiary);font-style:italic}
+.dwf-row{display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:4px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.dwf-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dwf-row-name{color:var(--dsw-alias-label-primary);font-weight:500;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dwf-row-meta{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
 .dwf-empty{font-size:12px;color:var(--dsw-alias-label-tertiary)}
-.dwf-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.dwf-btn{border:1px solid var(--dsw-alias-border-l1);background:transparent;color:inherit;border-radius:8px;padding:2px 10px;cursor:pointer;font-size:12px}
-.dwf-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dwf-btn[disabled]{opacity:.5;cursor:default}
 .dwf-flash{font-size:12px;color:var(--dsw-alias-label-secondary)}
 .dwf-flash[data-err="true"]{color:var(--dsw-alias-state-error-primary,#d93025)}
 @keyframes dwf-pulse{0%,100%{opacity:1}50%{opacity:.55}}
@@ -184,6 +199,10 @@
                 onKeyDown: openNode && node.childId ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNode(node); } } : undefined,
               },
                 h("div", { className: "dwf-node-label" }, `#${node.seq} ${node.label}`),
+                node.model ? h("div", {
+                  className: "dwf-node-model", "data-planned": String(node.modelDeclared === true),
+                  title: node.provider ? `${node.provider}/${node.model}` : node.model,
+                }, node.modelDeclared ? `${node.model} · ${t(lang, "modelPlanned")}` : node.model) : null,
                 h("div", { className: "dwf-node-meta" },
                   h("span", null, t(lang, `status_${node.status}`)),
                   h("span", null, formatDuration(node.startedAt, node.endedAt)))))));
@@ -208,12 +227,11 @@
       // -------------------------------------------------------------------
       // The floating card
       // -------------------------------------------------------------------
-      /** The run to float: the newest run of this session, unless dismissed. */
-      function pickRun(runs, dismissed) {
-        const latest = Array.isArray(runs) && runs.length > 0 ? runs[0] : null;
-        if (latest === null) return null;
-        if (latest.status !== "running" && dismissed.has(latest.id)) return null;
-        return latest;
+      /** Whether the dock shows this run: dismissed finished runs stay hidden. */
+      function visibleRun(run, dismissed) {
+        if (!run) return null;
+        if (run.status !== "running" && dismissed.has(run.id)) return null;
+        return run;
       }
 
       function WorkflowDock(props) {
@@ -221,45 +239,48 @@
         const lang = useLang();
         const [run, setRun] = react.useState(null);
         const [collapsed, setCollapsed] = react.useState(false);
-        const [busy, setBusy] = react.useState(false);
-        const [flash, setFlash] = react.useState({ text: "", err: false });
-        const [live] = react.useState(() => ({ dismissed: new Set(), runId: null, status: null }));
+        const [live] = react.useState(() => ({ dismissed: new Set(), runId: null, status: null, timer: null }));
 
-        // Long-poll the host; every revision re-reads this session's newest run.
+        const clearTimer = () => { if (live.timer !== null) { clearTimeout(live.timer); live.timer = null; } };
+        const dismiss = (id) => {
+          clearTimer();
+          if (id) live.dismissed.add(id);
+          setRun(null);
+        };
+
+        // One session-scoped long-poll: the host answers only when this
+        // session's newest run changed, with the lean run in the same reply.
         react.useEffect(() => {
           if (!sessionId || typeof rpcCall !== "function") return undefined;
           let stopped = false;
           let since = -1;
-          const refresh = async () => {
-            const value = await rpcCall("runs", { sessionId });
-            const pick = pickRun(value.runs, live.dismissed);
-            if (stopped) return;
-            if (pick === null) {
-              live.runId = null;
-              setRun(null);
-              return;
-            }
-            const detail = await rpcCall("run", { runId: pick.id });
-            if (stopped) return;
-            if (live.runId !== detail.id) {
-              live.runId = detail.id;
+          const apply = (next) => {
+            const shown = visibleRun(next, live.dismissed);
+            if (shown === null) { setRun(null); return; }
+            if (live.runId !== shown.id) {
+              live.runId = shown.id;
+              live.status = null;
+              clearTimer();
               setCollapsed(false);
-              setFlash({ text: "", err: false });
             }
-            // A clean finish folds the card to its header, like the host todo dock;
-            // a failure stays open so the failed node is visible.
-            if (live.status === "running" && detail.status === "completed") setCollapsed(true);
-            live.status = detail.status;
-            setRun(detail);
+            // A clean finish folds to the header and leaves after a moment,
+            // like the host todo dock; a failure stays open.
+            if (live.status === "running" && shown.status === "completed") {
+              setCollapsed(true);
+              clearTimer();
+              live.timer = setTimeout(() => { live.timer = null; if (!stopped) dismiss(shown.id); }, HIDE_AFTER_MS);
+            }
+            live.status = shown.status;
+            setRun(shown);
           };
           const loop = async () => {
             while (!stopped) {
               try {
-                const value = await rpcCall("watch", { since, timeoutMs: 20000 });
+                const value = await rpcCall("dock", { sessionId, since, timeoutMs: 20000 });
                 if (stopped) return;
                 if (value.rev !== since) {
                   since = value.rev;
-                  await refresh();
+                  apply(value.run);
                 }
               } catch {
                 await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -267,7 +288,14 @@
             }
           };
           void loop();
-          return () => { stopped = true; };
+          // The chat row asks to see this card again, even after dismissal.
+          revealers.set(sessionId, () => {
+            clearTimer();
+            if (live.runId) live.dismissed.delete(live.runId);
+            setCollapsed(false);
+            since = -1;
+          });
+          return () => { stopped = true; clearTimer(); revealers.delete(sessionId); };
         }, [sessionId]);
 
         // Running durations tick between host events.
@@ -279,23 +307,6 @@
         }, [run && run.id, run && run.status]);
 
         if (!run) return null;
-
-        const save = async (scope) => {
-          setBusy(true);
-          try {
-            const saved = await rpcCall("saveRun", { runId: run.id, scope, sessionId });
-            setFlash({ text: t(lang, "savedOk", { name: saved.name }), err: false });
-          } catch (error) {
-            setFlash({ text: error.message, err: true });
-          } finally {
-            setBusy(false);
-          }
-        };
-        const dismiss = () => {
-          live.dismissed.add(run.id);
-          live.runId = null;
-          setRun(null);
-        };
         const finished = run.status !== "running";
 
         return h("section", { className: "dwf-dock", "data-dsh-dynamic-workflow": run.id, "aria-label": t(lang, "aria") },
@@ -303,24 +314,53 @@
             h("div", { className: "dwf-head" },
               h("button", {
                 className: "dwf-toggle", type: "button", "aria-expanded": String(!collapsed),
-                onClick: () => setCollapsed((value) => !value),
+                onClick: () => { clearTimer(); setCollapsed((value) => !value); },
               },
                 h("span", { className: "dwf-lead" }, collapsed ? "▸" : "▾"),
                 h("span", { className: "dwf-title" }, t(lang, "title")),
                 h("span", { className: "dwf-name" }, run.name || run.id),
                 h("span", { className: "dwf-badge", "data-s": run.status }, t(lang, `status_${run.status}`)),
                 h("span", { className: "dwf-progress" }, progressText(run, lang))),
-              finished ? h("button", { className: "dwf-x", type: "button", title: t(lang, "dismiss"), "aria-label": t(lang, "dismiss"), onClick: dismiss }, "×") : null),
+              finished ? h("button", { className: "dwf-x", type: "button", title: t(lang, "dismiss"), "aria-label": t(lang, "dismiss"), onClick: () => dismiss(run.id) }, "×") : null),
             collapsed ? null : [
               h("div", { key: "bar", className: "dwf-bar", "data-s": run.status, role: "progressbar", "aria-valuemin": 0, "aria-valuemax": run.agents || 0, "aria-valuenow": doneCount(run) },
                 h("span", { style: { width: `${run.agents ? Math.round((doneCount(run) / run.agents) * 100) : (finished ? 100 : 0)}%` } })),
               h(Graph, { key: "graph", run, lang, openNode: typeof openSession === "function" ? (node) => openSession(sessionId, node.childId) : undefined }),
               run.error ? h("div", { key: "err", className: "dwf-flash", "data-err": "true" }, run.error) : null,
-              finished ? h("div", { key: "actions", className: "dwf-actions" },
-                h("button", { className: "dwf-btn", type: "button", disabled: busy || !run.hasScript, title: run.hasScript ? "" : t(lang, "noScript"), onClick: () => save("project") }, t(lang, "saveProject")),
-                h("button", { className: "dwf-btn", type: "button", disabled: busy || !run.hasScript, onClick: () => save("global") }, t(lang, "saveGlobal")),
-                flash.text ? h("span", { className: "dwf-flash", "data-err": String(flash.err) }, flash.text) : null) : null,
             ]));
+      }
+
+      /** Done/total, current phase and status from the host's chat-node data. */
+      function chatSummary(data) {
+        const phases = Array.isArray(data && data.phases) ? data.phases : [];
+        let total = 0;
+        let done = 0;
+        let current = null;
+        for (const phase of phases) {
+          for (const member of phase.members || []) {
+            total += 1;
+            if (member.status === "running") current = phase.phase || current;
+            else done += 1;
+          }
+        }
+        return { total, done, current, status: (data && data.status) || "running" };
+      }
+
+      /** One-line replacement for the host's message-flow workflow card. */
+      function WorkflowChatRow(props) {
+        const lang = useLang();
+        const data = props.node && props.node.data ? props.node.data : {};
+        const sum = chatSummary(data);
+        const meta = [t(lang, "agents", { done: sum.done, n: sum.total })];
+        if (sum.status === "running" && sum.current) meta.push(sum.current);
+        return h("button", {
+          className: "dwf-row", type: "button", "data-dsh-dynamic-workflow-row": data.name || "",
+          title: t(lang, "showDock"), onClick: () => reveal(props.sessionId),
+        },
+          h("span", { "aria-hidden": "true" }, "⇶"),
+          h("span", { className: "dwf-row-name" }, data.name || t(lang, "title")),
+          h("span", { className: "dwf-badge", "data-s": sum.status }, t(lang, `status_${sum.status}`)),
+          h("span", { className: "dwf-row-meta" }, meta.join(" · ")));
       }
 
       function apply(ctx) {
@@ -352,11 +392,16 @@
           order: DOCK_ORDER,
           inject: (sessionId) => ({ rpcCall, sessionId, openSession: openChild }),
         }, WorkflowDock));
+        ctx.slots.inject(CHAT_SLOT, () => ctx.slots.register({
+          name: CHAT_SLOT,
+          key: CHAT_KEY,
+          priority: CHAT_PRIORITY,
+        }, WorkflowChatRow));
       }
 
       exports.apply = apply;
       exports.inject = ["slots", "connection", "locale", "uiWorkspace"];
-      exports.internals = { CHANNEL, DOCK_SLOT, DOCK_ID, DOCK_ORDER, STRINGS, t, uiLang, formatDuration, progressText, doneCount, pickRun, Graph, WorkflowDock };
+      exports.internals = { CHANNEL, DOCK_SLOT, DOCK_ID, DOCK_ORDER, STRINGS, t, uiLang, CHAT_SLOT, CHAT_KEY, CHAT_PRIORITY, formatDuration, progressText, doneCount, visibleRun, chatSummary, reveal, revealers, Graph, WorkflowDock, WorkflowChatRow };
       return module.exports;
     },
   });

@@ -241,12 +241,24 @@ export function authorPrompt(task, lang = 'en') {
     return [
       `为这个任务设计并运行一个动态 workflow：${task}`,
       '',
-      '只调用一次 `workflow` 工具。在 `meta.phases` 里声明各阶段，每个阶段开始时调用 `phase()`，用清晰的 label 发起 `agent()` 调用，让进度以节点形式显示在输入框上方。阶段标题和 agent label 用中文，`meta.name` 取一个简短的名称。运行结束后用中文总结结果。',
+      '只调用一次 `workflow` 工具。写脚本前先规划：',
+      '- 在 `meta.phases` 里声明每个阶段（标题 + 一句说明），每个阶段开始时调用 `phase(标题)`，阶段会显示为泳道。',
+      '- 每个 `agent()` 都给一个简短的中文 `label`（就是节点名）；阶段交叠时显式传 `phase`。',
+      '- 互不依赖的工作要并发：逐项多阶段用 `pipeline(items, ...stages)`；只有某阶段确实需要前面全部结果时才用 `parallel()` 做屏障。',
+      '- 每个 agent 的提示词自包含（路径、范围、期望输出）；后续阶段要消费结果时用对象 `schema`，并用 `.filter(Boolean)` 过滤失败（null）的结果。',
+      '- 只有某阶段明显需要别的模型时才传 `opts.model`。',
+      '- 最后 `return` 一个精简的 JSON 摘要。`meta.name` 取一个简短的 kebab-case 名称，阶段标题用中文。运行结束后用中文总结结果。',
     ].join('\n');
   }
   return [
     `Design and run a dynamic workflow for this task: ${task}`,
     '',
-    'Use the `workflow` tool exactly once. Declare the stages in `meta.phases`, call `phase()` as each stage starts, and fan out `agent()` calls with clear labels so the progress shows up as nodes. Give `meta.name` a short name for the task. When it finishes, summarize the result for me.',
+    'Use the `workflow` tool exactly once. Plan before writing the script:',
+    '- Declare every stage in `meta.phases` (title + one-line detail) and call `phase(title)` as each stage starts; stages show up as lanes.',
+    '- Give every `agent()` a short `label` (it becomes the node name); pass `phase` explicitly when stages overlap.',
+    '- Fan out independent work: `pipeline(items, ...stages)` for per-item multi-stage work; use `parallel()` as a barrier only when a stage needs every earlier result together.',
+    '- Keep each agent prompt self-contained (paths, scope, expected output); request an object `schema` when a later stage consumes the result, and `.filter(Boolean)` failed (null) results.',
+    '- Pass `opts.model` only when a stage clearly needs a different model.',
+    '- End with `return` of a compact JSON summary. Give `meta.name` a short kebab-case name. When it finishes, summarize the result for me.',
   ].join('\n');
 }

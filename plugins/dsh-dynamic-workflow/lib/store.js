@@ -107,12 +107,26 @@ export function detailOf(run) {
     background: run.background,
     agentsStarted: run.agentsStarted,
     graph: { lanes, edges: phaseEdges(lanes) },
-    nodes: run.nodes.map((node) => ({ ...node })),
+    nodes: nodesWithModels(run),
     logs: run.logs.slice(-MAX_LOGS),
     script: run.script,
     args: run.args,
     meta: run.meta,
   };
+}
+
+/** Nodes with their model: the child's observed model, else the phase's declared one. */
+function nodesWithModels(run) {
+  return run.nodes.map((node) => {
+    const declared = run.declaredPhases.find((phase) => phase.title === node.phase);
+    return { ...node, model: node.model ?? declared?.model ?? null, modelDeclared: node.model == null && Boolean(declared?.model) };
+  });
+}
+
+/** What the composer dock needs: the graph and nodes, without script, args and logs. */
+export function dockDetailOf(run) {
+  const lanes = phaseLanes(run);
+  return { ...summaryOf(run), graph: { lanes, edges: phaseEdges(lanes) }, nodes: nodesWithModels(run) };
 }
 
 function freshRun(id, now) {
@@ -179,6 +193,8 @@ export function createRunStore(options = {}) {
   /** sessionId -> workflow tool calls not yet matched to a run, oldest first. */
   const pendingCalls = new Map();
   const timers = new Map();
+  /** childId -> { runId, seq }: lets a child session's model reach its node. */
+  const childIndex = new Map();
   let rev = 0;
   let closed = false;
 
@@ -259,17 +275,23 @@ export function createRunStore(options = {}) {
         label: text(agent.label, 200) || `agent #${seq}`,
         phase: typeof agent.phase === 'string' && agent.phase !== '' ? text(agent.phase, 128) : (run.currentPhase ?? null),
         childId: typeof agent.childId === 'string' ? agent.childId : null,
+        provider: null,
+        model: null,
         status: 'running',
         startedAt: now(),
         endedAt: null,
       };
       run.nodes.push(node);
       run.nodes.sort((a, b) => a.seq - b.seq);
+      if (node.childId !== null) childIndex.set(node.childId, { runId: run.id, seq });
       if (node.phase !== null && !run.seenPhases.includes(node.phase)) run.seenPhases.push(node.phase);
     } else {
       if (typeof agent.label === 'string' && agent.label !== '') node.label = text(agent.label, 200);
       if (typeof agent.phase === 'string' && agent.phase !== '') node.phase = text(agent.phase, 128);
-      if (typeof agent.childId === 'string') node.childId = agent.childId;
+      if (typeof agent.childId === 'string') {
+        node.childId = agent.childId;
+        childIndex.set(agent.childId, { runId: run.id, seq });
+      }
     }
     return node;
   }
@@ -394,6 +416,30 @@ export function createRunStore(options = {}) {
       }
     },
 
+    /** A child session reported its model (selection or first assistant message). */
+    childModel(childId, provider, model) {
+      if (typeof childId !== 'string' || typeof model !== 'string' || model === '') return false;
+      const ref = childIndex.get(childId);
+      if (ref === undefined) return false;
+      const run = runs.get(ref.runId);
+      const node = run?.nodes.find((candidate) => candidate.seq === ref.seq);
+      if (!node || (node.model === model && node.provider === (provider ?? null))) return false;
+      node.model = text(model, 120);
+      node.provider = typeof provider === 'string' ? text(provider, 120) : null;
+      touch(run);
+      return true;
+    },
+
+    /** The newest run of a session, raw, or undefined. */
+    latest(sessionId) {
+      let best;
+      for (const run of runs.values()) {
+        if (run.sessionId !== sessionId) continue;
+        if (best === undefined || run.startedAt > best.startedAt) best = run;
+      }
+      return best;
+    },
+
     list(filter = {}) {
       const all = [...runs.values()]
         .filter((run) => (filter.sessionId ? run.sessionId === filter.sessionId : true))
@@ -441,6 +487,7 @@ export function createRunStore(options = {}) {
           rev += 1;
           merged.rev = rev;
           runs.set(merged.id, merged);
+          for (const node of merged.nodes) if (typeof node.childId === 'string') childIndex.set(node.childId, { runId: merged.id, seq: node.seq });
           loaded += 1;
         } catch (error) {
           warn(`dynamic-workflow: skipped unreadable run file ${name}: ${error?.message ?? error}`);

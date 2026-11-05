@@ -58,7 +58,7 @@ test('plugin identity', () => {
 
 test('end to end: observe a run, watch, save it, launch it, slash command', async () => {
   const { ctx, state, followups, agent } = makeCtx();
-  apply(ctx, { persist: false });
+  const deps = apply(ctx, { persist: false });
   assert.equal(state.channel, RPC_CHANNEL);
   assert.equal(state.options.authority, 'trusted-host');
   assert.equal(state.command.name, 'workflow');
@@ -80,13 +80,22 @@ test('end to end: observe a run, watch, save it, launch it, slash command', asyn
   const runs = (await call(state, 'runs', { sessionId: 's1' })).value.runs;
   assert.equal(runs.length, 1);
   assert.equal(runs[0].status, 'running');
+  // The dock gets the run in one session-scoped reply, with each agent's model.
+  ctx.emit('session/event', { id: 'c1' }, { type: 'model/selection', data: { provider: 'p', model: 'glm-x' } });
+  const dock = (await call(state, 'dock', { sessionId: 's1', since: -1 })).value;
+  assert.equal(dock.run.id, 'R');
+  assert.equal(dock.run.nodes[0].model, 'glm-x');
+  assert.equal(dock.run.script, undefined);
+  const quiet = (await call(state, 'dock', { sessionId: 'other', since: 0, timeoutMs: 1000 })).value;
+  assert.equal(quiet.run, null);
+  assert.equal((await call(state, 'saveRun', { runId: 'R' })).error.code, 'unknown-method');
   ctx.emit('workflow/agent-end', { id: 'R', meta }, { seq: 1, label: 'scan a', phase: 'Scan', childId: 'c1', outcome: 'completed' });
   ctx.emit('workflow/end', { id: 'R', meta }, { stopReason: 'completed', agentsStarted: 1 });
   const run = (await call(state, 'run', { runId: 'R' })).value;
   assert.equal(run.status, 'completed');
   assert.equal(run.graph.lanes[0].state, 'done');
 
-  const saved = (await call(state, 'saveRun', { runId: 'R', scope: 'project', sessionId: 's1' })).value;
+  const saved = await deps.library.save({ meta, script: 'return 1', args: { n: 2 } }, { scope: 'project', cwd: workspace });
   assert.equal(saved.name, 'fanout');
   const list = (await call(state, 'workflows', { sessionId: 's1' })).value.workflows;
   assert.equal(list.length, 1);

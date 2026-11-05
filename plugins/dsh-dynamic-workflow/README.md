@@ -9,14 +9,10 @@
 
 ## 功能
 
-- **浮动编排卡片**：和宿主的任务列表一样，挂在输入框上方的 `conversation.input.dock`（order -5，位于任务列表之上、dsh-spec 计划之下）。本会话一开始运行 `workflow` 就自动浮出：头部显示名称、状态、`完成数/总数 个 agent`、当前阶段与耗时，可折叠；展开后是 phase 泳道（左→右、箭头相连）与 agent 节点卡（状态、耗时，运行中闪动）。运行结束后卡片保留，可「保存到项目 / 保存为全局」或 × 关闭；新的运行会重新浮出。头部下方有一条进度条；点击带子会话的节点可直接打开该 agent 的会话；全部成功后卡片自动收起为一行，出现失败时保持展开。数据通过长轮询 `watch` 实时刷新。
-- **跟随 DSH 语言**：卡片文案跟随宿主 locale（设置 → 通用 → 语言，切换即时生效）；`/workflow` 的回复、命令说明以及发给模型的提示词按 profile 的 `locale.preference` → 系统语言判断，中文环境下要求模型用中文命名阶段和 agent、用中文总结。
-- **运行记录**：保存到 `$DSH_HOME/dynamic-workflow/runs`，最多 200 条。重启时仍为「运行中」的记录会标为「已中断」。
-- **保存 workflow**：在运行详情里点「保存到项目」或「保存为全局」：
-  - 项目：`<工作区>/.dsh/workflows/<name>.json`
-  - 全局：`$DSH_HOME/dynamic-workflow/workflows/<name>.json`
-
-  同名时项目覆盖全局。
+- **浮动编排卡片**：挂在输入框上方的 `conversation.input.dock`（order -5）。本会话开始运行 `workflow` 即浮出：头部显示名称、状态、`完成数/总数 个 agent`、当前阶段与耗时，下方进度条；展开后是 phase 泳道与 agent 节点，每个节点显示所用模型（子会话实际模型；尚未上报时显示阶段声明的模型并标「计划」）。点击节点打开该 agent 会话。全部成功后先收起、6 秒后自动隐藏；有失败时保持展开。
+- **消息流去重**：以同一键 `workflow-run`、更高优先级（priority -100）注册 `conversation.chat.node`，把宿主的大卡片替换为一行摘要，点击即在输入框上方重新展开编排卡片。
+- **性能**：卡片只长轮询本会话的 `dock` 接口，宿主仅在本会话最新运行变化时应答，并在同一次应答里带回精简数据（不含脚本、参数、日志）。
+- **运行记录**：保存到 `$DSH_HOME/dynamic-workflow/runs`，最多 200 条；重启时仍在运行的记录标为「已中断」。
 - **`/workflow` 命令**：
 
   ```text
@@ -42,7 +38,7 @@
 
 ```bash
 cd plugins/dsh-dynamic-workflow && npm test && npm pack
-dsh plugin --profile web add ./plugins/dsh-dynamic-workflow/weniatall-dsh-dynamic-workflow-0.1.2.tgz
+dsh plugin --profile web add ./plugins/dsh-dynamic-workflow/weniatall-dsh-dynamic-workflow-0.1.3.tgz
 ```
 
 ## 三端行为

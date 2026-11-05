@@ -50,8 +50,12 @@ test('apply registers a floating card in the composer dock', () => {
     connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
     get: () => undefined,
   });
-  assert.equal(registered.length, 1);
+  assert.equal(registered.length, 2);
   assert.equal(registered[0].entry.name, 'conversation.input.dock');
+  // The host's message-flow card is shadowed by a one-line row on the same key.
+  assert.equal(registered[1].entry.name, 'conversation.chat.node');
+  assert.equal(registered[1].entry.key, 'workflow-run');
+  assert.ok(registered[1].entry.priority < 0);
   assert.equal(registered[0].entry.id, 'dsh-dynamic-workflow');
   assert.ok(registered[0].entry.order < 0);
   assert.equal(typeof registered[0].entry.inject('s1').rpcCall, 'function');
@@ -59,13 +63,29 @@ test('apply registers a floating card in the composer dock', () => {
 
 test('dock renders nothing until a run exists, and hides dismissed finished runs', () => {
   assert.equal(mod.internals.WorkflowDock({ rpcCall: async () => ({}), sessionId: 's1' }), null);
-  const { pickRun } = mod.internals;
+  const { visibleRun } = mod.internals;
   const done = { id: 'a', status: 'completed' };
-  assert.equal(pickRun([], new Set()), null);
-  assert.equal(pickRun([done], new Set()), done);
-  assert.equal(pickRun([done], new Set(['a'])), null);
+  assert.equal(visibleRun(null, new Set()), null);
+  assert.equal(visibleRun(done, new Set()), done);
+  assert.equal(visibleRun(done, new Set(['a'])), null);
   const running = { id: 'a', status: 'running' };
-  assert.equal(pickRun([running], new Set(['a'])), running);
+  assert.equal(visibleRun(running, new Set(['a'])), running);
+});
+
+test('chat row summarizes the host node and asks the dock to show itself', () => {
+  const data = { name: 'release', status: 'running', phases: [
+    { key: 'a', phase: '盘点', members: [{ seq: 1, status: 'completed' }, { seq: 2, status: 'completed' }] },
+    { key: 'b', phase: '分析', members: [{ seq: 3, status: 'running' }] },
+  ] };
+  assert.deepEqual(mod.internals.chatSummary(data), { total: 3, done: 2, current: '分析', status: 'running' });
+  const row = mod.internals.WorkflowChatRow({ node: { data }, sessionId: 's9' });
+  const flat = texts(row);
+  assert.ok(flat.includes('release'));
+  assert.ok(flat.includes('2/3 个 agent · 分析'));
+  let revealed = 0;
+  mod.internals.revealers.set('s9', () => { revealed += 1; });
+  row.props.onClick();
+  assert.equal(revealed, 1);
 });
 
 test('graph renders lanes left to right with nodes and arrows', () => {
@@ -80,13 +100,14 @@ test('graph renders lanes left to right with nodes and arrows', () => {
     nodes: [
       { seq: 1, label: 'finder a', status: 'completed', startedAt: 1, endedAt: 2001 },
       { seq: 2, label: 'finder b', status: 'failed', startedAt: 1, endedAt: 1001 },
-      { seq: 3, label: 'verifier', status: 'running', startedAt: Date.now() },
+      { seq: 3, label: 'verifier', status: 'running', startedAt: Date.now(), model: 'glm-5.3', modelDeclared: false },
     ],
   };
   const tree = mod.internals.Graph({ run, lang: 'zh' });
   const flat = texts(tree);
   assert.ok(flat.includes('Find') && flat.includes('Verify') && flat.includes('→'));
   assert.ok(flat.includes('#3 verifier'));
+  assert.ok(flat.includes('glm-5.3'));
   assert.equal(tree.children[2].props.title, 'check');
   assert.equal(tree.children.length, 3);
 });

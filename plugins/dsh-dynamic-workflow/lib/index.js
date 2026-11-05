@@ -23,10 +23,10 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
-import { createRunStore } from './store.js?dsh-dynamic-workflow=0.1.2';
-import { authorPrompt, createWorkflowLibrary, launchPrompt, parseCommandInput } from './library.js?dsh-dynamic-workflow=0.1.2';
-import { readLocalePreference, resolveLanguage } from './language.js?dsh-dynamic-workflow=0.1.2';
-import { message } from './messages.js?dsh-dynamic-workflow=0.1.2';
+import { createRunStore, dockDetailOf } from './store.js?dsh-dynamic-workflow=0.1.3';
+import { authorPrompt, createWorkflowLibrary, launchPrompt, parseCommandInput } from './library.js?dsh-dynamic-workflow=0.1.3';
+import { readLocalePreference, resolveLanguage } from './language.js?dsh-dynamic-workflow=0.1.3';
+import { message } from './messages.js?dsh-dynamic-workflow=0.1.3';
 
 export const name = 'dynamic-workflow';
 export const RPC_CHANNEL = '/dsh-dynamic-workflow';
@@ -131,6 +131,14 @@ export function subscribe(ctx, store, notify) {
       case 'tool/call':
         if (data?.name === WORKFLOW_TOOL) store.toolCall(sessionId, data.callId, data.arguments);
         break;
+      case 'model/selection':
+        store.childModel(sessionId, data?.provider, data?.model);
+        break;
+      case 'assistant/message': {
+        const source = data?.message?.source;
+        if (source?.kind === 'model') store.childModel(sessionId, source.provider, source.model);
+        break;
+      }
       case 'tool-workflow/run-start':
         store.sessionRunStart(sessionId, data);
         break;
@@ -184,6 +192,23 @@ function createWatchHub(store) {
   };
 }
 
+/**
+ * Long-poll for the composer dock: resolves once this session's newest run
+ * changed past `since` (its own revision), so a busy workflow in another
+ * session never wakes this card, and returns the lean run in the same reply.
+ */
+async function dockWait(store, hub, sessionId, since, timeoutMs) {
+  const after = Number.isSafeInteger(since) ? since : -1;
+  const deadline = Date.now() + Math.min(Math.max(Number(timeoutMs) || MAX_WATCH_MS, 1000), MAX_WATCH_MS);
+  for (;;) {
+    const run = store.latest(sessionId);
+    const rev = run?.rev ?? 0;
+    const left = deadline - Date.now();
+    if (rev > after || left <= 0) return { rev, run: run === undefined ? null : dockDetailOf(run) };
+    await hub.wait(store.rev, left);
+  }
+}
+
 /** Launch a saved workflow into a session as a follow-up turn. */
 async function launch(ctx, library, { sessionId, name: workflowName, scope, args, lang }) {
   const agent = safeGet(ctx, 'agents')?.get?.(sessionId);
@@ -212,6 +237,8 @@ export async function dispatch(ctx, deps, method, payload) {
       const timeout = Math.min(Math.max(Number(payload.timeoutMs) || MAX_WATCH_MS, 1000), MAX_WATCH_MS);
       return { rev: await hub.wait(since, timeout) };
     }
+    case 'dock':
+      return dockWait(store, hub, str(payload.sessionId, 'sessionId'), payload.since, payload.timeoutMs);
     case 'runs':
       return store.list(payload.all === true ? {} : { sessionId });
     case 'run': {
@@ -227,13 +254,6 @@ export async function dispatch(ctx, deps, method, payload) {
       const saved = await library.get(str(payload.name, 'name', { max: 64 }), { scope: payload.scope, cwd });
       if (saved === null) throw new RpcError('not-found', 'workflow not found');
       return saved;
-    }
-    case 'saveRun': {
-      const raw = store.raw(str(payload.runId, 'runId'));
-      if (raw === undefined) throw new RpcError('not-found', 'run not found');
-      if (raw.script === '') throw new RpcError('no-script', 'this run carries no recorded script');
-      const meta = { ...(raw.meta ?? {}), name: str(payload.name, 'name', { optional: true, max: 64 }) ?? raw.meta?.name ?? raw.name };
-      return library.save({ meta, script: raw.script, args: raw.args ?? undefined }, { scope: payload.scope, cwd, sourceRunId: raw.id });
     }
     case 'deleteWorkflow':
       return { deleted: await library.remove(str(payload.name, 'name', { max: 64 }), { scope: payload.scope, cwd }) };
