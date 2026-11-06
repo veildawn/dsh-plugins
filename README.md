@@ -26,6 +26,7 @@
 | **`dsh-system-prompt-editor`** | [`plugins/dsh-system-prompt-editor`](plugins/dsh-system-prompt-editor) | 系统提示词可视化编辑器（默认展示当前真实系统提示词、按名称定位改为下拉框列出真实段落并附中文含义与悬停预览、同行字段顶部对齐修正下拉框错位、五种定位方式与五种改写动作、可按预设或会话限定生效范围、追加段落走正式 section 注册、保存前实时预览与逐条命中反馈、优先写入官方 settings 服务并原子落盘、任一规则异常都不阻断会话且失败时原样放行官方提示词、通过 `system-prompt/assemble` waterfall 实现故无需改动安装包） | [`v0.2.0`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-system-prompt-editor@v0.2.1) |
 | **`dsh-repo-wiki`** | [`plugins/dsh-repo-wiki`](plugins/dsh-repo-wiki) | Qoder **Repo Wiki** 等价实现（逆向 Qoder CN 1.35.0：18 状态状态机与进度换算、`wiki_catalogs`/`wiki_items`/`knowledge_relations` 四表元数据、分类目录页面路径规则实测 71/71 对齐、`wiki_plan.yaml` 全部字段与 Qoder 上限、六个 `*_wiki` 工具）。在宿主内用 `ctx.llm` 跑「目录规划 → 逐页写作」两阶段流水线，产物落进仓库的 `.dsh/repowiki`，支持暂停/续跑/取消/增量更新/自动更新，可直接读取 Qoder 已导出的 `.qoder/repowiki`；修复 `@deepseek-ai/dsh-agent-preset` peer 下界写成从未发布的 0.1.0-rc.6 导致 pnpm 解析失败、CI 与用户安装双双装不上；修复生成调用被 `INVALID_PREPARED_CALL` 判为配置篡改导致每次生成必败、中文界面菜单/设置项仍显示英文 Repo Wiki） | [`v0.2.8`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-repo-wiki@v0.2.8) |
 | **`dsh-spec`** | [`plugins/dsh-spec`](plugins/dsh-spec) | 以 **Agent 预设形式提供的 Spec 模式**（Kiro 兼容的 SPEC 规约模型，逆向 Kiro 1.4.13 的官方文档模板与校验器：`.kiro/specs` 三文档、EARS 验收标准、Correctness Properties、复选框任务状态机、Task Dependency Graph 波次调度、`tasks.meta.json` 执行/PBT 记录）。8 个 `spec_*` 工具与 Kiro 提示词随「Spec 模式」预设挂载，只有选中该预设的会话可见；宿主行只提供 RPC 通道；面板是对话区「对话 / 轨迹」右侧的「规格」视图页签；Spec 模式下用自带的任务投影面板替代宿主 todo，按依赖波次展示并行任务；文档按 Markdown 渲染；界面文案、校验提示与文档编写语言跟随 DSH 的语言设置） | `v0.8.2` |
+| **`dsh-dynamic-workflow`** | [`plugins/dsh-dynamic-workflow`](plugins/dsh-dynamic-workflow) | 动态编排可视化（把 `workflow` 工具的每次运行折成 phase 泳道 + 子代理节点的浮动编排卡片，挂在输入框上方 `conversation.input.dock`：绿色完成灯 / 橙色呼吸运行灯 / 空心待执行灯与高对比阶段连接线，支持滚轮横滚与拖拽平移、边缘渐隐与折叠阶段灯架；宿主静态预解析脚本，提前渲染后续阶段与条件分支的待命胶囊及 `>_ 脚本` 胶囊；每个子代理胶囊配 20×20 圆角方块动态表情人偶，9 色角色色板跨阶段一致、随状态眨眼扫视 / 切专注思索 / 完成雀跃 / 失败摇头 / 等待三点波浪，点击直达子代理会话；全部成功后停留 1.4 秒再平滑收起、6 秒自动隐藏，悬停或聚焦期间暂停，有失败则保持展开。消息流以同一键更高优先级替换成一行摘要，点击零延迟重新展开。支持把脚本保存为项目 / 全局 workflow，用 `/workflow <名称> [json-args]` 重新启动（对齐 ZCode `/workflow`），未命中同名保存项时整段输入作为任务描述交给模型编排；运行记录落 `$DSH_HOME/dynamic-workflow/runs`（最多 200 条，重启时运行中的标记为已中断）；卡片只长轮询本会话 dock 接口，宿主仅在该会话最新运行变化时应答并带回精简数据） | [`v0.1.5`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-dynamic-workflow@v0.1.5) |
 
 ---
 
@@ -100,6 +101,9 @@ dsh plugin --profile web add @weniatall/dsh-spec
 
 # 16. 安装 Qoder Repo Wiki 等价的仓库知识库 (两阶段生成 + 六个 *_wiki 工具)
 dsh plugin --profile web add @weniatall/dsh-repo-wiki
+
+# 17. 安装动态编排可视化 (workflow 运行实时编排卡片 + /workflow 保存与重跑)
+dsh plugin --profile web add @weniatall/dsh-dynamic-workflow
 ```
 
 ### 从旧版 tarball 安装迁移
