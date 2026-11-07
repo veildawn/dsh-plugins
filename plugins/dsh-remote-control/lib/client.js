@@ -79,6 +79,7 @@ window.__ModuleLoader__.load({
     const STORAGE_KEY = "dsh-remote-control.secret";
     const LEGACY_STORAGE_KEY = "dsh-ai-proxy.remote-control-secret";
     const SETTINGS_SLOT = "settings.section";
+    const ICON_SLOT = "settings.section.icon";
     const GATE_PRIORITY = -100;
     const inject = ["slots", "connection"];
 
@@ -154,8 +155,6 @@ window.__ModuleLoader__.load({
       .dsh-remote-host-btn{display:inline-flex;align-items:center;justify-content:center;flex:none;white-space:nowrap;line-height:20px;padding:4px 12px;border-radius:12px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease}
       .dsh-remote-host-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.08));border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dsh-remote-host-btn:disabled{opacity:.75;border-color:var(--dsw-alias-border-l1);cursor:not-allowed}
-      button:has([data-settings-nav-label="remote-control"]) > svg:first-child{display:none}
-      .dsh-remote-nav-label{display:inline-flex;align-items:center;gap:8px}
       @keyframes dsh-remote-gate-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.dsh-remote-gate-card{animation:none}}@media(max-width:520px){.dsh-remote-gate{padding:16px}.dsh-remote-gate-card{padding:20px;border-radius:var(--dsw-radius-l,12px)}}
     `;
 
@@ -731,11 +730,10 @@ window.__ModuleLoader__.load({
         );
       }
 
-      const label = () => react.createElement("span", {
-        "data-settings-nav-label": "remote-control", className: "dsh-remote-nav-label",
-      },
-      react.createElement(IconGlobeOutline14, { size: 16 }),
-      react.createElement("span", null, "远程控制"));
+      // 图标走宿主的 settings.section.icon 槽位，label 只放文本：外壳（0.2.x）
+      // 把默认图标包进 span.navIcon，旧写法「label 内嵌图标 + CSS 隐藏外壳的
+      // 直接子 svg」不再匹配，默认图标与自绘图标同时出现（双图标）。
+      const label = () => "远程控制";
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
         id: "remote-control",
@@ -743,6 +741,11 @@ window.__ModuleLoader__.load({
         label,
         inject: () => ({ remoteBrowser, remoteResult, remoteRequest, configRequest }),
       }, RemoteControlSettings));
+      ctx.slots.inject(ICON_SLOT, () => ctx.slots.register({
+        name: ICON_SLOT,
+        id: "remote-control",
+        order: 26,
+      }, ({ size }) => react.createElement(IconGlobeOutline14, { size: size ?? 16 })));
     }
 
     exports.apply = apply;

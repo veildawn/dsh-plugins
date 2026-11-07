@@ -97,16 +97,19 @@ test('the settings page registers once with the task-models section and renders'
     },
   }
   client.apply(ctx)
-  assert.deepEqual(injectedSlots, ['settings.section', 'conversation.chat.node'])
-  assert.equal(registrations.length, 2)
-  const settings = registrations.find(({ entry }) => entry.id === 'task-models')
+  assert.deepEqual(injectedSlots, ['settings.section', 'settings.section.icon', 'conversation.chat.node'])
+  assert.equal(registrations.length, 3)
+  const settings = registrations.find(({ entry }) => entry.id === 'task-models' && entry.name === 'settings.section')
   assert.equal(settings.entry.name, 'settings.section')
   assert.equal(settings.entry.order, 25)
   assert.equal(typeof settings.component, 'function')
   assert.equal(settings.entry.inject().api, ctx.connection.api)
-  const label = settings.entry.label()
-  assert.equal(label.props.children.length, 2)
-  assert.match(client.internals.navCss, /data-settings-nav-label="task-models"/)
+  // label 只承载文本：图形必须走 settings.section.icon，否则 0.2.x 外壳的
+  // 默认齿轮会与 label 内嵌图标同时出现（双图标）。
+  assert.equal(settings.entry.label(), '任务模型')
+  const icon = registrations.find(({ entry }) => entry.name === 'settings.section.icon')
+  assert.equal(icon.entry.id, 'task-models')
+  assert.equal(typeof icon.component, 'function')
   const rendered = settings.component({ api: {} })
   assert.equal(rendered.type, 'div')
   assert.equal(rendered.props.className, 'tm-page')
@@ -640,7 +643,7 @@ test('Settings component: decisionTimeoutMs, preview rules inputs & validation, 
   }
   client.apply(ctx)
 
-  const settings = registrations.find(({ entry }) => entry.id === 'task-models')
+  const settings = registrations.find(({ entry }) => entry.id === 'task-models' && entry.name === 'settings.section')
   const rendered = settings.component({ api: {} })
 
   function findElement(node, predicate) {
@@ -923,7 +926,7 @@ test('Settings stateful interactive test: load writable -> edit -> preview rules
       inject: (name, install) => install(),
       register: (entry, component) => {
         registrations.push({ entry, component })
-        if (entry.id === 'task-models') settingsComponent = component
+        if (entry.name === 'settings.section' && entry.id === 'task-models') settingsComponent = component
         return () => {}
       },
     },
@@ -1103,7 +1106,7 @@ test('Settings rule preview and Jev test reliability: staleness, async discard, 
     slots: {
       inject: (name, install) => install(),
       register: (entry, component) => {
-        if (entry.id === 'task-models') settingsComponent = component
+        if (entry.name === 'settings.section' && entry.id === 'task-models') settingsComponent = component
         return () => {}
       },
     },

@@ -19,6 +19,8 @@
 
       const CHANNEL = "/dsh-repo-wiki";
       const SETTINGS_SLOT = "settings.section";
+      /** 设置导航图标专用槽位：外壳负责图标容器与默认图标，插件只提供图形。 */
+      const ICON_SLOT = "settings.section.icon";
       /** Left-sidebar navigation row; `id` doubles as the main-panel key. */
       const PANEL_LIST_SLOT = "sidebar.panellist";
       /** Keyed main-content seat, selected by `layout.selectPanel(id)`. */
@@ -815,9 +817,6 @@
         .rw-check-row{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
         .rw-num{box-sizing:border-box;width:100%;height:32px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base,transparent);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;outline:none;transition:border-color .15s,box-shadow .15s}
         .rw-num:focus-visible{border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 20%,transparent)}
-        button:has([data-settings-nav-label="dsh-repo-wiki"]) > svg:first-child{display:none !important}
-        .rw-nav-label{display:inline-flex;align-items:center;gap:8px}
-        .rw-nav-label svg{flex:none}
         
         @media(max-width:680px){
           .rw-split{display:flex;flex-direction:column}
@@ -2368,19 +2367,18 @@
         h("path", { d: "M10 16l2-2 2 2" }));
       }
 
-      /** Settings-page nav label: clean single handcrafted icon plus text label. */
-      function RepoWikiNavIcon() {
-        // The label is resolved by the host's `resolveSlotLabel` on every locale
-        // revision, so it must be a thunk that reads the *current* UI language —
-        // a captured `lang` would freeze the text at mount time.
-        const lang = uiLang();
-        return h("span", {
-          className: "rw-nav-label",
-          "data-settings-nav-label": "dsh-repo-wiki",
-          style: { display: "inline-flex", alignItems: "center", gap: "8px" },
-        },
-          h(IconRepoWiki, { size: 16 }),
-          h("span", null, t("repoWiki", lang)));
+      /**
+       * Settings-page nav label: text only.
+       *
+       * The glyph goes through the host's dedicated `settings.section.icon` seat;
+       * 0.2.x renders its own icon wrapper (`span.navIcon`) around the default
+       * glyph before the label, so an icon embedded here showed up *next to* the
+       * default one (double icon). The host also resolves this thunk on every
+       * locale revision, so it must read the current UI language rather than a
+       * captured one.
+       */
+      function RepoWikiNavLabel() {
+        return t("repoWiki", uiLang());
       }
 
       /* ----------------------------------------------------------------- *
@@ -2746,9 +2744,15 @@
           name: SETTINGS_SLOT,
           id: "dsh-repo-wiki",
           order: 37,
-          label: RepoWikiNavIcon,
+          label: RepoWikiNavLabel,
           inject: () => ({ rpcCall }),
         }, RepoSettings));
+
+        ctx.slots.inject(ICON_SLOT, () => ctx.slots.register({
+          name: ICON_SLOT,
+          id: "dsh-repo-wiki",
+          order: 37,
+        }, ({ size }) => h(IconRepoWiki, { size: size ?? 16 })));
 
         // The left sidebar row is the panel's entry in the global-panel list, and
         // the `main` seat keyed by the same id is its body. This is the pair the
@@ -2777,7 +2781,7 @@
       exports.apply = apply;
       exports.inject = ["slots", "connection", "locale"];
       exports.internals = {
-        CHANNEL, SETTINGS_SLOT, PANEL_LIST_SLOT, MAIN_SLOT, PANEL_ID,
+        CHANNEL, SETTINGS_SLOT, ICON_SLOT, PANEL_LIST_SLOT, MAIN_SLOT, PANEL_ID,
         LANGUAGES, STATUS_LABEL, STATUS_TONE, CATALOG_TONE, KNOWLEDGE_CATEGORIES, CATEGORY_NAMES,
         flattenTree, filterTree, changedSettings, statusLabel, statusTone, showsProgress, isRetryable,
         hasContent, statusAction, serverErrorView, tabTitle, formatDate, splitPage, renderMarkdown, inline, statusDescription,

@@ -92,12 +92,19 @@ check('client injects slots and connection', mod.inject.join(',') === 'slots,con
 // 假 ctx：捕获注册进来的设置组件
 // ---------------------------------------------------------------------------
 let component = null;
+let iconComponent = null;
 let slotOptions = null;
+let iconOptions = null;
 const ctx = {
   connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
   slots: {
     inject: (_name, fn) => fn(),
     register: (options, comp) => {
+      if (options.name === 'settings.section.icon') {
+        iconComponent = comp;
+        iconOptions = options;
+        return () => {};
+      }
       component = comp;
       slotOptions = options;
       return () => {};
@@ -110,6 +117,11 @@ check('the slot is settings.section', slotOptions.name === 'settings.section', s
 check('the slot id is dsh-image-gen', slotOptions.id === 'dsh-image-gen', slotOptions.id);
 check('the slot supplies rpcCall', typeof slotOptions.inject().rpcCall === 'function');
 check('the slot declares a label', typeof slotOptions.label === 'function');
+// 导航图标走 settings.section.icon，label 只放文本（否则 0.2.x 外壳默认齿轮会叠成双图标）。
+check('the nav icon is registered in settings.section.icon', iconOptions?.name === 'settings.section.icon', String(iconOptions?.name));
+check('the nav icon addresses the same section id', iconOptions?.id === slotOptions.id, String(iconOptions?.id));
+check('the nav icon is a component', typeof iconComponent === 'function', typeof iconComponent);
+check('the label carries no glyph', typeof slotOptions.label() === 'string', typeof slotOptions.label());
 
 // ---------------------------------------------------------------------------
 // 渲染辅助

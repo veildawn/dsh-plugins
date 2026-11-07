@@ -93,6 +93,8 @@ check('client injects slots and connection', mod.inject.join(',') === 'slots,con
 // ---------------------------------------------------------------------------
 let component = null;
 let slotOptions = null;
+let iconOptions = null;
+let iconComponent = null;
 const ctx = {
   calls: [],
   connection: {
@@ -107,6 +109,11 @@ const ctx = {
   slots: {
     inject: (_name, fn) => fn(),
     register: (options, comp) => {
+      if (options.name === 'settings.section.icon') {
+        iconOptions = options;
+        iconComponent = comp;
+        return () => {};
+      }
       component = comp;
       slotOptions = options;
       return () => {};
@@ -119,8 +126,11 @@ check('the slot is settings.section', slotOptions.name === 'settings.section', s
 check('the slot id stays dsh-jev (bundle identity)', slotOptions.id === 'dsh-jev', slotOptions.id);
 check('the slot declares a label', typeof slotOptions.label === 'function');
 
-const navLabel = slotOptions.label();
-const navLabelText = navLabel.children?.[1]?.children?.[0];
+// 导航图标走 settings.section.icon，label 只放文本（否则 0.2.x 外壳默认齿轮会叠成双图标）。
+check('the nav icon is registered in settings.section.icon', iconOptions?.name === 'settings.section.icon', String(iconOptions?.name));
+check('the nav icon addresses the same section id', iconOptions?.id === slotOptions.id, String(iconOptions?.id));
+check('the nav icon is a component', typeof iconComponent === 'function', typeof iconComponent);
+const navLabelText = slotOptions.label();
 check('the settings nav is named 决策模型', navLabelText === '决策模型', String(navLabelText));
 
 // ---------------------------------------------------------------------------

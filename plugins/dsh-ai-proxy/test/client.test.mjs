@@ -124,12 +124,18 @@ test('browser client registers only the AI Proxy OAuth settings section', async 
   new RemoteService(ctx)
   await ctx.plugin(plugin).await()
 
-  assert.equal(slots.registrations.length, 1)
-  const section = slots.registrations[0]
+  // 每个设置页贡献两条：settings.section（页面）与 settings.section.icon（导航图标）。
+  assert.equal(slots.registrations.length, 2)
+  const section = slots.registrations.find(({ entry }) => entry.name === 'settings.section')
   assert.deepEqual({ name: section.entry.name, id: section.entry.id, order: section.entry.order }, {
     name: 'settings.section', id: 'ai-proxy', order: 25,
   })
-  assert(findElement(section.entry.label(), (node) => node?.type === IconApiOutline14))
+  // label 只承载文本，图形必须走 settings.section.icon —— 否则 0.2.x 外壳的
+  // 默认齿轮会与 label 内嵌图标同时出现（双图标）。
+  assert.equal(section.entry.label(), 'AI Proxy')
+  const icon = slots.registrations.find(({ entry }) => entry.name === 'settings.section.icon')
+  assert.equal(icon.entry.id, 'ai-proxy')
+  assert(findElement(icon.component({ size: 16 }), (node) => node?.type === IconApiOutline14))
   assert.equal(section.entry.inject().remoteRequest, undefined)
 
   const props = section.entry.inject()

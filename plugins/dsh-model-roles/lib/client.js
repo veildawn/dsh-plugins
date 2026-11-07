@@ -39,7 +39,7 @@ window.__ModuleLoader__.load({
     const NS = "model-roles";
     const SETTINGS_RPC_CHANNEL = "/model-roles-settings";
     const SETTINGS_SLOT = "settings.section";
-    const NAV_STYLE_ID = "dsh-model-roles-nav-styles";
+    const ICON_SLOT = "settings.section.icon";
     const OMP_ROLES = ["default", "smol", "slow", "vision", "plan", "designer", "commit", "tiny", "task", "advisor"];
     const BUILTIN = OMP_ROLES.filter((role) => role !== "default");
     const ROLE_PATTERN = /^[a-z][a-z0-9_-]*$/;
@@ -69,7 +69,6 @@ window.__ModuleLoader__.load({
       .mr-advisor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.mr-check{display:flex;align-items:center;gap:8px;color:var(--dsw-alias-label-secondary);font-size:13px}
       @media(max-width:640px){.mr-grid,.mr-advisor{grid-template-columns:1fr}.mr-card-head{flex-direction:column}.mr-actions{justify-content:stretch}.mr-button{flex:1}}
     `;
-    const navCss = 'button:has([data-settings-nav-label="model-roles"]) > svg:first-child{display:none}';
 
     function modelKey(provider, model) { return JSON.stringify([provider, model]); }
     function parseModelKey(value) {
@@ -191,12 +190,6 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
-      if (typeof document !== "undefined" && !document.getElementById(NAV_STYLE_ID)) {
-        const style = document.createElement("style");
-        style.id = NAV_STYLE_ID;
-        style.textContent = navCss;
-        document.head.appendChild(style);
-      }
       const settingsRequest = createSettingsRequest(ctx.connection.rpc, ctx.connection.api);
       function ModelRolesSettings(props) {
         const [status, setStatus] = react.useState("loading");
@@ -384,22 +377,22 @@ window.__ModuleLoader__.load({
           statusText ? react.createElement("p", { className: "mr-status", role: "status", "aria-live": "polite" }, statusText) : null);
       }
 
-      const label = () => react.createElement("span", {
-        "data-settings-nav-label": "model-roles",
-        className: "mr-nav-label",
-        style: { display: "inline-flex", alignItems: "center", gap: 8 },
-      },
-        react.createElement(IconBranchOutline16, { size: 16 }),
-        react.createElement("span", null, "模型角色"));
+      // 图标走宿主的 settings.section.icon 槽位，label 只放文本：外壳（0.2.x）
+      // 把默认图标包进 span.navIcon，旧写法「label 内嵌图标 + CSS 隐藏外壳的
+      // 直接子 svg」不再匹配，默认图标与自绘图标同时出现（双图标）。
+      const label = () => "模型角色";
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT, id: "model-roles", order: 24, label,
         inject: () => ({ api: ctx.connection.api }),
       }, ModelRolesSettings));
+      ctx.slots.inject(ICON_SLOT, () => ctx.slots.register({
+        name: ICON_SLOT, id: "model-roles", order: 24,
+      }, ({ size }) => react.createElement(IconBranchOutline16, { size: size ?? 16 })));
     }
 
     exports.apply = apply;
     exports.inject = inject;
-    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, copy, INTRO_TEXT, ADVISOR_HELP_TEXT, modelKey, parseModelKey, normalizeRole, configurableRoutes, rowsFromGroups, routeMap, validateRoles, statusMessage, css, createSettingsRequest, RoleCard };
+    exports.internals = { OMP_ROLES, BUILTIN, ROLE_PATTERN, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, ICON_SLOT, copy, INTRO_TEXT, ADVISOR_HELP_TEXT, modelKey, parseModelKey, normalizeRole, configurableRoutes, rowsFromGroups, routeMap, validateRoles, statusMessage, css, createSettingsRequest, RoleCard };
     return module.exports;
   }
 });

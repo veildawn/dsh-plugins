@@ -85,7 +85,7 @@ test('browser bundle loads with the expected client services', async () => {
     },
     slots: {
       inject(name, install) {
-        assert.equal(name, 'settings.section')
+        assert.ok(['settings.section', 'settings.section.icon'].includes(name), `unexpected slot: ${name}`)
         return install()
       },
       register(entry, component) { registrations.push({ entry, component }); return () => {} },
@@ -97,13 +97,14 @@ test('browser bundle loads with the expected client services', async () => {
   assert.equal(settings.entry.order, 24)
   assert.equal(typeof settings.component, 'function')
   assert.equal(settings.entry.inject().api, ctx.connection.api)
-  const navLabel = settings.entry.label()
-  assert.equal(navLabel.props.className, 'mr-nav-label')
-  assert.deepEqual(navLabel.props.style, { display: 'inline-flex', alignItems: 'center', gap: 8 })
-  assert.equal(navLabel.props.children.length, 2)
-  assert.match(client.internals.navCss, /data-settings-nav-label="model-roles"/)
-  assert.doesNotMatch(client.internals.navCss, /data-settings-nav-label\]/)
-  assert.equal(registrations.length, 1)
+  // label 只放文本；图形走 settings.section.icon —— 0.2.x 外壳会为每个分区渲染
+  // 自己的图标容器，label 内再塞一个图标就会叠成双图标。
+  assert.equal(settings.entry.label(), '模型角色')
+  const icon = registrations.find(({ entry }) => entry.name === 'settings.section.icon')
+  assert.equal(icon.entry.id, 'model-roles')
+  assert.equal(icon.entry.order, 24)
+  assert.equal(typeof icon.component, 'function')
+  assert.equal(registrations.length, 2)
 })
 
 test('manifest, bundle patch and package contents form a DSH plugin', async () => {

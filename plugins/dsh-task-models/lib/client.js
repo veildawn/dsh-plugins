@@ -10,7 +10,7 @@
       const NS = "task-models";
       const SETTINGS_RPC_CHANNEL = "/task-models-settings";
       const SETTINGS_SLOT = "settings.section";
-      const NAV_STYLE_ID = "dsh-task-models-nav-styles";
+      const ICON_SLOT = "settings.section.icon";
       const FALLBACKS = ["taskRole", "llm"];
       const TASK_TEMPLATES = [
         { id: "explore", name: "探索与检索", detail: "搜索代码、定位实现、阅读上下文、收集事实。", keywords: ["搜索", "查找", "定位", "阅读", "explore", "search", "find", "locate", "grep", "read"] },
@@ -86,7 +86,6 @@
         .tm-wf-empty{padding:0;color:var(--dsw-alias-label-tertiary);font-size:var(--dsh-content-font-size-secondary,13px)}
         @media(max-width:640px){.tm-grid,.tm-grid-3{grid-template-columns:1fr}.tm-card-head{flex-direction:column}.tm-actions{justify-content:stretch}.tm-button{flex:1}.tm-wf-phase-list,.tm-wf-members{padding-left:12px}.tm-wf-model{max-width:38%}}
       `;
-      const navCss = 'button:has([data-settings-nav-label="task-models"]) > svg:first-child{display:none}';
 
       function modelKey(provider, model) { return JSON.stringify([provider, model]); }
       function parseModelKey(value) {
@@ -484,12 +483,6 @@
       }
 
       function apply(ctx) {
-        if (typeof document !== "undefined" && !document.getElementById(NAV_STYLE_ID)) {
-          const style = document.createElement("style");
-          style.id = NAV_STYLE_ID;
-          style.textContent = navCss;
-          document.head.appendChild(style);
-        }
         const settingsRequest = createSettingsRequest(ctx.connection.rpc, ctx.connection.api);
 
         const WORKFLOW_STYLE_ID = "dsh-task-models-styles";
@@ -1255,16 +1248,18 @@
           react.createElement("path", { d: "M7.6 7.8l1.4 1.4c.5.5.8.8 1.1.9.3.2.6.3.9.4.3.1.7.1 1.4.1h1.6" }),
           react.createElement("circle", { cx: 12.5, cy: 12.7, r: 1.6 }));
 
-        const label = () => react.createElement("span", {
-          "data-settings-nav-label": "task-models",
-          style: { display: "inline-flex", alignItems: "center", gap: 8 },
-        },
-          react.createElement(IconTaskBranch, { size: 16 }),
-          react.createElement("span", null, "任务模型"));
+        // 图标走宿主的 settings.section.icon 槽位，label 只放文本：外壳（0.2.x）
+        // 把默认图标包进 span.navIcon，旧写法「label 内嵌图标 + CSS 隐藏外壳的
+        // 直接子 svg」不再匹配，默认图标与自绘图标同时出现（双图标）。
+        const label = () => "任务模型";
         ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
           name: SETTINGS_SLOT, id: "task-models", order: 25, label,
           inject: () => ({ api: ctx.connection.api }),
         }, TaskModelsSettings));
+
+        ctx.slots.inject(ICON_SLOT, () => ctx.slots.register({
+          name: ICON_SLOT, id: "task-models", order: 25,
+        }, ({ size }) => react.createElement(IconTaskBranch, { size: size ?? 16 })));
 
         ctx.slots.inject("conversation.chat.node", () => ctx.slots.register({
           name: "conversation.chat.node",
@@ -1283,7 +1278,7 @@
       exports.apply = apply;
       exports.inject = ["slots", "connection", "remote", "remote.session", "uiWorkspace"];
       exports.internals = {
-        NS, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, NAV_STYLE_ID, navCss, FALLBACKS, TASK_TEMPLATES,
+        NS, SETTINGS_RPC_CHANNEL, SETTINGS_SLOT, ICON_SLOT, FALLBACKS, TASK_TEMPLATES,
         RESERVED_IDS, DEFAULT_ROUTING, DEFAULT_JEV, INTRO_TEXT, modelKey, parseModelKey, normalizeId,
         splitKeywords, normalizeKeywords, rowsFromGroups, taskTemplateOf, profileDefaults, normalizeProfile,
         normalizeProfiles, profilesById, validateRouting, validateProfiles, normalizeJev, validateJev, clampNumber,

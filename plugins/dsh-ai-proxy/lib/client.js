@@ -36,6 +36,7 @@ window.__ModuleLoader__.load({
 
     const AUTH_RPC_CHANNEL = "/ai-proxy-auth";
     const SETTINGS_SLOT = "settings.section";
+    const ICON_SLOT = "settings.section.icon";
     const inject = ["slots", "connection", "remote"];
 
     const API_FORMATS = [
@@ -68,8 +69,6 @@ window.__ModuleLoader__.load({
       .ai-proxy-toggle-desc{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px}
       .ai-proxy-checkbox{width:18px;height:18px;flex:none;cursor:pointer;accent-color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .ai-proxy-checkbox:disabled{opacity:.4;cursor:default}
-      button:has([data-settings-nav-label="ai-proxy"]) > svg:first-child{display:none}
-      .ai-proxy-nav-label{display:inline-flex;align-items:center;gap:8px}
     `;
 
     function normalizeGateway(value) {
@@ -519,11 +518,10 @@ window.__ModuleLoader__.load({
           react.createElement("p", { className: "ai-proxy-details" }, "模型调用与用量由 AI Proxy 网关统一统计。")
         );
       }
-      const label = () => react.createElement("span", {
-        "data-settings-nav-label": "ai-proxy", className: "ai-proxy-nav-label",
-      },
-      react.createElement(IconApiOutline14, { size: 16 }),
-      react.createElement("span", null, "AI Proxy"));
+      // 图标走宿主的 settings.section.icon 槽位，label 只放文本：外壳（0.2.x）
+      // 把默认图标包进 span.navIcon，旧写法「label 内嵌图标 + CSS 隐藏外壳的
+      // 直接子 svg」不再匹配，默认图标与自绘图标同时出现（双图标）。
+      const label = () => "AI Proxy";
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
         id: "ai-proxy",
@@ -531,6 +529,11 @@ window.__ModuleLoader__.load({
         label,
         inject: () => ({ authRequest }),
       }, AiProxySettings));
+      ctx.slots.inject(ICON_SLOT, () => ctx.slots.register({
+        name: ICON_SLOT,
+        id: "ai-proxy",
+        order: 25,
+      }, ({ size }) => react.createElement(IconApiOutline14, { size: size ?? 16 })));
     }
 
     exports.apply = apply;

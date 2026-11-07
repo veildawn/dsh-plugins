@@ -656,10 +656,16 @@ test('local browser registers settings without a lock screen', async () => {
     const connection = new BrowserConnection(ctx)
     await ctx.plugin(clientPlugin).await()
     assert.equal(slots.registrations.some((item) => item.entry.name === 'root'), false)
-    const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
+    const section = slots.registrations.find((item) => item.entry.name === 'settings.section' && item.entry.id === 'remote-control')
     assert(section)
     assert.equal(section.entry.order, 26)
-    assert(findElement(section.entry.label(), (node) => node?.type === IconGlobeOutline14))
+    // 图标走 settings.section.icon，label 只放文本：0.2.x 外壳会渲染自己的默认
+    // 图标容器，若 label 还内嵌图形就会叠成双图标。
+    assert.equal(section.entry.label(), '远程控制')
+    const icon = slots.registrations.find((item) => item.entry.name === 'settings.section.icon')
+    assert(icon)
+    assert.equal(icon.entry.id, 'remote-control')
+    assert(findElement(icon.component({ size: 16 }), (node) => node?.type === IconGlobeOutline14))
     render(section.component, section.entry.inject())
     await new Promise((resolve) => setImmediate(resolve))
     assert.deepEqual(connection.calls, [{ channel: CONFIG_RPC_CHANNEL, method: 'status', payload: {} }])
@@ -877,7 +883,7 @@ test('locking a remote session drops the minted host session', async () => {
     const slots = new SlotsService(ctx)
     new BrowserConnection(ctx)
     await ctx.plugin(clientPlugin).await()
-    const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
+    const section = slots.registrations.find((item) => item.entry.name === 'settings.section' && item.entry.id === 'remote-control')
     const view = render(section.component, section.entry.inject())
     const lockButton = findElement(view, (node) => node?.props?.children?.includes?.('锁定远程会话 / 清除本地凭证'))
     assert(lockButton)
@@ -1449,7 +1455,7 @@ test('desktop and LAN status info renders in RemoteControlSettings', async () =>
     }
 
     await ctx.plugin(clientPlugin).await()
-    const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
+    const section = slots.registrations.find((item) => item.entry.name === 'settings.section' && item.entry.id === 'remote-control')
     assert(section)
     render(section.component, section.entry.inject())
     // 刷新 Promise 微任务使 useEffect 中的 configRequest 得到响应
@@ -1489,7 +1495,7 @@ test('the switch row nests no label and drives the checkbox only through change'
     const slots = new SlotsService(ctx)
     new BrowserConnection(ctx)
     await ctx.plugin(clientPlugin).await()
-    const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
+    const section = slots.registrations.find((item) => item.entry.name === 'settings.section' && item.entry.id === 'remote-control')
     render(section.component, section.entry.inject())
     await new Promise((resolve) => setImmediate(resolve))
     const view = render(section.component, section.entry.inject())
@@ -1537,7 +1543,7 @@ test('端口行里的标签、输入框、按钮都不得换行，说明文字�
       ? { ok: true, value: { enabled: true, secretConfigured: true, port: 19387, host: '127.0.0.1', bindLocked: true, lanIps: [] } }
       : { ok: false }
     await ctx.plugin(clientPlugin).await()
-    const section = slots.registrations.find((item) => item.entry.id === 'remote-control')
+    const section = slots.registrations.find((item) => item.entry.name === 'settings.section' && item.entry.id === 'remote-control')
     render(section.component, section.entry.inject())
     await new Promise((resolve) => setImmediate(resolve))
     const view = render(section.component, section.entry.inject())

@@ -203,6 +203,7 @@ test('apply registers the left panel row and its keyed main seat', async () => {
   assert.deepEqual(names.sort(), [
     'main',
     'settings.section',
+    'settings.section.icon',
     'sidebar.panellist',
   ]);
 
@@ -257,16 +258,25 @@ test('every registered slot component renders without throwing', async () => {
   }
 });
 
-test('the settings nav label renders an icon instead of throwing', async () => {
+test('the settings nav label is text and the glyph lives in settings.section.icon', async () => {
   // The exact entry that crashed in 0.1.1: the settings.section `label` icon.
+  // Since 0.2.x the shell wraps its own default glyph in `span.navIcon` and
+  // renders the label after it, so a label that also carries an icon shows two
+  // glyphs. The single supported seat for the glyph is settings.section.icon.
   const { module } = await loadBundle();
   const harness = makeCtx();
   module.apply(harness.ctx);
   const settings = harness.slots.find((slot) => slot.name === 'settings.section');
   assert.equal(typeof settings.label, 'function');
   const label = settings.label();
-  assert.equal(label.type, 'span');
-  assert.ok(label.children.length > 0, 'the nav label carries the glyph and the text');
+  assert.equal(typeof label, 'string');
+  assert.ok(label.length > 0, 'the nav label carries text');
+  const icon = harness.slots.find((slot) => slot.name === 'settings.section.icon');
+  assert.equal(icon.id, 'dsh-repo-wiki', 'the icon must address the same section id');
+  assert.equal(typeof icon.component, 'function');
+  // h() 在测试替身里不执行函数组件，只校验它按外壳传入的尺寸渲染。
+  const glyph = icon.component({ size: 16 });
+  assert.equal(glyph.props.size, 16);
 });
 
 test('the sidebar glyph renders standalone', async () => {
@@ -302,14 +312,12 @@ test('the sidebar row label and settings nav follow a locale switch', async () =
   const row = harness.slots.find((slot) => slot.name === 'sidebar.panellist');
   const settings = harness.slots.find((slot) => slot.name === 'settings.section');
   assert.equal(row.label(), 'Repo Wiki', 'English UI keeps the brand name');
-  const englishNav = settings.label();
-  assert.equal(englishNav.children.at(-1).children[0], 'Repo Wiki');
+  assert.equal(settings.label(), 'Repo Wiki', 'the settings nav label is plain text');
 
   face.__switch('zh');
   assert.equal(row.label(), '代码库 Wiki', 'the row follows the switch without re-registering');
-  const chineseNav = settings.label();
-  assert.equal(chineseNav.children.at(-1).children[0], '代码库 Wiki');
-  assert.match(JSON.stringify(chineseNav), /[\u4e00-\u9fff]/u, 'the settings nav text is Chinese');
+  assert.equal(settings.label(), '代码库 Wiki', 'the settings nav text follows the switch');
+  assert.match(settings.label(), /[\u4e00-\u9fff]/u, 'the settings nav text is Chinese');
 });
 
 test('renderMarkdown output is h-built elements, not raw markup', async () => {
@@ -324,7 +332,7 @@ test('apply survives a host with no sidebar at all', async () => {
   const { module } = await loadBundle();
   const harness = makeCtx({ get: () => undefined });
   assert.doesNotThrow(() => module.apply(harness.ctx));
-  assert.equal(harness.slots.length, 3);
+  assert.equal(harness.slots.length, 4);
 });
 
 /* ------------------------------------------------------------------------- *

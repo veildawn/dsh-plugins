@@ -271,14 +271,19 @@ test('客户端包以正确 id 注册到 ModuleLoader', () => {
 
 test('apply 注入 settings.section 槽位并注册 im-bot 分区', () => {
   const { registrations, slotsInjected } = loadClient();
-  assert.deepEqual(slotsInjected, ['settings.section']);
-  const section = registrations.find((item) => item.slotMeta !== undefined);
+  // 每个设置页贡献两条：settings.section（页面）与 settings.section.icon（图标）。
+  assert.deepEqual(slotsInjected, ['settings.section', 'settings.section.icon']);
+  const section = registrations.find((item) => item.slotMeta?.name === 'settings.section');
   assert.ok(section !== undefined, '必须注册一个设置分区');
   assert.equal(section.slotMeta.name, 'settings.section');
   assert.equal(section.slotMeta.id, 'im-bot');
   assert.equal(typeof section.slotMeta.order, 'number');
   assert.equal(typeof section.slotMeta.label, 'function');
   assert.equal(typeof section.slotMeta.inject, 'function');
+  // 图标槽位与分区同 id，交给外壳渲染单个图标（避免双图标）。
+  const icon = registrations.find((item) => item.slotMeta?.name === 'settings.section.icon');
+  assert.ok(icon !== undefined, '必须注册导航图标槽位');
+  assert.equal(icon.slotMeta.id, 'im-bot');
 });
 
 test('分区的 inject 提供 rpcCall，且 rpcCall 解包 ok/value', async () => {
@@ -342,9 +347,16 @@ test('设置面板能渲染出标题与关键分区（不触达真实网络）',
   assert.ok(texts.some((text) => text.includes('集成机器人')), '应出现标题「集成机器人」');
 });
 
-test('客户端样式包含隐藏宿主默认导航齿轮的规则（消除双图标）', () => {
-  assert.ok(CLIENT_CODE.includes('button:has([data-settings-nav-label="im-bot"]) > svg:first-child{display:none}'),
-    '必须包含隐藏宿主默认 svg 齿轮的规则');
+test('导航图标走 settings.section.icon，label 不再内嵌图形（消除双图标）', () => {
+  // 0.2.x 外壳把默认图标包进 span.navIcon 再渲染 label：旧的
+  // `button > svg:first-child` 隐藏 hack 不再匹配，label 内嵌图标会与外壳
+  // 默认齿轮叠成两个。正确做法是注册专用图标槽位，label 只放文本。
+  assert.ok(CLIENT_CODE.includes("'settings.section.icon'"),
+    '必须注册 settings.section.icon 图标槽位');
+  assert.ok(!CLIENT_CODE.includes('data-settings-nav-label'),
+    'label 不得再带 data-settings-nav-label（该 hack 已随外壳结构失效）');
+  assert.ok(!CLIENT_CODE.includes('svg:first-child'),
+    '不得再依赖 CSS 隐藏外壳的默认图标');
 });
 
 test('cordis.patch.yml 必须注入 connection 与 webServer，防止 HTTP 405', () => {

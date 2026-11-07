@@ -549,12 +549,19 @@ check('the client exports apply', typeof clientMod.apply === 'function');
 check('the client injects slots and connection', clientMod.inject.join(',') === 'slots,connection', JSON.stringify(clientMod.inject));
 
 let clientComponent = null;
+let iconComponent = null;
 const slotOptions = {};
+const iconOptions = {};
 const clientCtx = {
   connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
   slots: {
     inject: (_name, fn) => fn(),
     register: (_options, comp) => {
+      if (_options.name === 'settings.section.icon') {
+        iconComponent = comp;
+        iconOptions.options = _options;
+        return () => {};
+      }
       clientComponent = comp;
       slotOptions.options = _options;
       return () => {};
@@ -567,6 +574,12 @@ check('the component slot is settings.section', slotOptions.options.name === 'se
 check('the slot id is dsh-image-gen', slotOptions.options.id === 'dsh-image-gen', slotOptions.options.id);
 check('the slot supplies rpcCall', typeof slotOptions.options.inject().rpcCall === 'function');
 check('the slot declares a label', typeof slotOptions.options.label === 'function');
+// 导航图标必须走 settings.section.icon；label 只承载文本，否则 0.2.x 外壳的
+// 默认齿轮会和 label 内嵌图标叠成两个（双图标）。
+check('the nav icon is registered in settings.section.icon', iconOptions.options.name === 'settings.section.icon', iconOptions.options.name);
+check('the nav icon addresses the same section id', iconOptions.options.id === slotOptions.options.id, iconOptions.options.id);
+check('the nav icon is a component', typeof iconComponent === 'function', typeof iconComponent);
+check('the label carries no glyph', typeof slotOptions.options.label() === 'string', typeof slotOptions.options.label());
 
 // 渲染一次面板，确认两条来源路径的字段都在
 const panel = clientComponent({ rpcCall: async () => ({}) });

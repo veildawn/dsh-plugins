@@ -217,3 +217,44 @@ test('背景图上传前会压缩：长边上限与目标体积都在合理范�
     `目标体积 ${TARGET_BACKGROUND_BYTES} 相对服务端上限 ${MAX_SERVER_BYTES} 太大`,
   )
 })
+
+/**
+ * 设置导航图标必须走宿主专用槽位。
+ *
+ * 宿主 0.2.x 的导航行改为 `<button><span class=navIcon>{默认图标}</span>
+ * <span class=navLabel>{label}</span></button>`。旧实现把自绘图标塞进 label，
+ * 并用 `button:has([data-settings-nav-label="…"]) > svg:first-child{display:none}`
+ * 隐藏宿主默认齿轮——新结构里 button 的第一个子元素是 span 而不是 svg，
+ * 隐藏规则失效，默认齿轮与 label 内的图标同时出现（导航行双图标）。
+ */
+test('设置导航图标走 settings.section.icon，label 只放文本', () => {
+  const registrations = []
+  const ctx = {
+    connection: { rpc: { call: async () => ({ ok: true, value: {} }) } },
+    slots: {
+      inject(name, install) {
+        assert.ok(
+          ['settings.section', 'settings.section.icon'].includes(name),
+          `未预期的槽位：${name}`,
+        )
+        return install()
+      },
+      register(entry, component) {
+        registrations.push({ entry, component })
+        return () => {}
+      },
+    },
+  }
+
+  assert.doesNotThrow(() => client.apply(ctx))
+
+  const section = registrations.find(({ entry }) => entry.name === 'settings.section')
+  assert.ok(section, '必须注册设置分区')
+  assert.equal(section.entry.id, 'dsh-theme-studio')
+  assert.equal(section.entry.label(), '主题工作室', 'label 只能是文本')
+
+  const icon = registrations.find(({ entry }) => entry.name === 'settings.section.icon')
+  assert.ok(icon, '必须注册 settings.section.icon 导航图标')
+  assert.equal(icon.entry.id, 'dsh-theme-studio', '图标 id 必须与分区 id 一致')
+  assert.equal(typeof icon.component, 'function')
+})

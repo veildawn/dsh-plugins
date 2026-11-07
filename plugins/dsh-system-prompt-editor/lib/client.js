@@ -1146,10 +1146,9 @@ window.__ModuleLoader__.load({
         throw new Error(message || '请求失败')
       }
 
-      const label = () => react.createElement('span', {
-        'data-settings-nav-label': 'dsh-system-prompt-editor',
-        style: { display: 'inline-flex', alignItems: 'center', gap: 8 },
-      }, react.createElement('span', null, '系统提示词'))
+      // 只返回文本：0.2.x 外壳负责图标容器与默认图标，label 里再放图形会叠成
+      // 双图标；本插件的导航图标保持外壳默认齿轮。
+      const label = () => '系统提示词'
 
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,

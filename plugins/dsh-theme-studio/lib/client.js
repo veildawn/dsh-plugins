@@ -31,6 +31,8 @@ window.__ModuleLoader__.load({
     const h = react.createElement
 
     const SETTINGS_SLOT = 'settings.section'
+    // 设置导航图标的专用槽位：外壳负责图标容器与默认图标，插件只提供图形本身。
+    const ICON_SLOT = 'settings.section.icon'
     const RPC_CHANNEL = '/dsh-theme-studio-settings'
     const THEME_ATTR = 'data-theme-studio'
     const LEGACY_ATTR = 'data-dsh-theme'
@@ -1123,9 +1125,6 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
         h('p', { className: 'ts-hint' }, `背景图目录：${view?.backgroundDir ?? ''}`))
     }
 
-    const NAV_STYLE_ID = 'dsh-theme-studio-nav-styles'
-    const NAV_CSS = 'button:has([data-settings-nav-label="dsh-theme-studio"]) > svg:first-child{display:none}'
-
     function IconPalette16({ size = 16 }) {
       return h('svg', {
         width: size,
@@ -1167,7 +1166,6 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
     }
 
     function apply(ctx) {
-      ensureStyle(NAV_STYLE_ID, NAV_CSS)
       ensureStyle(PANEL_CSS_ID, PANEL_CSS)
 
       const rpcCall = async (method, payload) => {
@@ -1193,13 +1191,11 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
           })
       }
 
-      const label = () =>
-        h('span', {
-          'data-settings-nav-label': 'dsh-theme-studio',
-          style: { display: 'inline-flex', alignItems: 'center', gap: 8 },
-        },
-          h('span', { style: { display: 'inline-flex' } }, h(IconPalette16, { size: 16 })),
-          h('span', null, '主题工作室'))
+      // 图标只交给 `settings.section.icon`，label 里不要再内嵌图形：
+      // 外壳（0.2.x）把默认图标包进 `span.navIcon` 再渲染 label，
+      // 旧写法「label 内嵌图标 + CSS 隐藏 button 的直接子 svg」于是失效一半，
+      // 默认图标和自绘图标同时出现（双图标）。
+      const label = () => '主题工作室'
 
       ctx.slots.inject(SETTINGS_SLOT, () =>
         ctx.slots.register({
@@ -1209,6 +1205,13 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
           label,
           inject: () => ({ rpcCall }),
         }, ThemeStudioSettings))
+
+      ctx.slots.inject(ICON_SLOT, () =>
+        ctx.slots.register({
+          name: ICON_SLOT,
+          id: 'dsh-theme-studio',
+          order: 12,
+        }, ({ size }) => h(IconPalette16, { size: size ?? 16 })))
     }
 
     exports.apply = apply

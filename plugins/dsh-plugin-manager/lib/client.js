@@ -47,8 +47,7 @@ window.__ModuleLoader__.load({
 
     const MARKET_RPC_CHANNEL = "/dsh-plugin-manager-rpc";
     const SETTINGS_SLOT = "settings.section";
-    const NAV_STYLE_ID = "dsh-plugin-manager-nav-styles";
-    const navCss = 'button:has([data-settings-nav-label="plugin-manager"]) > svg:first-child{display:none}';
+    const ICON_SLOT = "settings.section.icon";
 
     /**
      * Dedicated SVG Icon for Plugin Manager (Puzzle piece silhouette)
@@ -453,12 +452,6 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
-      if (typeof document !== "undefined" && !document.getElementById(NAV_STYLE_ID)) {
-        const style = document.createElement("style");
-        style.id = NAV_STYLE_ID;
-        style.textContent = navCss;
-        document.head.appendChild(style);
-      }
       if (typeof document !== "undefined") {
         let style = document.getElementById("dsh-plugin-manager-styles");
         if (!style) {
@@ -1622,13 +1615,10 @@ window.__ModuleLoader__.load({
         );
       }
 
-      const label = () => react.createElement("span", {
-        "data-settings-nav-label": "plugin-manager",
-        style: { display: "inline-flex", alignItems: "center", gap: 8 },
-      },
-        react.createElement(IconPluginManager16, { size: 16 }),
-        react.createElement("span", null, "插件管理")
-      );
+      // 图标走宿主的 settings.section.icon 槽位，label 只放文本：外壳（0.2.x）
+      // 会把默认图标包进 span.navIcon，旧写法「label 内嵌图标 + CSS 隐藏外壳
+      // 的直接子 svg」不再匹配，默认图标与自绘图标同时出现（双图标）。
+      const label = () => "插件管理";
 
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
@@ -1637,6 +1627,12 @@ window.__ModuleLoader__.load({
         label,
         inject: () => ({ rpcCall }),
       }, PluginManagerSection));
+
+      ctx.slots.inject(ICON_SLOT, () => ctx.slots.register({
+        name: ICON_SLOT,
+        id: "plugin-manager",
+        order: 35,
+      }, ({ size }) => react.createElement(IconPluginManager16, { size: size ?? 16 })));
     }
 
     exports.apply = apply;

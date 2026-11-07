@@ -21,6 +21,7 @@ window.__ModuleLoader__.load({
     const react = require("react");
 
     const SETTINGS_SLOT = "settings.section";
+    const ICON_SLOT = "settings.section.icon";
     const RPC_CHANNEL = "/dsh-jev-settings";
 
     const DEFAULT_BASE_URL = "https://api.typesafe.ai";
@@ -548,9 +549,6 @@ window.__ModuleLoader__.load({
       );
     }
 
-    const NAV_STYLE_ID = "dsh-jev-nav-styles";
-    const navCss = 'button:has([data-settings-nav-label="dsh-jev"]) > svg:first-child{display:none}';
-
     function IconDecision16({ size = 16 }) {
       return react.createElement("svg", {
         width: size,
@@ -572,13 +570,6 @@ window.__ModuleLoader__.load({
     }
 
     function apply(ctx) {
-      if (typeof document !== "undefined" && !document.getElementById(NAV_STYLE_ID)) {
-        const style = document.createElement("style");
-        style.id = NAV_STYLE_ID;
-        style.textContent = navCss;
-        document.head.appendChild(style);
-      }
-
       const rpcCall = async (method, payload) => {
         const conn = ctx && ctx.connection;
         const rpc = conn && conn.rpc;
@@ -590,13 +581,10 @@ window.__ModuleLoader__.load({
         throw new Error(result?.error?.message || (typeof result?.error === "string" ? result.error : "请求失败"));
       };
 
-      const label = () => react.createElement("span", {
-        "data-settings-nav-label": "dsh-jev",
-        style: { display: "inline-flex", alignItems: "center", gap: 8 },
-      },
-        react.createElement(IconDecision16, { size: 16 }),
-        react.createElement("span", null, "决策模型")
-      );
+      // 图标走宿主的 settings.section.icon 槽位，label 只放文本：外壳（0.2.x）
+      // 把默认图标包进 span.navIcon，旧写法「label 内嵌图标 + CSS 隐藏外壳的
+      // 直接子 svg」不再匹配，默认图标与自绘图标同时出现（双图标）。
+      const label = () => "决策模型";
 
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
@@ -605,6 +593,12 @@ window.__ModuleLoader__.load({
         label,
         inject: () => ({ rpcCall }),
       }, JevSettings));
+
+      ctx.slots.inject(ICON_SLOT, () => ctx.slots.register({
+        name: ICON_SLOT,
+        id: "dsh-jev",
+        order: 36,
+      }, ({ size }) => react.createElement(IconDecision16, { size: size ?? 16 })));
     }
 
     exports.apply = apply;

@@ -26,6 +26,7 @@ window.__ModuleLoader__.load({
     const react = require('react');
 
     const SETTINGS_SLOT = 'settings.section';
+    const ICON_SLOT = 'settings.section.icon';
     const RPC_CHANNEL = '/dsh-im-bot';
     const SECTION_ID = 'im-bot';
 
@@ -90,7 +91,6 @@ window.__ModuleLoader__.load({
       .imb-cmd code{flex:0 0 auto;padding:1px 6px;border-radius:5px;background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 12%,transparent);color:var(--dsw-alias-brand-primary,#4d6bfe);font-family:var(--dsw-font-mono,monospace);font-size:11.5px;white-space:nowrap}
       .imb-cmd span{color:var(--dsw-alias-label-secondary);min-width:0}
       @media (max-width:420px){.imb-cmd{flex-direction:column;align-items:flex-start;gap:3px}}
-      button:has([data-settings-nav-label="im-bot"]) > svg:first-child{display:none}
       /* 渠道单选小卡片：一行固定两个（含窄屏），紧凑排列 */
       .imb-channel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
       .imb-channel-card{display:flex;flex-direction:column;gap:6px;padding:9px 10px;border:1.5px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:10px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));cursor:pointer;user-select:none;transition:border-color .15s ease,box-shadow .15s ease,background .15s ease;min-width:0}
@@ -1014,13 +1014,10 @@ window.__ModuleLoader__.load({
           || (typeof result?.error === 'string' ? result.error : '请求失败'));
       };
 
-      const label = () => react.createElement('span', {
-        'data-settings-nav-label': SECTION_ID,
-        style: { display: 'inline-flex', alignItems: 'center', gap: 8 },
-      },
-        react.createElement(IconBot16, null),
-        '集成机器人',
-      );
+      // 图标走宿主的 settings.section.icon 槽位，label 只放文本：外壳（0.2.x）
+      // 把默认图标包进 span.navIcon，旧写法「label 内嵌图标 + CSS 隐藏外壳的
+      // 直接子 svg」不再匹配，默认图标与自绘图标同时出现（双图标）。
+      const label = () => '集成机器人';
 
       ctx.slots.inject(SETTINGS_SLOT, () => ctx.slots.register({
         name: SETTINGS_SLOT,
@@ -1029,6 +1026,12 @@ window.__ModuleLoader__.load({
         label,
         inject: () => ({ rpcCall }),
       }, ImBotSettings));
+
+      ctx.slots.inject(ICON_SLOT, () => ctx.slots.register({
+        name: ICON_SLOT,
+        id: SECTION_ID,
+        order: 36,
+      }, () => IconBot16()));
     }
 
     exports.apply = apply;
