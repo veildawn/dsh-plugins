@@ -545,6 +545,19 @@ export const LOCAL_MONOREPO_PLUGINS = [
     path: 'plugins/dsh-repo-wiki',
     isRepoPlugin: true,
   },
+  {
+    id: 'dsh-dynamic-workflow',
+    name: 'dsh-dynamic-workflow',
+    title: '动态编排可视化',
+    description: '把 workflow 工具的每次运行画成实时编排卡片：阶段泳道、子代理节点与动态表情人偶，支持把脚本保存为项目/全局 workflow 并用 /workflow 重新启动。',
+    author: 'veildawn',
+    category: 'tools',
+    tags: ['workflow', 'orchestration', 'visualization', 'dynamic-workflow'],
+    icon: 'branch',
+    repo: 'veildawn/dsh-plugins',
+    path: 'plugins/dsh-dynamic-workflow',
+    isRepoPlugin: true,
+  },
 ]
 
 /**
