@@ -184,8 +184,14 @@ if (updated.length === liveKeys.length && liveKeys.length > 0) {
 check('writes reach the profile patch',
   liveKeys.length > 0 && liveKeys.every((key) => key in (rows[0]?.config ?? {})), JSON.stringify(rows[0]?.config));
 check('writes never remount the fiber', entry.fiber === fiber && fiber.state === 2);
+// 活引用挂在哪里随 cordis 版本变化：4.0 直接挂在 `fiber.config` 上，4.1 起
+// `fiber.config` 存的是解析后的普通值，活引用挪到了 `fiber.effectiveConfig`，
+// loader 也改成从 `fiber.effectiveConfig` 取 `volatileEntries()`。
+// 只查 `fiber.config` 会在宿主升级后假阴性（8 项里 7 项 PASS、唯独这条 FAIL），
+// 两处都查才既兼容 4.0 又对 4.1 有效。
+const liveConfig = fiber.effectiveConfig ?? fiber.config;
 const live = liveKeys.length > 0
-  && (rootLive ? cosmokit.isVolatile(fiber.config) : liveKeys.every((key) => cosmokit.isVolatile(fiber.config[key])));
+  && (rootLive ? cosmokit.isVolatile(liveConfig) : liveKeys.every((key) => cosmokit.isVolatile(liveConfig[key])));
 check('the resolved config carries live references', live);
 
 // The settings cards talk to a plugin-owned RPC that reads/writes the same
