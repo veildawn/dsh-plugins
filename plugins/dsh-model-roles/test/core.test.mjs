@@ -15,6 +15,8 @@ import {
   parseAutomaticRole,
   planModeActive,
   resolveRoleTable,
+  resolveBaselineModel,
+  selectionKey,
   roleForAgent,
   routeAgentRequest,
   routeForRole,
@@ -391,6 +393,36 @@ test('resolveBaselineModel resolves active baseline from events, header, options
   assert.equal(sameModelSelection({ provider: 'a', model: 'b' }, { provider: 'a', model: 'b' }), true)
   assert.equal(sameModelSelection({ provider: 'a', model: 'b', reasoningEffort: 'low' }, { provider: 'a', model: 'b' }), false)
   assert.equal(sameModelSelection({ provider: 'a', model: 'b' }, { provider: 'a', model: 'c' }), false)
+})
+
+test('baseline resolution ignores selections the router itself wrote', () => {
+  // 用户选了 default-model/smol-model，之后角色路由把选择改成 slow-model
+  const agent = {
+    session: {
+      events: [
+        { type: 'model/selection', data: { provider: 'e2e', model: 'default-model', reasoningEffort: 'high' } },
+        { type: 'model/selection', data: { provider: 'e2e', model: 'slow-model' } },
+        { type: 'request/header', data: { reason: 'initial', header: { config: { provider: 'e2e', model: 'default-model' } } } },
+      ],
+    },
+    options: { provider: 'e2e', model: 'default-model' },
+  }
+
+  // 不传插件写入集合：仍把最新一条当成用户选择（旧行为）
+  assert.equal(resolveBaselineModel(agent).model, 'slow-model')
+
+  // 已被宿主请求头确认过的插件写入同样跳过
+  assert.deepEqual(
+    resolveBaselineModel(agent, undefined, new Set(['e2e/slow-model'])),
+    { provider: 'e2e', model: 'default-model', reasoningEffort: 'high' },
+  )
+
+  // 写入集合的键只看 provider/model：路由带上一轮的思考强度也不影响判定
+  assert.equal(selectionKey({ provider: 'e2e', model: 'slow-model', reasoningEffort: 'low' }), 'e2e/slow-model')
+  assert.equal(
+    resolveBaselineModel(agent, undefined, new Set(['e2e/slow-model'])).model,
+    'default-model',
+  )
 })
 
 // ── live (volatile) config plumbing ────────────────────────────────────────

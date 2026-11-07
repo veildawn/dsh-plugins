@@ -95,24 +95,65 @@ function makeAgent({ id = 'child', header = { origin: 'subagent', parentSession:
     deriveMessages: () => messages,
     requestHeader: () => headerValue,
     setRequestHeader(value) { headerValue = value },
+    clearSelection() { selection = undefined },
+    append(type, data) {
+      if (type !== 'model/selection') return
+      selection = { provider: data.provider, model: data.model, ...(data.reasoningEffort === undefined ? {} : { reasoningEffort: data.reasoningEffort }) }
+    },
   }
-  return { id, session, options }
+  let selection
+  return {
+    id,
+    session,
+    options,
+    // 与宿主 dsh-agent 的 AgentModel 一致：select 写入下一次请求的选择，current 读回它
+    model: {
+      current: () => (selection === undefined ? undefined : { ...selection }),
+      select(value) { session.append('model/selection', value) },
+    },
+  }
 }
 
 function message(text) {
   return { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text }] }
 }
 
-async function preStep(harness, agent, text, { turn = 1, step = 1 } = {}) {
-  return harness.listeners.get('agent/pre-step')({
-    agent, turn, step, signal: AbortSignal.timeout(5_000), messages: [message(text)],
+const BASE_REQUEST = { provider: 'base', model: 'base-model', maxTokens: 100 }
+
+/**
+ * 按宿主的真实顺序跑一个步骤：pre-step 期间插件决定模型，之后以该选择调用
+ * agent/request。返回值是本步骤实际使用的请求配置。
+ */
+async function step(harness, agent, text, {
+  turn = 1, step: index = 1, config = BASE_REQUEST, signal = AbortSignal.timeout(5_000),
+} = {}) {
+  const modelSelection = { ...config, ...(agent.model.current() ?? {}) }
+  await harness.listeners.get('agent/pre-step')({
+    agent, turn, step: index, signal, messages: [message(text)], modelSelection,
   }, () => Promise.resolve({ kind: 'enter', messages: [message(text)] }))
+  const fixed = { ...config, ...(agent.model.current() ?? {}) }
+  const proposed = await harness.listeners.get('agent/request')({
+    agent, turn, signal,
+  }, () => Promise.resolve(fixed))
+  assert.deepEqual(
+    { provider: proposed.provider, model: proposed.model, reasoningEffort: proposed.reasoningEffort },
+    { provider: fixed.provider, model: fixed.model, reasoningEffort: fixed.reasoningEffort },
+    'agent/request must not change the model fixed during step preparation',
+  )
+  return proposed
 }
 
-async function request(harness, agent, config = { provider: 'base', model: 'base-model', maxTokens: 100 }, signal = AbortSignal.timeout(5_000)) {
-  return harness.listeners.get('agent/request')({
-    agent, turn: 1, signal,
-  }, () => Promise.resolve(config))
+async function preStep(harness, agent, text, options) {
+  return step(harness, agent, text, options)
+}
+
+/**
+ * 模拟宿主：请求头一旦提交，本步骤的选择就被「退休」，下一次请求从候选配置重新开始。
+ */
+async function request(harness, agent, config = BASE_REQUEST, signal) {
+  const result = await step(harness, agent, undefined, { config, signal })
+  agent.session.clearSelection?.()
+  return result
 }
 
 function baseConfig(routing = {}, profiles = [], jev = {}) {
@@ -501,7 +542,15 @@ test('concurrent first requests share one classifier and one candidate validatio
   }
   harness.ctx.llm.resolveCallConfig = async () => { validations++ }
   const child = makeAgent()
-  await preStep(harness, child, 'Assess the patch.')
+  // 宿主在 pre-step 阶段采集委派提示词；这里只采集、不触发分类，
+  // 让两个并发请求共享同一次分类与同一次候选校验。
+  await harness.listeners.get('agent/pre-step')({
+    agent: child,
+    turn: 1,
+    step: 1,
+    signal: AbortSignal.timeout(5_000),
+    messages: [message('Assess the patch.')],
+  }, () => Promise.resolve({ kind: 'enter', messages: [message('Assess the patch.')] })).catch(() => {})
   const one = request(harness, child)
   const two = request(harness, child)
   await started.promise
@@ -534,14 +583,14 @@ test('caller cancellation evicts a pending decision and a fresh signal can retry
     yield { type: 'finish', reason: { kind: 'stop' } }
   }
   const child = makeAgent()
-  await preStep(harness, child, 'Assess the patch.')
   const controller = new AbortController()
-  const pending = request(harness, child, undefined, controller.signal)
-  const rejected = assert.rejects(pending, { name: 'AbortError' })
+  // 分类仍在步骤准备期等待时，调用方取消必须让本次步骤失败
+  const aborted = preStep(harness, child, 'Assess the patch.', { turn: 1, step: 1, signal: controller.signal })
+  const rejected = assert.rejects(aborted, { name: 'AbortError' })
   await started.promise
   controller.abort()
-  const retry = request(harness, child)
   await rejected
+  const retry = request(harness, child)
   assert.equal(cancelledSignal.aborted, true)
   release.resolve()
   assert.equal((await retry).model, 'review-model', 'a retry started before the cancelled promise settles must get a fresh decision')
@@ -610,12 +659,13 @@ test('turning routing off during classification never applies the pending candid
     yield { type: 'finish', reason: { kind: 'stop' } }
   }
   const child = makeAgent()
-  await preStep(harness, child, 'Assess the patch.')
-  const pending = request(harness, child)
+  const signal = AbortSignal.timeout(5_000)
+  // 分类在步骤准备期等待分类器，此时用户关闭路由
+  const pending = preStep(harness, child, 'Assess the patch.', { signal })
   await started.promise
   harness.update(baseConfig({ enabled: false }))
   release.resolve()
-  const baseline = await pending
+  const baseline = await pending.then(() => request(harness, child))
   assert.equal(baseline.model, 'base-model')
   assert.equal((await harness.rpc('routingDetails', { childIds: [child.id] })).value.details.child.reason, 'routing-disabled')
   commitHeader(harness, child, baseline)
@@ -673,9 +723,9 @@ test('Jev caller cancellation does not start the fallback LLM', async () => {
       enabled: true, baseURL: `http://127.0.0.1:${server.address().port}`, timeoutMs: 1000,
     }))
     const child = makeAgent()
-    await preStep(harness, child, 'Assess the patch.')
     const controller = new AbortController()
-    const pending = request(harness, child, undefined, controller.signal)
+    // Jev 分类在步骤准备期等待，调用方取消后不得再启动 LLM 兜底分类
+    const pending = preStep(harness, child, 'Assess the patch.', { signal: controller.signal })
     const rejected = assert.rejects(pending, { name: 'AbortError' })
     await received.promise
     controller.abort()

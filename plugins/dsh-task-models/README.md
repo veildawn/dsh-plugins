@@ -34,7 +34,7 @@ dsh plugin --profile web add @weniatall/dsh-task-models
 或锁定版本，从 GitHub Release 安装 tarball：
 
 ```bash
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.3.1/dsh-task-models-0.3.1.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-task-models@v0.3.2/dsh-task-models-0.3.2.tgz
 ```
 
 > 本包已发布到 npm scope `@weniatall/dsh-task-models`，后续版本由 CI 通过 Trusted
@@ -47,7 +47,7 @@ dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/do
 cd plugins/dsh-task-models
 npm test
 npm pack
-dsh plugin --profile web add ./weniatall-dsh-task-models-0.3.1.tgz
+dsh plugin --profile web add ./weniatall-dsh-task-models-0.3.2.tgz
 ```
 
 > 本仓库的 `AGENTS.md` 规定：除非用户明确要求，不在本机部署插件或重启服务。开发验证请只运行
@@ -163,6 +163,9 @@ task-models:
 ## 与 DSH 的边界
 
 - 不 patch `ctx.subagents.start`；只在公开的 `agent/pre-step` / `agent/request` 上工作。
+  子代理的模型改写发生在 `agent/pre-step`（通过 `agent.model.select()`）：DSH 0.2.2 起
+  `agent/request` 已废弃且会在瀑布之后强校验模型一致性，从那里改模型会直接抛错。
+  `agent/request` 只用于记录子代理实际使用的模型。
 - 不新增子代理工具，不修改 `subagent` / `workflow` 的工具 schema。
 - 不处理 ACP / Codex / Claude Code 等外部进程子代理的模型选择；这些由各自外部进程决定。
 - 主任务自动分类、识图委派、顾问复核不在本插件职责内；由宿主或相应插件负责。本插件只处理

@@ -434,6 +434,18 @@ function toRoute(profile) {
   }
 }
 
+/** 把任意携带 provider/model 的对象收敛成路由配置；缺失时返回 undefined。 */
+function toRouteConfig(entry) {
+  if (!entry?.provider || !entry?.model) return undefined
+  return {
+    provider: entry.provider,
+    model: entry.model,
+    ...(entry.reasoningEffort === undefined || entry.reasoningEffort === null || entry.reasoningEffort === ''
+      ? {}
+      : { reasoningEffort: String(entry.reasoningEffort) }),
+  }
+}
+
 function applyRoute(config, route) {
   const { reasoningEffort: _previousEffort, ...rest } = config
   return {
@@ -554,7 +566,8 @@ export function apply(ctx, config = {}) {
     }))
   }
 
-  function keepCurrent(agent, current, reason) {
+  /** 记录「保持当前模型」的原因，并原样返回候选配置。 */
+  function applyKeep(agent, current, reason) {
     rememberRoutingDetail(agent, { status: 'current', source: 'current', reason, durationMs: 0 })
     return current
   }
@@ -946,19 +959,6 @@ export function apply(ctx, config = {}) {
     )
   })
 
-  // Capture the delegated prompt before agent/request: the Host commits the
-  // current step's user message only after the request waterfall.
-  ctx.on('agent/pre-step', async ({ agent, turn, step }, next) => {
-    const decision = await next()
-    if (decision.kind !== 'enter') return decision
-    if (isSubagent(agent) && turn === 1 && step === 1
-      && agent?.options?.modelRole === undefined && !firstStepText.has(agent)) {
-      const text = promptTextOf(decision.messages)
-      if (text !== '') firstStepText.set(agent, text.slice(-6_000))
-    }
-    return decision
-  }, { prepend: true })
-
   ctx.on('session/event', (session, event) => {
     if (event?.type === 'subagent/descriptor' && typeof event.data?.label === 'string') {
       subagentLabels.set(session, event.data.label)
@@ -968,30 +968,60 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  // Prepending makes this router the outermost agent/request listener: it
-  // observes every other listener's result through next() and applies its
-  // profile last. It only touches delegated children.
-  ctx.on('agent/request', async ({ agent, signal }, next) => {
-    const current = await next()
+  // DSH 0.2.2 起 `agent/request` 已废弃，且宿主会在瀑布之后强校验模型一致性：
+  // 改了 provider/model/reasoningEffort 会直接抛错。因此子代理的路由改写移到
+  // 步骤准备期，通过 `agent.model.select()` 落地，agent/request 只负责记录结果。
+  ctx.on('agent/pre-step', async ({ agent, turn, step, signal, modelSelection }, next) => {
+    const decision = await next()
+    if (decision.kind !== 'enter') return decision
+    // 宿主只在请求瀑布之后才提交本步骤的用户消息，所以委派提示词要在这里抓取。
+    if (isSubagent(agent) && turn === 1 && step === 1
+      && agent?.options?.modelRole === undefined && !firstStepText.has(agent)) {
+      const text = promptTextOf(decision.messages)
+      if (text !== '') firstStepText.set(agent, text.slice(-6_000))
+    }
+
+    // 决定本步骤的模型：宿主会在 pre-step 返回后把 agent.model.current() 固定为本步骤选择，
+    // 之后再从 agent/request 改模型会触发宿主的强校验错误，所以必须在这里写入。
+    const current = routeCandidateOf(agent, modelSelection)
+    const routed = await routeChildRequest(agent, turn, current, signal)
+    if (routed !== current) applyChildRoute(agent, routed)
+    signal?.throwIfAborted?.()
+    return decision
+  }, { prepend: true })
+
+  /** 读取本步骤为子代理准备的路由候选（未经过步骤准备期时退回请求头/options）。 */
+  function routeCandidateOf(agent, modelSelection) {
+    const fromSelection = toRouteConfig(modelSelection)
+    if (fromSelection !== undefined) return fromSelection
+    const header = requestHeaderOf(agent)
+    const fromHeader = toRouteConfig(header?.config)
+    if (fromHeader !== undefined) return fromHeader
+    return toRouteConfig(agent?.options)
+  }
+
+  /** 决定子代理本回合要用的模型；返回与 `current` 相同的对象表示保持现状。 */
+  async function routeChildRequest(agent, turn, current, signal) {
+    if (current === undefined) return current
     if (!isSubagent(agent)) return current
     throwIfAborted(signal)
     rememberChildModel(agent, current)
     const cfg = routingConfig
-    if (agent?.options?.modelRole !== undefined) return keepCurrent(agent, current, 'internal-role')
-    if (planModeActive(agent?.session?.events)) return keepCurrent(agent, current, 'plan-mode')
-    if (!cfg.routing.enabled) return keepCurrent(agent, current, 'routing-disabled')
+    if (agent?.options?.modelRole !== undefined) return applyKeep(agent, current, 'internal-role')
+    if (planModeActive(agent?.session?.events)) return applyKeep(agent, current, 'plan-mode')
+    if (!cfg.routing.enabled) return applyKeep(agent, current, 'routing-disabled')
 
     // An adopted snapshot survives edits, disablement and removal of its profile.
     // Only the explicit global switch and the existing bypasses suspend replay.
     let cached = activeDecision(agent)
     if (cached === undefined) {
-      if (![...cfg.profiles.values()].some((profile) => profile.enabled)) return keepCurrent(agent, current, 'no-profiles')
-      if (requestHeaderOf(agent) !== undefined) return keepCurrent(agent, current, 'existing-request')
-      if (cfg.routing.respectExplicitChildModel && childHasExplicitRoute(agent)) return keepCurrent(agent, current, 'explicit-child-model')
+      if (![...cfg.profiles.values()].some((profile) => profile.enabled)) return applyKeep(agent, current, 'no-profiles')
+      if (requestHeaderOf(agent) !== undefined) return applyKeep(agent, current, 'existing-request')
+      if (cfg.routing.respectExplicitChildModel && childHasExplicitRoute(agent)) return applyKeep(agent, current, 'explicit-child-model')
       const label = labelOf(agent)
       const captured = firstStepText.get(agent)
       const text = typeof captured === 'string' && captured !== '' ? captured : taskTextOf(agent)
-      if ((label ?? '') === '' && (text ?? '') === '') return keepCurrent(agent, current, 'no-task')
+      if ((label ?? '') === '' && (text ?? '') === '') return applyKeep(agent, current, 'no-task')
       decisionFor(agent, cfg, label, text, signal)
       cached = taskDecisions.get(agent)
     }
@@ -1009,7 +1039,7 @@ export function apply(ctx, config = {}) {
           ruleAnalysis: decision.ruleAnalysis, durationMs: decision.durationMs,
         })
       }
-      return keepCurrent(agent, current, bypass)
+      return applyKeep(agent, current, bypass)
     }
     rememberRoutingDetail(agent, decision)
     if (decision.route === undefined) return current
@@ -1017,5 +1047,29 @@ export function apply(ctx, config = {}) {
     cached.applied = true
     rememberChildModel(agent, routed)
     return routed
+  }
+
+  /**
+   * 在步骤准备期写入下一次请求的模型选择。
+   * 宿主没有 agent.model 时（旧版本）退回追加 model/selection 事件。
+   */
+  function applyChildRoute(agent, routed) {
+    const selection = {
+      provider: routed.provider,
+      model: routed.model,
+      ...(routed.reasoningEffort === undefined ? {} : { reasoningEffort: routed.reasoningEffort }),
+    }
+    if (typeof agent?.model?.select === 'function') {
+      agent.model.select(selection)
+      return
+    }
+    agent?.session?.append?.('model/selection', selection)
+  }
+
+  // agent/request 只做记录：子代理实际使用的模型已经由步骤准备期决定。
+  ctx.on('agent/request', async ({ agent }, next) => {
+    const current = await next()
+    if (isSubagent(agent) && current?.provider && current?.model) rememberChildModel(agent, current)
+    return current
   }, { prepend: true })
 }

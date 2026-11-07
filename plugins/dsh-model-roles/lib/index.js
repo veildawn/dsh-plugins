@@ -46,12 +46,13 @@ import {
   resolveBaselineModel,
   resolveRoleTable,
   roleForAgent,
-  routeAgentRequest,
   routeForRole,
   sameModelSelection,
   sanitizeSandboxToolArgs,
   sanitizeToolSchema,
   taskTextOf,
+  selectionKey,
+  toRouteConfig,
   withoutImageBlocks,
 } from './core.js'
 
@@ -83,7 +84,6 @@ export {
   resolveBaselineModel,
   resolveRoleTable,
   roleForAgent,
-  routeAgentRequest,
   routeForRole,
   sameModelSelection,
   sanitizeSandboxToolArgs,
@@ -474,51 +474,147 @@ export function apply(ctx, config = {}) {
   let table = resolveRoleTable(settings)
   const reroutedAuxiliaryRequests = new WeakSet()
   const reviewedTurns = new WeakMap()
-  const classifiedTurns = new WeakMap()
   const visionFallbackTurns = new WeakMap()
-  const sessionBaselines = new WeakMap()
 
-  function resolveCurrentBaseline(agent) {
-    let baseline = sessionBaselines.get(agent.session)
-    if (baseline !== undefined) return baseline
-    const defaultSelection = ctx.get?.('agentDefaultModel')?.currentSelection?.()
-    baseline = resolveBaselineModel(agent, defaultSelection)
-    if (baseline?.provider && baseline?.model) {
-      sessionBaselines.set(agent.session, baseline)
+  // 会话当前是否停在角色路由后的模型上（回合结束/空闲时据此决定是否还原基准）
+  const routedSessions = new WeakSet()
+  // 每个回合的角色路由结果，供同一回合后续步骤复用，避免逐步重复分类
+  const turnRoutes = new WeakMap()
+  // 插件自身写入过的模型选择（provider/model），解析基准时不算作用户手动选择。
+  //
+  // 一个集合同时覆盖两种情形：
+  // - 写入进行中：宿主追加 model/selection 会立刻回调 session/event，那一刻也判定为插件写入；
+  // - 写入完成后：该选择仍留在集合里，避免被当成用户改选而污染基准。
+  //
+  // 已知边界：用户手动选回插件刚写入的同一个模型时，事件流上与插件写入逐字节相同、
+  // 无来源标记，无法与插件自身写入区分，因此按插件写入处理（回合结束还原基准，
+  // 下一条消息角色路由仍会路由回该模型）。详见 README「与 DSH 模型选择器的关系」。
+  const pluginRoutes = new WeakMap()
+
+  function pluginRouteKeys(session) {
+    if (session === undefined) return undefined
+    let keys = pluginRoutes.get(session)
+    if (keys === undefined) {
+      keys = new Set()
+      pluginRoutes.set(session, keys)
     }
-    return baseline
+    return keys
+  }
+
+  function selectionOf(agent) {
+    try {
+      const current = agent?.model?.current?.()
+      if (current?.provider && current?.model) return toRouteConfig(current)
+    } catch {
+      // 旧宿主没有 agent.model，退回请求头与 options
+    }
+    try {
+      const headerConfig = agent?.session?.requestHeader?.()?.config
+      const fromHeader = toRouteConfig(headerConfig)
+      if (fromHeader !== undefined) return fromHeader
+    } catch {
+      // 缺少 requestHeader 时继续降级
+    }
+    return toRouteConfig(agent?.options)
+  }
+
+  function sameRoute(left, right) {
+    if (left === undefined || right === undefined) return left === right
+    return sameModelSelection(left, right)
+  }
+
+  /**
+   * 写入下一次请求的模型选择（宿主据此追加 `model/selection` 记录）。
+   * 旧宿主没有 `agent.model` 时退回直接追加事件。
+   */
+  function selectModel(agent, selection) {
+    if (typeof agent?.model?.select === 'function') {
+      agent.model.select(selection)
+      return
+    }
+    try {
+      agent?.session?.append?.('model/selection', selection)
+    } catch (error) {
+      ctx.logger.warn?.('model-roles: 无法写入模型选择', error)
+    }
+  }
+
+  /** 判定一条选择是否来自插件自身（写入中或写入过）。 */
+  function isPluginSelection(session, selection) {
+    return pluginRoutes.get(session)?.has(selectionKey(selection)) === true
+  }
+
+  /** 写入一条选择，并把它登记为插件自身写入。 */
+  function applySelection(agent, selection) {
+    pluginRouteKeys(agent?.session).add(selectionKey(selection))
+    selectModel(agent, selection)
+  }
+
+  function selectBaselineIfNeeded(agent, trigger) {
+    const baseline = resolveBaselineModel(
+      agent,
+      ctx.get?.('agentDefaultModel')?.currentSelection?.(),
+      pluginRoutes.get(agent.session),
+    )
+    if (!baseline?.provider || !baseline?.model) return
+    if (sameRoute(selectionOf(agent), baseline)) return
+    applySelection(agent, {
+      provider: baseline.provider,
+      model: baseline.model,
+      ...(baseline.reasoningEffort ? { reasoningEffort: baseline.reasoningEffort } : {}),
+    })
+    routedSessions.delete(agent.session)
+    ctx.logger.info?.(`model-roles: 已在 ${trigger} 选择基准模型 ${baseline.provider}/${baseline.model}${baseline.reasoningEffort ? ` (${baseline.reasoningEffort})` : ''}`)
   }
 
   function restoreBaselineIfNeeded(agent, trigger = 'turn-stopping') {
     if (!isModelRolesActive(agent, table)) return
     if (isSubagent(agent)) return
+    if (!routedSessions.has(agent.session)) return
+    selectBaselineIfNeeded(agent, trigger)
+  }
 
-    const baseline = resolveCurrentBaseline(agent)
-    if (!baseline?.provider || !baseline?.model) return
+  /**
+   * 解析本步骤要使用的角色路由。计划、子代理、显式角色等确定性规则同步得出；
+   * 自动分类在回合首个步骤计算一次并缓存，后续步骤直接复用。
+   */
+  async function planRoleRoute(agent, turn, signal) {
+    if (!isModelRolesActive(agent, table)) return undefined
 
-    // 检查本会话当前实际生效/最后使用的请求头配置
-    const lastConfig = agent.session.requestHeader()?.config
-    if (!lastConfig || sameModelSelection(lastConfig, baseline)) return
-
-    try {
-      const selectionData = {
-        provider: baseline.provider,
-        model: baseline.model,
-        ...(baseline.reasoningEffort ? { reasoningEffort: baseline.reasoningEffort } : {}),
-        _restoredByModelRoles: true,
-      }
-      const controller = ctx.get?.('sessionController')
-      if (typeof controller?.agents?.selectForNextRequest === 'function') {
-        controller.agents.selectForNextRequest(agent, selectionData)
-      } else {
-        agent.session.append('model/selection', selectionData)
-      }
-      // 同步更新缓存，确保基准模型始终锁定
-      sessionBaselines.set(agent.session, baseline)
-      ctx.logger.info?.(`model-roles: 已在 ${trigger} 恢复为基准模型 ${baseline.provider}/${baseline.model}${baseline.reasoningEffort ? ` (${baseline.reasoningEffort})` : ''}`)
-    } catch (error) {
-      ctx.logger.warn?.(`model-roles: 在 ${trigger} 恢复基准模型失败`, error)
+    if (visionFallbackTurns.get(agent)?.has(turn)) {
+      return { role: 'vision', route: routeForRole(table, 'vision') }
     }
+    const deterministic = roleForAgent(agent, table)
+    if (deterministic !== 'default' || agent?.options?.modelRole === 'default') {
+      const route = routeForRole(table, deterministic)
+      if (route !== undefined) turnRoutes.set(agent, { turn, role: deterministic, route })
+      return { role: deterministic, route }
+    }
+
+    // 自动分类：同一回合只算一次，后续步骤复用已生效的路由
+    const cached = turnRoutes.get(agent)
+    if (cached !== undefined && cached.turn === turn && !cached.pending) {
+      return { role: cached.role, route: cached.route }
+    }
+    if (!table.has('tiny') && !table.has('smol')) return undefined
+    const pending = cached !== undefined && cached.turn === turn ? cached : undefined
+    const outcome = pending === undefined
+      ? classifyAutomaticRole(ctx, agent, table, signal).then(
+        (role) => ({ role }),
+        (error) => ({ role: 'default', error, cancelled: signal?.aborted === true }),
+      )
+      : pending.promise
+    if (pending === undefined) turnRoutes.set(agent, { turn, pending: true, promise: outcome })
+    const { role, error, cancelled } = await outcome
+    if (cancelled) throw error
+    if (error !== undefined) {
+      ctx.logger.warn?.('model-roles: automatic task classification failed; using the session model')
+      ctx.logger.warn?.(error)
+    }
+    const route = routeForRole(table, role)
+    if (role === 'default') turnRoutes.delete(agent)
+    else turnRoutes.set(agent, { turn, role, route })
+    return { role, route }
   }
 
   function resolveStandingMode(session) {
@@ -606,12 +702,43 @@ export function apply(ctx, config = {}) {
     },
   })
 
-  ctx.on('agent/pre-step', async ({ agent, turn, signal }, next) => {
-    const decision = await next()
-    if (decision.kind !== 'enter' || !table.has('vision')) return decision
-    if (agent?.options?.modelRole === 'vision') return decision
-    if (!isModelRolesActive(agent, table)) return decision
-    if (!decision.messages.some((message) => contentHasImage(message?.content))) return decision
+  // 步骤准备期：决定本步骤的角色路由并写入模型选择。
+  //
+  // 注意宿主 DSH 0.2.2-rc.1 的 preStep 是「先读取 selection 快照，再跑本瀑布」，
+  // 且本瀑布的返回类型只有 `{ kind: 'enter', messages }`（没有写入选择的通道），
+  // 所以这里 select 的选择对本步骤无效，只对「下一次读取 agent.model.current()」生效。
+  // 写入仍然有意义：它保证后一步骤拿到正确路由，并让基准模型/还原逻辑看到一致的记录。
+  // 未生效时宿主不会报错，因为下面的 agent/request 监听器从不改动模型。
+  ctx.on('agent/pre-step', async ({ agent, turn, signal, modelSelection }, next) => {
+    if (!isModelRolesActive(agent, table)) return next()
+
+    let planned
+    try {
+      planned = await planRoleRoute(agent, turn, signal)
+    } catch (error) {
+      if (signal?.aborted) throw error
+      ctx.logger.warn?.('model-roles: 步骤准备期解析角色路由失败；沿用当前模型')
+      ctx.logger.warn?.(error)
+      planned = undefined
+    }
+    signal?.throwIfAborted?.()
+
+    const current = toRouteConfig(modelSelection) ?? selectionOf(agent)
+    const target = toRouteConfig(planned?.route)
+    if (target !== undefined && !sameRoute(current, target)) {
+      applySelection(agent, target)
+      routedSessions.add(agent.session)
+    } else if (planned !== undefined && target === undefined) {
+      // 本回合自动分类判为 default：先回到基准，再按下方规则决定是否需要 vision 兜底
+      restoreBaselineIfNeeded(agent, 'step-preparation')
+    }
+
+    if (!table.has('vision')) return next()
+    if (agent?.options?.modelRole === 'vision') return next()
+
+    const step = await next()
+    if (step.kind !== 'enter') return step
+    if (!step.messages.some((message) => contentHasImage(message?.content))) return step
 
     let run
     try {
@@ -621,7 +748,7 @@ export function apply(ctx, config = {}) {
         signal,
         agentOptions: { modelRole: 'vision', maxTokens: 4096 },
         toolFilter: { allow: [] },
-        prompt: visionPrompt(decision.messages),
+        prompt: visionPrompt(step.messages),
       })
       const result = await run.result
       const analysis = advisorText(result.output)
@@ -630,7 +757,7 @@ export function apply(ctx, config = {}) {
       }
       return {
         kind: 'enter',
-        messages: appendAnalysisNotice(decision.messages, analysis),
+        messages: appendAnalysisNotice(step.messages, analysis),
       }
     } catch (error) {
       let turns = visionFallbackTurns.get(agent)
@@ -641,7 +768,7 @@ export function apply(ctx, config = {}) {
       turns.add(turn)
       ctx.logger.warn('model-roles: vision subagent failed; using vision model for this turn only')
       ctx.logger.warn(error)
-      return decision
+      return step
     } finally {
       await run?.dispose().catch((error) => {
         ctx.logger.warn('model-roles: vision subagent disposal failed')
@@ -650,35 +777,24 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  ctx.on('agent/request', async ({ agent, turn, signal }, next) => {
+  // DSH 0.2.2 起 agent/request 为 deprecated，且宿主会在其后强校验模型一致性。
+  // 本监听器因此只观察、不改模型：方案改动 provider/model 会直接抛
+  // `agent/request proposed ... after step preparation fixed ...` 并中断整回合。
+  // 模型只在上面的步骤准备期通过 agent.model.select() 写入。
+  ctx.on('agent/request', async ({ agent, turn }, next) => {
     const current = await next()
-    if (!isModelRolesActive(agent, table)) {
-      return current
+    if (!isModelRolesActive(agent, table)) return current
+    const planned = turnRoutes.get(agent)
+    const plannedRoute = planned !== undefined && planned.turn === turn ? toRouteConfig(planned.route) : undefined
+    const proposed = toRouteConfig(current)
+    if (proposed === undefined) return current
+    if (sameRoute(proposed, plannedRoute ?? selectionOf(agent))) return current
+    if (planned === undefined) {
+      // 没有经过步骤准备期的调用方：记下本次选择，下一次步骤准备时按它继续
+      applySelection(agent, proposed)
+      turnRoutes.set(agent, { turn, role: 'default', route: proposed })
     }
-
-    // 确保在回合开始处理任何路由前，精准锁定当前会话的基准模型
-    resolveCurrentBaseline(agent)
-
-    if (visionFallbackTurns.get(agent)?.has(turn)) {
-      return applyRoleRoute(current, routeForRole(table, 'vision'))
-    }
-    const deterministic = routeAgentRequest(agent, current, table)
-    if (deterministic.role !== 'default' || agent?.options?.modelRole === 'default') {
-      return deterministic.config
-    }
-
-    let cached = classifiedTurns.get(agent)
-    if (cached === undefined || cached.turn !== turn) {
-      const result = classifyAutomaticRole(ctx, agent, table, signal).catch((error) => {
-        ctx.logger.warn('model-roles: automatic task classification failed; using the session model')
-        ctx.logger.warn(error)
-        return 'default'
-      })
-      cached = { turn, result }
-      classifiedTurns.set(agent, cached)
-    }
-    const role = await cached.result
-    return applyRoleRoute(current, routeForRole(table, role))
+    return current
   })
 
   ctx.on('llm/stream', (options, next) => {
@@ -777,20 +893,13 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  // 3. 监听会话显式模型切换事件，如果用户在交互中主动修改了模型，更新基准模型
+  // 3. 用户手动切换模型（非插件写入的选择）后，清掉本回合的路由缓存，
+  // 避免旧路由继续生效。基准模型本身始终从会话日志推导，插件不写入任何标记事件。
   ctx.on('session/event', (session, event) => {
-    if (event?.type === 'model/selection' && event.data?.provider && event.data?.model) {
-      // 若该事件不是插件内部恢复发出的，则更新用户选定的基准模型
-      if (!event.data?._restoredByModelRoles) {
-        sessionBaselines.set(session, {
-          provider: event.data.provider,
-          model: event.data.model,
-          ...(event.data.reasoningEffort !== undefined && event.data.reasoningEffort !== null && event.data.reasoningEffort !== ''
-            ? { reasoningEffort: String(event.data.reasoningEffort) }
-            : {}),
-        })
-      }
-    }
+    if (event?.type !== 'model/selection') return
+    if (toRouteConfig(event.data) === undefined) return
+    if (isPluginSelection(session, event.data)) return
+    routedSessions.delete(session)
   })
 
   // 4. 自然结束点：若本回合因角色路由切换了模型，在回合即将结束且不再追加 steering 时恢复为基准模型

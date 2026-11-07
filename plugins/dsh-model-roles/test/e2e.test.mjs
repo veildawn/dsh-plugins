@@ -89,16 +89,67 @@ function createRuntime(roles, settingsSection = {}) {
   return { ctx, adapter }
 }
 
-async function requestThroughHarness(ctx, agent, { turn = 1, step = 1 } = {}) {
+/**
+ * 模拟用户在对话框里手动切换模型：直接追加 model/selection 并通知插件。
+ * 这里绕开 agent.model.select()，因为测试 agent 的该实现会先把选择登记成插件写入。
+ */
+function userSelect(session, selection) {
+  session.append('model/selection', selection)
+  return { type: 'model/selection', data: selection }
+}
+
+/**
+ * 给测试 agent 补上与宿主一致的 agent.model 接口：current() 读会话日志里
+ * pending/lastUsed 的选择，select() 追加 model/selection 事件。
+ */
+function attachModel(ctx, agent) {
+  const read = () => {
+    for (let index = agent.session.events.length - 1; index >= 0; index -= 1) {
+      const event = agent.session.events[index]
+      if (event?.type === 'request/header') return event.data?.header?.config
+      if (event?.type === 'model/selection') return event.data
+    }
+    return agent.options
+  }
+  agent.model = {
+    current: () => {
+      const value = read()
+      return value?.provider && value?.model ? { ...value } : undefined
+    },
+    select(selection) {
+      agent.session.append('model/selection', {
+        provider: selection.provider,
+        model: selection.model,
+        ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
+      })
+    },
+  }
+  return agent
+}
+
+/**
+ * Drive the real host sequence for one step: prepare the step (where role routing
+ * now selects the model), then run the request waterfall with that fixed
+ * selection. Mirrors dsh-agent-loop: agent/request may not change the route.
+ */
+async function requestThroughHarness(ctx, agent, { turn = 1, step = 1, messages = [] } = {}) {
+  if (agent.model === undefined) attachModel(ctx, agent)
+  const base = { provider: 'e2e', model: 'unrouted-model', reasoningEffort: 'high' }
+  const selection = { ...base, ...(agent.model?.current?.() ?? {}) }
+  const decision = await agentEvents(ctx, agent).waterfall('agent/pre-step', {
+    turn,
+    step,
+    signal: AbortSignal.timeout(5_000),
+    modelSelection: selection,
+    messages,
+  }, () => Promise.resolve({ kind: 'enter', messages }))
+  if (decision.kind !== 'enter') throw new Error(`pre-step rejected: ${decision.kind}`)
+  const fixed = { ...base, ...(agent.model?.current?.() ?? {}) }
   const config = await agentEvents(ctx, agent).waterfall('agent/request', {
     turn,
     step,
     signal: AbortSignal.timeout(5_000),
-  }, () => Promise.resolve({
-    provider: 'e2e',
-    model: 'unrouted-model',
-    reasoningEffort: 'high',
-  }))
+  }, () => Promise.resolve(fixed))
   const history = agent.session.deriveMessages()
   await collect(ctx.llm.stream({
     ...config,
@@ -602,6 +653,122 @@ test('sandbox guard also protects standard non-smart sessions and sanitizes prom
   assert.equal(pwshTool.parameters.properties.sandbox_permissions, undefined, 'must hide sandbox_permissions from prompt schema at top mode')
 })
 
+test('a user re-selecting the plugin-written model is treated as a plugin write; the role route reasserts on the next request', async () => {
+  // 已知边界（见 README「与 DSH 模型选择器的关系」）：用户手动选回插件刚写入的同一模型时，
+  // 宿主事件流上与插件写入逐字节相同、无来源标记，无法区分，按插件自身写入处理。
+  // 回合结束还原基准后，下一条消息的角色路由仍会路由回该模型，最终收敛到同一选择。
+  const { ctx } = createRuntime([
+    { role: 'slow', provider: 'e2e', model: 'slow-model' },
+    { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
+  ])
+  const session = ctx.sessions.create('plugin-route-revoke-session', {
+    meta: { agentPreset: 'model-roles' },
+  })
+  session.append('model/selection', { provider: 'e2e', model: 'default-model' })
+  const agent = attachModel(ctx, { id: session.id, session, options: { provider: 'e2e', model: 'default-model' }, ctx, inbox: { nextStep: [] } })
+
+  // 路由写入 slow-model（插件自身写入）
+  agent.options.modelRole = 'slow'
+  await requestThroughHarness(ctx, agent)
+  assert.equal(agent.model.current().model, 'slow-model')
+
+  // 用户此后又主动选了同一个 slow-model（宿主 UI 的切换动作）。
+  userSelect(session, { provider: 'e2e', model: 'slow-model' })
+
+  await agentEvents(ctx, agent).serial('agent/turn-stopping', {
+    agent, turn: 1, signal: AbortSignal.timeout(5_000),
+  })
+  assert.equal(agent.model.current().model, 'default-model', 'same-key reselection is indistinguishable from a plugin write, so the baseline is restored')
+
+  // 下一条消息：角色路由仍然生效，重新路由回 slow-model，与用户的选择收敛
+  await requestThroughHarness(ctx, agent, { turn: 2 })
+  assert.equal(agent.model.current().model, 'slow-model', 'the role route reasserts on the next request')
+})
+
+test('a model selection does not reach the step that is already prepared', async () => {
+  // 回归：宿主的 preStep 在瀑布之前就读定了 selection，之后不再重读。
+  // 因此 pre-step 内写入的选择只对「下一个请求」生效，无法改写本步骤已固定的模型。
+  const { ctx } = createRuntime([
+    { role: 'slow', provider: 'e2e', model: 'slow-model' },
+    { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
+  ])
+  const session = ctx.sessions.create('pre-step-snapshot-session', {
+    meta: { agentPreset: 'model-roles' },
+  })
+  session.append('model/selection', { provider: 'e2e', model: 'default-model' })
+  const agent = attachModel(ctx, { id: session.id, session, options: { provider: 'e2e', model: 'default-model' }, ctx })
+  agent.options.modelRole = 'slow'
+
+  // 宿主取快照
+  const captured = agent.model.current()
+  await agentEvents(ctx, agent).waterfall('agent/pre-step', {
+    agent, turn: 1, step: 1, signal: AbortSignal.timeout(5_000), modelSelection: captured,
+  }, () => Promise.resolve({ kind: 'enter', messages: [] }))
+
+  // 快照未被改写；新选择只影响之后才读取 current() 的一方
+  assert.equal({ ...captured }.model, 'default-model', 'the captured selection must stay untouched')
+  assert.equal(agent.model.current().model, 'slow-model', 'select() applies to the NEXT read only')
+})
+
+test('role routing selects the model during step preparation and never rewrites agent/request', async () => {
+  const { ctx, adapter } = createRuntime([
+    { role: 'slow', provider: 'e2e', model: 'slow-model' },
+    { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
+  ])
+  const session = ctx.sessions.create('pre-step-select-session', {
+    meta: { agentPreset: 'model-roles' },
+  })
+  session.append('model/selection', { provider: 'e2e', model: 'default-model' })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Resolve this architecture tradeoff with a rigorous analysis.' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  const agent = attachModel(ctx, { id: session.id, session, options: { provider: 'e2e', model: 'default-model' }, ctx })
+
+  // 宿主先取一次 selection（default-model），pre-step 期间插件完成分类并写入 slow-model
+  const selection = { provider: 'e2e', model: 'default-model', reasoningEffort: 'high', maxTokens: 64 }
+  const decision = await agentEvents(ctx, agent).waterfall('agent/pre-step', {
+    agent,
+    turn: 1,
+    step: 1,
+    signal: AbortSignal.timeout(5_000),
+    modelSelection: selection,
+  }, () => Promise.resolve({ kind: 'enter', messages: [] }))
+  assert.equal(decision.kind, 'enter')
+  assert.deepEqual(
+    { provider: agent.model.current().provider, model: agent.model.current().model },
+    { provider: 'e2e', model: 'slow-model' },
+    'pre-step must record the routed model before the host fixes the selection',
+  )
+
+  // 宿主随后以固定 selection 调用 agent/request，监听器只能原样放行
+  const fixed = { ...selection, provider: 'e2e', model: 'slow-model' }
+  const proposed = await agentEvents(ctx, agent).waterfall('agent/request', {
+    agent,
+    turn: 1,
+    step: 1,
+    signal: AbortSignal.timeout(5_000),
+  }, () => Promise.resolve(fixed))
+  assert.deepEqual(
+    { provider: proposed.provider, model: proposed.model, reasoningEffort: proposed.reasoningEffort, maxTokens: proposed.maxTokens },
+    { provider: 'e2e', model: 'slow-model', reasoningEffort: 'high', maxTokens: 64 },
+    'agent/request must return the fixed selection untouched',
+  )
+
+  // 同一回合的后续步骤复用分类结果，不重复调用分类器
+  const second = await agentEvents(ctx, agent).waterfall('agent/pre-step', {
+    agent,
+    turn: 1,
+    step: 2,
+    signal: AbortSignal.timeout(5_000),
+    modelSelection: fixed,
+  }, () => Promise.resolve({ kind: 'enter', messages: [] }))
+  assert.equal(second.kind, 'enter')
+  assert.equal(adapter.requests.filter((request) =>
+    request.system?.includes('Classify the user task into one model role')).length, 1)
+  assert.equal(agent.model.current().model, 'slow-model')
+})
+
 test('smart mode: restores default model selection after turn ends when a role was switched', async () => {
   const { ctx } = createRuntime([
     { role: 'slow', provider: 'e2e', model: 'slow-model' },
@@ -622,17 +789,11 @@ test('smart mode: restores default model selection after turn ends when a role w
     inbox: { nextStep: [] },
   }
 
-  // 1. 第一步：触发请求，由于是高难度任务，自动分类或角色指定为 slow
+  // 1. 第一步：准备期完成角色路由（显式指定 slow），宿主随后把 slow-model 固定为本步骤模型
+  attachModel(ctx, agent)
   agent.options.modelRole = 'slow'
-  const requestedConfig = await agentEvents(ctx, agent).waterfall('agent/request', {
-    agent,
-    turn: 1,
-    step: 1,
-    signal: AbortSignal.timeout(5_000),
-  }, () => Promise.resolve({
-    provider: 'e2e',
-    model: 'default-model',
-  }))
+  await requestThroughHarness(ctx, agent)
+  const requestedConfig = agent.model.current()
   assert.equal(requestedConfig.model, 'slow-model', 'turn request must be routed to slow-model')
 
   // 模拟请求被执行并持久化到 request/header
@@ -677,17 +838,10 @@ test('smart mode: restores default model and reasoning effort on abort/idle or s
   }
 
   // 模拟任务开始，角色路由切换为带 low 思考等级的 slow-model
+  attachModel(ctx, agent)
   agent.options.modelRole = 'slow'
-  const requestedConfig = await agentEvents(ctx, agent).waterfall('agent/request', {
-    agent,
-    turn: 1,
-    step: 1,
-    signal: AbortSignal.timeout(5_000),
-  }, () => Promise.resolve({
-    provider: 'e2e',
-    model: 'default-model',
-    reasoningEffort: 'high',
-  }))
+  await requestThroughHarness(ctx, agent)
+  const requestedConfig = agent.model.current()
   assert.equal(requestedConfig.model, 'slow-model')
   assert.equal(requestedConfig.reasoningEffort, 'low')
 
@@ -756,6 +910,7 @@ test('smart mode: restores user-selected model when changed mid-session', async 
   assert.equal(lastEvent.data.model, 'model-b')
   assert.equal(lastEvent.data.reasoningEffort, 'high')
 })
+
 
 
 

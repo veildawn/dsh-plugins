@@ -43,30 +43,48 @@ function createRuntime({ effort = 'high' } = {}) {
 
 function makeAgent(id, child) {
   let header
+  let selection
   const events = []
-  return {
+  const agent = {
     id, options: {},
     session: {
       id, events, header: child ? { origin: 'subagent', parentSession: 'main' } : {},
       requestHeader: () => header,
       deriveMessages: () => [],
+      append(type, data) {
+        if (type !== 'model/selection') return
+        selection = {
+          provider: data.provider,
+          model: data.model,
+          ...(data.reasoningEffort === undefined ? {} : { reasoningEffort: data.reasoningEffort }),
+        }
+      },
       commit(ctx, config) {
         header = { config }
+        selection = undefined
         const event = { type: 'request/header', data: { header } }
         events.push(event)
         ctx.emit('session/event', this, event)
       },
     },
+    // 与宿主 dsh-agent 的 AgentModel 一致：步骤准备期写入，读回下一次请求的选择
+    model: {
+      current: () => (selection === undefined ? undefined : { ...selection }),
+      select(value) { agent.session.append('model/selection', value) },
+    },
   }
+  return agent
 }
 
+/** 按宿主真实顺序跑一个步骤：pre-step 决定模型，随后以固定选择走 agent/request。 */
 async function propose(ctx, agent, text) {
-  await ctx.waterfall('agent/pre-step', { agent, turn: 1, step: 1 }, async () => ({
+  const base = { provider: 'memory', model: 'baseline', maxTokens: 256 }
+  const modelSelection = { ...base, ...(agent.model.current() ?? {}) }
+  await ctx.waterfall('agent/pre-step', { agent, turn: 1, step: 1, modelSelection }, async () => ({
     kind: 'enter', messages: [createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })],
   }))
-  return ctx.waterfall('agent/request', { agent, signal: new AbortController().signal }, async () => ({
-    provider: 'memory', model: 'baseline', maxTokens: 256,
-  }))
+  const fixed = { ...base, ...(agent.model.current() ?? {}) }
+  return ctx.waterfall('agent/request', { agent, signal: new AbortController().signal }, async () => fixed)
 }
 
 async function streamCommitted(ctx, agent, proposal) {
@@ -150,7 +168,11 @@ test('real capability rejection stays on baseline for every later request', asyn
 test('task routing composes with another real middleware without changing main sessions', async () => {
   const { ctx } = createRuntime()
   try {
-    ctx.on('agent/request', async (_input, next) => ({ ...await next(), model: 'other-router', reasoningEffort: 'low' }))
+    // 另一个中间件在步骤准备期改选模型：task-models 只对子代理按配置覆盖它
+    ctx.on('agent/pre-step', async ({ agent, modelSelection }, next) => {
+      agent.model.select({ provider: modelSelection.provider, model: 'other-router', reasoningEffort: 'low' })
+      return next()
+    })
     assert.equal((await propose(ctx, makeAgent('main', false), 'Review this diff')).model, 'other-router')
     const selected = await propose(ctx, makeAgent('child', true), 'Review this diff')
     assert.equal(selected.model, 'review-model')

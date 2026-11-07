@@ -279,35 +279,46 @@ export function toRouteConfig(entry) {
   }
 }
 
+/** 选择在确认集合中的键：provider/model。 */
+export function selectionKey(selection) {
+  const route = toRouteConfig(selection)
+  return route === undefined ? '' : `${route.provider}/${route.model}`
+}
+
 /**
  * 解析会话当前生效的基准选择模型（用户手动指定的首选模型和思考等级）。
  * 遵循严格防污染准则：
- * 1. 扫描 session.events 中显式的 'model/selection' 事件，
- *    优先查找用户手动选定的事件（排除内部自动还原事件 _restoredByModelRoles: true）
+ * 1. 扫描 session.events 中显式的 'model/selection' 事件，取用户最近一次的手动选择：
+ *    键在 `pluginSelections` 中的记录视为插件自己写的，跳过；
+ *    仅用于之后还原基准的 `_restoredByModelRoles` 事件同样跳过，但留作保底候选
  * 2. 匹配 session 中最初且未经污染的 'initial' 请求头（绝不取中间路由后的 'change' 请求头）
  * 3. 检查当前 session requestHeader（仅当其未经过任何路由修改或明确带有 initial 标记时）
  * 4. 全局 defaultModel（用户全局配置的首选模型与思考等级）
  * 5. agent 启动 options
  * 6. 若存在系统还原的 model/selection 事件，也可作为保底候选
+ *
+ * @param {object} agent - 会话 agent
+ * @param {object} [defaultModel] - 全局默认模型
+ * @param {Set<string>|string[]} [pluginSelections] - 插件自身写入过的选择，形如 `provider/model`；
+ *   这些记录按插件自身写入处理
  */
-export function resolveBaselineModel(agent, defaultModel) {
+export function resolveBaselineModel(agent, defaultModel, pluginSelections) {
   const events = agent?.session?.events ?? []
+  const written = pluginSelections instanceof Set ? pluginSelections : new Set(pluginSelections ?? [])
   let restoredFallback
 
-  // 1. 优先从后往前查找用户显式手动选定的 model/selection（非插件还原产生的事件）
+  // 1. 优先从后往前查找用户显式手动选定的 model/selection
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
-    if (event?.type === 'model/selection') {
-      const match = toRouteConfig(event.data)
-      if (match) {
-        if (!event.data?._restoredByModelRoles) {
-          return match
-        }
-        if (!restoredFallback) {
-          restoredFallback = match
-        }
-      }
+    if (event?.type !== 'model/selection') continue
+    const match = toRouteConfig(event.data)
+    if (!match) continue
+    if (event.data?._restoredByModelRoles) {
+      if (!restoredFallback) restoredFallback = match
+      continue
     }
+    if (written.has(selectionKey(match))) continue
+    return match
   }
 
   // 2. 匹配 session 中最初的 'initial' 请求头

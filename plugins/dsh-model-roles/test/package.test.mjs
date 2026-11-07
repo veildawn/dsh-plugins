@@ -369,7 +369,9 @@ test('host registers advisor control and delegates image requests before main ro
   assert.equal(starts[0].request.agentOptions.modelRole, 'vision')
   assert.equal(decision.messages.some((message) => contentHasImage(message.content)), true)
   assert.match(decision.messages.at(-1).content[0].text, /red banner/u)
-  assert.deepEqual(await requestListener({ agent: imageAgent }, async () => ({
+  // agent/request 在 DSH 0.2.2 起为 deprecated 且强校验模型一致性：
+  // 这里必须原样返回，不得改写 provider/model（模型切换只在步骤准备期通过 agent.model.select 完成）
+  assert.deepEqual(await requestListener({ agent: imageAgent, turn: 1 }, async () => ({
     provider: 'native', model: 'text', maxTokens: 100,
   })), {
     provider: 'native', model: 'text', maxTokens: 100,
