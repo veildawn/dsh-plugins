@@ -31,30 +31,6 @@ window.__ModuleLoader__.load({
     const h = react.createElement
 
     const SETTINGS_SLOT = 'settings.section'
-    /**
-     * 隐藏宿主设置导航里的默认图标，只留插件自绘的那一个。
-     *
-     * 外壳（0.2.x）的导航行是 `<button class="…_navCell"><span class="…_navIcon">
-     * {默认齿轮}</span><span class="…_navLabel">{label}</span></button>`：`span.navIcon`
-     * 永远渲染、首帧固定是默认齿轮，插件通过 `settings.section.icon` 注册的图形只会被
-     * **追加**在它后面（`inline` 列表槽位），于是每一行都成了「齿轮 + 自绘图标」。
-     *
-     * `.VOzbGW_navIcon{display:flex}` 的特异性只有 0,1,0，这里用 `!important` 压掉它。
-     * 类名取自外壳构建期固化的 CSS Module 映射（`VOzbGW_*`），第三段 `_navIcon`
-     * 兜底桌面版/新版宿主的哈希类名。**宿主大版本升级后需复核**。
-     */
-    const NAV_ICON_STYLE_ID = 'dsh-settings-nav-default-icon'
-    const NAV_ICON_CSS = ".VOzbGW_navCell .VOzbGW_navIcon,[data-shortcut-modal='settings'] [class*='_navCell'] [class*='_navIcon']{display:none!important}"
-
-    function hideDefaultNavIcon() {
-      if (typeof document === 'undefined' || !document.head) return
-      const existing = document.getElementById(NAV_ICON_STYLE_ID)
-      const style = existing || document.createElement('style')
-      style.id = NAV_ICON_STYLE_ID
-      if (style.textContent !== NAV_ICON_CSS) style.textContent = NAV_ICON_CSS
-      if (!existing) document.head.appendChild(style)
-    }
-
     // 设置导航图标的专用槽位：外壳负责图标容器与默认图标，插件只提供图形本身。
     const ICON_SLOT = 'settings.section.icon'
     const RPC_CHANNEL = '/dsh-theme-studio-settings'
@@ -1190,7 +1166,6 @@ select.ts-input option{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-al
     }
 
     function apply(ctx) {
-      hideDefaultNavIcon()
       ensureStyle(PANEL_CSS_ID, PANEL_CSS)
 
       const rpcCall = async (method, payload) => {
