@@ -9,7 +9,7 @@
 | 插件名称 | 目录 | 说明 | 最新独立版本 |
 | :--- | :--- | :--- | :--- |
 | **`dsh-plugin-manager`** | [`plugins/dsh-plugin-manager`](plugins/dsh-plugin-manager) | 插件管理中心与自有插件更新/卸载管理器（专属拼图图标、移动端全量响应式触控适配、自有插件一键批量更新(N)、支持配置 GitHub Token 提升 API 配额至 5000次/小时并提供 Atom feed 无感兜底、社区21分类、静默直接复制指令、剪贴板写入全路径兜底、异步平滑重启与自动恢复、桌面端宿主版本识别穿透 asar 归档、修复卸载插件时误用无 scope 短名导致 pnpm remove 报错、tarball 安装统一采用 pnpm alias 确保 scoped 命名、自动识别并一键清理新旧短名双份冲突、修复插件更新后因 name mismatch 导致的 cordis.patch.yml 配置被跳过丢失问题、新版本检查全面基于 npm registry 真实版本数据、自有插件目录新增中文标题与描述登记、已废弃插件仅允许卸载并在列表中标注、自有插件目录补登 dsh-repo-wiki 仓库知识库中文标题/描述与专属书本图标） | [`v0.3.62`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-plugin-manager@v0.3.62) |
-| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.36`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.36) |
+| **`dsh-model-roles`** | [`plugins/dsh-model-roles`](plugins/dsh-model-roles) | 模型角色路由、自动分工、识图子代理、计划模式与顾问复核 (`/advisor`、局域网访问放行、专属分支路由图标) | [`v0.4.37`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-model-roles@v0.4.37) |
 | **`dsh-remote-control`** | [`plugins/dsh-remote-control`](plugins/dsh-remote-control) | 通用 DSH 远程/局域网访问安全控制与特权通道插件（Token 密钥认证、密码锁屏门禁 Unlock Screen、特权 RPC 白名单桥接、HTTP 非安全上下文全局兼容、专属地球网络图标、桌面端/Web版局域网地址自识别与端口展示、卡片化设置面板与访问地址一键复制、修复启用远程访问开关点击后不生效、局域网绑定改用具体网卡 IP 以适配 DSH 0.2.x 拒绝通配地址、修复端口行标签与按钮文字被挤成两行） | [`v0.1.41`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-remote-control@v0.1.41) |
 | **`dsh-ai-proxy`** | [`plugins/dsh-ai-proxy`](plugins/dsh-ai-proxy) | AI Proxy Service 网关对接插件（协议层外包给宿主官方 llm-pi-ai 适配器并自动材料化路由、Chat/completions/Anthropic messages/Responses 三格式、最高推理强度开关、OAuth 2.0 PKCE 认证、令牌过期前主动轮换与阶梯推理映射、把网关 `/v1/models` 的 `modality`（text/image/decision）写入材料化路由供静态判断） | [`v0.3.24`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-ai-proxy@v0.3.24) |
 | **`dsh-mobile-adapter`** | [`plugins/dsh-mobile-adapter`](plugins/dsh-mobile-adapter) | DSH 移动端全量体验优化（原生图片/相册上传、工作区工具箱整合文件查看器/本地终端/提示词历史、移动端右侧栏避让与一键返回对话、对话框底部全操作按钮圆形统一规范、输入框下方统计行固定单行三列（槽位 row/nowrap、末位文字省略号、≤360px 再降级）并按实测高度动态收进卡片且不再依赖 `:has()`、视口高度自适应、Segmented Control Tabs、全量弹窗防溢出、输入区聚焦防整页放大、应用级浮层按宿主稳定属性压过移动端顶栏、宿主类名存活与去哈希兜底、设置页头部选择条左右贴边与顶栏无缝一体化融合、一键全屏（Fullscreen API 收起浏览器导航栏与底部工具栏，应用自身顶栏/标题栏/tabs 全部保留 + 100dvh 重铺 + 退出状态同步）、模型选择菜单滚动修复（容器保持 overflow:hidden 让内部滚动区接手）、顶栏收口为「☰ + 标题 + 操作下拉 + 全屏」（轨迹切换/新建工作区/右侧侧边栏收进下拉面板并按可用性动态显示，修复面板条目被误判为不可用而全部隐藏）） | [`v0.1.67`](https://github.com/veildawn/dsh-plugins/releases/tag/dsh-mobile-adapter@v0.1.67) |
@@ -128,7 +128,7 @@ pin 住的旧来源，不需要先卸载。
 ```jsonc
 {
   "@weniatall/dsh-terminal": "^0.1.17",
-  "@weniatall/dsh-model-roles": "^0.4.36"
+  "@weniatall/dsh-model-roles": "^0.4.37"
 }
 ```
 
