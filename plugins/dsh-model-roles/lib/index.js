@@ -544,9 +544,24 @@ export function apply(ctx, config = {}) {
     return pluginRoutes.get(session)?.has(selectionKey(selection)) === true
   }
 
-  /** 写入一条选择，并把它登记为插件自身写入。 */
+  /**
+   * 写入一条选择，并把它登记为插件自身写入。
+   *
+   * `_restoredByModelRoles` 是「这条记录由插件还原时写入」的持久标记，供
+   * `resolveBaselineModel` 跳过。会话事件是冻结的、宿主 `agent.model.select()`
+   * 又只写 provider/model/reasoningEffort，因此还原走 `session.append` 直接携带
+   * 该字段，而不是先 select 再回填。
+   */
   function applySelection(agent, selection) {
     pluginRouteKeys(agent?.session).add(selectionKey(selection))
+    if (selection?._restoredByModelRoles === true && typeof agent?.session?.append === 'function') {
+      try {
+        agent.session.append('model/selection', selection)
+        return
+      } catch (error) {
+        ctx.logger.warn?.('model-roles: 无法写入基准模型选择', error)
+      }
+    }
     selectModel(agent, selection)
   }
 
@@ -557,11 +572,18 @@ export function apply(ctx, config = {}) {
       pluginRoutes.get(agent.session),
     )
     if (!baseline?.provider || !baseline?.model) return
-    if (sameRoute(selectionOf(agent), baseline)) return
+    if (sameRoute(selectionOf(agent), baseline)) {
+      routedSessions.delete(agent.session)
+      return
+    }
+    // 带上 `_restoredByModelRoles` 标记：这是插件自己的还原写入，解析基准时
+    // 会被跳过。解析端一直在读这个标记，写入端此前漏写，导致旧日志里的还原记录
+    // 被当成用户选择，基准因此被固化成角色模型。
     applySelection(agent, {
       provider: baseline.provider,
       model: baseline.model,
       ...(baseline.reasoningEffort ? { reasoningEffort: baseline.reasoningEffort } : {}),
+      _restoredByModelRoles: true,
     })
     routedSessions.delete(agent.session)
     ctx.logger.info?.(`model-roles: 已在 ${trigger} 选择基准模型 ${baseline.provider}/${baseline.model}${baseline.reasoningEffort ? ` (${baseline.reasoningEffort})` : ''}`)

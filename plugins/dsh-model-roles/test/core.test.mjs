@@ -391,27 +391,30 @@ test('resolveBaselineModel resolves active baseline from events, header, options
 
   // sameModelSelection checks
   assert.equal(sameModelSelection({ provider: 'a', model: 'b' }, { provider: 'a', model: 'b' }), true)
-  assert.equal(sameModelSelection({ provider: 'a', model: 'b', reasoningEffort: 'low' }, { provider: 'a', model: 'b' }), false)
+  // 单边留空表示「继承已有思考等级」，不算改动（与宿主 select() 语义一致）
+  assert.equal(sameModelSelection({ provider: 'a', model: 'b', reasoningEffort: 'low' }, { provider: 'a', model: 'b' }), true)
+  // 双方都显式给出且不同，才是真的换档
+  assert.equal(sameModelSelection(
+    { provider: 'a', model: 'b', reasoningEffort: 'low' },
+    { provider: 'a', model: 'b', reasoningEffort: 'high' },
+  ), false)
   assert.equal(sameModelSelection({ provider: 'a', model: 'b' }, { provider: 'a', model: 'c' }), false)
 })
 
 test('baseline resolution ignores selections the router itself wrote', () => {
-  // 用户选了 default-model/smol-model，之后角色路由把选择改成 slow-model
+  // 用户选了 default-model，之后角色路由把选择改成 slow-model
   const agent = {
     session: {
       events: [
         { type: 'model/selection', data: { provider: 'e2e', model: 'default-model', reasoningEffort: 'high' } },
         { type: 'model/selection', data: { provider: 'e2e', model: 'slow-model' } },
-        { type: 'request/header', data: { reason: 'initial', header: { config: { provider: 'e2e', model: 'default-model' } } } },
+        { type: 'request/header', data: { reason: 'initial', header: { config: { provider: 'e2e', model: 'default-model', reasoningEffort: 'high' } } } },
       ],
     },
     options: { provider: 'e2e', model: 'default-model' },
   }
 
-  // 不传插件写入集合：仍把最新一条当成用户选择（旧行为）
-  assert.equal(resolveBaselineModel(agent).model, 'slow-model')
-
-  // 已被宿主请求头确认过的插件写入同样跳过
+  // 已被宿主请求头确认过的插件写入必须跳过，回到用户的初始选择
   assert.deepEqual(
     resolveBaselineModel(agent, undefined, new Set(['e2e/slow-model'])),
     { provider: 'e2e', model: 'default-model', reasoningEffort: 'high' },
@@ -423,6 +426,72 @@ test('baseline resolution ignores selections the router itself wrote', () => {
     resolveBaselineModel(agent, undefined, new Set(['e2e/slow-model'])).model,
     'default-model',
   )
+
+  // 已知边界：若一条插件路由写入既没有 `_restoredByModelRoles` 标记、其 provider/model
+  // 也不在排除集合里（例如跨版本残留的记录），它与用户手动选择逐字节相同，无从区分，
+  // 这里会落到最近一条。真正的防护是 initial 请求头在「没有用户后续改选」时优先，
+  // 详见下一条用例。
+  assert.equal(resolveBaselineModel(agent).model, 'slow-model')
+})
+
+test('the initial request header wins over leftover router writes', () => {
+  // 真实会话 cc9f04ff 的序列：initial 是用户选的 gemini，之后插件反复还原成 deepseek。
+  // 这些还原记录带 `_restoredByModelRoles`，必须被忽略，基准回到 initial。
+  const events = [
+    { type: 'request/header', data: { reason: 'initial', header: { config: { provider: 'ai-proxy', model: 'gemini-3.8-flash', reasoningEffort: 'low' } } } },
+    { type: 'model/selection', data: { provider: 'ai-proxy', model: 'deepseek-v4.1-flash', reasoningEffort: 'max', _restoredByModelRoles: true } },
+    { type: 'request/header', data: { reason: 'change', header: { config: { provider: 'ai-proxy', model: 'deepseek-v4.1-flash', reasoningEffort: 'max' } } } },
+    { type: 'request/header', data: { reason: 'change', header: { config: { provider: 'ai-proxy', model: 'grok-4.7', reasoningEffort: 'high' } } } },
+    { type: 'request/header', data: { reason: 'change', header: { config: { provider: 'ai-proxy', model: 'gemini-3.8-flash', reasoningEffort: 'low' } } } },
+    { type: 'model/selection', data: { provider: 'ai-proxy', model: 'deepseek-v4.1-flash', reasoningEffort: 'max', _restoredByModelRoles: true } },
+  ]
+  const agent = { session: { events }, options: { provider: 'ai-proxy', model: 'gemini-3.8-flash' } }
+  assert.deepEqual(resolveBaselineModel(agent), {
+    provider: 'ai-proxy',
+    model: 'gemini-3.8-flash',
+    reasoningEffort: 'low',
+  })
+})
+
+test('a manual model switch later in the session still outranks the initial header', () => {
+  // initial 是 model-a，用户后来手动改选 model-b
+  const agent = {
+    session: {
+      events: [
+        { type: 'request/header', data: { reason: 'initial', header: { config: { provider: 'e2e', model: 'model-a' } } } },
+        { type: 'model/selection', data: { provider: 'e2e', model: 'model-b', reasoningEffort: 'high' } },
+      ],
+    },
+    options: { provider: 'e2e', model: 'model-a' },
+  }
+  assert.deepEqual(resolveBaselineModel(agent), {
+    provider: 'e2e',
+    model: 'model-b',
+    reasoningEffort: 'high',
+  })
+
+  // 用户后来手动改回的就是 initial 模型本身，也应当被正确识别
+  const backToInitial = {
+    session: {
+      events: [
+        { type: 'request/header', data: { reason: 'initial', header: { config: { provider: 'e2e', model: 'model-a' } } } },
+        { type: 'model/selection', data: { provider: 'e2e', model: 'model-b' } },
+        { type: 'model/selection', data: { provider: 'e2e', model: 'model-a' } },
+      ],
+    },
+  }
+  assert.equal(resolveBaselineModel(backToInitial).model, 'model-a')
+
+  // 插件还原写入（带标记）不能被当成用户改选
+  const restoredOnly = {
+    session: {
+      events: [
+        { type: 'request/header', data: { reason: 'initial', header: { config: { provider: 'e2e', model: 'model-a' } } } },
+        { type: 'model/selection', data: { provider: 'e2e', model: 'slow-model', _restoredByModelRoles: true } },
+      ],
+    },
+  }
+  assert.equal(resolveBaselineModel(restoredOnly).model, 'model-a')
 })
 
 // ── live (volatile) config plumbing ────────────────────────────────────────

@@ -257,15 +257,19 @@ export function isSubagent(agent) {
 
 /**
  * 判断两个模型配置是否等价（provider、model 及 reasoningEffort）。
+ *
+ * 思考等级只在一方显式给出、另一方留空时视为「继承」，按等价处理：宿主
+ * `AgentModel.select()` 对同一 provider/model 会沿用已有的思考等级，空值意味着
+ * 「不改变」。若把这种情形判为不等，插件会在每个回合都把同一条选择重写一遍。
  */
 export function sameModelSelection(left, right) {
   if (left === right) return true
   if (!left || !right) return false
+  if (left.provider !== right.provider || left.model !== right.model) return false
   const leftEffort = left.reasoningEffort ?? ''
   const rightEffort = right.reasoningEffort ?? ''
-  return left.provider === right.provider
-    && left.model === right.model
-    && String(leftEffort) === String(rightEffort)
+  if (leftEffort === '' || rightEffort === '') return true
+  return String(leftEffort) === String(rightEffort)
 }
 
 export function toRouteConfig(entry) {
@@ -287,15 +291,23 @@ export function selectionKey(selection) {
 
 /**
  * 解析会话当前生效的基准选择模型（用户手动指定的首选模型和思考等级）。
- * 遵循严格防污染准则：
- * 1. 扫描 session.events 中显式的 'model/selection' 事件，取用户最近一次的手动选择：
- *    键在 `pluginSelections` 中的记录视为插件自己写的，跳过；
- *    仅用于之后还原基准的 `_restoredByModelRoles` 事件同样跳过，但留作保底候选
- * 2. 匹配 session 中最初且未经污染的 'initial' 请求头（绝不取中间路由后的 'change' 请求头）
- * 3. 检查当前 session requestHeader（仅当其未经过任何路由修改或明确带有 initial 标记时）
- * 4. 全局 defaultModel（用户全局配置的首选模型与思考等级）
+ *
+ * 防污染的关键是「先取最干净的事实，再让用户的后续改选覆盖它」：
+ * 1. 会话最初的 'initial' 请求头——宿主在第一条请求时写入，插件此时尚未路由，
+ *    因此它一定是用户当时的真实选择。绝不取路由后的 'change' 请求头。
+ * 2. 如果之后用户在会话中又手动改选了模型，则以其最近一次手动选择覆盖第 1 步。
+ *    这里必须排除插件自身的写入：`_restoredByModelRoles` 标记的选择、以及键在
+ *    `pluginSelections` 中的记录。注意 'restored' 与 '改写回用户模型' 是两回事，
+ *    后者会带上用户所选模型的 provider/model，因此不会被误排除。
+ * 3. 当前 session requestHeader（仅当未经过路由修改或明确标记为 initial）
+ * 4. 全局 defaultModel
  * 5. agent 启动 options
- * 6. 若存在系统还原的 model/selection 事件，也可作为保底候选
+ * 6. 之前还原过的选择兜底
+ *
+ * 历史教训：早期版本把「倒序扫描 model/selection」放在最前，插件写入又按
+ * `provider/model` 键排除。同一角色模型跨回合反复写入时，残留记录无法与用户
+ * 选择区分，一旦命中就直接返回，永远走不到 initial 请求头，基准被固化成角色模型
+ * （用户选 A、路由到 B 之后，回合结束总把模型"还原"成 B）。
  *
  * @param {object} agent - 会话 agent
  * @param {object} [defaultModel] - 全局默认模型
@@ -305,29 +317,33 @@ export function selectionKey(selection) {
 export function resolveBaselineModel(agent, defaultModel, pluginSelections) {
   const events = agent?.session?.events ?? []
   const written = pluginSelections instanceof Set ? pluginSelections : new Set(pluginSelections ?? [])
-  let restoredFallback
 
-  // 1. 优先从后往前查找用户显式手动选定的 model/selection
+  // 1. 用户最初的显式选择：第一条请求头（此时尚未发生任何角色路由）
+  let initialSelection
+  for (const event of events) {
+    if (event?.type !== 'request/header' || event.data?.reason !== 'initial') continue
+    initialSelection = toRouteConfig(event.data.header?.config)
+    break
+  }
+
+  // 2. 用户在会话中途手动改选过的模型，后来者优先（排除插件自身写入）
+  let userOverride
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (event?.type !== 'model/selection') continue
+    if (event.data?._restoredByModelRoles) continue
     const match = toRouteConfig(event.data)
     if (!match) continue
-    if (event.data?._restoredByModelRoles) {
-      if (!restoredFallback) restoredFallback = match
-      continue
-    }
     if (written.has(selectionKey(match))) continue
-    return match
+    userOverride = match
+    break
   }
 
-  // 2. 匹配 session 中最初的 'initial' 请求头
-  for (const event of events) {
-    if (event?.type === 'request/header' && event.data?.reason === 'initial') {
-      const match = toRouteConfig(event.data.header?.config)
-      if (match) return match
-    }
+  if (userOverride !== undefined && initialSelection !== undefined) {
+    return sameModelSelection(userOverride, initialSelection) ? initialSelection : userOverride
   }
+  if (userOverride !== undefined) return userOverride
+  if (initialSelection !== undefined) return initialSelection
 
   // 3. 检查当前 session requestHeader（若没有任何修改记录或为 initial 状态）
   const directHeader = agent?.session?.requestHeader?.()
@@ -348,8 +364,13 @@ export function resolveBaselineModel(agent, defaultModel, pluginSelections) {
     return optionMatch
   }
 
-  // 6. 若之前有还原过的有效配置，则采用
-  if (restoredFallback) return restoredFallback
+  // 6. 若之前有还原过的有效配置，则采用（历史还原记录里最近的一次）
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event?.type !== 'model/selection' || !event.data?._restoredByModelRoles) continue
+    const match = toRouteConfig(event.data)
+    if (match) return match
+  }
 
   return undefined
 }
