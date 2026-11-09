@@ -90,7 +90,14 @@ async function loadDom() {
  * and the primitives package is stubbed: `ReadBlock` and friends are the host's
  * renderers, not this plugin's logic.
  */
-function loadBundle() {
+function loadBundle(options = {}) {
+  // A clipboard sink and a ReadBlock that keeps the host's DOM contract, both
+  // opt-in so the older tests see exactly the fixture they always saw.
+  //
+  // The stub copies `lines` the way the real banner does. That is what makes an
+  // interception observable: if the capture handler fails to stop the event, the
+  // stub's own onClick runs and overwrites the clipboard with the window again.
+  const sink = options.clipboard ?? { text: '', writes: 0, write() { return Promise.resolve(true) } }
   const React = require('react')
   const source = readFileSync(root + 'lib/client.js', 'utf8')
   let definition
@@ -104,10 +111,27 @@ function loadBundle() {
   }
   const Placeholder = (props) => React.createElement('div', { 'data-stub': 'block' },
     props && Array.isArray(props.lines) ? props.lines.join('\n') : '')
+  // Mirrors the host's ReadBlock banner closely enough to be clickable: the same
+  // `data-read` root, the same `data-code-block-banner`, and a copy button whose
+  // aria-label comes from `labels` exactly as the real one does.
+  const ReadBlockStub = (props) => {
+    const lines = props && Array.isArray(props.lines) ? props.lines : []
+    const text = lines.map((line) => (line !== null && typeof line === 'object' ? line.text : line)).join('\n')
+    const copyLabel = (props && props.labels && props.labels.copy) || '复制'
+    return React.createElement('div', { 'data-read': '', 'data-stub': 'readblock' },
+      React.createElement('div', { 'data-code-block-banner': '' },
+        React.createElement('button', {
+          type: 'button',
+          'aria-label': copyLabel,
+          onClick: () => { sink.write(text) },
+        }, copyLabel)),
+      React.createElement('pre', null, text))
+  }
   const primitives = new Proxy({}, {
     get: (_target, key) => {
-      if (key === 'writeClipboard') return () => Promise.resolve(true)
-      if (key === 'ReadBlock' || key === 'MarkdownText' || key === 'JsonTree' || key === 'DiffBlock') return Placeholder
+      if (key === 'writeClipboard') return (text) => sink.write(text)
+      if (key === 'ReadBlock') return options.readBlockStub === true ? ReadBlockStub : Placeholder
+      if (key === 'MarkdownText' || key === 'JsonTree' || key === 'DiffBlock') return Placeholder
       return null
     },
   })
@@ -152,7 +176,7 @@ function loadBundle() {
  * is what the tab ↔ tree link needs: a highlight can only be observed on a row
  * that actually exists.
  */
-function createHost({ filePath = 'src/a.ts', rootId = '/ws', listings = null, reveal = 'src' } = {}) {
+function createHost({ filePath = 'src/a.ts', rootId = '/ws', listings = null, reveal = 'src', read = null } = {}) {
   const calls = []
   const registrations = []
   // Default: one flat directory, which is all the older tests need.
@@ -212,6 +236,13 @@ function createHost({ filePath = 'src/a.ts', rootId = '/ws', listings = null, re
               }
             }
             if (method === 'read') {
+              // A `read` hook lets a test answer with a paged window and a whole
+              // document for the same file, which is the shape the copy fix has
+              // to tell apart.
+              if (typeof read === 'function') {
+                const supplied = read(payload)
+                if (supplied !== null && supplied !== undefined) return { ok: true, value: supplied }
+              }
               return {
                 ok: true,
                 value: {
@@ -524,15 +555,16 @@ test('a drawer that is merely hidden keeps its tabs when reopened', async () => 
  * -------------------------------------------------------------------------- */
 
 /** Mount the overlay on a two-level tree and hand back the driver. */
-async function mountTree() {
+async function mountTree(options = {}) {
   await loadDom()
   const React = require('react')
   const { createRoot } = require('react-dom/client')
-  const bundle = loadBundle()
+  const bundle = loadBundle(options.bundle ?? {})
   const host = createHost({
     filePath: 'src/lib/a.ts',
     reveal: '',
     listings: { '': ['src'], src: ['lib'], 'src/lib': ['a.ts', 'b.ts'] },
+    ...(options.host ?? {}),
   })
   bundle.apply(host.ctx)
   const overlay = host.registrations.find((row) => row.spec.name === 'shell.overlay')
@@ -869,5 +901,117 @@ test('the sidebar state survives a revisit, in both directions', async () => {
       await tree.cleanup()
       globalThis.localStorage.clear()
     }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Copying from a paged source view
+//
+// ReadBlock owns that button and copies whatever `lines` it was handed, so past
+// one window 「复制」 meant "copy this page". The fix intercepts the click in the
+// capture phase and answers from a whole-document read. These tests drive the
+// real click against a stub that keeps the host's DOM contract — and, crucially,
+// still copies its own window on click, so a failed interception shows up as the
+// page overwriting the file on the clipboard.
+// ---------------------------------------------------------------------------
+
+const FULL_ROWS = Array.from({ length: 1200 }, (_, index) => `const line${index + 1} = ${index + 1}`)
+const FIRST_WINDOW = FULL_ROWS.slice(0, 500)
+
+/** Numbered rows, the shape the host's `read` answers with. */
+function rowsOf(lines) {
+  return lines.map((text, index) => ({ number: index + 1, text }))
+}
+
+test('复制 on a paged file copies the whole file, not the page on screen', async () => {
+  const clipboard = { text: '', writes: 0, write(value) { this.text = value; this.writes += 1; return Promise.resolve(true) } }
+  const wholeText = FULL_ROWS.join('\n')
+  const pageText = FIRST_WINDOW.join('\n')
+  const reads = []
+
+  const tree = await mountTree({
+    bundle: { clipboard, readBlockStub: true },
+    host: {
+      read: (payload) => {
+        reads.push({ ...payload })
+        if (payload.whole === true) {
+          return {
+            path: payload.path, name: 'a.ts', kind: 'text', lang: 'ts',
+            totalLines: FULL_ROWS.length, offset: 1, end: FULL_ROWS.length,
+            hasBefore: false, hasAfter: false,
+            lines: rowsOf(FULL_ROWS), text: wholeText,
+          }
+        }
+        return {
+          path: payload.path, name: 'a.ts', kind: 'text', lang: 'ts',
+          totalLines: FULL_ROWS.length, offset: 1, end: FIRST_WINDOW.length,
+          hasBefore: false, hasAfter: true,
+          lines: rowsOf(FIRST_WINDOW),
+        }
+      },
+    },
+  })
+
+  try {
+    await tree.open('src/lib/a.ts')
+    const button = tree.container.querySelector('.fv-content [data-read] [data-code-block-banner] button')
+    assert(button, 'the source view must render the block banner')
+    assert.equal(button.getAttribute('aria-label'), '复制', 'precondition: this is the copy button')
+
+    await tree.React.act(async () => {
+      button.dispatchEvent(new globalThis.window.MouseEvent('click', { bubbles: true }))
+      await sleep(200)
+    })
+
+    assert.equal(clipboard.writes, 1, 'exactly one write: the file, with the host handler stopped')
+    assert.equal(clipboard.text, wholeText, 'the clipboard must hold the whole file')
+    assert.notEqual(clipboard.text, pageText, 'and never the 500 rows that happened to be on screen')
+    assert.ok(reads.some((payload) => payload.whole === true), 'the whole document has to be read for this')
+  } finally {
+    await tree.cleanup()
+  }
+})
+
+test('复制 on a file that fits one window keeps the host path', async () => {
+  // A single window IS the file, so intercepting would be a pointless second
+  // read and would lose the host's own tick for no gain.
+  const clipboard = { text: '', writes: 0, write(value) { this.text = value; this.writes += 1; return Promise.resolve(true) } }
+  const lines = ['const a = 1', 'const b = 2']
+  const reads = []
+
+  const tree = await mountTree({
+    bundle: { clipboard, readBlockStub: true },
+    host: {
+      read: (payload) => {
+        reads.push({ ...payload })
+        return {
+          path: payload.path, name: 'a.ts', kind: 'text', lang: 'ts',
+          totalLines: lines.length, offset: 1, end: lines.length,
+          hasBefore: false, hasAfter: false,
+          lines: rowsOf(lines), text: lines.join('\n'),
+        }
+      },
+    },
+  })
+
+  try {
+    await tree.open('src/lib/a.ts')
+    const button = tree.container.querySelector('.fv-content [data-read] [data-code-block-banner] button')
+    assert(button, 'the source view must render the block banner')
+
+    await tree.React.act(async () => {
+      button.dispatchEvent(new globalThis.window.MouseEvent('click', { bubbles: true }))
+      await sleep(200)
+    })
+
+    assert.equal(clipboard.writes, 1)
+    assert.equal(clipboard.text, lines.join('\n'))
+    assert.equal(
+      reads.filter((payload) => payload.whole === true).length,
+      0,
+      'an unpaged file must not trigger a whole-document read',
+    )
+  } finally {
+    await tree.cleanup()
   }
 })

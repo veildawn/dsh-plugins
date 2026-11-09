@@ -692,11 +692,16 @@ export async function readText(ctx, options, payload, signal) {
     // half a table or a truncated object — so they ship complete regardless of
     // paging, up to a budget past which the client keeps the paged source view.
     //
-    // `whole: true` lifts that budget for a caller that genuinely needs every
-    // byte: running an HTML page on half a document is not a slower preview, it
-    // is a different and broken page. The ceiling that still applies is
-    // MAX_TEXT_BYTES, enforced above for every text read.
-    ...(isWholeDocumentKind(fileKind) && (payload?.whole === true || text.length <= MAX_PREVIEW_BYTES)
+    // `whole: true` lifts both the kind filter and the budget for a caller that
+    // genuinely needs every byte, and it is asked of every kind, not just the
+    // rendered ones:
+    //   - running an HTML page on half a document is a broken page, not a
+    //     slower preview;
+    //   - "copy the file" from a paged source view has to mean the file, not
+    //     the 500 lines that happen to be on screen, and a `.ts` file is
+    //     paged exactly like Markdown.
+    // The only ceiling is MAX_TEXT_BYTES, enforced above for every text read.
+    ...(payload?.whole === true || (isWholeDocumentKind(fileKind) && text.length <= MAX_PREVIEW_BYTES)
       ? { text }
       : {}),
   }
@@ -1912,7 +1917,12 @@ export async function readGitCommitFile(ctx, options, payload, signal) {
     hasBefore: window.hasBefore,
     hasAfter: window.hasAfter,
     lines: windowRows(lines, window),
-    ...(isWholeDocumentKind(fileKind) && text.length <= MAX_PREVIEW_BYTES ? { text } : {}),
+    // Same contract as readText: a paged historical file must still be copyable
+    // in full, and a reader who asks for `whole` on it is asking for exactly
+    // that. The blob was already read whole above, so this costs no extra IO.
+    ...(payload?.whole === true || (isWholeDocumentKind(fileKind) && text.length <= MAX_PREVIEW_BYTES)
+      ? { text }
+      : {}),
   }
 }
 

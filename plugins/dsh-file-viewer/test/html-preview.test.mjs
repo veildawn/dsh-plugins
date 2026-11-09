@@ -97,7 +97,18 @@ test('the source view pages instead of loading the whole document', () => {
   assert.ok(clientSource.includes('request("read", { root, path: meta.path, offset: nextOffset, limit: WINDOW_LINES })'))
   // Paged windows carry absolute line numbers, so the footer has to say which
   // lines are on screen rather than "1..500" every time.
-  assert.ok(clientSource.includes('"第 " + window.offset + "–" + window.end + " 行 / 共 " + window.totalLines + " 行"'))
+  //
+  // It reads `dataWindow`, NOT `window`: the window of rows was briefly named
+  // `window`, which shadowed the global and made this footer print
+  // "第 undefined–undefined 行 / 共 undefined 行". This assertion used to spell
+  // out the shadowed form, so it was pinning the bug in place.
+  assert.ok(clientSource.includes('"第 " + dataWindow.offset + "–" + dataWindow.end + " 行 / 共 " + dataWindow.totalLines + " 行"'),
+    'the footer names the window of rows, never the global window')
+  assert.equal(
+    /window\??\.(offset|totalLines|hasBefore|hasAfter)\b/.test(clientSource),
+    false,
+    'no field of the paged window may be read off the global `window`',
+  )
 })
 
 test('running a page reads the whole file, never a window', () => {

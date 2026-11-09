@@ -620,7 +620,7 @@ window.__ModuleLoader__.load({
          行高与目录行一致，切换计划时视觉上不会跳动。 */
       .fv-plan-row{box-sizing:border-box;display:flex;align-items:center;gap:6px;width:100%;min-width:0;padding:5px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
       .fv-plan-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
-      .fv-plan-row[data-active="true"]{background:var(--dsw-alias-interactive-bg-selected,var(--dsw-alias-interactive-bg-hover))}
+      .fv-plan-row[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover)}
       .fv-plan-row-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .fv-main{display:flex;flex:1 1 auto;flex-direction:column;min-width:0;min-height:0}
       /* 主内容区的多标签栏：一行横向滚动，每个标签是一个带关闭按钮的按钮组。
@@ -781,10 +781,10 @@ window.__ModuleLoader__.load({
          two, and a loading notice that appears for 16ms is a flash, not feedback.
          150ms is under the point where a wait starts to feel like one, and past
          the point where a quick page is done. */
-      .fv-html-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#fff;color:#5b6472;font:var(--dsw-font-xs-13);opacity:0;animation:fv-fade-in .12s ease-out .15s forwards}
+      .fv-html-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#fff;color:#5b6472;font-size:13px;opacity:0;animation:fv-fade-in .12s ease-out .15s forwards}
       @keyframes fv-fade-in{to{opacity:1}}
       .fv-html-spinner{width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;color:var(--dsw-alias-brand-primary,#4d6bfe);animation:fv-spin .7s linear infinite}
-      .fv-html-loading-hint{font:var(--dsw-font-xxxs-11);color:#98a2b3}
+      .fv-html-loading-hint{font-size:11px;color:#98a2b3}
       /* No motion, no delay: the notice still has to appear, so it simply shows
          at once and the spinner stops turning. */
       @media(prefers-reduced-motion:reduce){
@@ -794,32 +794,32 @@ window.__ModuleLoader__.load({
       .fv-html-frame{flex:1 1 auto;width:100%;min-height:0;border:0;background:#fff;display:block}
       /* The sandbox is a capability limit the reader should know about, not a
          warning: muted, small, and out of the way under the page. */
-      .fv-html-note{flex:none;padding:4px 12px;font:var(--dsw-font-xxxs-11);color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l1)}
+      .fv-html-note{flex:none;padding:4px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l1)}
       /* A page is white in every theme — it brings its own colours and would
          otherwise be dark ink on a dark drawer. */
       .fv-html-shell{background:#fff}
       .fv-html-modes{display:inline-flex;flex:none;gap:2px;padding:2px;border-radius:8px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1))}
-      .fv-html-mode{height:24px;padding:0 10px;border:none;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xs-13);cursor:pointer}
+      .fv-html-mode{height:24px;padding:0 10px;border:none;border-radius:6px;background:none;color:var(--dsw-alias-label-secondary);font-size:13px;cursor:pointer}
       .fv-html-mode:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
       .fv-html-mode[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-interactive-bg-hover));color:var(--dsw-alias-label-primary);font-weight:600}
       .fv-html-mode:disabled{cursor:default;opacity:.5}
       /* The record control states its own status with a dot that is hollow when
          idle and filled while filming; with the elapsed clock next to it, the
          reader can tell at a glance whether a capture is running. */
-      .fv-record-button{display:inline-flex;flex:none;align-items:center;gap:6px;height:24px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:none;color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer;font-variant-numeric:tabular-nums}
+      .fv-record-button{display:inline-flex;flex:none;align-items:center;gap:6px;height:24px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:none;color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer;font-variant-numeric:tabular-nums}
       .fv-record-button:hover{border-color:var(--dsw-alias-state-error-primary,#e5484d);color:var(--dsw-alias-state-error-primary,#e5484d)}
       .fv-record-dot{width:8px;height:8px;flex:none;border-radius:50%;border:1.5px solid currentColor}
       /* A native select on purpose: it is a one-off choice with two or three
          options, and a custom menu would cost keyboard and screen-reader support
          for no gain. Sized to sit quietly next to the record button. */
-      .fv-record-format{height:24px;max-width:132px;flex:none;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12);cursor:pointer}
+      .fv-record-format{height:24px;max-width:132px;flex:none;padding:0 4px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-secondary);font-size:12px;cursor:pointer}
       .fv-record-format:hover{border-color:var(--dsw-alias-state-error-primary,#e5484d);color:var(--dsw-alias-label-primary)}
       .fv-record-format:focus-visible{outline:1px solid var(--dsw-alias-state-business-primary,#4d6bfe);outline-offset:1px}
       /* The GIF encode bar sits over the page because the page is finished
          recording but not yet written; it is the only thing still happening. */
-      .fv-gif-stage{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:18px;background:rgba(20,22,26,.86);color:#f2f4f8;font:var(--dsw-font-xxs-12);box-shadow:0 4px 16px rgba(0,0,0,.28);pointer-events:none;z-index:3}
+      .fv-gif-stage{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:18px;background:rgba(20,22,26,.86);color:#f2f4f8;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.28);pointer-events:none;z-index:3}
       .fv-gif-stage .fv-html-spinner{width:14px;height:14px;border-width:2px;color:#f2f4f8}
-      .fv-download-banner{position:absolute;left:50%;bottom:32px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px 16px;border-radius:24px;background:var(--dsw-alias-bg-layer-2,rgba(26,29,36,.96));color:var(--dsw-alias-label-primary,#f2f4f8);font:var(--dsw-font-xs-13);box-shadow:0 8px 24px rgba(0,0,0,.36);border:1px solid var(--dsw-alias-border-l2);z-index:10;max-width:92%}
+      .fv-download-banner{position:absolute;left:50%;bottom:32px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px 16px;border-radius:24px;background:var(--dsw-alias-bg-layer-2,rgba(26,29,36,.96));color:var(--dsw-alias-label-primary,#f2f4f8);font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.36);border:1px solid var(--dsw-alias-border-l2);z-index:10;max-width:92%}
       .fv-download-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .fv-btn-download-action{height:28px!important;padding:0 12px!important;background:var(--dsw-alias-brand-primary,#4d6bfe)!important;color:#fff!important;border:none!important;font-weight:500!important;border-radius:14px!important;flex:none}
       .fv-btn-close-banner{color:var(--dsw-alias-label-tertiary);width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;background:none;border:none;font-size:16px;flex:none}
@@ -5357,9 +5357,74 @@ window.__ModuleLoader__.load({
         // share, so this is what stops a second press opening a second picker.
         const recordPendingRef = react.useRef(false);
         const stageRef = react.useRef(null);
+        // The source pane, so the copy button inside it can be intercepted —
+        // see the effect at the end of this block.
+        const sourceRef = react.useRef(null);
+        const copyWholeBusyRef = react.useRef(false);
         // Flips on unmount so a late `onstop` cannot trigger a download from a
         // view that is already gone.
         const aliveRef = react.useRef(true);
+
+        /**
+         * Copy the whole page, not the window the source view is showing.
+         *
+         * The host's ReadBlock copies the `lines` it was handed, which past one
+         * window is a page of an HTML file — and a reader pressing 「复制」 on a
+         * 3000-line page means the page. `fullText` is reused when the preview
+         * has already pulled it in; otherwise the same `whole` read the preview
+         * uses fetches it, which costs one request and warms the preview as a
+         * side effect.
+         */
+        const copyWholeSource = react.useCallback(() => {
+          if (copyWholeBusyRef.current) return;
+          const finish = (ok, total) => {
+            if (onToast) {
+              onToast(ok ? "已复制整个文件（第 1–" + total + " 行）" : "复制失败");
+            }
+          };
+          const whole = state.data === null || state.data === undefined ? 0 : state.data.totalLines;
+          if (fullText !== "") {
+            copyToClipboard(fullText).then((ok) => finish(ok, whole));
+            return;
+          }
+          copyWholeBusyRef.current = true;
+          if (onToast) onToast("正在读取整个文件…");
+          request("read", { root, path: meta.path, whole: true }).then((value) => {
+            const text = typeof value?.text === "string" ? value.text : "";
+            // An empty answer is a failure, not a page with no content: falling
+            // through to the clipboard would wipe whatever the reader had there.
+            if (text === "") throw new Error("no text");
+            setFullText(text);
+            return copyToClipboard(text).then((ok) => finish(ok, value.totalLines));
+          }).catch(() => {
+            if (onToast) onToast("复制整个文件失败");
+          }).then(() => { copyWholeBusyRef.current = false; });
+        }, [fullText, state.data, root, meta.path, onToast]);
+
+        // Only a paged source view needs redirecting; a single window IS the
+        // file, and the host's own copy (with its tick) is better feedback.
+        react.useEffect(() => {
+          const host = sourceRef.current;
+          if (host === null || host === undefined) return undefined;
+          const dataWindow = state.data;
+          const paged = dataWindow !== null && dataWindow !== undefined
+            && (dataWindow.hasBefore === true || dataWindow.hasAfter === true);
+          if (!paged) return undefined;
+          const onClickCapture = (event) => {
+            const target = event.target;
+            const button = target instanceof Element ? target.closest("button[aria-label]") : null;
+            if (button === null) return;
+            const block = button.closest("[data-read]");
+            if (block === null || block.parentElement !== host) return;
+            const label = button.getAttribute("aria-label");
+            if (label !== READ_BLOCK_LABELS.copy && label !== READ_BLOCK_LABELS.copied) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            copyWholeSource();
+          };
+          host.addEventListener("click", onClickCapture, true);
+          return () => host.removeEventListener("click", onClickCapture, true);
+        }, [state.data, copyWholeSource]);
 
         // Declarative elapsed clock tied directly to the recording lifecycle:
         // whenever recording transitions to true, this effect is guaranteed to run
@@ -6197,14 +6262,14 @@ window.__ModuleLoader__.load({
             }, "下一页"),
             react.createElement("span", { className: "fv-pager-spacer" }),
             react.createElement("span", null,
-              "第 " + window.offset + "–" + window.end + " 行 / 共 " + window.totalLines + " 行"))
+              "第 " + dataWindow.offset + "–" + dataWindow.end + " 行 / 共 " + dataWindow.totalLines + " 行"))
           : null;
         return react.createElement(react.Fragment, null, headBar,
-          react.createElement("div", { className: "fv-content" },
+          react.createElement("div", { className: "fv-content", ref: sourceRef },
             react.createElement(ReadBlock, {
               label: meta.name,
               lines: rows,
-              totalLines: window?.totalLines ?? rows.length,
+              totalLines: dataWindow?.totalLines ?? rows.length,
               lang: "html",
               maxLines: rows.length,
               labels: READ_BLOCK_LABELS,
@@ -6498,6 +6563,75 @@ window.__ModuleLoader__.load({
             host.removeEventListener("scroll", onScroll);
           };
         }, [outlineVisible, headings]);
+
+        // ------------------------------------------------------------------
+        // Copying from a paged source view
+        //
+        // The host's ReadBlock owns that button and always copies the `lines`
+        // array it was handed. Past one window that array is only the rows on
+        // screen, so 「复制」 quietly meant "copy this page". `labels` can rename
+        // that button but not redirect it, and there is no `onCopy` prop to
+        // hook, so the click is caught in the CAPTURE phase on the container:
+        // that runs before React's delegated handler at the root, and stopping
+        // it there is what keeps ReadBlock from overwriting the clipboard with
+        // the window right after the file has been put in it.
+        //
+        // Only a paged read is intercepted. When everything fits in one window
+        // the window IS the file, and the host's own copy — with its tick — is
+        // better feedback than anything re-implemented here.
+        // ------------------------------------------------------------------
+        const copyBusyRef = react.useRef(false);
+        const metaPath = meta === null || meta === undefined ? "" : meta.path;
+        const sourcePaged = loaded !== null && loaded !== undefined
+          && (loaded.hasBefore === true || loaded.hasAfter === true);
+        const copyWholeSource = react.useCallback(() => {
+          if (copyBusyRef.current || metaPath === "") return;
+          copyBusyRef.current = true;
+          const langPayload = lang === undefined || lang === "auto" ? {} : { lang };
+          // `whole` widens the read past the window: the host answers with the
+          // complete text for any text kind when it is set, so a paged `.ts`
+          // file is just as copyable as a paged Markdown document.
+          const readMethod = fromCommit ? "gitCommitFile" : "read";
+          const readPayload = fromCommit
+            ? { root, repo, sha: commit, path: metaPath, whole: true, ...langPayload }
+            : { root, path: metaPath, whole: true, ...langPayload };
+          if (onToast) onToast("正在读取整个文件…");
+          request(readMethod, readPayload).then((value) => {
+            const text = typeof value?.text === "string" ? value.text : "";
+            // An empty answer is a failure, not a file with no content: falling
+            // through to the clipboard would wipe whatever the reader had there.
+            if (text === "") throw new Error("no text");
+            return copyToClipboard(text).then((ok) => {
+              if (onToast) {
+                onToast(ok ? "已复制整个文件（第 1–" + value.totalLines + " 行）" : "复制失败");
+              }
+            });
+          }).catch(() => {
+            if (onToast) onToast("复制整个文件失败");
+          }).then(() => { copyBusyRef.current = false; });
+        }, [root, repo, commit, metaPath, lang, fromCommit, onToast]);
+
+        react.useEffect(() => {
+          const host = contentRef.current;
+          if (!sourcePaged || host === null || host === undefined) return undefined;
+          const onClickCapture = (event) => {
+            const target = event.target;
+            const button = target instanceof Element ? target.closest("button[aria-label]") : null;
+            if (button === null) return;
+            // Only the block's own banner. A fenced code block inside a rendered
+            // Markdown document has a copy button of its own, and it means
+            // "copy this snippet", not "copy the file".
+            const block = button.closest("[data-read]");
+            if (block === null || block.parentElement !== host) return;
+            const label = button.getAttribute("aria-label");
+            if (label !== READ_BLOCK_LABELS.copy && label !== READ_BLOCK_LABELS.copied) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            copyWholeSource();
+          };
+          host.addEventListener("click", onClickCapture, true);
+          return () => host.removeEventListener("click", onClickCapture, true);
+        }, [sourcePaged, copyWholeSource]);
 
         if (state.status === "error") {
           return react.createElement("div", { className: "fv-note fv-error" }, messageOf(state.error));

@@ -570,6 +570,38 @@ test('extensionless text files are readable as text', async () => {
   assert.equal(result.value.lines[0].text, 'Hello!')
 })
 
+test('whole hands back a code file in full, not a window of it', async () => {
+  // `text` used to ride along only for whole-document kinds — markdown, json,
+  // html — which left a paged .ts file unable to reproduce itself on the
+  // clipboard: no request could return more than a window (2000 lines) of it.
+  // "Copy the file" has to mean the file whatever the kind is, and the only
+  // ceiling is MAX_TEXT_BYTES.
+  const body = Array.from({ length: 1200 }, (_, index) => `export const v${index} = ${index}`).join('\n')
+  const bytes = new TextEncoder().encode(body)
+  const fs = createFs({
+    'D:/repo': { type: 'directory', entries: [] },
+    'D:/repo/big.ts': { type: 'file', size: bytes.length, bytes, text: body },
+  })
+  const ctx = createCtx(fs)
+
+  const windowed = await handleRpc(ctx, options(), 'read', { path: 'big.ts' })
+  assert.equal(windowed.ok, true)
+  assert.equal(windowed.value.hasAfter, true, 'precondition: this file pages')
+  assert.equal(
+    'text' in windowed.value,
+    false,
+    'a plain read of a code file still ships rows only — paging is what keeps it cheap',
+  )
+
+  const whole = await handleRpc(ctx, options(), 'read', { path: 'big.ts', whole: true })
+  assert.equal(whole.ok, true)
+  assert.equal(whole.value.totalLines, 1200)
+  assert.equal(whole.value.text, body, 'whole must return the file itself')
+  // The rows still describe the window; `whole` adds the text, it does not
+  // change what the source view renders.
+  assert.equal(whole.value.lines.length, 500, 'the window is unchanged by a whole read')
+})
+
 test('extensionless file with null bytes is read as text but reported binary', async () => {
   // readText calls ctx.fs.readText unconditionally (the kind check is in the
   // client, which uses meta to decide whether to call read or readBytes).
