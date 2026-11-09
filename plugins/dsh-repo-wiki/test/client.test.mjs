@@ -553,8 +553,14 @@ test('the stylesheet is installed once', async () => {
   try {
     const harness = makeCtx();
     module.apply(harness.ctx);
-    assert.equal(appended.length, 1, 'the style element is created on first apply');
-    assert.ok(appended[0].textContent.includes('.rw-root'));
+    // apply() 现在会注入两条样式：面板样式，以及隐藏外壳默认导航图标的规则。
+    const panelStyles = appended.filter((node) => node.textContent.includes('.rw-root'));
+    assert.equal(panelStyles.length, 1, 'the style element is created on first apply');
+    assert.equal(
+      appended.filter((node) => node.textContent.includes('_navIcon')).length,
+      1,
+      'the settings-nav default-icon rule is installed once',
+    );
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
