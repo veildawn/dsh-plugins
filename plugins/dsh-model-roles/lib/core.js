@@ -321,19 +321,27 @@ export function resolveBaselineModel(agent, defaultModel, pluginSelections) {
     return match
   }
 
-  // 2. 会话最初的显式选择：第一条请求头（此时尚未发生任何角色路由）
+  // 2. 会话最初的显式选择：第一条请求头（此时尚未发生任何角色路由）。
+  // 但若首条请求本身就被插件路由过，其 config 会带 `_pluginRoute`，那不是用户选择，
+  // 必须跳过继续往下找。
   for (const event of events) {
-    if (event?.type === 'request/header' && event.data?.reason === 'initial') {
-      const match = toRouteConfig(event.data.header?.config)
-      if (match) return match
-    }
+    if (event?.type !== 'request/header' || event.data?.reason !== 'initial') continue
+    const config = event.data.header?.config
+    if (config?._pluginRoute || config?._restoredByModelRoles) continue
+    const match = toRouteConfig(config)
+    if (match) return match
   }
 
-  // 3. 检查当前 session requestHeader（若没有任何修改记录或为 initial 状态）
+  // 3. 检查当前 session requestHeader（若没有任何修改记录或为 initial 状态）。
+  // 注意：路由写入会在 config 里带上 `_pluginRoute`，这种 header 是被插件改写过的，
+  // 不能当作基准，否则回合结束会把角色模型误认成用户选择。
   const directHeader = agent?.session?.requestHeader?.()
   if (directHeader && (!directHeader.reason || directHeader.reason === 'initial')) {
-    const match = toRouteConfig(directHeader.config ?? directHeader)
-    if (match) return match
+    const config = directHeader.config ?? directHeader
+    if (!config?._pluginRoute && !config?._restoredByModelRoles) {
+      const match = toRouteConfig(config)
+      if (match) return match
+    }
   }
 
   // 4. 优先匹配系统/用户设定的全局 defaultModel
@@ -348,10 +356,14 @@ export function resolveBaselineModel(agent, defaultModel, pluginSelections) {
     return optionMatch
   }
 
-  // 6. 若之前有还原过的有效配置，则采用（历史还原记录里最近的一次）
+  // 6. 兜底：取日志里最近一次选择（含插件写入的记录）。
+  // 这里必须排除 `_pluginRoute` 的路由记录——否则用户从未手动选择时，
+  // 基准会被当成上一回合路由到的角色模型，回合结束就不再归还初始模型。
+  // 只有 `_restoredByModelRoles` 的还原记录可以作为兜底（它本身就在描述基准）。
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (event?.type !== 'model/selection') continue
+    if (event.data?._pluginRoute && !event.data?._restoredByModelRoles) continue
     const match = toRouteConfig(event.data)
     if (match) return match
   }
