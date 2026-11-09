@@ -33,6 +33,7 @@ const {
 } = DshLlm
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { randomBytes } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import {
   ACCESS_REF, REFRESH_REF, EXPIRY_REF, CLIENT_ID_PATTERN, OAuthSession,
   LEGACY_REFS, clearCredentialSlot, tokenRefs,
@@ -673,6 +674,210 @@ export function routeDefaultEffortKey(models, configured) {
 /** Static request headers every materialized route carries. */
 export const ROUTE_HEADERS = { 'x-ai-proxy-client': 'dsh' }
 
+const MATERIALIZED_MODEL_KEYS = new Set([
+  'id',
+  'name',
+  'contextWindow',
+  'maxTokens',
+  'modality',
+  'input',
+  'reasoningEfforts',
+])
+
+/**
+ * Determine whether a model field on the existing materialized route was
+ * manually modified by the user compared against the auto-generated reference.
+ *
+ * - When `baselineModel` is known (from a previous sync in this session), any
+ *   divergence between `existingModel[key]` and `baselineModel[key]` means the
+ *   user edited that field after it was materialized.
+ * - On initial startup (`baselineModel === undefined`), an existing defined
+ *   field that differs from `freshModel[key]` (excluding a default `name === id`)
+ *   is treated as a pre-existing user customization.
+ */
+function isModelFieldUserModified(key, existingModel, freshModel, baselineModel) {
+  if (!existingModel || typeof existingModel !== 'object') return false
+  const hasExisting = Object.hasOwn(existingModel, key) && existingModel[key] !== undefined
+  if (baselineModel && typeof baselineModel === 'object') {
+    const hasBaseline = Object.hasOwn(baselineModel, key) && baselineModel[key] !== undefined
+    if (key === 'name' && hasExisting && existingModel.name === existingModel.id && !hasBaseline) {
+      return false
+    }
+    if (!hasExisting && !hasBaseline) return false
+    if (hasExisting !== hasBaseline) return true
+    return !isDeepStrictEqual(existingModel[key], baselineModel[key])
+  }
+  if (!hasExisting) return false
+  if (key === 'name' && existingModel.name === existingModel.id && freshModel.name === undefined) {
+    return false
+  }
+  const hasFresh = Object.hasOwn(freshModel, key) && freshModel[key] !== undefined
+  if (!hasFresh) return true
+  return !isDeepStrictEqual(existingModel[key], freshModel[key])
+}
+
+/**
+ * Merge a freshly computed model entry with an existing model entry from the
+ * materialized route, preserving fields manually modified by the user while
+ * updating untouched fields from `freshModel`.
+ *
+ * Returns `{ model, baseline }` where `baseline` records the auto-generated
+ * reference values to compare against on the next sync.
+ */
+export function mergeModelEntry(freshModel, existingModel, baselineModel) {
+  if (!existingModel || typeof existingModel !== 'object' || Array.isArray(existingModel)) {
+    return {
+      model: structuredClone(freshModel),
+      baseline: structuredClone(freshModel),
+    }
+  }
+  const refModel = baselineModel && typeof baselineModel === 'object' ? baselineModel : freshModel
+  const model = { id: freshModel.id }
+  const baseline = { id: freshModel.id }
+
+  const nameModified = isModelFieldUserModified('name', existingModel, freshModel, baselineModel)
+  const resolvedName = nameModified ? existingModel.name : freshModel.name
+  if (resolvedName !== undefined && resolvedName !== freshModel.id) {
+    model.name = resolvedName
+  }
+  const baselineName = nameModified ? refModel.name : freshModel.name
+  if (baselineName !== undefined && baselineName !== freshModel.id) {
+    baseline.name = baselineName
+  }
+
+  const windowModified = isModelFieldUserModified('contextWindow', existingModel, freshModel, baselineModel)
+  const resolvedWindow = windowModified ? existingModel.contextWindow : freshModel.contextWindow
+  if (resolvedWindow !== undefined) {
+    model.contextWindow = resolvedWindow
+  }
+  const baselineWindow = windowModified ? refModel.contextWindow : freshModel.contextWindow
+  if (baselineWindow !== undefined) {
+    baseline.contextWindow = baselineWindow
+  }
+
+  const maxTokensModified = isModelFieldUserModified('maxTokens', existingModel, freshModel, baselineModel)
+  let resolvedMaxTokens
+  let baselineMaxTokens
+  if (maxTokensModified) {
+    resolvedMaxTokens = existingModel.maxTokens
+    baselineMaxTokens = refModel.maxTokens
+  } else if (windowModified && existingModel.maxTokens !== undefined) {
+    // The user customized contextWindow without touching maxTokens: keep their
+    // existing maxTokens (clamped only if it would exceed a quarter of their
+    // custom contextWindow and break host pressure compaction) rather than
+    // overwriting it with a limit derived from the gateway's window or route cap.
+    resolvedMaxTokens = outputLimitFor(existingModel.maxTokens, resolvedWindow, undefined)
+    baselineMaxTokens = resolvedMaxTokens
+  } else {
+    resolvedMaxTokens = freshModel.maxTokens
+    baselineMaxTokens = freshModel.maxTokens
+  }
+  if (resolvedMaxTokens !== undefined) {
+    model.maxTokens = resolvedMaxTokens
+  }
+  if (baselineMaxTokens !== undefined) {
+    baseline.maxTokens = baselineMaxTokens
+  }
+
+  for (const key of ['modality', 'input', 'reasoningEfforts']) {
+    const modified = isModelFieldUserModified(key, existingModel, freshModel, baselineModel)
+    const resolvedVal = modified ? existingModel[key] : freshModel[key]
+    if (resolvedVal !== undefined) {
+      model[key] = structuredClone(resolvedVal)
+    }
+    const baselineVal = modified ? refModel[key] : freshModel[key]
+    if (baselineVal !== undefined) {
+      baseline[key] = structuredClone(baselineVal)
+    }
+  }
+
+  for (const [key, val] of Object.entries(existingModel)) {
+    if (MATERIALIZED_MODEL_KEYS.has(key) || val === undefined) continue
+    model[key] = structuredClone(val)
+  }
+
+  return { model, baseline }
+}
+
+/**
+ * Merge a newly built provider profile with the existing materialized route in
+ * `llm-pi-ai`. Models that the user has not manually modified are updated to
+ * the latest gateway / plugin values; any model configurations (`contextWindow`,
+ * `maxTokens`, `name`, `input`, `reasoningEfforts`, `modality`, or extra custom
+ * fields) manually modified by the user are preserved.
+ */
+export function mergeProviderProfile(freshProfile, existingRoute, baselineRoute) {
+  if (!existingRoute || typeof existingRoute !== 'object' || Array.isArray(existingRoute)) {
+    return {
+      profile: structuredClone(freshProfile),
+      baseline: structuredClone(freshProfile),
+    }
+  }
+  const existingModelsById = new Map()
+  for (const entry of Array.isArray(existingRoute.models) ? existingRoute.models : []) {
+    if (entry && typeof entry === 'object' && typeof entry.id === 'string' && entry.id.length > 0) {
+      existingModelsById.set(entry.id, entry)
+    }
+  }
+  const baselineModelsById = new Map()
+  for (const entry of Array.isArray(baselineRoute?.models) ? baselineRoute.models : []) {
+    if (entry && typeof entry === 'object' && typeof entry.id === 'string' && entry.id.length > 0) {
+      baselineModelsById.set(entry.id, entry)
+    }
+  }
+
+  const mergedModels = []
+  const baselineModels = []
+  for (const freshModel of Array.isArray(freshProfile.models) ? freshProfile.models : []) {
+    const existingModel = existingModelsById.get(freshModel.id)
+    const baselineModel = baselineModelsById.get(freshModel.id)
+    const { model, baseline } = mergeModelEntry(freshModel, existingModel, baselineModel)
+    mergedModels.push(model)
+    baselineModels.push(baseline)
+  }
+
+  const profile = {
+    ...structuredClone(freshProfile),
+    models: mergedModels,
+  }
+  const baseline = {
+    ...structuredClone(freshProfile),
+    models: baselineModels,
+  }
+  return { profile, baseline }
+}
+
+/**
+ * Apply any static per-model overrides configured in `options.models` onto the
+ * catalog entries discovered from `GET /v1/models`, so user-configured static
+ * overrides (`contextWindow`, `maxTokens`, `name`, `modality`, etc.) are not
+ * overwritten by raw gateway defaults.
+ */
+export function applyStaticModelOverrides(discoveredModels, staticModels) {
+  if (!Array.isArray(staticModels) || staticModels.length === 0) return discoveredModels
+  const overrides = new Map()
+  for (const item of staticModels) {
+    if (item && typeof item === 'object' && typeof item.id === 'string' && item.id.length > 0) {
+      overrides.set(item.id, item)
+    }
+  }
+  if (overrides.size === 0) return discoveredModels
+  return discoveredModels.map((model) => {
+    const override = overrides.get(model.id)
+    if (!override) return model
+    return {
+      ...model,
+      ...(override.name !== undefined ? { name: override.name } : {}),
+      ...(override.description !== undefined ? { description: override.description } : {}),
+      ...(override.contextWindow !== undefined ? { contextWindow: override.contextWindow } : {}),
+      ...(override.maxTokens !== undefined ? { maxTokens: override.maxTokens } : {}),
+      ...(override.modality !== undefined ? { modality: override.modality } : {}),
+      ...(override.inputModalities !== undefined ? { inputModalities: override.inputModalities } : {}),
+      ...(override.effortLevels !== undefined ? { effortLevels: override.effortLevels } : {}),
+    }
+  })
+}
+
 /**
  * Build the provider profile materialized into the official `llm-pi-ai`
  * settings section. The providers-dict key (PROVIDER) IS the provider route,
@@ -681,7 +886,7 @@ export const ROUTE_HEADERS = { 'x-ai-proxy-client': 'dsh' }
  * re-resolves it per request, so rotated tokens apply to the next request
  * without any notification.
  */
-export function buildProviderProfile(options, models) {
+export function buildProviderProfile(options, models, existingRoute, baselineRoute) {
   const catalog = (Array.isArray(models) ? models : [])
     .filter((entry) => typeof entry?.id === 'string' && entry.id.length > 0)
   const api = piAiProtocolFor(options.apiFormat)
@@ -736,6 +941,9 @@ export function buildProviderProfile(options, models) {
   }
   const compat = routeCompatFor(api)
   if (compat !== undefined) profile.compat = compat
+  if (existingRoute !== undefined) {
+    return mergeProviderProfile(profile, existingRoute, baselineRoute).profile
+  }
   return profile
 }
 
@@ -1101,7 +1309,8 @@ class AiProxyApi {
       })
       if (!res.ok) throw await errorFromResponse(res)
       const body = await res.json()
-      const models = (body.data ?? []).filter((m) => typeof m?.id === 'string').map(AiProxyApi.normalizeModel)
+      const discovered = (body.data ?? []).filter((m) => typeof m?.id === 'string').map(AiProxyApi.normalizeModel)
+      const models = applyStaticModelOverrides(discovered, opts.models)
       this.modelsCache = { at: Date.now(), models }
       return models
     } catch (error) {
@@ -1134,11 +1343,12 @@ class AiProxyApi {
     }
     if (!res.ok) throw await errorFromResponse(res)
     const body = await res.json()
-    const models = (body.data ?? []).filter((m) => typeof m?.id === "string").map(AiProxyApi.normalizeModel)
+    const discovered = (body.data ?? []).filter((m) => typeof m?.id === "string").map(AiProxyApi.normalizeModel)
+    const models = applyStaticModelOverrides(discovered, opts.models)
     this.modelsCache = { at: Date.now(), models }
     if (typeof this.onModelsRefreshed === "function") {
       try {
-        this.onModelsRefreshed()
+        await this.onModelsRefreshed()
       } catch (error) {
         this.ctx.logger.warn("dsh-ai-proxy: notify models refreshed failed: " + error.message)
       }
@@ -1240,6 +1450,8 @@ class RouteMaterializer {
     this.ctx = ctx
     /** undefined = not probed yet; false = host ships no llm-pi-ai section. */
     this.available = undefined
+    /** Auto-generated baseline from the previous sync, used to detect user edits. */
+    this.baseline = undefined
   }
 
   /** Probe the host settings document for the official adapter's section. */
@@ -1254,11 +1466,19 @@ class RouteMaterializer {
     return this.available
   }
 
-  /** Persist one provider profile; only our own dict key is written. */
-  async sync(profile) {
+  /** Persist one provider profile, preserving user-modified model configs. */
+  async sync(freshProfile) {
     if (this.available === false) {
       throw new LlmError('宿主未挂载 llm-pi-ai 适配器,无法材料化 AI Proxy 路由', 'UNSUPPORTED')
     }
+    let existingRoute
+    try {
+      existingRoute = readSettingsSection(this.ctx, PI_AI_NS)?.providers?.[PROVIDER]
+    } catch {
+      existingRoute = undefined
+    }
+    const { profile, baseline } = mergeProviderProfile(freshProfile, existingRoute, this.baseline)
+    this.baseline = baseline
     await this.ctx.settings.mutate(PI_AI_NS, [
       { op: 'set', path: ['providers', PROVIDER], value: profile },
     ])
@@ -1290,6 +1510,7 @@ class RouteMaterializer {
   /** Remove the materialized route, e.g. after the last credential is gone. */
   async remove() {
     if (this.available === false) return
+    this.baseline = undefined
     await this.ctx.settings.mutate(PI_AI_NS, [
       { op: 'unset', path: ['providers', PROVIDER] },
     ])
@@ -1597,7 +1818,7 @@ export function apply(ctx, config) {
     await materializer.sync(buildProviderProfile(options(), models))
   }
 
-  api.onModelsRefreshed = () => { void maybeSync().catch(syncError) }
+  api.onModelsRefreshed = () => maybeSync().catch(syncError)
   api.onCredentialState = () => {
     void (async () => {
       try {
@@ -1754,7 +1975,8 @@ export function apply(ctx, config) {
 // Re-exported pure helpers for unit tests.
 export const internals = {
   AiProxyApi, RouteMaterializer, OAuthSession,
-  buildProviderProfile, piAiProtocolFor, piAiBaseURL, routeCompatFor,
+  buildProviderProfile, mergeModelEntry, mergeProviderProfile, applyStaticModelOverrides,
+  piAiProtocolFor, piAiBaseURL, routeCompatFor,
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey,
   clampEffortToLadder, extractEffortRungs,
   effortName, resolveDefaultEffort, inputModalitiesOf,

@@ -14,6 +14,7 @@ const {
   httpErrorCode, normalizeApiFormat, resolveModelsEndpoint,
   piAiProtocolFor, piAiBaseURL,
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey, buildProviderProfile,
+  mergeModelEntry, mergeProviderProfile, applyStaticModelOverrides,
   extractEffortRungs,
   routeCompatFor,
   isGeminiModel, isGemini3Model, sanitizeGeminiSchema, sanitizeGeminiTools, sanitizeWindowsPathText, sanitizeGeminiMessages,
@@ -918,3 +919,155 @@ test('every ceiling the plugin accepts keeps compaction usable', () => {
     assert.equal(fallback.usable, true, `${ceiling} route fallback: pressure=${fallback.pressure}`)
   }
 })
+
+// ── preserving user-modified model configurations ──────────────────────────
+
+test('mergeProviderProfile: preserves user-modified model configs while updating unmodified models', () => {
+  const initialOptions = resolveOptions({ maxContextWindow: '1M' })
+  const initialCatalog = [
+    { id: 'model-edited', contextWindow: 200000, effortLevels: ['low', 'medium', 'high'], inputModalities: ['text', 'image'], modality: 'text' },
+    { id: 'model-untouched', contextWindow: 200000, effortLevels: ['low', 'high'], inputModalities: ['text'], modality: 'text' },
+  ]
+  const firstFresh = buildProviderProfile(initialOptions, initialCatalog)
+  const firstSync = mergeProviderProfile(firstFresh, undefined, undefined)
+
+  // Simulate user manually modifying model-edited in DSH Models settings:
+  // changing contextWindow to 128000, maxTokens to 16000, name to 'Custom Model',
+  // input to ['text'], and adding a custom cost object, while leaving
+  // reasoningEfforts and model-untouched untouched.
+  const userEditedRoute = structuredClone(firstSync.profile)
+  userEditedRoute.models[0].contextWindow = 128000
+  userEditedRoute.models[0].maxTokens = 16000
+  userEditedRoute.models[0].name = 'Custom Model'
+  userEditedRoute.models[0].input = ['text']
+  userEditedRoute.models[0].cost = { input: 3, output: 15 }
+
+  // Gateway refreshes catalog: model-edited gets a larger context window and a
+  // new 'max' effort rung; model-untouched gets a 400K window and image support;
+  // a brand-new model appears.
+  const refreshedCatalog = [
+    { id: 'model-edited', contextWindow: 500000, effortLevels: ['low', 'medium', 'high', 'max'], inputModalities: ['text', 'image'], modality: 'text' },
+    { id: 'model-untouched', contextWindow: 400000, effortLevels: ['low', 'high', 'xhigh'], inputModalities: ['text', 'image'], modality: 'text' },
+    { id: 'model-new', contextWindow: 131072, effortLevels: ['high'], inputModalities: ['text'], modality: 'text' },
+  ]
+  const refreshedFresh = buildProviderProfile(initialOptions, refreshedCatalog)
+  const secondSync = mergeProviderProfile(refreshedFresh, userEditedRoute, firstSync.baseline)
+
+  // User-modified fields on model-edited are preserved, while its untouched
+  // reasoningEfforts updates to include the new 'max' rung.
+  assert.deepEqual(secondSync.profile.models[0], {
+    id: 'model-edited',
+    name: 'Custom Model',
+    contextWindow: 128000,
+    maxTokens: 16000,
+    modality: 'text',
+    input: ['text'],
+    reasoningEfforts: { low: 'low', medium: 'medium', high: 'high', max: 'max' },
+    cost: { input: 3, output: 15 },
+  })
+
+  // Unmodified model-untouched is updated to the new gateway values.
+  assert.deepEqual(secondSync.profile.models[1], {
+    id: 'model-untouched',
+    contextWindow: 400000,
+    maxTokens: 65536,
+    modality: 'text',
+    input: ['text', 'image'],
+    reasoningEfforts: { low: 'low', high: 'high', xhigh: 'xhigh' },
+  })
+
+  // Newly discovered model is added.
+  assert.deepEqual(secondSync.profile.models[2], {
+    id: 'model-new',
+    contextWindow: 131072,
+    maxTokens: 32768,
+    modality: 'text',
+    input: ['text'],
+    reasoningEfforts: { high: 'high' },
+  })
+})
+
+test('mergeProviderProfile: preserves user-modified contextWindow across startup (no prior baseline) and subsequent refreshes', () => {
+  const options = resolveOptions({ maxContextWindow: '1M' })
+  const catalog = [
+    { id: 'claude-sonnet-4-5', contextWindow: 200000, effortLevels: ['low', 'high'], inputModalities: ['text', 'image'], modality: 'text' },
+    { id: 'deepseek-v4', contextWindow: 200000, effortLevels: ['low', 'high'], inputModalities: ['text'], modality: 'text' },
+  ]
+  // Simulate pre-existing route on disk at boot where the user had modified
+  // claude-sonnet-4-5's contextWindow to 256000, leaving deepseek-v4 at 200000.
+  const existingOnDisk = {
+    displayName: 'AI Proxy',
+    api: 'openai-completions',
+    baseURL: 'http://localhost:18080/v1',
+    models: [
+      {
+        id: 'claude-sonnet-4-5',
+        contextWindow: 256000,
+        maxTokens: 50000,
+        modality: 'text',
+        input: ['text', 'image'],
+        reasoningEfforts: { low: 'low', high: 'high' },
+      },
+      {
+        id: 'deepseek-v4',
+        contextWindow: 200000,
+        maxTokens: 50000,
+        modality: 'text',
+        input: ['text'],
+        reasoningEfforts: { low: 'low', high: 'high' },
+      },
+    ],
+  }
+
+  const bootFresh = buildProviderProfile(options, catalog)
+  const bootSync = mergeProviderProfile(bootFresh, existingOnDisk, undefined)
+  assert.equal(bootSync.profile.models[0].contextWindow, 256000, 'user-modified window survives startup sync')
+  assert.equal(bootSync.profile.models[0].maxTokens, 50000, 'existing maxTokens fits within 1/4 of 256000 and is preserved')
+  assert.equal(bootSync.profile.models[1].contextWindow, 200000)
+
+  // Now gateway updates both models to 500000 on manual refresh:
+  // claude-sonnet-4-5 keeps user's 256000, while deepseek-v4 updates to 500000.
+  const updatedCatalog = [
+    { id: 'claude-sonnet-4-5', contextWindow: 500000, effortLevels: ['low', 'high'], inputModalities: ['text', 'image'], modality: 'text' },
+    { id: 'deepseek-v4', contextWindow: 500000, effortLevels: ['low', 'high'], inputModalities: ['text'], modality: 'text' },
+  ]
+  const refreshFresh = buildProviderProfile(options, updatedCatalog)
+  const refreshSync = mergeProviderProfile(refreshFresh, bootSync.profile, bootSync.baseline)
+  assert.equal(refreshSync.profile.models[0].contextWindow, 256000, 'user-modified model is still preserved on refresh')
+  assert.equal(refreshSync.profile.models[1].contextWindow, 500000, 'unmodified model updates on refresh')
+  assert.equal(refreshSync.profile.models[1].maxTokens, 65536)
+})
+
+test('mergeModelEntry: narrowing only contextWindow clamps untouched maxTokens to keep compaction usable', () => {
+  const fresh1M = {
+    id: 'big-model',
+    contextWindow: 1000000,
+    maxTokens: 65536,
+    input: ['text'],
+    reasoningEfforts: false,
+  }
+  const existingUserNarrowed = {
+    ...fresh1M,
+    contextWindow: 128000, // User lowered contextWindow to 128K without editing maxTokens (65536)
+  }
+  const { model } = mergeModelEntry(fresh1M, existingUserNarrowed, fresh1M)
+  assert.equal(model.contextWindow, 128000)
+  assert.equal(model.maxTokens, 32000, 'untouched maxTokens is clamped to 1/4 of user contextWindow')
+  assert.equal(compactionBudget(model.contextWindow, model.maxTokens).usable, true)
+})
+
+test('applyStaticModelOverrides: static per-model config overrides discovered fields', () => {
+  const discovered = [
+    { id: 'm1', name: 'm1', contextWindow: 200000, effortLevels: ['low', 'high'], modality: 'text' },
+    { id: 'm2', name: 'm2', contextWindow: 128000, modality: 'text' },
+  ]
+  const staticModels = [
+    { id: 'm1', contextWindow: 64000, maxTokens: 8192 },
+  ]
+  const merged = applyStaticModelOverrides(discovered, staticModels)
+  assert.equal(merged[0].contextWindow, 64000)
+  assert.equal(merged[0].maxTokens, 8192)
+  assert.deepEqual(merged[0].effortLevels, ['low', 'high'])
+  assert.equal(merged[1].contextWindow, 128000)
+})
+

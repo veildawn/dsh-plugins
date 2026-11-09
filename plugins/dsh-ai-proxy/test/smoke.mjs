@@ -129,6 +129,11 @@ const materialized = (settings) => settings.doc[PI_AI_NS]?.providers?.[plugin.PR
 
 function mockGateway() {
   const requests = []
+  let modelsData = [
+    { id: 'claude-sonnet-4-5', context_window: 200000, effort_levels: ['low', 'medium', 'high'], modality: 'text', input_modalities: ['text', 'image'] },
+    { id: 'text-only-model', modality: 'text', input_modalities: ['text'] },
+    { id: 'gpt-image-2', modality: 'image' },
+  ]
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const auth = req.headers.authorization ?? ''
@@ -151,11 +156,7 @@ function mockGateway() {
         return
       }
       res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify({ object: 'list', data: [
-        { id: 'claude-sonnet-4-5', context_window: 200000, effort_levels: ['low', 'medium', 'high'], modality: 'text', input_modalities: ['text', 'image'] },
-        { id: 'text-only-model', modality: 'text', input_modalities: ['text'] },
-        { id: 'gpt-image-2', modality: 'image' },
-      ] }))
+      res.end(JSON.stringify({ object: 'list', data: modelsData }))
       return
     }
     if (url.pathname === '/oauth/token') {
@@ -190,7 +191,12 @@ function mockGateway() {
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       base = 'http://127.0.0.1:' + server.address().port
-      resolve({ url: base, requests, close: () => server.close() })
+      resolve({
+        url: base,
+        requests,
+        setModels: (next) => { modelsData = next },
+        close: () => server.close(),
+      })
     })
   })
 }
@@ -710,3 +716,161 @@ test('the RPC refuses a context ceiling below the floor', async () => {
     gw.close()
   }
 })
+
+test('refreshModels preserves user-modified model contextWindow and configs while updating unmodified models', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds, connection, settings } = makeCtx()
+  try {
+    await enablePiAi(ctx)
+    creds.store.set('AIPROXY_API_KEY', 'sk-test')
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
+    assert.equal(await waitFor(() => materialized(settings)?.models?.length === 3), true, 'initial materialization')
+
+    // User manually modifies claude-sonnet-4-5's contextWindow, maxTokens, and name in the settings document,
+    // while leaving text-only-model and gpt-image-2 untouched.
+    const route = structuredClone(materialized(settings))
+    route.models[0].contextWindow = 160000
+    route.models[0].maxTokens = 24000
+    route.models[0].name = 'Custom Sonnet'
+    settings.pushExternal({
+      [PI_AI_NS]: {
+        ...settings.doc[PI_AI_NS],
+        providers: {
+          ...settings.doc[PI_AI_NS].providers,
+          'ai-proxy': route,
+        },
+      },
+    })
+
+    // Gateway updates its catalog: claude-sonnet-4-5 changes context_window to 500000 and adds 'max' effort,
+    // text-only-model gets a 256000 context_window, and a new model deepseek-r1 is added.
+    gw.setModels([
+      {
+        id: 'claude-sonnet-4-5',
+        context_window: 500000,
+        input_modalities: ['text', 'image'],
+        modality: 'text',
+        effort_levels: ['low', 'medium', 'high', 'max'],
+      },
+      {
+        id: 'text-only-model',
+        context_window: 256000,
+        input_modalities: ['text'],
+        modality: 'text',
+      },
+      {
+        id: 'deepseek-r1',
+        context_window: 128000,
+        input_modalities: ['text'],
+        effort_levels: ['low', 'high'],
+      },
+    ])
+
+    const refreshed = await connection.registration().handler('refreshModels', {})
+    assert.equal(refreshed.ok, true, JSON.stringify(refreshed))
+    assert.equal(refreshed.value.count, 3)
+
+    const updatedModels = materialized(settings).models
+    assert.equal(updatedModels.length, 3)
+
+    // User-modified fields on claude-sonnet-4-5 are preserved; unmodified fields (reasoningEfforts) update.
+    assert.equal(updatedModels[0].id, 'claude-sonnet-4-5')
+    assert.equal(updatedModels[0].contextWindow, 160000, 'user-modified contextWindow is preserved')
+    assert.equal(updatedModels[0].maxTokens, 24000, 'user-modified maxTokens is preserved')
+    assert.equal(updatedModels[0].name, 'Custom Sonnet', 'user-modified name is preserved')
+    assert.deepEqual(updatedModels[0].reasoningEfforts, {
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+      max: 'max',
+    }, 'unmodified reasoningEfforts field on the same model still updates from gateway')
+
+    // Unmodified text-only-model gets the new gateway contextWindow and derived maxTokens.
+    assert.equal(updatedModels[1].id, 'text-only-model')
+    assert.equal(updatedModels[1].contextWindow, 256000, 'unmodified model contextWindow updates from gateway')
+    assert.equal(updatedModels[1].maxTokens, 64000, 'unmodified model maxTokens updates with new window')
+
+    // Newly discovered model is added.
+    assert.equal(updatedModels[2].id, 'deepseek-r1')
+    assert.equal(updatedModels[2].contextWindow, 128000)
+  } finally {
+    gw.close()
+  }
+})
+
+test('startup materialization preserves pre-existing user model edits from settings document', async () => {
+  const gw = await mockGateway()
+  const { ctx, creds, connection, settings } = makeCtx()
+  try {
+    await enablePiAi(ctx)
+    // Pre-seed settings before plugin starts, simulating a user who edited settings.yaml / cordis.patch.yml
+    settings.pushExternal({
+      [PI_AI_NS]: {
+        providers: {
+          'ai-proxy': {
+            api: 'openai-completions',
+            baseURL: gw.url + '/v1',
+            apiKeyEnv: 'AIPROXY_API_KEY',
+            models: [
+              {
+                id: 'claude-sonnet-4-5',
+                name: 'claude-sonnet-4-5',
+                contextWindow: 150000,
+                maxTokens: 50000,
+                input: ['text', 'image'],
+                modality: 'text',
+                reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' },
+              },
+              {
+                id: 'text-only-model',
+                name: 'text-only-model',
+                maxTokens: 50000,
+                input: ['text'],
+                modality: 'text',
+                reasoningEfforts: false,
+              },
+            ],
+          },
+        },
+      },
+    })
+    creds.store.set('AIPROXY_API_KEY', 'sk-test')
+    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
+    assert.equal(await waitFor(() => materialized(settings)?.models?.length === 3), true, 'startup sync completed')
+
+    assert.equal(materialized(settings).models[0].contextWindow, 150000,
+      'pre-existing user contextWindow survives startup sync')
+    assert.equal(materialized(settings).models[0].maxTokens, 37500,
+      'untouched maxTokens is clamped to a quarter of the user-narrowed 150K window')
+
+    // Subsequent gateway change to claude-sonnet-4-5 and text-only-model:
+    gw.setModels([
+      {
+        id: 'claude-sonnet-4-5',
+        context_window: 400000,
+        input_modalities: ['text', 'image'],
+        modality: 'text',
+        effort_levels: ['low', 'medium', 'high'],
+      },
+      {
+        id: 'text-only-model',
+        context_window: 128000,
+        input_modalities: ['text', 'image'],
+        modality: 'text',
+      },
+    ])
+    const refreshed = await connection.registration().handler('refreshModels', {})
+    assert.equal(refreshed.ok, true)
+
+    assert.equal(materialized(settings).models[0].contextWindow, 150000,
+      'pre-existing user contextWindow still survives subsequent refreshModels')
+    assert.equal(materialized(settings).models[1].contextWindow, 128000,
+      'unmodified text-only-model receives newly declared contextWindow')
+    assert.deepEqual(materialized(settings).models[1].input, ['text', 'image'],
+      'unmodified text-only-model receives updated input modalities')
+  } finally {
+    gw.close()
+  }
+})
+
+
