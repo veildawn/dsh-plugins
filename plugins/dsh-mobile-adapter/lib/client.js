@@ -89,6 +89,15 @@ window.__ModuleLoader__.load({
         .dsh-mobile-status[data-plan=true]:before{background:var(--dsw-alias-state-warn-primary)}
         .dsh-mobile-backdrop:not([hidden]){display:block;position:fixed;z-index:980;inset:0;background:rgba(0,0,0,.42);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
         [data-slot="root"]>div{height:100%!important;min-height:0;grid-template-columns:0 minmax(0,1fr) 0!important}
+        /* 抽屉层级：老宿主里侧栏是普通列，插件把它切成 fixed 抽屉后用 1000
+           压住自己的 backdrop（980）。注意**不要**为了对抗宿主而把这行的
+           z-index 抬到 backdrop 之上就顺手加 !important 提到 980 以上再往上
+           —— 顶栏 .dsh-mobile-bar 是 900，抽屉一旦高过它就会盖住 ☰、标题和
+           全屏按钮（实测 1320 时顶栏整条消失，露出宿主自己的 header）。
+           宿主 0.2.2 起自带移动抽屉（frame 上 data-sidebar-drawer，抽屉列
+           .pI_x6G_sidebarCol 走宿主规则 z-index:71，自带 [data-sidebar-mask]
+           遮罩）时，层级交给宿主，插件只把 980 的 backdrop 让位关掉
+           （见 client 的 hostOwnsSidebarMask）。 */
         [data-slot="root"]>div>div:has(>[data-slot="sidebar"]){box-sizing:border-box;position:fixed;z-index:1000;inset:0 auto 0 0;width:min(86vw,320px)!important;padding-left:var(--dsh-sal);padding-right:0;background:var(--dsw-specific-sidebar-fill);box-shadow:var(--dsw-shadow-lv3);transform:translateX(0);transition:transform .24s var(--ds-ease-in-out);overflow:visible}
         [data-slot="root"]>div[data-sidebar-collapsed]>div:has(>[data-slot="sidebar"]){transform:translateX(-105%);box-shadow:none}
         [data-slot="sidebar"]{--dsh-sidebar-inline-padding:12px!important;box-sizing:border-box;width:100%!important;max-width:100%!important;height:100%}
@@ -1174,6 +1183,17 @@ window.__ModuleLoader__.load({
       const trajectoryOf = () => tabsOf().find((tab) => /^(轨迹|Trajectory)$/i.test(tab.textContent?.trim()))
       const chatOf = () => tabsOf().find((tab) => tab !== trajectoryOf())
       const isOpen = () => media.matches && frameOf()?.hasAttribute('data-sidebar-collapsed') === false
+      // 宿主 0.2.2 起把侧栏做成了自带抽屉：frame 上打 data-sidebar-drawer，
+      // 抽屉列下面再渲染一层自己的遮罩 .pI_x6G_drawerMask（[data-sidebar-mask]，
+      // z-index 70，点它宿主自己会收起抽屉）。
+      // 这时插件那层挂在 body、z-index 980 的 backdrop 没有存在的意义——它会把
+      // 抽屉整个盖住（宿主抽屉列只有 71），点击全部落在 backdrop 上、等于「点哪都
+      // 直接关抽屉」，用户看到的就是「左侧菜单上面压着一层遮罩，菜单点不动」。
+      // 所以只要识别到宿主抽屉模式，就让位给宿主遮罩：插件继续管开合与样式，
+      // 遮罩与「点外部关闭」交回宿主，避免两层遮罩叠加把右侧也压暗。
+      const hostOwnsSidebarMask = () =>
+        frameOf()?.hasAttribute('data-sidebar-drawer') === true
+        || doc.querySelector('[data-sidebar-mask]') != null
       let previousOpen = false
 
       const sync = () => {
@@ -1233,7 +1253,8 @@ window.__ModuleLoader__.load({
         void nativeActions
 
         menuSep.hidden = menuItemNewWorkspace.hidden && menuItemCorner.hidden
-        backdrop.hidden = !open
+        // 宿主自带抽屉遮罩时不叠加自己那层：否则会盖住抽屉（见 hostOwnsSidebarMask）。
+        backdrop.hidden = !open || hostOwnsSidebarMask()
         menu.setAttribute('aria-expanded', String(open))
         const nextMenuLabel = open ? '关闭会话侧栏' : '打开会话侧栏'
         if (menu.getAttribute('aria-label') !== nextMenuLabel) menu.setAttribute('aria-label', nextMenuLabel)
