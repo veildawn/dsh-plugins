@@ -292,58 +292,42 @@ export function selectionKey(selection) {
 /**
  * 解析会话当前生效的基准选择模型（用户手动指定的首选模型和思考等级）。
  *
- * 防污染的关键是「先取最干净的事实，再让用户的后续改选覆盖它」：
- * 1. 会话最初的 'initial' 请求头——宿主在第一条请求时写入，插件此时尚未路由，
- *    因此它一定是用户当时的真实选择。绝不取路由后的 'change' 请求头。
- * 2. 如果之后用户在会话中又手动改选了模型，则以其最近一次手动选择覆盖第 1 步。
- *    这里必须排除插件自身的写入：`_restoredByModelRoles` 标记的选择、以及键在
- *    `pluginSelections` 中的记录。注意 'restored' 与 '改写回用户模型' 是两回事，
- *    后者会带上用户所选模型的 provider/model，因此不会被误排除。
- * 3. 当前 session requestHeader（仅当未经过路由修改或明确标记为 initial）
- * 4. 全局 defaultModel
- * 5. agent 启动 options
- * 6. 之前还原过的选择兜底
- *
- * 历史教训：早期版本把「倒序扫描 model/selection」放在最前，插件写入又按
- * `provider/model` 键排除。同一角色模型跨回合反复写入时，残留记录无法与用户
- * 选择区分，一旦命中就直接返回，永远走不到 initial 请求头，基准被固化成角色模型
- * （用户选 A、路由到 B 之后，回合结束总把模型"还原"成 B）。
+ * 防污染的核心准则：
+ * 1. 扫描 session.events 中显式的 'model/selection' 事件，取用户最近一次的手动选择：
+ *    凡带有 `_pluginRoute` 或 `_restoredByModelRoles` 的记录均由插件写入，一律跳过；
+ *    用户在前端 UI 选择的模型不会带有任何插件私有标记，以此作为最权威的用户最新意图。
+ * 2. 若用户从未手动选择过，则匹配会话最初未经污染的 'initial' 请求头（宿主在首条请求时写入）。
+ * 3. 检查当前 session requestHeader（仅当未经过路由修改或明确标记为 initial）。
+ * 4. 全局 defaultModel。
+ * 5. agent 启动 options。
+ * 6. 若存在历史还原或路由记录，也可作为兜底候选。
  *
  * @param {object} agent - 会话 agent
  * @param {object} [defaultModel] - 全局默认模型
- * @param {Set<string>|string[]} [pluginSelections] - 插件自身写入过的选择，形如 `provider/model`；
- *   这些记录按插件自身写入处理
+ * @param {Set<string>|string[]} [pluginSelections] - 兼容参数（早期版本按 provider/model 过滤）
  */
 export function resolveBaselineModel(agent, defaultModel, pluginSelections) {
   const events = agent?.session?.events ?? []
   const written = pluginSelections instanceof Set ? pluginSelections : new Set(pluginSelections ?? [])
 
-  // 1. 用户最初的显式选择：第一条请求头（此时尚未发生任何角色路由）
-  let initialSelection
-  for (const event of events) {
-    if (event?.type !== 'request/header' || event.data?.reason !== 'initial') continue
-    initialSelection = toRouteConfig(event.data.header?.config)
-    break
-  }
-
-  // 2. 用户在会话中途手动改选过的模型，后来者优先（排除插件自身写入）
-  let userOverride
+  // 1. 用户最近一次显式手动选定的 model/selection（排除带有插件私有标记的记录）
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
     if (event?.type !== 'model/selection') continue
-    if (event.data?._restoredByModelRoles) continue
+    if (event.data?._pluginRoute || event.data?._restoredByModelRoles) continue
     const match = toRouteConfig(event.data)
     if (!match) continue
-    if (written.has(selectionKey(match))) continue
-    userOverride = match
-    break
+    if (written.size > 0 && written.has(selectionKey(match))) continue
+    return match
   }
 
-  if (userOverride !== undefined && initialSelection !== undefined) {
-    return sameModelSelection(userOverride, initialSelection) ? initialSelection : userOverride
+  // 2. 会话最初的显式选择：第一条请求头（此时尚未发生任何角色路由）
+  for (const event of events) {
+    if (event?.type === 'request/header' && event.data?.reason === 'initial') {
+      const match = toRouteConfig(event.data.header?.config)
+      if (match) return match
+    }
   }
-  if (userOverride !== undefined) return userOverride
-  if (initialSelection !== undefined) return initialSelection
 
   // 3. 检查当前 session requestHeader（若没有任何修改记录或为 initial 状态）
   const directHeader = agent?.session?.requestHeader?.()
@@ -367,7 +351,7 @@ export function resolveBaselineModel(agent, defaultModel, pluginSelections) {
   // 6. 若之前有还原过的有效配置，则采用（历史还原记录里最近的一次）
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
-    if (event?.type !== 'model/selection' || !event.data?._restoredByModelRoles) continue
+    if (event?.type !== 'model/selection') continue
     const match = toRouteConfig(event.data)
     if (match) return match
   }

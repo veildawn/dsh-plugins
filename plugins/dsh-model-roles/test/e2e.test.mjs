@@ -653,10 +653,10 @@ test('sandbox guard also protects standard non-smart sessions and sanitizes prom
   assert.equal(pwshTool.parameters.properties.sandbox_permissions, undefined, 'must hide sandbox_permissions from prompt schema at top mode')
 })
 
-test('a user re-selecting the plugin-written model is treated as a plugin write; the role route reasserts on the next request', async () => {
-  // 已知边界（见 README「与 DSH 模型选择器的关系」）：用户手动选回插件刚写入的同一模型时，
-  // 宿主事件流上与插件写入逐字节相同、无来源标记，无法区分，按插件自身写入处理。
-  // 回合结束还原基准后，下一条消息的角色路由仍会路由回该模型，最终收敛到同一选择。
+test('a user re-selecting the plugin-written model is recognized as user selection and retained', async () => {
+  // 回归验证：当用户手动选回与当前路由模型同名的模型时，
+  // 由于插件路由写入带有 _pluginRoute 标记而用户主动选择不带标记，
+  // 系统能够精准区分，回合结束时必须稳定保留在用户所选模型上，不得强制回滚到 default-model。
   const { ctx } = createRuntime([
     { role: 'slow', provider: 'e2e', model: 'slow-model' },
     { role: 'tiny', provider: 'e2e', model: 'tiny-model' },
@@ -667,22 +667,23 @@ test('a user re-selecting the plugin-written model is treated as a plugin write;
   session.append('model/selection', { provider: 'e2e', model: 'default-model' })
   const agent = attachModel(ctx, { id: session.id, session, options: { provider: 'e2e', model: 'default-model' }, ctx, inbox: { nextStep: [] } })
 
-  // 路由写入 slow-model（插件自身写入）
+  // 路由写入 slow-model（插件自身写入，带 _pluginRoute 标记）
   agent.options.modelRole = 'slow'
   await requestThroughHarness(ctx, agent)
   assert.equal(agent.model.current().model, 'slow-model')
 
-  // 用户此后又主动选了同一个 slow-model（宿主 UI 的切换动作）。
+  // 用户此后主动选了同一个 slow-model（宿主 UI 的切换动作，无插件私有标记）。
   userSelect(session, { provider: 'e2e', model: 'slow-model' })
 
+  // 回合结束：应精准保留用户主动选定的 slow-model，不得回退为 default-model
   await agentEvents(ctx, agent).serial('agent/turn-stopping', {
     agent, turn: 1, signal: AbortSignal.timeout(5_000),
   })
-  assert.equal(agent.model.current().model, 'default-model', 'same-key reselection is indistinguishable from a plugin write, so the baseline is restored')
+  assert.equal(agent.model.current().model, 'slow-model', 'user selection must be retained and not reverted to default-model')
 
-  // 下一条消息：角色路由仍然生效，重新路由回 slow-model，与用户的选择收敛
+  // 下一条消息：继续保持用户选定的 slow-model
   await requestThroughHarness(ctx, agent, { turn: 2 })
-  assert.equal(agent.model.current().model, 'slow-model', 'the role route reasserts on the next request')
+  assert.equal(agent.model.current().model, 'slow-model')
 })
 
 test('a model selection does not reach the step that is already prepared', async () => {

@@ -480,26 +480,9 @@ export function apply(ctx, config = {}) {
   const routedSessions = new WeakSet()
   // 每个回合的角色路由结果，供同一回合后续步骤复用，避免逐步重复分类
   const turnRoutes = new WeakMap()
-  // 插件自身写入过的模型选择（provider/model），解析基准时不算作用户手动选择。
-  //
-  // 一个集合同时覆盖两种情形：
-  // - 写入进行中：宿主追加 model/selection 会立刻回调 session/event，那一刻也判定为插件写入；
-  // - 写入完成后：该选择仍留在集合里，避免被当成用户改选而污染基准。
-  //
-  // 已知边界：用户手动选回插件刚写入的同一个模型时，事件流上与插件写入逐字节相同、
-  // 无来源标记，无法与插件自身写入区分，因此按插件写入处理（回合结束还原基准，
-  // 下一条消息角色路由仍会路由回该模型）。详见 README「与 DSH 模型选择器的关系」。
-  const pluginRoutes = new WeakMap()
-
-  function pluginRouteKeys(session) {
-    if (session === undefined) return undefined
-    let keys = pluginRoutes.get(session)
-    if (keys === undefined) {
-      keys = new Set()
-      pluginRoutes.set(session, keys)
-    }
-    return keys
-  }
+  // 插件写入操作进行中的会话集合，供 session/event 精准识别插件自身同步写入，
+  // 彻底避免把用户在前端手动选择的模型误判为插件行为。
+  const pluginWritingSessions = new WeakSet()
 
   function selectionOf(agent) {
     try {
@@ -539,54 +522,53 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  /** 判定一条选择是否来自插件自身（写入中或写入过）。 */
-  function isPluginSelection(session, selection) {
-    return pluginRoutes.get(session)?.has(selectionKey(selection)) === true
-  }
-
   /**
-   * 写入一条选择，并把它登记为插件自身写入。
+   * 写入一条模型选择。
    *
-   * `_restoredByModelRoles` 是「这条记录由插件还原时写入」的持久标记，供
-   * `resolveBaselineModel` 跳过。会话事件是冻结的、宿主 `agent.model.select()`
-   * 又只写 provider/model/reasoningEffort，因此还原走 `session.append` 直接携带
-   * 该字段，而不是先 select 再回填。
+   * 无论是角色路由还是还原基准，统一携带私有标记 `_pluginRoute`（还原时额外带
+   * `_restoredByModelRoles`），并通过同步标志 `pluginWritingSessions` 区分来源：
+   * 1. 内存中：在写入期间触发的 `session/event` 均被判定为插件写入；用户在前端
+   *    UI 触发的写入不在该期间且不带私有标记，被判定为用户真实改选；
+   * 2. 持久化日志中：带有私有标记的选择在历史回溯时均被跳过，确保基准始终解析
+   *    为用户手动在 UI 选定的模型（或会话 initial 初始模型），绝不会因角色模型同名
+   *    而误判固化。
    */
-  function applySelection(agent, selection) {
-    pluginRouteKeys(agent?.session).add(selectionKey(selection))
-    if (selection?._restoredByModelRoles === true && typeof agent?.session?.append === 'function') {
-      try {
-        agent.session.append('model/selection', selection)
-        return
-      } catch (error) {
-        ctx.logger.warn?.('model-roles: 无法写入基准模型选择', error)
-      }
+  function applySelection(agent, selection, isRestore = false) {
+    const session = agent?.session
+    if (session) pluginWritingSessions.add(session)
+    const payload = {
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
+      _pluginRoute: true,
+      ...(isRestore || selection?._restoredByModelRoles ? { _restoredByModelRoles: true } : {}),
     }
-    selectModel(agent, selection)
+    try {
+      if (typeof session?.append === 'function') {
+        session.append('model/selection', payload)
+      } else {
+        selectModel(agent, payload)
+      }
+    } catch (error) {
+      ctx.logger.warn?.('model-roles: 无法写入模型选择', error)
+    } finally {
+      if (session) pluginWritingSessions.delete(session)
+    }
   }
 
   function selectBaselineIfNeeded(agent, trigger) {
     const baseline = resolveBaselineModel(
       agent,
       ctx.get?.('agentDefaultModel')?.currentSelection?.(),
-      pluginRoutes.get(agent.session),
     )
     if (!baseline?.provider || !baseline?.model) return
     if (sameRoute(selectionOf(agent), baseline)) {
       routedSessions.delete(agent.session)
       return
     }
-    // 带上 `_restoredByModelRoles` 标记：这是插件自己的还原写入，解析基准时
-    // 会被跳过。解析端一直在读这个标记，写入端此前漏写，导致旧日志里的还原记录
-    // 被当成用户选择，基准因此被固化成角色模型。
-    applySelection(agent, {
-      provider: baseline.provider,
-      model: baseline.model,
-      ...(baseline.reasoningEffort ? { reasoningEffort: baseline.reasoningEffort } : {}),
-      _restoredByModelRoles: true,
-    })
+    applySelection(agent, baseline, true)
     routedSessions.delete(agent.session)
-    ctx.logger.info?.(`model-roles: 已在 ${trigger} 选择基准模型 ${baseline.provider}/${baseline.model}${baseline.reasoningEffort ? ` (${baseline.reasoningEffort})` : ''}`)
+    ctx.logger.info?.(`model-roles: 已在 ${trigger} 还原基准模型 ${baseline.provider}/${baseline.model}${baseline.reasoningEffort ? ` (${baseline.reasoningEffort})` : ''}`)
   }
 
   function restoreBaselineIfNeeded(agent, trigger = 'turn-stopping') {
@@ -915,12 +897,13 @@ export function apply(ctx, config = {}) {
     }
   })
 
-  // 3. 用户手动切换模型（非插件写入的选择）后，清掉本回合的路由缓存，
-  // 避免旧路由继续生效。基准模型本身始终从会话日志推导，插件不写入任何标记事件。
+  // 3. 用户手动切换模型（非插件写入的选择）后，清掉本回合的路由缓存与路由态，
+  // 确保用户手动选择的模型立即生效，绝不被回合结束还原冲掉。
   ctx.on('session/event', (session, event) => {
     if (event?.type !== 'model/selection') return
     if (toRouteConfig(event.data) === undefined) return
-    if (isPluginSelection(session, event.data)) return
+    if (pluginWritingSessions.has(session)) return
+    if (event.data?._pluginRoute || event.data?._restoredByModelRoles) return
     routedSessions.delete(session)
   })
 
