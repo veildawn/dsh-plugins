@@ -740,6 +740,58 @@ test('balanceComposerDock skips plan panels, non-dock siblings and unmeasured do
   assert.equal(empty.card.hasAttribute('data-dsh-dock-reserve'), false)
 })
 
+test('a host that ships its own drawer mask is never covered by the plugin backdrop', (t) => {
+  // 回归（宿主 0.2.2-rc.1，移动端真机）：宿主把侧栏改成了自带抽屉——frame 上
+  // 打 data-sidebar-drawer，抽屉列 .pI_x6G_sidebarCol 由宿主规则
+  // `.pI_x6G_frame[data-sidebar-drawer] .pI_x6G_sidebarCol{z-index:71}` 承担
+  // （特异性 0,3,0，压过插件这条 0,2,2 的 z-index:1000），抽屉下方还有宿主自己的
+  // [data-sidebar-mask] 遮罩。于是插件那层 body 级、z-index 980 的 backdrop 成了
+  // 最上层：抽屉看得见，但每次点击都命中 backdrop（等于立刻关抽屉），用户看到的
+  // 就是「左侧菜单上面压着一层遮罩，菜单点不动」。
+  // 两道保护：CSS 把抽屉抬到 backdrop 之上（带 !important，不依赖宿主特异性），
+  // 脚本识别到宿主自带遮罩时直接让位，避免两层遮罩叠加把右侧一起压暗。
+  // 修复方向不是「用 !important 把抽屉抬到 backdrop 之上」：那样抽屉会连
+  // z-index:900 的顶栏一起盖住（实测抬到 1320 时 ☰、标题、全屏按钮整条消失）。
+  // 正确做法是让位——识别到宿主自带遮罩就不渲染插件 backdrop。这条断言把这个
+  // 方向钉死，避免后人再回去抢层级。
+  const css = cssForAssertions
+  assert.ok(css.match(/\.dsh-mobile-backdrop:not\(\[hidden\]\)\{[^}]*\}/), 'backdrop rule must exist')
+  const drawerRule = css.match(/\[data-slot="root"\]>div>div:has\(>\[data-slot="sidebar"\]\)\{[^}]*\}/)
+  assert.ok(drawerRule, 'drawer rule must exist')
+  assert.doesNotMatch(drawerRule[0], /z-index:\d+!important/,
+    '抽屉不得靠 !important 抢层级：抬过顶栏会把 ☰、标题和全屏按钮一起盖掉')
+
+  const f = fixture()
+  // 宿主抽屉模式：frame 带 data-sidebar-drawer，抽屉自己带遮罩。
+  f.doc.frame.setAttribute('data-sidebar-drawer', 'true')
+  const previous = {
+    document: globalThis.document,
+    window: globalThis.window,
+    MutationObserver: globalThis.MutationObserver,
+  }
+  globalThis.document = f.doc
+  globalThis.window = f.win
+  globalThis.MutationObserver = f.Observer
+  t.after(() => {
+    globalThis.document = previous.document
+    globalThis.window = previous.window
+    globalThis.MutationObserver = previous.MutationObserver
+    f.cleanup()
+  })
+
+  client.apply(f.ctx)
+  const bar = f.doc.body.children.find((node) => node.className === 'dsh-mobile-bar')
+  const backdrop = f.doc.body.children.find((node) => node.className === 'dsh-mobile-backdrop')
+  const [menu] = bar.children
+  assert.equal(backdrop.hidden, true)
+
+  menu.emit('click')
+  assert.equal(menu.getAttribute('aria-expanded'), 'true', '宿主抽屉仍然受插件的 ☰ 开关控制')
+  assert.equal(f.doc.sidebarColumn.inert, false)
+  assert.equal(backdrop.hidden, true,
+    '宿主自带遮罩时必须让位：插件 backdrop 若显示就会整层盖住抽屉，菜单点不动')
+})
+
 test('Client drawer, shortcuts, gestures, keyboard viewport, and cleanup work together', (t) => {
   const f = fixture()
   const previous = {

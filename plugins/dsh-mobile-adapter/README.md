@@ -12,7 +12,7 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 - 🧰 **工作区工具箱 (Mobile Toolbox)**：移动端在输入框右侧或底部集成统一折叠工具箱，无缝集合文件查看器、本地终端、提示词历史等插件入口。
 - 🔘 **全操作按钮规范化与去冗余**：对话框底部全操作按钮圆形统一设计，触控点击更舒适，防误触。权限模式选择器在移动端收成 32px 圆钮（隐藏文字与下拉箭头），选择器哈希同时覆盖 `dsh 0.1.x` 的 `Sh0Q9G_*` 与 `0.2.1-rc.2` 的 `iWlSmW_*`。模型选择器不再按构建哈希写死，改为锚定宿主写死的语义属性（`[data-composer-card] button[aria-haspopup="menu"][aria-label*="模型"]`），因此宿主换哈希（`_7KE1Ra_*` → `_9r0rkG_*` → …）当天按钮仍收成 32px 圆钮；悬浮窗同理按 `[role="menu"][aria-label*="模型"]` 强制 `position:fixed` 停靠在底部操作栏上方，并带 `:not(:has([role="menuitem"]))` 排除内层滚动区，避免把列表区一起改成 fixed 导致滚不动。移动端隐藏原生冗余的「+」快捷指令按钮（移动端直接键入 `/` 即可触发指令，省出单行空间避免挤压换行，多层覆盖 `.uV2eYG_add`、`.ccegLa_add` 与 `[class*="_add"]`、`button[aria-haspopup="listbox"]` 语义选择器）。
 - 🧭 **输入框下方的统计行固定单行三列、且不掉出卡片**：宿主把「N 轮 M 步 · tok/s」「用量 · 缓存命中」统计行和上下文用量圆环一起渲染在输入卡片下方的 dock 里（两个药丸装在 `conversation.composer.dock` 槽位内）。移动端固定为**单行三列**——`[轮次/速度] [用量/缓存] [上下文圆环]`：槽位与 dock 都强制 `row/nowrap`（曾因槽位是 `column` 导致统计行堆成多行），不折行也不横向滚动；两列统计等分宽度，收缩压力只落在每段的末位文字（速度、缓存命中率）上走省略号，轮次/步数与总量保持完整；`≤360px` 超窄屏进一步隐藏末位文字与分隔符，只留「N 轮 M 步」和总量，完整数值仍可从药丸点击面板查看。整块内容由脚本按**实测 dock 高度**动态配平（卡片补同样的底部内边距 + dock 等量负边距）收进卡片圆角内。旧实现用 `:has(+dock …)` 加固定 40px/-38px 魔法数，在 Safari < 15.4、Chrome < 105 等不支持 `:has()` 的内核上会整条静默失效，表现就是「输入框下方的内容缺失」——现在不再依赖 `:has()`。
-- 📑 **抽屉与弹窗防溢出**：对侧边栏会话抽屉、历史记录抽屉等全部进行移动端全屏/半屏底部抽屉（Bottom Sheet）自适应改造。
+- 📑 **抽屉与弹窗防溢出**：对侧边栏会话抽屉、历史记录抽屉等全部进行移动端全屏/半屏底部抽屉（Bottom Sheet）自适应改造。**宿主自带抽屉遮罩时自动让位**：DSH 0.2.2 起把侧栏做成了自带抽屉（frame 上 `data-sidebar-drawer`，抽屉列 `.pI_x6G_sidebarCol` 由宿主规则压到 `z-index:71`，下方还有宿主自己的 `[data-sidebar-mask]` 遮罩）。插件原先那层挂在 body、`z-index:980` 的全屏 backdrop 会把它整个盖住——抽屉看得见，但每次点击都命中最上层的 backdrop（等于立刻关抽屉），真机表现就是「左侧菜单上面压着一层遮罩，菜单点不动」。现在识别到宿主抽屉模式就不再叠加自己的 backdrop，遮罩与「点外部关闭」交回宿主；插件仍负责 ☰ 开关、抽屉宽度与安全区。**不要**改用 `!important` 把抽屉抬到 backdrop 之上来修：抽屉一旦高过 `z-index:900` 的顶栏，`☰`、标题与全屏按钮会整条被盖掉（实测抬到 1320 时就是这样），测试里已把这条方向钉死为不得回归。
 - 📂 **工作区目录可正常展开/收起**：宿主把工作区行的展开三角藏在 `:hover` 里（`.YDXeBa_projectRow .YDXeBa_chevron{display:none}`，仅 `:hover` 显示），触屏设备既没有 hover 也没有指针，展开状态完全不可见；同时宿主 hover 时用三角顶替文件夹图标（`.YDXeBa_projectRow:hover .YDXeBa_folder{display:none}`），触屏一按下图标就互相乱跳。移动端现固定为：三角常显并独占槽位、文件夹图标保持常显、旋转方向由宿主的 `aria-expanded` 驱动、行高抬到 40px 便于点按。并修正点击行为——工作区行是展开/收起控件而非会话选择，点它不再关闭侧边抽屉（此前宿主刚展开的会话列表会被立刻关掉，表现为「点文件夹毫无反应」），只有真正选中会话行才收起抽屉。
 - ↩️ **右侧栏（文件/终端）避让与一键返回**：右侧栏在移动端展开时自动避开顶部导航栏并放大 tab 与收起按钮触控区，顶栏右上角变为「← 对话」一键收起面板回到会话；冷启动恢复页面时若右侧栏曾处于展开态，自动收起，不再出现刷新或重开网页后被锁在文件栏、回不到对话的问题。
 - 🔍 **聚焦输入不再整页放大**：iOS Safari 会对计算字号小于 16px 的可编辑元素（输入框已是 contenteditable）聚焦时强制放大整个视口，顶栏按钮随之被挤出屏幕。输入区字号现统一抬到 16px 下限（用户在设置里选定的更大字号照常生效），聚焦时页面保持原有缩放，按钮不再消失。
@@ -23,10 +23,10 @@ DeepSeek Harness (DSH) Web 移动端全量体验优化与响应式适配插件�
 
 ```bash
 # 1. 使用 GitHub Release 在线安装
-dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.67/dsh-mobile-adapter-0.1.67.tgz
+dsh plugin --profile web add https://github.com/veildawn/dsh-plugins/releases/download/dsh-mobile-adapter@v0.1.68/dsh-mobile-adapter-0.1.68.tgz
 
 # 2. 或在本地打包安装
-dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.67.tgz
+dsh plugin --profile web add ./plugins/dsh-mobile-adapter/dsh-mobile-adapter-0.1.68.tgz
 ```
 
 ## 选择器契约
