@@ -1347,6 +1347,31 @@ const POLICY = {
     'the yes/no primitive is noul, so read answers[key].noul, the probability that the answer is yes.',
     'Question keys are yours to choose, and choice/score criteria accept nested JSON structure.',
   ].join(' '),
+
+  /**
+   * 三层归属提示（切面用；完整的可复制示例放在 parametersFor 的 questions 描述里）。
+   *
+   * 依据是对历史调用记录的逐字节还原，不是猜测。4 次 turn 级中断的形态有三类：
+   *
+   *   1. `{"questions":{"criteria":{…},"instructions":…}}` —— questions 下直接放
+   *      spec，**完全漏掉 question key 这一层**（2 次）。
+   *   2. `{"questions":{"k":{"criteria":{…}},"instructions":…,"state":…}}` —— 有 key，
+   *      但 instructions/type/state 落到了 questions 层，**key 对象提前闭合**（1 次）。
+   *   3. 同上有 key 但多闭合一层（1 次）。
+   *
+   * 共同点是 `questions → key → spec` 三层归属不稳定，而非单纯的括号计数错误。
+   * 因此提示必须点明「instructions 和 type 在 key 内部」，只给一个 `{…}` 骨架是
+   * 不到位的：恰恰是 spec 内部那层被省略掉，而错误就出在那一层。
+   *
+   * 为什么放在切面而不是工具描述：SPEC AC3 约束工具描述 ≤ 1500 字符，改前已达
+   * 1484，余量 16；切面 ≤ 1200，实测 967，余量充足。把示例塞进描述曾挤掉一条
+   * 有效事实（question key 可自选），净收益为负。参数的完整合法示例放在
+   * parametersFor().questions.description —— 那里没有长度断言，且正是模型写
+   * questions 时读的字段级说明。
+   */
+  keyNestingHint: [
+    'Questions is a map of self-named keys to specs; instructions and type belong inside each key, never beside questions.',
+  ].join(' '),
 };
 
 /**
@@ -1366,6 +1391,9 @@ function policySectionText() {
     '## Jev decision policy',
     'Use jev_decide for typed judgments: it returns a typed answer plus a calibrated confidence, never prose.',
     policyBlock(),
+    // 常驻切面点明三层归属：参数形状错误发生在「已经决定调用、正在写 JSON」
+    // 的那一刻，而切面是每轮都可见的。完整示例在 schema 的 questions 描述里。
+    POLICY.keyNestingHint,
     'In PTC mode call jev_decide from inside a run_code program, not as a top-level tool call.',
   ].join('\n\n');
 }
@@ -1402,7 +1430,15 @@ function parametersFor() {
       questions: {
         type: 'object',
         description:
-          'Map of question key to { type: "choice" | "score" | "noul" | "boolean", instructions: string, criteria?: object | array }.' +
+          // 完整合法示例放在这里，而不是工具描述里：本字段没有长度断言（AC3 只约束
+          // 工具描述 ≤ 1500 与切面 ≤ 1200），且正是模型写 questions 时读的字段级说明。
+          // 历史记录里 4 次 turn 级中断全部源于 questions→key→spec 三层归属错位，
+          // 所以示例必须完整、可解析，并点明 instructions/type 在 key 内部。
+          'Whole arguments: {"state":"...","questions":{"problem":{"type":"noul","instructions":"..."}}};' +
+          ' state and questions are siblings at the root.' +
+          ' questions is an object keyed by your own question name (never an array); instructions and type live' +
+          ' inside that key, beside criteria, not beside questions.' +
+          ' Each value is { type: "choice" | "score" | "noul" | "boolean", instructions: string, criteria?: object | array }.' +
           ' criteria is required for choice (a non-empty object of option_key -> meaning) and for score (a non-empty array of level meanings).' +
           ' choice answers carry .choice plus probabilities and a confidence; score answers carry .score plus a legend or probabilities' +
           ' and a confidence; for yes/no, read answers[key].noul, the probability that the answer is yes.',
