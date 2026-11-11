@@ -182,11 +182,11 @@ window.__ModuleLoader__.load({
         const [gateway, setGateway] = react.useState("");
         const [clientId, setClientId] = react.useState("");
         const [apiFormat, setApiFormat] = react.useState("chat/completions");
-        const [highestEffort, setHighestEffort] = react.useState(true);
+        const [highestEffort, setHighestEffort] = react.useState(false);
         const [savedGateway, setSavedGateway] = react.useState("");
         const [savedClientId, setSavedClientId] = react.useState("");
         const [savedApiFormat, setSavedApiFormat] = react.useState("chat/completions");
-        const [savedHighestEffort, setSavedHighestEffort] = react.useState(true);
+        const [savedHighestEffort, setSavedHighestEffort] = react.useState(false);
         const [maxContextText, setMaxContextText] = react.useState(formatContextCap(DEFAULT_MAX_CONTEXT_WINDOW));
         const [savedMaxContextText, setSavedMaxContextText] = react.useState(DEFAULT_MAX_CONTEXT_WINDOW);
         const [loaded, setLoaded] = react.useState(false);
@@ -231,7 +231,9 @@ window.__ModuleLoader__.load({
               setSavedApiFormat(value.apiFormat);
             }
             if (value?.defaultReasoningEffort !== undefined) {
-              const isHighest = value.defaultReasoningEffort === "highest" || (value.defaultReasoningEffort !== "lowest" && value.defaultReasoningEffort !== "none" && value.defaultReasoningEffort !== "off");
+              // Off unless the host says otherwise: an unset field is the floor, and
+              // only an explicit "highest" turns the switch on.
+              const isHighest = value.defaultReasoningEffort === "highest";
               setHighestEffort(isHighest);
               setSavedHighestEffort(isHighest);
             }
@@ -337,7 +339,9 @@ window.__ModuleLoader__.load({
             setSavedApiFormat(value.apiFormat);
           }
           if (value?.defaultReasoningEffort !== undefined) {
-            const isHighest = value.defaultReasoningEffort === "highest" || (value.defaultReasoningEffort !== "lowest" && value.defaultReasoningEffort !== "none" && value.defaultReasoningEffort !== "off");
+            // Off unless the host says otherwise: an unset field is the floor, and
+              // only an explicit "highest" turns the switch on.
+              const isHighest = value.defaultReasoningEffort === "highest";
             setHighestEffort(isHighest);
             setSavedHighestEffort(isHighest);
           }
@@ -456,7 +460,7 @@ window.__ModuleLoader__.load({
           react.createElement("label", { className: "ai-proxy-toggle" },
             react.createElement("div", { className: "ai-proxy-toggle-info" },
               react.createElement("span", { className: "ai-proxy-toggle-title" }, "最高推理强度 (defaultReasoningEffort)"),
-              react.createElement("span", { className: "ai-proxy-toggle-desc" }, "开启后优先采用当前模型 ladder 的最高档位（如 max / xhigh / high），关闭则采用首档")
+              react.createElement("span", { className: "ai-proxy-toggle-desc" }, "开启后，未手动选档的请求采用当前模型 ladder 的最高档（如 max / xhigh / high）；关闭（默认）则采用最低档")
             ),
             react.createElement("input", {
               type: "checkbox", role: "switch", className: "ai-proxy-checkbox",

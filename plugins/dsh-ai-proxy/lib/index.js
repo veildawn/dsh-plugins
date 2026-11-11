@@ -82,7 +82,10 @@ export const DEFAULT_MODEL_CACHE_TTL_MS = 300000
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300000
 
 export const DEFAULT_API_KEY_ENV = 'AIPROXY_ACCESS_TOKEN'
-export const DEFAULT_REASONING_EFFORT = 'highest'
+// Off by default. "Highest" is a depth the user opts into — a default that
+// silently spends on the deepest rung of every model is a policy nobody chose,
+// and the card's switch reflects this same default (see client.js).
+export const DEFAULT_REASONING_EFFORT = 'lowest'
 
 export const API_FORMAT_CHAT_COMPLETIONS = 'chat/completions'
 export const API_FORMAT_ANTHROPIC_MESSAGES = 'anthropic-messages'
@@ -123,6 +126,7 @@ const EFFORT_ORDER = ['turbo', 'ultra', 'max', 'xhigh', 'high', 'medium', 'low',
 export function resolveDefaultEffort(ladder, configured) {
   if (!Array.isArray(ladder) || ladder.length === 0) return undefined
   const conf = typeof configured === 'string' ? configured.trim().toLowerCase() : ''
+  // Unset means the switch is off, which is the floor — not the ceiling.
   if (conf === '' || conf === 'lowest') return ladder[0]
   if (ladder.includes(conf)) return conf
   if (conf === 'highest') {
@@ -324,10 +328,17 @@ export function piAiProtocolFor(apiFormat) {
  * `compat.supportsDeveloperRole` is false; DeepSeek / GLM / similar endpoints
  * reject that variant (`unknown variant \`developer\``). Anthropic Messages
  * does not take the switch, so that protocol omits the block.
+ *
+ * `supportsReasoningEffort` is declared rather than left to pi-ai's detection:
+ * today every custom baseURL defaults to true, which is why the ladder reaches
+ * the wire at all, but that is an inference about somebody else's endpoint and
+ * one upstream release away from silently dropping `reasoning_effort` — and
+ * with it the level the gateway logs. The gateway takes the parameter on every
+ * OpenAI-shaped surface this route can be given, so it is stated here.
  */
 export function routeCompatFor(api) {
   if (api === PI_AI_PROTOCOL_ANTHROPIC) return undefined
-  return { supportsDeveloperRole: false }
+  return { supportsDeveloperRole: false, supportsReasoningEffort: true }
 }
 
 /**
@@ -379,18 +390,26 @@ const PI_AI_EFFORT_KEYS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 /**
  * Translate one gateway effort ladder into the official adapter's
  * `reasoningEfforts` dict: keys are selector levels, values are the wire
- * spellings the gateway expects. `off` maps to null ("supported, send no
- * parameter"); standard rungs keep their identity spelling; non-standard
- * rungs (ultra/turbo/…) borrow free selector keys from the top down so the
- * gateway's strongest spelling stays selectable as its strongest level.
- * `false` marks a model with no selectable reasoning.
+ * spellings the gateway expects. Standard rungs keep their identity spelling;
+ * non-standard rungs (ultra/turbo/…) borrow free selector keys from the top
+ * down so the gateway's strongest spelling stays selectable as its strongest
+ * level. `false` marks a model with no selectable reasoning.
+ *
+ * `off` is a USER choice and nothing else. A ladder that declares `off`/`none`
+ * maps it to `null` ("supported, send no parameter"); a ladder that does not is
+ * left without the key, so the picker never offers a level the gateway did not
+ * publish and `highest` never quietly turns "don't think" on. What a request
+ * with no level sends is the route preference's business, resolved per model by
+ * {@link preferredEffort} on the request path — not something this table bakes
+ * in, because the same table is what the picker renders.
  */
 export function ladderToReasoningEfforts(effortLevels) {
   const rungs = Array.isArray(effortLevels)
     ? effortLevels.map(String).filter((rung) => rung.length > 0)
     : []
   const entries = new Map()
-  if (rungs.includes('off') || rungs.includes('none')) entries.set('off', null)
+  const declaresOff = rungs.includes('off') || rungs.includes('none')
+  if (declaresOff) entries.set('off', null)
   for (const key of PI_AI_EFFORT_KEYS) {
     if (rungs.includes(key)) entries.set(key, key)
   }
@@ -410,7 +429,7 @@ export function ladderToReasoningEfforts(effortLevels) {
       }
     }
   }
-  if (![...entries.keys()].some((key) => key !== 'off')) return false
+  if ([...entries.keys()].every((key) => key === 'off')) return false
   return Object.fromEntries(entries)
 }
 
@@ -423,6 +442,8 @@ export function ladderToReasoningEfforts(effortLevels) {
 export function streamOptionsWithPreferredEffort(streamOptions, efforts, configured) {
   if (streamOptions?.provider !== PROVIDER) return streamOptions
   if (streamOptions.reasoningEffort !== undefined) {
+    // An explicit level is the user's own decision — including "off", which is
+    // a real rung for the models that publish it and must survive untouched.
     const clamped = clampEffortToLadder(streamOptions.reasoningEffort, efforts)
     if (clamped === streamOptions.reasoningEffort) return streamOptions
     if (clamped !== undefined) {
@@ -435,6 +456,32 @@ export function streamOptionsWithPreferredEffort(streamOptions, efforts, configu
   const target = preferredEffort(efforts, configured)
   if (target === undefined) return streamOptions
   return { ...streamOptions, reasoningEffort: ReasoningEffortId(target) }
+}
+
+/**
+ * The level a request that names none should end up at, for THIS model.
+ *
+ * `defaultReasoningEffort` is the route preference, but the route itself only
+ * publishes one static level (`reasoning`), and a static field cannot say
+ * "highest" for a catalog whose model tops differ. So the preference is
+ * resolved here, per model, and widened to that model's own top for
+ * "highest" — `max` for a model that offers it, `xhigh` or `high` for one that
+ * does not.
+ *
+ * `off` is not a destination: it is a rung the user picks, and a preference of
+ * "highest" must never turn a model's thinking off, nor may it be used to
+ * smuggle a level into a model that never published one. A ladder with no
+ * selectable rung answers undefined, which the caller turns into "send no
+ * parameter" — exactly what such a model's only setting means.
+ */
+export function defaultEffortForModel(efforts, configured) {
+  const rungs = (Array.isArray(efforts) ? efforts : [])
+    .map((effort) => typeof effort === 'string' ? effort : effort?.id)
+    .filter((id) => typeof id === 'string' && id.length > 0 && id !== 'off')
+  if (rungs.length === 0) return undefined
+  const pref = effectiveDefaultEffort(configured)
+  if (pref === 'off' || pref === 'none') return undefined
+  return resolveDefaultEffort(rungs, pref)
 }
 
 /** Check whether a model identifier represents any Google Gemini model. */
@@ -628,6 +675,26 @@ export function preferredEffort(efforts, configured) {
   const pref = typeof configured === 'string' ? configured.trim().toLowerCase() : ''
   if (pref === 'off' || pref === 'none') return undefined
   return resolveDefaultEffort(rungs, pref === '' ? DEFAULT_REASONING_EFFORT : pref)
+}
+
+/**
+ * The setting is a genuine two-state switch, and that is all it is.
+ *
+ * `highest` means "the deepest rung THIS model publishes" and `lowest` means
+ * "its shallowest". There is no third state: an exact rung name is not a
+ * policy the switch can express (the card only ever writes the two words), and
+ * "off" is not one either — turning a model's thinking off is a per-model,
+ * user-made pick in the effort list, not a route-wide default. Broadening this
+ * into "any level the adapter knows" is how a stale or hand-edited config ends
+ * up forcing every request onto a depth nobody chose.
+ *
+ * The switch is OFF unless the value literally says `highest`: unset, blank,
+ * unknown or a typo all mean "the floor", because the costlier side must be
+ * something the user turned on rather than something a bad value defaulted to.
+ */
+export function effectiveDefaultEffort(configured) {
+  const pref = typeof configured === 'string' ? configured.trim().toLowerCase() : ''
+  return pref === 'highest' ? 'highest' : 'lowest'
 }
 
 /**
@@ -899,6 +966,19 @@ export function buildProviderProfile(options, models, existingRoute, baselineRou
   // as a model entry: a model the gateway did not size resolves to these two, and
   // the host charges them to the compaction budget exactly the same way.
   const fallbackWindow = clampToCap(options.defaultContextWindow, cap)
+  // The route deliberately carries NO `reasoning`. It is one static level for
+  // every model on the route, and a catalog whose models top out differently
+  // has no single correct value for it: writing one model's `max` hands `max`
+  // to a model that stops at `high` (a 400), and writing the intersection's
+  // floor silently demotes the capable ones — which is exactly how
+  // `deepseek-v4.1-flash` ended up defaulting to `high` rather than `max` once
+  // `hy4-preview` (whose ladder is only `off`/`high`) was in the catalog.
+  //
+  // The preference is therefore resolved per model, by this plugin, in
+  // `resolveModelInfo` (the picker's default) and on the request path. The
+  // adapter answers "no default" for a route without this field, which is the
+  // answer that lets the per-model override take effect — and the startup
+  // cleanup still removes a value an older build left here.
   const profile = {
     displayName: 'AI Proxy',
     apiKeyEnv: options.apiKeyEnv,
@@ -1485,12 +1565,16 @@ class RouteMaterializer {
   }
 
   /**
-   * Drop a route-level `reasoning` left by older materializations.
+   * Remove a route-level `reasoning` left by an older materialization.
    *
-   * That field is one static level for every model on the route. Discovery
-   * failures must not keep the catalog, but they also must not keep a level
-   * (`max`) that a model on the same route cannot serve — direct streams
-   * fall back to it before any per-model preference can apply.
+   * This build never writes that field: one static level cannot serve a catalog
+   * whose models top out differently, and the adapter reports it as every
+   * model's default — which is how `deepseek-v4.1-flash` (low/high/max) came to
+   * default to `high` because another model in the same catalog offered only
+   * `off`/`high`. A stale value would keep winning over the per-model
+   * resolution, so it is removed up front; a sync then writes the route without
+   * it. Discovery failure does not bring it back, and the catalog itself is
+   * left untouched.
    */
   async dropRouteReasoning() {
     if (this.available === false) return false
@@ -1619,7 +1703,11 @@ export const Config = z.object({
   // No default: the access slot is derived from the client id (see tokenRefs),
   // so a schema-level default would pin every install to one shared ref.
   apiKeyEnv: z.string().role('credential-ref'),
-  defaultReasoningEffort: liveField(z.string().default(DEFAULT_REASONING_EFFORT)),
+  // Two states and only two: the card writes whichever side its switch is on,
+  // and anything else would be a depth policy the UI cannot express. Enumerated
+  // so a hand-edited profile is refused at write time instead of being folded
+  // into one of the two at request time.
+  defaultReasoningEffort: liveField(z.union(['highest', 'lowest']).default(DEFAULT_REASONING_EFFORT)),
   maxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   // A plain token count or one carrying a K/M suffix (`500K`, `1M`, `500k`);
@@ -1864,55 +1952,167 @@ export function apply(ctx, config) {
   }
 
   // Fill this route's preference against the concrete model's own ladder.
-  // resolveModelInfo covers the picker; resolveCallConfig covers callers that
-  // ask for a resolved config. Neither runs for a direct ctx.llm.stream()
-  // (compaction, session titles): llm/stream does, and it must attach the
-  // effort before the official adapter falls back to a route-level reasoning
-  // value this model may not support.
+  // The preference has to land on `config.reasoningEffort`, because that is
+  // the only thing the request path reads: the agent loop builds its frozen
+  // request from `prepareCall().config`, and the official adapter resolves
+  // `options.reasoningEffort ?? profile.reasoning` — never `defaultEffort`.
+  //
+  // `defaultEffort` alone is therefore NOT enough. It only pre-selects a row
+  // in the picker; nothing copies it into a request. That is why "the switch is
+  // on but the gateway logs no effort" survived three attempts at fixing the
+  // picker: the value never reached the wire.
+  //
+  // The seam that decides is `resolveCallFor`: `prepareCall` and every
+  // `ctx.llm.stream()` both derive their resolved config from it, and the agent
+  // loop's request is built from that config. Filling it here covers all three
+  // dispatch shapes at once, and `adapterDefaults.reasoningEffort` then records
+  // the level as adapter-supplied rather than user-chosen — which is exactly
+  // what it is.
   const preference = () => options().defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT
-  const preferredFor = (info) => preferredEffort(info?.reasoning?.efforts, preference())
+  const preferredFor = (info) => defaultEffortForModel(info?.reasoning?.efforts, preference())
   if (ctx.llm) {
+    // The seam the host actually reads. `resolveCallFor` — which every dispatch
+    // runs before the adapter is called — reaches model metadata through
+    // `resolveModelInfoFor(registration, …)`, NOT through the public
+    // `resolveModelInfo(provider, …)`. Overriding only the public one leaves
+    // the internal path on the adapter's own answer, so a route-level
+    // `reasoning` (or the adapter's absent default) wins and the preference
+    // never reaches the request. Both entry points are wrapped: the internal
+    // one because it is the one that matters, the public one because other
+    // plugins and the model editor call it directly.
+    const origResolveModelInfoFor = typeof ctx.llm.resolveModelInfoFor === 'function'
+      ? ctx.llm.resolveModelInfoFor.bind(ctx.llm)
+      : undefined
     const origResolveModelInfo = typeof ctx.llm.resolveModelInfo === 'function'
       ? ctx.llm.resolveModelInfo.bind(ctx.llm)
       : undefined
-    if (origResolveModelInfo !== undefined) {
-      ctx.llm.resolveModelInfo = async function (provider, model, signal) {
-        const info = await origResolveModelInfo(provider, model, signal)
-        if (provider !== PROVIDER || info?.reasoning?.defaultEffort !== undefined) return info
-        const target = preferredFor(info)
-        if (target === undefined) return info
-        return {
-          ...info,
-          reasoning: {
-            ...info.reasoning,
-            defaultEffort: ReasoningEffortId(target),
-          },
-        }
+
+    /**
+     * Fill this route's preference against the concrete model's own ladder.
+     *
+     * Recomputed every time, not only when the adapter left `defaultEffort`
+     * unset: the adapter derives it from the route's static `reasoning`, which
+     * is one level for the whole catalog, so a route defaulted to `high`
+     * (because some model only offers `off`/`high`) reports `high` for a model
+     * whose own ladder reaches `max`. This plugin is the only party that
+     * resolves the preference against the concrete ladder, so it wins.
+     *
+     * `defaultEffort` is also the picker's pre-selected row, so a level this
+     * model does not publish is left off rather than shown as a selection whose
+     * effect is invisible in the list.
+     */
+    const withPreferredDefault = (info, provider) => {
+      if (provider !== PROVIDER || info?.reasoning === undefined) return info
+      const target = preferredFor(info)
+      if (target === undefined) return info
+      const offered = (Array.isArray(info?.reasoning?.efforts) ? info.reasoning.efforts : [])
+        .some((effort) => (typeof effort === 'string' ? effort : effort?.id) === target)
+      if (!offered) return info
+      if (info.reasoning.defaultEffort === target) return info
+      return {
+        ...info,
+        reasoning: {
+          ...info.reasoning,
+          defaultEffort: ReasoningEffortId(target),
+        },
       }
     }
 
+    if (origResolveModelInfoFor !== undefined) {
+      ctx.llm.resolveModelInfoFor = async function (registration, model, signal) {
+        const info = await origResolveModelInfoFor(registration, model, signal)
+        return withPreferredDefault(info, registration?.provider?.id ?? info?.provider)
+      }
+    }
+    if (origResolveModelInfo !== undefined) {
+      ctx.llm.resolveModelInfo = async function (provider, model, signal) {
+        const info = await origResolveModelInfo(provider, model, signal)
+        return withPreferredDefault(info, provider)
+      }
+    }
+
+    // The seam that actually puts the level on the wire. Every dispatch shape
+    // — `ctx.llm.stream()`, `prepareCall().stream()`, the agent loop's frozen
+    // request — derives its config from here, so filling `reasoningEffort`
+    // here reaches all of them. It is filled only when the caller named no
+    // level: an explicit choice (including `off`) is the user's and is left
+    // exactly as it is.
+    if (origResolveModelInfoFor !== undefined && typeof ctx.llm.resolveCallFor === 'function') {
+      const origResolveCallFor = ctx.llm.resolveCallFor.bind(ctx.llm)
+      ctx.llm.resolveCallFor = async function (registration, config, signal) {
+        if (config?.provider !== PROVIDER) return origResolveCallFor(registration, config, signal)
+        // Normalise the caller's level BEFORE the host validates it. The host
+        // throws UNSUPPORTED_REASONING_EFFORT for a level outside the model's
+        // ladder, which is the right answer for a genuine mistake but the wrong
+        // one for a level carried over from a different model after a switch —
+        // the clamp exists precisely so that case never reaches the host.
+        let effective = config
+        try {
+          const info = await origResolveModelInfoFor(registration, config.model, signal)
+          const efforts = info?.reasoning?.efforts
+          if (config.reasoningEffort === undefined) {
+            const target = preferredFor(info)
+            if (target !== undefined) effective = { ...config, reasoningEffort: ReasoningEffortId(target) }
+          } else {
+            const clamped = clampEffortToLadder(config.reasoningEffort, efforts)
+            if (clamped !== config.reasoningEffort) {
+              effective = clamped === undefined
+                ? (() => { const rest = { ...config }; delete rest.reasoningEffort; return rest })()
+                : { ...config, reasoningEffort: ReasoningEffortId(clamped) }
+            }
+          }
+        } catch {}
+        return origResolveCallFor(registration, effective, signal)
+      }
+    }
+
+    // The 0.2.x seam, and the one the installed host actually dispatches
+    // through. `prepareCall` and `adapterStream` there call
+    // `resolveCallWithInfo(config, info)` directly — `resolveCallFor` is left
+    // for the standalone `resolveCallConfig` query only — so wrapping the
+    // older entry point alone changes nothing on this host.
+    //
+    // It receives the already-normalized model info, so the ladder is read
+    // straight off it and no extra lookup is needed. The config it is handed
+    // is the caller's, before the host's own defaulting, which is exactly
+    // where a missing level has to be filled.
+    if (typeof ctx.llm.resolveCallWithInfo === 'function') {
+      const origResolveCallWithInfo = ctx.llm.resolveCallWithInfo.bind(ctx.llm)
+      ctx.llm.resolveCallWithInfo = function (config, info) {
+        if (config?.provider !== PROVIDER) return origResolveCallWithInfo(config, info)
+        let effective = config
+        try {
+          const efforts = info?.reasoning?.efforts
+          if (config.reasoningEffort === undefined) {
+            const target = preferredFor(info)
+            if (target !== undefined) effective = { ...config, reasoningEffort: ReasoningEffortId(target) }
+          } else {
+            const clamped = clampEffortToLadder(config.reasoningEffort, efforts)
+            if (clamped !== config.reasoningEffort) {
+              effective = clamped === undefined
+                ? (() => { const rest = { ...config }; delete rest.reasoningEffort; return rest })()
+                : { ...config, reasoningEffort: ReasoningEffortId(clamped) }
+            }
+          }
+        } catch {}
+        return origResolveCallWithInfo(effective, info)
+      }
+    }
+
+    // `resolveCallConfig` is a "what would this call send" query, so it must
+    // answer the level the dispatch will use — the same one `resolveCallFor`
+    // fills. Only the missing case is answered here; a level the caller named
+    // is passed through untouched, because this entry point is also used by the
+    // session controller to validate a selection, and rewriting a user's choice
+    // in a validation call is not its job.
     if (origResolveModelInfo !== undefined && typeof ctx.llm.resolveCallConfig === 'function') {
       const origResolveCallConfig = ctx.llm.resolveCallConfig.bind(ctx.llm)
       ctx.llm.resolveCallConfig = async function (config, signal) {
-        if (config?.provider === PROVIDER) {
+        if (config?.provider === PROVIDER && config.reasoningEffort === undefined) {
           try {
             const info = await origResolveModelInfo(config.provider, config.model, signal)
-            const efforts = info?.reasoning?.efforts
-            if (config.reasoningEffort === undefined) {
-              const target = preferredFor(info)
-              if (target !== undefined) config = { ...config, reasoningEffort: ReasoningEffortId(target) }
-            } else {
-              const clamped = clampEffortToLadder(config.reasoningEffort, efforts)
-              if (clamped !== config.reasoningEffort) {
-                if (clamped !== undefined) {
-                  config = { ...config, reasoningEffort: ReasoningEffortId(clamped) }
-                } else {
-                  const rest = { ...config }
-                  delete rest.reasoningEffort
-                  config = rest
-                }
-              }
-            }
+            const target = preferredFor(info)
+            if (target !== undefined) config = { ...config, reasoningEffort: ReasoningEffortId(target) }
           } catch {}
         }
         return origResolveCallConfig(config, signal)
@@ -1960,8 +2160,10 @@ export function apply(ctx, config) {
       ctx.logger.warn(name + ': 宿主未提供 llm-pi-ai 设置节(需要 DSH 宿主 0.1.5-rc 及以上),已跳过路由材料化')
       return
     }
-    // A stale route-level reasoning survives a discovery failure (the catalog
-    // must), so drop it immediately on startup without waiting for discovery.
+    // A route-level reasoning left by an older build outlives a discovery
+    // failure along with the catalog, and the adapter would keep reporting it
+    // as every model's default ahead of this plugin's per-model resolution —
+    // so it is removed up front, before the catalog is even fetched.
     await materializer.dropRouteReasoning().catch(syncError)
     try {
       await api.bootstrap()
@@ -1977,7 +2179,8 @@ export const internals = {
   AiProxyApi, RouteMaterializer, OAuthSession,
   buildProviderProfile, mergeModelEntry, mergeProviderProfile, applyStaticModelOverrides,
   piAiProtocolFor, piAiBaseURL, routeCompatFor,
-  ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey,
+  ladderToReasoningEfforts, preferredEffort, effectiveDefaultEffort, defaultEffortForModel,
+  streamOptionsWithPreferredEffort, routeDefaultEffortKey,
   clampEffortToLadder, extractEffortRungs,
   effortName, resolveDefaultEffort, inputModalitiesOf,
   parseContextWindow, clampToCap, outputLimitFor,

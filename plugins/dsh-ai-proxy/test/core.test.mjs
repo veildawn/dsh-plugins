@@ -3,7 +3,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import { Config, internals, resolveOptions, CLIENT_ID_PATTERN, clampEffortToLadder, MIN_MAX_CONTEXT_WINDOW, MIN_MAX_CONTEXT_WINDOW_LABEL } from '../lib/index.js'
+import { Config, internals, resolveOptions, CLIENT_ID_PATTERN, clampEffortToLadder, MIN_MAX_CONTEXT_WINDOW, MIN_MAX_CONTEXT_WINDOW_LABEL, DEFAULT_REASONING_EFFORT } from '../lib/index.js'
 
 const {
   isVolatileRef, unwrapConfig, liveField, VOLATILE_WRITE, settingsBase,
@@ -14,6 +14,7 @@ const {
   httpErrorCode, normalizeApiFormat, resolveModelsEndpoint,
   piAiProtocolFor, piAiBaseURL,
   ladderToReasoningEfforts, preferredEffort, streamOptionsWithPreferredEffort, routeDefaultEffortKey, buildProviderProfile,
+  effectiveDefaultEffort, defaultEffortForModel,
   mergeModelEntry, mergeProviderProfile, applyStaticModelOverrides,
   extractEffortRungs,
   routeCompatFor,
@@ -159,6 +160,7 @@ test('ladderToReasoningEfforts: identity ladders, off handling, non-standard run
   assert.equal(ladderToReasoningEfforts(['off']), false, 'off alone cannot satisfy the one-rung rule')
   assert.equal(ladderToReasoningEfforts(['none']), false)
 
+  // `off` is a user-facing rung: it is published only when the gateway does.
   assert.deepEqual(ladderToReasoningEfforts(['low', 'medium', 'high']), {
     low: 'low', medium: 'medium', high: 'high',
   })
@@ -173,6 +175,47 @@ test('ladderToReasoningEfforts: identity ladders, off handling, non-standard run
 
   // Custom spellings keep their wire form under the nearest free key
   assert.deepEqual(ladderToReasoningEfforts(['fast', 'deep']), { max: 'fast', xhigh: 'deep' })
+})
+
+test('ladderToReasoningEfforts: highest never occupies the off rung', () => {
+  // off is the user's own switch: highest must not pre-select it, and must not
+  // fabricate a rung for a ladder that has none.
+  assert.deepEqual(ladderToReasoningEfforts(['low', 'high', 'max']), {
+    low: 'low', high: 'high', max: 'max',
+  })
+  assert.deepEqual(ladderToReasoningEfforts(['off', 'high']), { off: null, high: 'high' })
+})
+
+test('defaultEffortForModel: highest resolves to THIS model\'s own ceiling', () => {
+  const rungs = (ids) => ids.map((id) => ({ id }))
+  // the regression: "highest" is not the constant max — a model that stops at
+  // high or xhigh must never be handed max
+  assert.equal(defaultEffortForModel(rungs(['low', 'high', 'max']), 'highest'), 'max')
+  assert.equal(defaultEffortForModel(rungs(['low', 'medium', 'high']), 'highest'), 'high')
+  assert.equal(defaultEffortForModel(rungs(['low', 'high', 'xhigh']), 'highest'), 'xhigh')
+  assert.equal(defaultEffortForModel(rungs(['low', 'high']), 'highest'), 'high')
+  assert.equal(defaultEffortForModel(rungs(['minimal', 'low']), 'highest'), 'low')
+  // off is a rung, never a destination: it cannot satisfy "highest"
+  assert.equal(defaultEffortForModel(rungs(['off']), 'highest'), undefined)
+  assert.equal(defaultEffortForModel(rungs(['off', 'high']), 'highest'), 'high')
+  // The switch's other side, and nothing in between.
+  assert.equal(defaultEffortForModel(rungs(['low', 'high', 'max']), 'lowest'), 'low')
+  assert.equal(defaultEffortForModel(rungs(['low', 'high', 'max']), undefined), 'low', 'off by default')
+  assert.equal(defaultEffortForModel(rungs(['low', 'high', 'max']), 'medium'), 'low', 'not a third state')
+  assert.equal(defaultEffortForModel(rungs(['low', 'high', 'max']), 'off'), 'low', 'off is never a route default')
+})
+
+test('effectiveDefaultEffort: a two-state switch that is OFF by default', () => {
+  // Only an explicit "highest" turns the switch on. Everything else — unset,
+  // blank, an exact rung, a typo — is the floor, because the costlier side has
+  // to be something the user turned on, not something a bad value fell back to.
+  assert.equal(effectiveDefaultEffort('highest'), 'highest')
+  assert.equal(effectiveDefaultEffort(' HIGHEST '), 'highest')
+  assert.equal(effectiveDefaultEffort('lowest'), 'lowest')
+  for (const other of ['medium', 'high', 'max', 'off', 'none', '', '   ', undefined, null, 42, 'bogus']) {
+    assert.equal(effectiveDefaultEffort(other), 'lowest', 'only highest is highest: ' + String(other))
+  }
+  assert.equal(DEFAULT_REASONING_EFFORT, 'lowest', 'the shipped default is the off side of the switch')
 })
 
 test('streamOptionsWithPreferredEffort: direct streams get this model\'s rung only', () => {
@@ -271,8 +314,13 @@ test('routeDefaultEffortKey: the route default spans every model ladder', () => 
 })
 
 test('routeCompatFor: OpenAI-family routes refuse the developer role, Anthropic omits the switch', () => {
-  assert.deepEqual(routeCompatFor('openai-completions'), { supportsDeveloperRole: false })
-  assert.deepEqual(routeCompatFor('openai-responses'), { supportsDeveloperRole: false })
+  // supportsReasoningEffort is declared rather than inferred from the baseURL:
+  // the route's whole ladder hangs off it, and pi-ai's own default is not a
+  // promise about a gateway it has never seen.
+  assert.deepEqual(routeCompatFor('openai-completions'),
+    { supportsDeveloperRole: false, supportsReasoningEffort: true })
+  assert.deepEqual(routeCompatFor('openai-responses'),
+    { supportsDeveloperRole: false, supportsReasoningEffort: true })
   assert.equal(routeCompatFor('anthropic-messages'), undefined)
 })
 
@@ -330,6 +378,23 @@ test('buildProviderProfile: full shape, defaults, effort ladder and headers', ()
   }, 'undisclosed media defaults to text; no modality field is invented when the gateway omits it')
 })
 
+test('buildProviderProfile: the route never carries a static reasoning', () => {
+  // A single route level cannot be right for a catalog whose models top out
+  // differently. Writing one model's ceiling 400s the models below it; writing
+  // the intersection's floor silently demotes the capable ones — that is how
+  // deepseek-v4.1-flash (low/high/max) ended up defaulting to `high` once
+  // hy4-preview (off/high only) was in the same catalog. So the route writes
+  // none, and the preference is resolved per model instead.
+  const options = resolveOptions({ defaultReasoningEffort: 'highest' })
+  const profile = buildProviderProfile(options, [
+    { id: 'deepseek-v4.1-flash', effortLevels: ['low', 'high', 'max'] },
+    { id: 'hy4-preview', effortLevels: ['off', 'high'] },
+  ])
+  assert.equal('reasoning' in profile, false, 'no static route level')
+  assert.deepEqual(profile.models[0].reasoningEfforts, { low: 'low', high: 'high', max: 'max' })
+  assert.deepEqual(profile.models[1].reasoningEfforts, { off: null, high: 'high' })
+})
+
 test('buildProviderProfile: chat/completions default spells the /v1 base', () => {
   const profile = buildProviderProfile(resolveOptions({ baseURL: 'http://gw.example/' }), [])
   assert.equal(profile.api, 'openai-completions')
@@ -338,7 +403,7 @@ test('buildProviderProfile: chat/completions default spells the /v1 base', () =>
     'the access slot is namespaced by client id, not the shared legacy ref')
   assert.equal('reasoning' in profile, false)
   assert.equal('retryPolicy' in profile, false, 'unconfigured policy is omitted for the host default')
-  assert.deepEqual(profile.compat, { supportsDeveloperRole: false },
+  assert.deepEqual(profile.compat, { supportsDeveloperRole: false, supportsReasoningEffort: true },
     'custom OpenAI-compatible gateways must not rewrite system prompts to role=developer')
 })
 
@@ -368,7 +433,7 @@ test('buildProviderProfile: responses protocol also refuses the developer role',
     apiFormat: 'responses',
   }), [{ id: 'reasoner', effortLevels: ['low', 'high'] }])
   assert.equal(profile.api, 'openai-responses')
-  assert.deepEqual(profile.compat, { supportsDeveloperRole: false })
+  assert.deepEqual(profile.compat, { supportsDeveloperRole: false, supportsReasoningEffort: true })
 })
 
 // ── live (volatile) config plumbing ────────────────────────────────────────
@@ -450,7 +515,7 @@ test('Config: the gateway fields are live whenever the schema can be', () => {
   const plain = unwrapConfig(resolved)
   assert.equal(plain.baseURL, 'http://localhost:18080')
   assert.equal(plain.apiFormat, 'chat/completions')
-  assert.equal(plain.defaultReasoningEffort, 'highest')
+  assert.equal(plain.defaultReasoningEffort, 'lowest', 'the switch ships off')
   assert.deepEqual(plain.models, [])
   assert.deepEqual(resolveOptions(plain).models, [])
 })

@@ -60,18 +60,64 @@ dsh-ai-proxy：
   （例如 `max: ultra`——选择器显示 max，请求发 `ultra`）；
 - 无 ladder 的模型标记 `reasoningEfforts: false`（非推理模型）。
 
-`defaultReasoningEffort`（`highest`/`lowest`/精确档位）只按**当前模型自己的 ladder** 解析，
-不写入路由级 `profile.reasoning`。那个字段是整条路由共用的一个静态档位：全目录的
-`highest` 会变成 `max`，而只支持 `low`/`medium`/`high` 的模型在未显式指定档位的
-直调（`/compact`、会话标题）里会因此被拒绝。解析挂在三处：模型选择器
-（`resolveModelInfo`）、显式解析配置（`resolveCallConfig`）、以及 `llm/stream`
-（直调在进入官方适配器前补上该模型自己的档位）。启动时也会清掉材料化路由上遗留的
-`reasoning`，即使这次网关发现失败、目录本身保留不动。
+### 「Default」档位与缺失的推理强度
 
-Chat Completions / Responses 路由会带上 `compat.supportsDeveloperRole: false`。自定义
-网关的 `provider`/`baseURL` 对 pi-ai 来说不像官方 DeepSeek，推理模型默认会把 system
-prompt 改写成 `role: "developer"`，而 DeepSeek / GLM 等上游只接受
-`system`/`user`/`assistant`/`tool`。Anthropic Messages 不使用该开关，材料化时省略。
+选择器里的 **Default**（不显式选档）会提交**不带** `reasoningEffort` 的请求，`/compact`
+与会话标题这类直调同样不带。pi-ai 在没有档位时的分支读 `thinkingLevelMap.off`：该键不存在
+就**一个 reasoning 参数都不发**——上游照常思考，而网关后台「日志 → 请求」的
+**推理强度 / 速度模式**列只能记空值（显示 `—`），因为它记录的是从上游请求体读回的实际档位。
+
+修法分两层，**都不占用 `off`**：
+
+1. **`off` 只由网关声明**。`effort_levels` 里有 `off`/`none` 的模型映射为 `off: null`
+   （支持关闭思考、不发送参数）；没有的，表里就不出现 `off`，选择器自然也不提供这一档。
+   `defaultReasoningEffort` 永远不会替模型打开「不思考」。
+2. **缺省档位是两态的，默认关闭，按每个模型自己的 ladder 解析**。默认（关）取模型的**下限**；
+   开启「最高推理强度」后取该模型自己的**上限**——不是常量 `max`。没有第三种取值。
+
+| `defaultReasoningEffort` | 该模型 ladder | Default 请求实际发出 |
+| --- | --- | --- |
+| `lowest`（默认，开关关） | 任意 | 下限（如 `low`、`minimal`） |
+| `highest`（开关开） | `low`/`high`/`max` | `max` |
+| `highest` | `low`/`high`/`xhigh` | `xhigh` |
+| `highest` | `low`/`medium`/`high` | `high` |
+| `highest` | `off`/`high`（用户未选档） | `high` |
+| 用户显式选择 | 任意 | 用户所选档位原样发送（含 `off`：不发参数） |
+
+材料的 `reasoningEfforts` 表里**不含**插件凭空添加的档位，所以选择器显示的内容与网关发布的
+完全一致；用户显式选了 `off` 时请求不带 reasoning 参数，网关日志对该请求记 `—`，这是
+「该模型被要求不思考」的如实反映。
+
+### 档位是怎么真正发到网关的
+
+关键事实：**`defaultEffort` 只预选下拉框里的那一行，它本身不会被发出去。**
+
+请求路径读的是 `config.reasoningEffort`：
+
+- agent-loop 用 `prepareCall().config` 构造它那个**冻结的** request 对象；
+- 官方适配器解析 `options.reasoningEffort ?? profile.reasoning`，**从不读 `defaultEffort`**。
+
+所以只把档位写进模型信息（前三版都只做到这一步）是不够的——请求里依然没有档位，网关日志也就只能记 `—`。
+
+真正的注入点是 **`resolveCallFor`**：`prepareCall` 和每一次 `ctx.llm.stream()` 的 resolved config 都由它派生，agent-loop 的 request 又由那个 config 派生。在这里补档，三种派发形态一次全覆盖，同时宿主会把该档位记进 `adapterDefaults.reasoningEffort`——它确实来自适配器默认值，而不是用户的选择。
+
+四处挂钩，各管一段：
+
+| 入口 | 谁调用 | 作用 |
+| --- | --- | --- |
+| `resolveCallWithInfo` | 0.2.x 的 `prepareCall`、`adapterStream` | **把档位写进 resolved config**（当前装机的宿主走这条），并先把越界的携带档位钳到本模型 ladder |
+| `resolveCallFor` | 0.1.x 的 `prepareCall`、`adapterStream` | 同上，旧版宿主的入口 |
+| `resolveModelInfoFor` | 宿主 `resolveCallFor` 内部 | 发布 `defaultEffort`（下拉框预选，仅当模型确实提供该档位） |
+| `resolveModelInfo` | 模型编辑器、其他插件 | 同上，公开入口 |
+| `resolveCallConfig` | 「这个调用会发什么」查询 | 缺省时回答与派发一致的档位 |
+| `llm/stream` | 直调流 | 补档 + Gemini schema 清洗 |
+
+> 注意：agent-loop 走的是 `preparedCall.stream(request)`，它**不经过** `llm/stream` 瀑布，所以那一钩子对会话内请求无效——它只服务于 `/compact`、会话标题这类直调。
+
+### 切模型时的档位
+
+用户手动选过的档位一律原样保留（含 `off`），只有**没有档位**时才按 `defaultReasoningEffort` 补。切到新模型时，上一个模型的档位若越界，会被钳到新模型自己的 ladder，不会带着 `max` 去撞只支持 `high` 的上游。
+
 
 ## 安装
 
@@ -260,7 +306,7 @@ Host RPC 与配置文件两条路径都校验。
 | `apiFormat` | `chat/completions` | API 格式（决定材料化路由的协议与端点拼写）：`chat/completions`、`anthropic-messages`、`responses` |
 | `clientId` | `dsh` | OAuth public client id。`dsh` 只是共享占位：启动或登录时会改成 `dsh-` 加 8 位随机后缀并丢掉旧令牌，避免多台机器共用一条 refresh 链互相踢下线。自定义值会保留 |
 | `apiKeyEnv` | 按 clientId 派生 | 静态密钥凭据引用（材料化路由的 apiKeyEnv 同名）。默认 `AIPROXY_<KEY>_ACCESS_TOKEN`，`<KEY>` 是 client id 大写、非字母数字转 `_`；显式配置时只替换 access 槽位 |
-| `defaultReasoningEffort` | `'highest'` | 当前模型的默认思考档位，不写入路由级 `reasoning`。`highest` 选该模型自己 ladder 的最高档；`lowest` 用第一档；精确档位名优先精确匹配，缺失时落到最近的较低档 |
+| `defaultReasoningEffort` | `'lowest'` | 两态开关，只有 `highest` / `lowest` 两个合法值，**默认关闭（`lowest`）**。关闭时「Default」请求落到**该模型自己 ladder 的最低档**；开启（`highest`）则落到最高档。它不是「不思考」的开关，也不能填精确档位名或 `off`——这些值在 schema 层就会被拒绝 |
 | `maxTokens` | `65536` | 材料化为路由 `defaultMaxTokens`；模型目录未提供输出上限时生效。材料化时会先压到 `maxContextWindow` 以内，再压到模型窗口的四分之一（给上下文压缩留预算） |
 | `defaultContextWindow` | `200000` | 材料化为路由 `defaultContextWindow`（模型目录未声明容量时使用；本身也受 `maxContextWindow` 截断） |
 | `maxContextWindow` | `1M` | 上下文上限，最小 `128K`。材料化时对每个模型（以及路由回退值）的上下文窗口取小：超过上限按上限写，未超过则保持模型原值不变。默认 1M，声明恰好 1M 的模型保持原值，只有更大的才被截断。支持纯数字或 K / M 单位（`500K`、`500k`、`1M`、`1m`、`1.5M`，不区分大小写），单位按十进制换算（`1K` = 1000） |

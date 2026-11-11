@@ -222,9 +222,12 @@ test('materializes the gateway as one llm-pi-ai route, leaving hand-written ones
     assert.equal(profile.baseURL, gw.url + '/v1')
     assert.equal(profile.apiKeyEnv, 'AIPROXY_API_KEY')
     assert.deepEqual(profile.headers, { 'x-ai-proxy-client': 'dsh' })
-    assert.equal('reasoning' in profile, false, 'no static profile.reasoning override')
-    assert.deepEqual(profile.compat, { supportsDeveloperRole: false },
-      'materialized OpenAI-compatible route refuses the developer role')
+    // No static route level: one value cannot be right for a catalog whose
+    // models top out differently, and the adapter would report it as every
+    // model's default. The preference is resolved per model instead.
+    assert.equal('reasoning' in profile, false, 'no static route-level reasoning')
+    assert.deepEqual(profile.compat, { supportsDeveloperRole: false, supportsReasoningEffort: true },
+      'materialized OpenAI-compatible route refuses the developer role and states the effort switch')
     assert.equal(profile.models.length, 3)
     assert.deepEqual(profile.models[0], {
       id: 'claude-sonnet-4-5',
@@ -232,6 +235,7 @@ test('materializes the gateway as one llm-pi-ai route, leaving hand-written ones
       modality: 'text',
       maxTokens: 50000,
       input: ['text', 'image'],
+      // off is a user-facing rung and this ladder does not publish it.
       reasoningEfforts: { low: 'low', medium: 'medium', high: 'high' },
     })
     assert.deepEqual(profile.models[0].modality, 'text', 'gateway modality is written into the materialized route')
@@ -277,7 +281,7 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
         baseURL: 'http://localhost:18080',
         clientId: 'dsh-test',
         apiFormat: 'chat/completions',
-        defaultReasoningEffort: 'highest',
+        defaultReasoningEffort: 'lowest',
         maxContextWindow: 1000000,
       },
     })
@@ -286,10 +290,10 @@ test('auth RPC reads and writes the gateway address host-side', async () => {
     assert.equal(written.value.baseURL, gw.url)
     assert.equal(settings.doc['ai-proxy'].baseURL, gw.url)
 
-    const writtenEffort = await handler('setGateway', { defaultReasoningEffort: 'lowest' })
+    const writtenEffort = await handler('setGateway', { defaultReasoningEffort: 'highest' })
     assert.equal(writtenEffort.ok, true)
-    assert.equal(writtenEffort.value.defaultReasoningEffort, 'lowest')
-    assert.equal(settings.doc['ai-proxy'].defaultReasoningEffort, 'lowest')
+    assert.equal(writtenEffort.value.defaultReasoningEffort, 'highest')
+    assert.equal(settings.doc['ai-proxy'].defaultReasoningEffort, 'highest')
 
     creds.store.set(slots('dsh-test').access, 'sk-test')
     const refreshed = await handler('refreshModels', {})
@@ -311,7 +315,12 @@ test('refreshModels re-materializes the catalog under the llm-pi-ai section', as
   try {
     enablePiAi(ctx)
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
+    // The switch is ON here: this scenario is about the highest rung being
+    // chosen per model, including when an older route level says otherwise.
+    await ctx.plugin(plugin, {
+      baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY',
+      defaultReasoningEffort: 'highest',
+    })
     assert.equal(await waitFor(() => materialized(settings) !== undefined), true, 'initial materialization')
     const before = settings.persisted.filter((p) => p.ns === PI_AI_NS).length
 
@@ -329,18 +338,76 @@ test('refreshModels re-materializes the catalog under the llm-pi-ai section', as
       },
     }
     const origResolveModelInfo = ctx.llm.resolveModelInfo
+    // One adapter, model info behind a mutable slot: re-registering a provider
+    // raises DUPLICATE_ADAPTER, and each scenario below needs its own ladder.
+    let activeModelInfo = mockModelInfo
     ctx.llm.registerAdapter(['ai-proxy'], {
       providerInfo: (p) => ({ id: p, name: 'AI Proxy' }),
       providerRetryPolicy: () => undefined,
-      resolveModel: async () => mockModelInfo,
-      prepareCall: async () => ({ model: mockModelInfo, stream: async function* () {} }),
+      // The host validates that the metadata names the model that was asked
+      // for, so the slot only swaps the REASONING half of the entry.
+      resolveModel: async (provider, model) => ({ ...activeModelInfo, provider, id: model }),
+      prepareCall: async (provider, model) => ({
+        model: { ...activeModelInfo, provider, id: model }, stream: async function* () {},
+      }),
     })
 
+    // The INTERNAL seam, which is the one a dispatch actually reads:
+    // `resolveCallFor` (and therefore `adapterStream`) reaches model metadata
+    // through `resolveModelInfoFor(registration, …)`, never through the public
+    // `resolveModelInfo(provider, …)`. Overriding only the public entry point
+    // left the dispatch on the adapter's own answer, so the preference never
+    // reached the request — the reported "no reasoning effort" bug.
+    const internalInfo = await ctx.llm.resolveModelInfoFor(ctx.llm.registration('ai-proxy'), 'claude-sonnet-4-5')
+    assert.equal(internalInfo.reasoning.defaultEffort, 'high',
+      'resolveModelInfoFor is the seam a dispatch reads; it must carry the preference')
     const resolvedInfo = await ctx.llm.resolveModelInfo('ai-proxy', 'claude-sonnet-4-5')
-    assert.equal(resolvedInfo.reasoning.defaultEffort, 'high', 'resolveModelInfo enriches defaultEffort with highest rung')
+    assert.equal(resolvedInfo.reasoning.defaultEffort, 'high', 'switch on: this model\'s own ceiling')
 
+    // The dispatch seam, which is the one that puts the level on the wire.
+    // `defaultEffort` only pre-selects a picker row: the agent loop builds its
+    // frozen request from `prepareCall().config` and the adapter resolves
+    // `options.reasoningEffort ?? profile.reasoning` — neither reads
+    // `defaultEffort`. So a request that names no level must come out of
+    // `resolveCallFor` carrying one, or the gateway logs nothing.
+    const dispatched = await ctx.llm.resolveCallFor(
+      ctx.llm.registration('ai-proxy'),
+      { provider: 'ai-proxy', model: 'claude-sonnet-4-5' },
+    )
+    assert.equal(dispatched.config.reasoningEffort, 'high',
+      'resolveCallFor is what prepareCall and every stream derive their config from')
+
+    // A level carried over from a stronger model is clamped, not refused: the
+    // host would answer UNSUPPORTED_REASONING_EFFORT for `max` here.
+    const clamped = await ctx.llm.resolveCallFor(
+      ctx.llm.registration('ai-proxy'),
+      { provider: 'ai-proxy', model: 'claude-sonnet-4-5', reasoningEffort: 'max' },
+    )
+    assert.equal(clamped.config.reasoningEffort, 'high', 'an out-of-range carried level is clamped onto this ladder')
+
+    // THE regression: the adapter derives `defaultEffort` from the route's
+    // static `reasoning`, so a route level left by an older build (or chosen
+    // for a model whose ladder stops at `high`) must not win over this model's
+    // own ceiling. The plugin is the only party that resolves it per ladder.
+    const pollutedInfo = {
+      provider: 'ai-proxy',
+      id: 'deepseek-v4.1-flash',
+      name: 'DeepSeek V4.1 Flash',
+      reasoning: {
+        efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }, { id: 'max', name: 'Max' }],
+        defaultEffort: 'high',
+      },
+    }
+    activeModelInfo = pollutedInfo
+    const fixedInfo = await ctx.llm.resolveModelInfo('ai-proxy', 'deepseek-v4.1-flash')
+    assert.equal(fixedInfo.reasoning.defaultEffort, 'max',
+      'a stale route-level level must be overridden by this model\'s own ceiling')
+
+    // Back to the low/medium/high ladder for the clamping cases below: the slot
+    // is shared, and a `max` ladder would make "clamp to high" untestable.
+    activeModelInfo = mockModelInfo
     const resolvedCall = await ctx.llm.resolveCallConfig({ provider: 'ai-proxy', model: 'claude-sonnet-4-5' })
-    assert.equal(resolvedCall.reasoningEffort, 'high', 'resolveCallConfig defaults reasoningEffort to highest available rung')
+    assert.equal(resolvedCall.reasoningEffort, 'high', 'resolveCallConfig defaults to the ceiling when the switch is on')
 
     const clampedCall = await ctx.llm.resolveCallConfig({ provider: 'ai-proxy', model: 'claude-sonnet-4-5', reasoningEffort: 'max' })
     assert.equal(clampedCall.reasoningEffort, 'high', 'resolveCallConfig clamps out-of-range effort to model ladder')
@@ -617,7 +684,12 @@ test('the context ceiling travels from the RPC into the materialized route', asy
   try {
     await enablePiAi(ctx)
     creds.store.set('AIPROXY_API_KEY', 'sk-test')
-    await ctx.plugin(plugin, { baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
+    // The switch is ON here: this scenario is about the highest rung being
+    // chosen per model, including when an older route level says otherwise.
+    await ctx.plugin(plugin, {
+      baseURL: gw.url, clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY',
+      defaultReasoningEffort: 'highest',
+    })
     assert.equal(await waitFor(() => materialized(settings) !== undefined), true, 'initial materialization')
 
     // The gateway declares a 200000 window; with the 500K default it must stay
