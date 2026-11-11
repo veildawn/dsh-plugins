@@ -451,8 +451,15 @@ test('a gateway outage at boot never overwrites the last good materialized route
     await enablePiAi(ctx)
     settings.pushExternal({
       [PI_AI_NS]: { providers: { [plugin.PROVIDER]: {
-        api: 'openai-completions', baseURL: 'https://old.example/v1',
+        api: 'openai-responses', baseURL: 'https://old.example/v1',
         reasoning: 'max',
+        compat: {
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: true,
+          // The host schema materializes its dicts on every read; an empty one
+          // is not a leftover and must not be rewritten on each boot.
+          chatTemplateKwargs: {},
+        },
         models: [{ id: 'previous-model' }],
       } } },
     })
@@ -461,6 +468,11 @@ test('a gateway outage at boot never overwrites the last good materialized route
     await ctx.plugin(plugin, { baseURL: 'http://127.0.0.1:1', clientId: 'dsh-test', apiKeyEnv: 'AIPROXY_API_KEY' })
     assert.equal(await waitFor(() => materialized(settings)?.reasoning === undefined), true,
       'a stale route-level reasoning is dropped even when discovery cannot rewrite the route')
+    assert.equal(await waitFor(() => materialized(settings)?.compat?.supportsReasoningEffort === undefined), true,
+      'the completions-only switch is dropped from a Responses route, which the host rejects outright')
+    assert.deepEqual(materialized(settings)?.compat,
+      { supportsDeveloperRole: false, chatTemplateKwargs: {} },
+      'the switch both protocols take survives, and so does an empty schema dict the host materializes')
     assert.equal(materialized(settings)?.models?.[0]?.id, 'previous-model', 'previous catalog stays intact')
     assert.equal(materialized(settings)?.baseURL, 'https://old.example/v1', 'the rest of the last good route stays')
   } finally {

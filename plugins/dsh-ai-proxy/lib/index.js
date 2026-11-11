@@ -329,15 +329,20 @@ export function piAiProtocolFor(apiFormat) {
  * reject that variant (`unknown variant \`developer\``). Anthropic Messages
  * does not take the switch, so that protocol omits the block.
  *
- * `supportsReasoningEffort` is declared rather than left to pi-ai's detection:
- * today every custom baseURL defaults to true, which is why the ladder reaches
- * the wire at all, but that is an inference about somebody else's endpoint and
- * one upstream release away from silently dropping `reasoning_effort` — and
- * with it the level the gateway logs. The gateway takes the parameter on every
- * OpenAI-shaped surface this route can be given, so it is stated here.
+ * `supportsReasoningEffort` is declared rather than left to pi-ai's detection,
+ * but ONLY on `openai-completions`, which is the one protocol that reads it:
+ * pi-ai's completions path gates every `reasoning_effort` write on
+ * `compat.supportsReasoningEffort`, whose default is inferred from the baseURL.
+ * The Responses path never consults that flag — it gates on `model.reasoning`
+ * and always sends `reasoning.effort` — and its compat type does not declare
+ * the field at all. Writing it on a Responses route is therefore not a harmless
+ * extra: the host's `llm-pi-ai` validates route compat against the resolved
+ * protocol's schema and rejects the whole write, so the route never
+ * materializes and the provider disappears from the model picker.
  */
 export function routeCompatFor(api) {
   if (api === PI_AI_PROTOCOL_ANTHROPIC) return undefined
+  if (api === PI_AI_PROTOCOL_RESPONSES) return { supportsDeveloperRole: false }
   return { supportsDeveloperRole: false, supportsReasoningEffort: true }
 }
 
@@ -1565,18 +1570,18 @@ class RouteMaterializer {
   }
 
   /**
-   * Remove a route-level `reasoning` left by an older materialization.
+   * Remove route-level fields an older materialization wrote and this build
+   * does not.
    *
-   * This build never writes that field: one static level cannot serve a catalog
-   * whose models top out differently, and the adapter reports it as every
-   * model's default — which is how `deepseek-v4.1-flash` (low/high/max) came to
-   * default to `high` because another model in the same catalog offered only
-   * `off`/`high`. A stale value would keep winning over the per-model
-   * resolution, so it is removed up front; a sync then writes the route without
-   * it. Discovery failure does not bring it back, and the catalog itself is
-   * left untouched.
+   * A sync rewrites both, but a sync is skipped when discovery fails while a
+   * route already exists, so a stale field outlives its build. A route-level
+   * `reasoning` keeps winning over the per-model resolution. A compat field the
+   * route's own protocol does not declare — `supportsReasoningEffort` on a
+   * Responses route — makes the host reject the entire route, so the provider
+   * disappears from the model picker. Both are removed up front, before the
+   * catalog is fetched; the catalog itself is left untouched.
    */
-  async dropRouteReasoning() {
+  async dropStaleRouteFields() {
     if (this.available === false) return false
     let route
     try {
@@ -1584,10 +1589,24 @@ class RouteMaterializer {
     } catch {
       return false
     }
-    if (!route || typeof route !== 'object' || !Object.hasOwn(route, 'reasoning')) return false
-    await this.ctx.settings.mutate(PI_AI_NS, [
-      { op: 'unset', path: ['providers', PROVIDER, 'reasoning'] },
-    ])
+    if (!route || typeof route !== 'object') return false
+    // What a sync would write for this route's protocol: every other compat
+    // field is a leftover, and a protocol taking no compat leaves none.
+    const kept = routeCompatFor(route.api) ?? {}
+    const ops = []
+    if (Object.hasOwn(route, 'reasoning')) {
+      ops.push({ op: 'unset', path: ['providers', PROVIDER, 'reasoning'] })
+    }
+    for (const [field, value] of Object.entries(route.compat ?? {})) {
+      // The settings schema materializes its dicts on every read, so an empty
+      // one states nothing and is not a leftover; unsetting it would rewrite
+      // the route on every boot.
+      if (Object.hasOwn(kept, field)) continue
+      if (typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0) continue
+      ops.push({ op: 'unset', path: ['providers', PROVIDER, 'compat', field] })
+    }
+    if (ops.length === 0) return false
+    await this.ctx.settings.mutate(PI_AI_NS, ops)
     return true
   }
 
@@ -2160,11 +2179,9 @@ export function apply(ctx, config) {
       ctx.logger.warn(name + ': 宿主未提供 llm-pi-ai 设置节(需要 DSH 宿主 0.1.5-rc 及以上),已跳过路由材料化')
       return
     }
-    // A route-level reasoning left by an older build outlives a discovery
-    // failure along with the catalog, and the adapter would keep reporting it
-    // as every model's default ahead of this plugin's per-model resolution —
-    // so it is removed up front, before the catalog is even fetched.
-    await materializer.dropRouteReasoning().catch(syncError)
+    // Fields an older build left behind outlive a discovery failure along with
+    // the catalog, so they are removed up front, before the catalog is fetched.
+    await materializer.dropStaleRouteFields().catch(syncError)
     try {
       await api.bootstrap()
     } catch (error) {

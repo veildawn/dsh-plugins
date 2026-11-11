@@ -314,13 +314,16 @@ test('routeDefaultEffortKey: the route default spans every model ladder', () => 
 })
 
 test('routeCompatFor: OpenAI-family routes refuse the developer role, Anthropic omits the switch', () => {
-  // supportsReasoningEffort is declared rather than inferred from the baseURL:
-  // the route's whole ladder hangs off it, and pi-ai's own default is not a
-  // promise about a gateway it has never seen.
+  // supportsReasoningEffort is declared rather than inferred from the baseURL,
+  // but only where the protocol consumes it: pi-ai's completions path gates
+  // every reasoning_effort write on it, while the Responses path ignores the
+  // flag and always sends reasoning.effort. The host's llm-pi-ai validates
+  // route compat against the resolved protocol's schema, so declaring the
+  // completions-only field on a Responses route rejects the entire write.
   assert.deepEqual(routeCompatFor('openai-completions'),
     { supportsDeveloperRole: false, supportsReasoningEffort: true })
   assert.deepEqual(routeCompatFor('openai-responses'),
-    { supportsDeveloperRole: false, supportsReasoningEffort: true })
+    { supportsDeveloperRole: false })
   assert.equal(routeCompatFor('anthropic-messages'), undefined)
 })
 
@@ -433,7 +436,9 @@ test('buildProviderProfile: responses protocol also refuses the developer role',
     apiFormat: 'responses',
   }), [{ id: 'reasoner', effortLevels: ['low', 'high'] }])
   assert.equal(profile.api, 'openai-responses')
-  assert.deepEqual(profile.compat, { supportsDeveloperRole: false, supportsReasoningEffort: true })
+  // The Responses compat type declares no supportsReasoningEffort, and the host
+  // rejects a route that sets it; the protocol sends reasoning.effort anyway.
+  assert.deepEqual(profile.compat, { supportsDeveloperRole: false })
 })
 
 // ── live (volatile) config plumbing ────────────────────────────────────────
