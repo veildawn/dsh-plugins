@@ -188,6 +188,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-dir-list{flex:1 1 auto;min-height:80px;max-height:min(46vh,340px);max-height:min(46dvh,340px);margin:10px 0 0;padding:4px;overflow-y:auto;overscroll-behavior:contain;list-style:none;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l3,rgba(125,125,125,.55)) transparent}
       .dsh-remote-dir-list::-webkit-scrollbar{width:10px}
       .dsh-remote-dir-list::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:5px;background:var(--dsw-alias-border-l3,rgba(125,125,125,.55));background-clip:content-box}
+      .dsh-remote-dir-list:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d6bfe);outline-offset:-1px}
       .dsh-remote-dir-entry{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
       .dsh-remote-dir-entry:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.1))}
       .dsh-remote-dir-empty{display:grid;place-items:center;min-height:80px;color:var(--dsw-alias-label-tertiary);font-size:13px}
@@ -216,6 +217,24 @@ window.__ModuleLoader__.load({
       const hostname = globalThis.location?.hostname;
       return typeof hostname === "string" && hostname.length > 0
         && hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "[::1]" && hostname !== "app";
+    }
+
+    /**
+     * 一次滚轮事件之后 `scrollTop` 应该落在哪里。
+     *
+     * 抽成纯函数是因为它得处理 `deltaMode`（Chrome 多为像素，Firefox 的
+     * DOM_DELTA_LINE 是「行」）并夹在滚动范围内，而组件里的 DOM 不好在单测里
+     * 搭出来。
+     * @param {{scrollTop: number, scrollHeight: number, clientHeight: number}} box - 滚动容器度量。
+     * @param {number} deltaY - 事件的 deltaY。
+     * @param {number} deltaMode - 0 像素 / 1 行 / 2 页。
+     * @returns {number} 新的 scrollTop（不可滚时原样返回）。
+     */
+    function nextScrollTop(box, deltaY, deltaMode) {
+      const unit = deltaMode === 1 ? 16 : deltaMode === 2 ? box.clientHeight : 1;
+      const max = box.scrollHeight - box.clientHeight;
+      if (!(max > 0)) return box.scrollTop;
+      return Math.max(0, Math.min(max, box.scrollTop + deltaY * unit));
     }
 
     function storedSecret() {
@@ -353,6 +372,27 @@ window.__ModuleLoader__.load({
         void loadDrives();
       }, [open]);
 
+      // 列表的滚轮由我们自己驱动。
+      //
+      // 原生 `overflow-y:auto` 在这里只给出滚动条，鼠标滚轮却到不了列表：滚动条
+      // 拖得动、滚轮不动（实际反馈）。与其去赌哪一层吞掉了事件，不如在列表上挂
+      // capture 阶段的 wheel 监听自己改 scrollTop —— 只要事件能到达列表就一定滚。
+      const listRef = react.useRef(null);
+      react.useEffect(() => {
+        const node = listRef.current;
+        if (!node || typeof node.addEventListener !== "function") return;
+        const onWheel = (event) => {
+          const next = nextScrollTop(node, event.deltaY, event.deltaMode);
+          if (next === node.scrollTop) return;
+          node.scrollTop = next;
+          // 已经自己滚过了，别让外层再滚一遍（否则列表和背景会一起动）。
+          event.preventDefault();
+          event.stopPropagation();
+        };
+        node.addEventListener("wheel", onWheel, { passive: false, capture: true });
+        return () => node.removeEventListener("wheel", onWheel, { capture: true });
+      }, [open]);
+
       // Escape 关闭。用 ref 拿最新的 onCancel：owner 每次渲染可能给新函数，
       // 直接放进依赖会让监听器每渲染一次就重绑一遍。
       const cancelRef = react.useRef(onCancel);
@@ -447,7 +487,8 @@ window.__ModuleLoader__.load({
               title: crumb.path,
               onClick: () => { void load(crumb.path); },
             }, crumb.name)))),
-        react.createElement("ul", { className: "dsh-remote-dir-list" }, rows),
+        // tabIndex 让列表能聚焦：键盘 PageUp/PageDown、方向键也能滚，不依赖滚轮。
+        react.createElement("ul", { className: "dsh-remote-dir-list", ref: listRef, tabIndex: 0 }, rows),
         listing?.truncated === true
           ? react.createElement("p", { className: "dsh-remote-dir-note" }, "文件夹过多，仅显示开头部分。")
           : null,
@@ -1113,6 +1154,8 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = inject;
+    // 给单测用的纯函数；Cordis 只读 apply/inject，多余字段无害。
+    exports.internals = { nextScrollTop };
     return module.exports;
   }
 });

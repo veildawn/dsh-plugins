@@ -2291,6 +2291,25 @@ test('the dialog switches drives and jumps to a typed path', async () => {
   }
 })
 
+test('wheel deltas are converted and clamped for every deltaMode', () => {
+  // 滚轮在真实环境里拖得动滚动条却滚不动列表，所以滚轮由我们自己驱动。
+  // 这里锁住换算与夹取：像素/行/页三种 deltaMode，以及上下边界。
+  const { nextScrollTop } = clientPlugin.internals
+  assert.equal(typeof nextScrollTop, 'function')
+
+  const box = { scrollTop: 500, scrollHeight: 2000, clientHeight: 300 }
+  assert.equal(nextScrollTop(box, 100, 0), 600, '像素模式：直接相加')
+  assert.equal(nextScrollTop(box, -100, 0), 400, '像素模式：向上')
+  assert.equal(nextScrollTop(box, 1, 1), 516, '行模式：一行按 16px')
+  assert.equal(nextScrollTop(box, -1, 1), 484, '行模式：向上')
+  assert.equal(nextScrollTop(box, 1, 2), 800, '页模式：一页按可视高度')
+  assert.equal(nextScrollTop(box, 999999, 0), 1700, '夹在底部（scrollHeight - clientHeight）')
+  assert.equal(nextScrollTop(box, -999999, 0), 0, '夹在顶部')
+
+  // 内容不比可视区高时不该动，也不该把滚动链吃掉。
+  assert.equal(nextScrollTop({ scrollTop: 0, scrollHeight: 300, clientHeight: 300 }, 120, 0), 0)
+})
+
 test('the directory list stays scrollable and its buttons never wrap', async () => {
   // 两个真实回归都在 CSS 里，且只看截图才发现：
   //   1. 列表用 min-height:120px + flex 收缩，内容被裁却滚不动；
