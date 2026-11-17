@@ -165,23 +165,43 @@ window.__ModuleLoader__.load({
          Electron 桌面端永远不会渲染它，而远程设备（手机/平板/别的电脑）没有那排
          按钮 —— 加 --dsh-windows-titlebar-height 偏移反而会在顶部留一条死区。 */
       .dsh-remote-dir-scrim{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:var(--dsw-alias-background-overlay,rgba(0,0,0,.45));pointer-events:auto}
-      .dsh-remote-dir-card{display:flex;flex-direction:column;width:min(100%,560px);max-height:min(80vh,620px);max-height:min(80dvh,620px);padding:20px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-l,12px);background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);box-shadow:var(--dsw-shadow-lv3);pointer-events:auto}
+      /* overflow:hidden 必须留着：圆角 + max-height 下靠它把溢出的内容收在卡片内，
+         否则子元素会画到卡片边框外面。 */
+      .dsh-remote-dir-card{display:flex;flex-direction:column;width:min(100%,560px);max-height:min(80vh,620px);max-height:min(80dvh,620px);padding:20px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-l,12px);background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);box-shadow:var(--dsw-shadow-lv3);overflow:hidden;pointer-events:auto}
       .dsh-remote-dir-title{margin:0;font:var(--dsw-font-l-20);font-weight:600}
-      .dsh-remote-dir-sub{margin:6px 0 0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14);word-break:break-all}
-      .dsh-remote-dir-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:14px 0 0;padding:0;list-style:none;font-size:12px}
+      /* 路径栏就是一个可编辑输入框：回车跳到该路径，失焦退回当前实际路径。 */
+      .dsh-remote-dir-path{display:flex;align-items:center;gap:8px;margin:12px 0 0}
+      .dsh-remote-dir-path input{flex:1 1 auto;min-width:0;height:30px;padding:0 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+      .dsh-remote-dir-path input:focus-visible{outline:none;border-color:var(--dsw-alias-brand-primary,#4d6bfe);box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 18%,transparent)}
+      /* 盘符行：没有它就只能困在 C 盘里。 */
+      .dsh-remote-dir-drives{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 0 0}
+      .dsh-remote-dir-drive{flex:none;white-space:nowrap;padding:2px 10px;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-pill,18px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));color:var(--dsw-alias-label-secondary);font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;cursor:pointer}
+      .dsh-remote-dir-drive:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .dsh-remote-dir-drive[data-current=true]{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .dsh-remote-dir-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:8px 0 0;padding:0;list-style:none;font-size:12px}
       .dsh-remote-dir-crumb{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 8px;border:1px solid transparent;border-radius:6px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;cursor:pointer}
       .dsh-remote-dir-crumb:hover{border-color:var(--dsw-alias-border-default,var(--dsw-alias-border-l2));color:var(--dsw-alias-label-primary)}
       .dsh-remote-dir-crumb[data-current=true]{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dsh-remote-dir-sep{color:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-caption))}
-      .dsh-remote-dir-list{flex:1 1 auto;min-height:120px;margin:12px 0 0;padding:4px;overflow:auto;overscroll-behavior:contain;list-style:none;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform))}
+      /* 列表高度用 max-height 钉死，不指望 flex 收缩：只有 max-height 的 flex 容器
+         在某些流式布局里不会让子项收缩，内容会被静默裁掉却又不产生滚动。 */
+      .dsh-remote-dir-list{flex:1 1 auto;min-height:80px;max-height:min(46vh,340px);max-height:min(46dvh,340px);margin:10px 0 0;padding:4px;overflow-y:auto;overscroll-behavior:contain;list-style:none;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l3,rgba(125,125,125,.55)) transparent}
+      .dsh-remote-dir-list::-webkit-scrollbar{width:10px}
+      .dsh-remote-dir-list::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:5px;background:var(--dsw-alias-border-l3,rgba(125,125,125,.55));background-clip:content-box}
       .dsh-remote-dir-entry{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
       .dsh-remote-dir-entry:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.1))}
-      .dsh-remote-dir-empty{display:grid;place-items:center;min-height:120px;color:var(--dsw-alias-label-tertiary);font-size:13px}
-      .dsh-remote-dir-note{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px}
-      .dsh-remote-dir-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:16px}
+      .dsh-remote-dir-empty{display:grid;place-items:center;min-height:80px;color:var(--dsw-alias-label-tertiary);font-size:13px}
+      .dsh-remote-dir-note{margin:6px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px}
+      .dsh-remote-dir-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
       .dsh-remote-dir-create{display:flex;align-items:center;gap:8px;flex:1 1 240px}
       .dsh-remote-dir-create input{flex:1 1 auto;min-width:0;height:32px;padding:0 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
+      /* 按钮不许被 flex 压扁：「创建」曾经被挤成竖排两个字。 */
+      .dsh-remote-dir-create button{flex:none;white-space:nowrap}
       .dsh-remote-dir-actions{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
+      .dsh-remote-dir-actions button{flex:none;white-space:nowrap}
+      /* 只有列表吸收伸缩。标题/路径/盘符/面包屑/页脚都是固定内容，若不锁住，
+         小屏上它们会被压扁，甚至把页脚按钮挤出卡片（卡片 overflow:hidden 会裁掉）。 */
+      .dsh-remote-dir-title,.dsh-remote-dir-path,.dsh-remote-dir-drives,.dsh-remote-dir-crumbs,.dsh-remote-dir-note,.dsh-remote-dir-footer{flex:none}
     `;
 
     /**
@@ -260,11 +280,15 @@ window.__ModuleLoader__.load({
      * @param props - 槽位 owner 的会话（open/busy/onPicked/onCancel/onError）加上注入的目录原语。
      */
     function RemoteDirectoryFlow(props) {
-      const { open, busy, onPicked, onCancel, listDirectory, createDirectory } = props;
+      const { open, busy, onPicked, onCancel, listDirectory, createDirectory, listDrives } = props;
       const [listing, setListing] = react.useState(null);
       const [failure, setFailure] = react.useState("");
       const [draft, setDraft] = react.useState("");
       const [creating, setCreating] = react.useState(false);
+      const [drives, setDrives] = react.useState([]);
+      // null 表示「跟随 listing.path」；输入时是用户正在敲的文本。
+      // 这样列举成功后输入框自动变成新路径，失败时退回原路径。
+      const [pathDraft, setPathDraft] = react.useState(null);
       // 卸载后不再回写状态：关掉对话框时可能还有列举请求在飞。
       // 挂载时**同时**置回 true —— 只置 false 的话，StrictMode 的双挂载
       // （mount → unmount → mount）会让它永久停在 false，对话框卡在「加载中…」。
@@ -292,6 +316,26 @@ window.__ModuleLoader__.load({
         }
       };
 
+      // 盘符列表：没有它，目录树走到 `C:\` 就到头了，选不了别的盘。失败就静默
+      // 留空（用户仍可手输路径），不要用盘符探测失败去打断主流程。
+      const loadDrives = async () => {
+        if (typeof listDrives !== "function") return;
+        try {
+          const next = await listDrives();
+          if (alive.current && Array.isArray(next)) setDrives(next);
+        } catch {
+          // 静默：盘符枚举只是便利入口。
+        }
+      };
+
+      /** 提交路径栏里手输的路径；空输入等价于放弃编辑。 */
+      const submitPath = () => {
+        const target = (pathDraft ?? "").trim();
+        setPathDraft(null);
+        if (target === "") return;
+        void load(target);
+      };
+
       // 只挂在 `open` 的上升沿上：注入面每次渲染都是新函数，把 load 放进依赖会
       // 让失败后 listing 仍为 null 的那一帧再次触发 effect —— 一次读不到的目录
       // 会变成无休止的重试。层级导航全部由点击驱动，不需要 effect 参与。
@@ -302,9 +346,11 @@ window.__ModuleLoader__.load({
           setListing(null);
           setFailure("");
           setDraft("");
+          setPathDraft(null);
           return;
         }
         void load(undefined);
+        void loadDrives();
       }, [open]);
 
       // Escape 关闭。用 ref 拿最新的 onCancel：owner 每次渲染可能给新函数，
@@ -363,7 +409,34 @@ window.__ModuleLoader__.load({
         onMouseDown: (event) => { if (event.target === event.currentTarget) onCancel(); },
       }, react.createElement("div", { className: "dsh-remote-dir-card" },
         react.createElement("h2", { className: "dsh-remote-dir-title" }, "选择工作区目录"),
-        react.createElement("p", { className: "dsh-remote-dir-sub" }, listing?.path ?? "读取中…"),
+        // 路径栏本身可编辑：支持直接键入路径跳转，不必逐层点进去。
+        react.createElement("div", { className: "dsh-remote-dir-path" },
+          react.createElement("input", {
+            type: "text",
+            "aria-label": "目录路径",
+            spellCheck: false,
+            placeholder: "输入目录路径后回车跳转",
+            value: pathDraft ?? listing?.path ?? "",
+            onChange: (event) => setPathDraft(event.target.value),
+            onKeyDown: (event) => {
+              if (event.key === "Enter") submitPath();
+              if (event.key === "Escape") { setPathDraft(null); }
+            },
+            // 失焦退回实际路径：没提交的编辑不该继续显示成一个并不存在的当前位置。
+            onBlur: () => setPathDraft(null),
+          })),
+        // 盘符入口：只有探测到多个驱动器时才出现（POSIX 上只有 "/"，显示它没意义）。
+        drives.length > 1
+          ? react.createElement("div", { className: "dsh-remote-dir-drives" },
+              drives.map((drive) => react.createElement("button", {
+                key: drive.path,
+                type: "button",
+                className: "dsh-remote-dir-drive",
+                "data-current": String(drive.name).slice(0, 2).toUpperCase() === String(listing?.path ?? "").slice(0, 2).toUpperCase() ? "true" : "false",
+                title: drive.path,
+                onClick: () => { void load(drive.path); },
+              }, drive.name)))
+          : null,
         react.createElement("ul", { className: "dsh-remote-dir-crumbs" },
           crumbs.map((crumb, index) => react.createElement("li", { key: crumb.path },
             index > 0 ? react.createElement("span", { className: "dsh-remote-dir-sep" }, "›") : null,
@@ -978,6 +1051,7 @@ window.__ModuleLoader__.load({
        * 远程浏览器在拿不到宿主 browse 后端时改走本插件的 RPC。
        */
       const directoryInjected = () => ({
+        listDrives: () => directoryCall("directory.drives", {}),
         listDirectory: (path) => directoryCall("directory.list", path === undefined ? {} : { path }),
         createDirectory: (path, name) => directoryCall("directory.create", { path, name }),
       });

@@ -659,6 +659,38 @@ function render(component, props = {}) {
   return component(props)
 }
 
+/**
+ * 对话框当前所在路径。路径栏是可编辑 input，路径落在它的 value 上。
+ * @param tree - 渲染树。
+ * @returns 当前路径文本，未渲染时为 undefined。
+ */
+function dialogPath(tree) {
+  return findElement(tree, (node) => node?.props?.['aria-label'] === '目录路径')?.props?.value
+}
+
+/**
+ * 收集树里所有满足谓词的节点。
+ *
+ * `children` 在只有一个孩子时是单对象而不是数组（见 react.createElement 桩），
+ * 所以每个节点都必须两种形态都处理，否则遍历会在第一个「独生子」处断掉。
+ * @param node - 渲染树根。
+ * @param predicate - 匹配条件。
+ * @returns 匹配到的节点数组。
+ */
+function findAll(node, predicate) {
+  const found = []
+  const walk = (current) => {
+    if (!current || typeof current !== 'object') return
+    if (predicate(current)) found.push(current)
+    const children = Array.isArray(current?.props?.children)
+      ? current.props.children
+      : current?.props?.children !== undefined ? [current.props.children] : []
+    for (const child of children) walk(child)
+  }
+  walk(node)
+  return found
+}
+
 function findElement(node, predicate) {
   if (!node) return undefined
   if (predicate(node)) return node
@@ -1708,6 +1740,12 @@ test('remote directory RPCs list and create on the host without touching apiProx
     assert.equal(listed.value.path, parent)
     assert.deepEqual(listed.value.entries, [])
 
+    // 盘符枚举：没有它，界面走到盘根就到头了。
+    const drives = await remote('call', { token: 'remote-test', method: 'directory.drives', payload: {} })
+    assert.equal(drives.ok, true)
+    assert(Array.isArray(drives.value))
+    assert(drives.value.length >= 1)
+
     const created = await remote('call', {
       token: 'remote-test', method: 'directory.create', payload: { path: parent, name: 'made-remotely' },
     })
@@ -1917,7 +1955,7 @@ test('the remote directory dialog lists, navigates and commits the picked folder
 
     // 打开即落在主目录：标题、当前路径与子文件夹都在树里。
     assert(findElement(tree, (node) => node?.props?.children === '选择工作区目录'), '缺少对话框标题')
-    assert(findElement(tree, (node) => node?.props?.children === 'C:\\Users\\me'), '缺少当前路径')
+    assert.equal(dialogPath(tree), 'C:\\Users\\me', '路径栏应显示当前目录')
     const entryButton = findElement(tree, (node) => node?.props?.children === 'project')
     assert(entryButton, '缺少子文件夹条目')
     assert.equal(entryButton.props.type, 'button')
@@ -2011,8 +2049,7 @@ test('the remote directory dialog creates a folder then stops in it', async () =
     assert.equal(createCall.channel, REMOTE_CONTROL_RPC_CHANNEL)
     // 创建后停在新目录：下一次列举的路径就是刚建好的那个，而不是直接提交。
     tree = render(flow.component, props)
-    assert.equal(findElement(tree, (node) => node?.props?.children === 'C:\\Users\\me\\brand-new')?.props?.children,
-      'C:\\Users\\me\\brand-new')
+    assert.equal(dialogPath(tree), 'C:\\Users\\me\\brand-new', '创建后应停在新目录')
     assert(findElement(tree, (node) => node?.props?.children === '这里没有子文件夹'), '新目录应为空')
   } finally {
     globalThis.location = previousLocation
@@ -2121,16 +2158,34 @@ test('a superseded listing cannot overwrite the newer level', async () => {
     pending[2].resolve(level('C:\\B', []))
     await new Promise((resolve) => setImmediate(resolve))
     tree = render(flow.component, props)
-    assert(findElement(tree, (node) => node?.props?.children === 'C:\\B'), '应先停在 B')
+    assert.equal(dialogPath(tree), 'C:\\B', '应先停在 B')
 
     // 慢一步的 A 迟到：不得把界面拽回 A。
     pending[1].resolve(level('C:\\A', []))
     await new Promise((resolve) => setImmediate(resolve))
     tree = render(flow.component, props)
-    assert(findElement(tree, (node) => node?.props?.children === 'C:\\B'), '过期响应不得覆盖当前层级')
-    assert.equal(findElement(tree, (node) => node?.props?.children === 'C:\\A'), undefined)
+    assert.equal(dialogPath(tree), 'C:\\B', '过期响应不得覆盖当前层级')
   } finally {
     globalThis.location = previousLocation
+  }
+})
+
+test('drives are enumerated so the dialog is not trapped on one volume', async () => {
+  const { listDrives } = await import('../lib/directory-browse.js')
+  const drives = await listDrives({ timeoutMs: 1500 })
+  assert(Array.isArray(drives))
+  assert(drives.length >= 1, '至少要有一个可列举的驱动器根')
+  for (const drive of drives) {
+    assert.equal(typeof drive.name, 'string')
+    assert.equal(drive.path, drive.name)
+  }
+  if (process.platform === 'win32') {
+    // 盘符根固定是 `X:\`，不能是裸 `X:` —— 后者在 Windows 上表示「该盘的当前目录」。
+    for (const drive of drives) assert.match(drive.path, /^[A-Z]:\\$/)
+    // 名字排序，界面上盘符顺序才稳定。
+    assert.deepEqual([...drives.map((drive) => drive.name)].sort(), drives.map((drive) => drive.name))
+  } else {
+    assert.deepEqual(drives, [{ name: '/', path: '/' }])
   }
 })
 
@@ -2159,6 +2214,105 @@ test('truncation keeps the name-sorted head, and an aborted caller stops the sca
     assert.equal(aborted.truncated, false)
   } finally {
     rmSync(parent, { recursive: true, force: true })
+  }
+})
+
+test('the dialog switches drives and jumps to a typed path', async () => {
+  const previousLocation = globalThis.location
+  globalThis.location = { protocol: 'http:', hostname: '192.168.1.20', host: '192.168.1.20:3080' }
+  storage.clear()
+  storage.set('dsh-remote-control.secret', 'remote-test')
+  resetBrowser()
+
+  const level = (path) => ({
+    path,
+    home: 'C:\\Users\\me',
+    crumbs: [{ name: 'C:\\', path: 'C:\\' }],
+    entries: [],
+    truncated: false,
+  })
+
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+
+    const flow = slots.registrations.find((item) => item.entry.name === 'sidebar.workspaces.directoryFlow')
+    const listed = []
+    const props = {
+      open: true,
+      busy: false,
+      onPicked: () => {},
+      onCancel: () => {},
+      onError: () => {},
+      ...flow.entry.inject(),
+      listDrives: async () => [{ name: 'C:\\', path: 'C:\\' }, { name: 'D:\\', path: 'D:\\' }],
+      listDirectory: async (path) => {
+        listed.push(path)
+        return level(path ?? 'C:\\Users\\me')
+      },
+    }
+
+    render(flow.component, props)
+    await new Promise((resolve) => setImmediate(resolve))
+    let tree = render(flow.component, props)
+    assert.equal(dialogPath(tree), 'C:\\Users\\me')
+
+    // 盘符入口：C: 当前、D: 可切。没有它就只能困在 C 盘。
+    const driveButtons = findAll(tree, (node) => node?.props?.className === 'dsh-remote-dir-drive')
+    assert.equal(driveButtons.length, 2, '应渲染两个盘符')
+    driveButtons[1].props.onClick()
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(listed.at(-1), 'D:\\', '点击盘符应列举该盘根目录')
+
+    // 路径输入：直接键入绝对路径后回车跳转，不必逐层点。
+    tree = render(flow.component, props)
+    const pathInput = findElement(tree, (node) => node?.props?.['aria-label'] === '目录路径')
+    assert(pathInput, '缺少可编辑路径栏')
+    pathInput.props.onChange({ target: { value: 'D:\\games\\save' } })
+    tree = render(flow.component, props)
+    const edited = findElement(tree, (node) => node?.props?.['aria-label'] === '目录路径')
+    assert.equal(edited.props.value, 'D:\\games\\save')
+    edited.props.onKeyDown({ key: 'Enter' })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(listed.at(-1), 'D:\\games\\save', '回车应跳转到键入的路径')
+
+    // 失焦丢弃未提交的编辑，路径栏回到真实所在目录。
+    tree = render(flow.component, props)
+    const stale = findElement(tree, (node) => node?.props?.['aria-label'] === '目录路径')
+    stale.props.onChange({ target: { value: 'Z:\\nope' } })
+    tree = render(flow.component, props)
+    findElement(tree, (node) => node?.props?.['aria-label'] === '目录路径').props.onBlur()
+    tree = render(flow.component, props)
+    assert.equal(dialogPath(tree), 'D:\\games\\save', '未提交的编辑不得留在路径栏')
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('the directory list stays scrollable and its buttons never wrap', async () => {
+  // 两个真实回归都在 CSS 里，且只看截图才发现：
+  //   1. 列表用 min-height:120px + flex 收缩，内容被裁却滚不动；
+  //   2. 「创建」按钮被 flex 压成竖排两个字。
+  const clientSource = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+
+  const list = clientSource.match(/\.dsh-remote-dir-list\{[^}]*\}/)
+  assert(list, '缺少 .dsh-remote-dir-list 规则')
+  assert.match(list[0], /overflow-y:auto/, '列表必须可纵向滚动')
+  assert.match(list[0], /max-height:/, '列表必须有确定的高度上限，不能只靠 flex 收缩')
+  assert.doesNotMatch(list[0], /min-height:120px/, '旧的 min-height:120px 会让内容裁掉却不滚动')
+  assert.match(list[0], /scrollbar-width:thin/, '滚动条要可见，否则用户不知道能滚')
+
+  const card = clientSource.match(/\.dsh-remote-dir-card\{[^}]*\}/)
+  assert(card, '缺少 .dsh-remote-dir-card 规则')
+  assert.match(card[0], /overflow:hidden/, '卡片要收住溢出内容，圆角才不会被撑破')
+
+  for (const selector of ['\\.dsh-remote-dir-create button', '\\.dsh-remote-dir-actions button']) {
+    const rule = clientSource.match(new RegExp(selector + '\\{[^}]*\\}'))
+    assert(rule, '缺少 ' + selector + ' 规则')
+    assert.match(rule[0], /white-space:nowrap/, selector + ' 不得换行')
+    assert.match(rule[0], /flex:none/, selector + ' 不得被 flex 压扁')
   }
 })
 

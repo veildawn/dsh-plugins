@@ -185,6 +185,52 @@ function windowsNormalized(name) {
 }
 
 /**
+ * 探测一个盘符是否可用，带超时。
+ *
+ * 未就绪的驱动器（刚插入的 U 盘、已断开的网络映射盘）上 `stat` 可能挂很久，
+ * 一次 `directory.drives` 不该因此把整个对话框卡住 —— 超时就当它不存在，用户
+ * 还可以直接键入路径过去。
+ * @param {string} root - 形如 `C:\` 的根路径。
+ * @param {number} timeoutMs - 超时毫秒数。
+ * @returns {Promise<boolean>} 是否可用于列举。
+ */
+async function driveAvailable(root, timeoutMs) {
+  let timer
+  try {
+    const probe = stat(root).then((info) => info.isDirectory()).catch(() => false)
+    const expired = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs)
+    })
+    return await Promise.race([probe, expired])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 列出可列举的驱动器根。
+ *
+ * 对话框的目录树是「从主目录往上走」，到 `C:\` 就到头了 —— 没有盘符列表就永远
+ * 出不了这个盘。POSIX 上只有 `/`，Windows 上逐盘探测。
+ *
+ * @param {{timeoutMs?: number}} [options] - 单盘探测超时（测试可注入）。
+ * @returns {Promise<{name: string, path: string}[]>} 驱动器根，按名称排序。
+ */
+export async function listDrives(options = {}) {
+  if (process.platform !== 'win32') return [{ name: '/', path: '/' }]
+  const timeoutMs = Number.isInteger(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 800
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+  const found = await Promise.all(letters.map(async (letter) => {
+    const root = `${letter}:\\`
+    return (await driveAvailable(root, timeoutMs)) ? root : undefined
+  }))
+  return found
+    .filter((root) => root !== undefined)
+    .sort((left, right) => left.localeCompare(right))
+    .map((root) => ({ name: root, path: root }))
+}
+
+/**
  * 在已存在的父目录下创建一个子目录。
  *
  * 非递归：父目录必须已经存在（界面上父目录正是用户看到的那个层级，父目录缺失是

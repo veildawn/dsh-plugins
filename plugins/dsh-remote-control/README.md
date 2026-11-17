@@ -282,23 +282,31 @@ curl -s -X POST http://127.0.0.1:<port>/dsh-remote-control-config \
 - `agentPreset.read/copy/openDocument/remove`
 - `host.pickDirectory/openPath`
 - `llm.providers/models/discoverModels`
-- `directory.list/create`
+- `directory.drives/list/create`
 
 除 `directory.*` 之外（见下节），浏览器端会将对应的 `connection.api` 方法重定向到认证通道。
 远程页面总是走该通道；本机页面优先走官方直连，仅在直连返回 HTTP 403 时回退。
 
-### `directory.list` / `directory.create`
+### `directory.drives` / `directory.list` / `directory.create`
 
-这两个方法**不经过宿主 `apiProxy`**，由本插件在宿主机上直接实现（失败码与宿主
+这三个方法**不经过宿主 `apiProxy`**，由本插件在宿主机上直接实现（失败码与宿主
 `directory-picker` 后端一致）：
 
 | 方法 | 参数 | 返回 |
 | --- | --- | --- |
+| `directory.drives` | `{}` | 可列举的驱动器根，如 `[{ name: "C:\\", path: "C:\\" }]` |
 | `directory.list` | `{ path? }`，省略即宿主机主目录 | `{ path, home, crumbs, entries, truncated }` |
 | `directory.create` | `{ path, name }` | 新建目录的绝对路径 |
 
 失败码为 `directory-picker/unreadable`、`directory-picker/exists`、
 `directory-picker/create-failed`，与宿主同名。
+
+`directory.drives` 之所以必要：目录树是「从主目录一路往上走」，到盘根就到头了，没有
+驱动器列表就永远出不了起始的那个盘。Windows 上逐盘探测（`A:`–`Z:`），未就绪的驱动器
+（刚插的 U 盘、已断开的网络映射盘）会被超时跳过，只当它不存在——用户仍可直接键入路径过去。
+
+对话框里三个与「走出当前目录」有关的能力：**点盘符换卷**、**在路径栏键入绝对路径回车
+跳转**、**点面包屑向上**。列表有确定的高度上限且滚动条常显，内容多时不会静默裁掉。
 
 ## 远程浏览器的「添加工作区」为什么不弹在宿主机上
 

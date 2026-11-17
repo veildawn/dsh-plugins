@@ -13,7 +13,7 @@ import { networkInterfaces } from 'node:os'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { DirectoryBrowseError, createDirectory, listDirectory } from './directory-browse.js'
+import { DirectoryBrowseError, createDirectory, listDirectory, listDrives } from './directory-browse.js'
 import { DEFAULT_LAN_GATEWAY_PORT, LAN_ORIGIN_HEADER, describeBindFailure, isPortTakenError, probePortAvailable, startLanGateways } from './lan-gateway.js'
 
 export const name = 'remote-control'
@@ -168,6 +168,10 @@ const METHODS = {
  * 断开时中止正在进行的目录扫描。
  */
 const LOCAL_METHODS = {
+  'directory.drives': (ctx, request) => directoryBrowseResponse(
+    () => listDrives(),
+    request.rpcId,
+  ),
   'directory.list': (ctx, request, signal) => directoryBrowseResponse(
     () => listDirectory(directoryListPath(request.payload), { signal }),
     request.rpcId,
