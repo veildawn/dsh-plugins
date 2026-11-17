@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer, get } from 'node:http'
 import { networkInterfaces } from 'node:os'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -540,6 +540,7 @@ globalThis.localStorage = {
 }
 
 let hooks = []
+let refs = []
 let effects = []
 let fetchCalls = []
 let fetchHandler = async () => ({ status: 200, ok: true, json: async () => ({ ok: true, minted: false }) })
@@ -563,6 +564,13 @@ const react = {
     previous?.cleanup?.()
     effects[slot] = { deps, cleanup: effect() }
   },
+  useRef(initial) {
+    // 每个 hook 槽位持有一个稳定的盒子：跨渲染必须是同一个对象，否则
+    // “卸载后不再回写状态”这条守卫会在测试里永远为真而测不出问题。
+    const slot = hookIndex++
+    if (refs[slot] === undefined) refs[slot] = { current: initial }
+    return refs[slot]
+  },
   createElement: (type, props, ...children) => {
     const flat = children.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false)
     return { type, props: { ...props, children: flat.length === 1 ? flat[0] : flat } }
@@ -581,7 +589,26 @@ class SlotsService extends Service {
     super(ctx, 'slots')
     this.registrations = []
   }
-  inject(_name, install) { return install() }
+  /**
+   * Stand-in for the host registry's declaration-lifetime seam.
+   *
+   * The real `ctx.slots.inject` runs the callback once per declaration lifetime
+   * and installs an iterable callback transactionally (disposers unwound in
+   * reverse on teardown). Registrations that nest three `inject` calls — as the
+   * directory-flow holes do — therefore only appear if this stub expands the
+   * generator the callback returns.
+   */
+  inject(_name, install) {
+    const effect = install()
+    if (effect === null || typeof effect !== 'object' || typeof effect[Symbol.iterator] !== 'function') {
+      return effect
+    }
+    const disposers = []
+    for (const disposer of effect) {
+      disposers.push(disposer)
+    }
+    return () => { for (const dispose of disposers.reverse()) dispose() }
+  }
   register(entry, component) {
     const registration = { entry, component }
     this.registrations.push(registration)
@@ -620,6 +647,7 @@ class BrowserConnection extends Service {
 
 function resetBrowser() {
   hooks = []
+  refs = []
   effects = []
   fetchCalls = []
   fetchHandler = async () => ({ status: 200, ok: true, json: async () => ({ ok: true, minted: false }) })
@@ -1654,4 +1682,508 @@ test('开关圆点在开启态必须取反色 Token，不能硬编码白色', ()
   const track = clientSource.match(/\.dsh-remote-slider\{[^}]*\}/)
   assert(track, '缺少 .dsh-remote-slider 规则')
   assert.match(track[0], /background-color:var\(--dsw-alias-border-l3/, '轨道应取宿主真实存在的 border-l3')
+})
+
+test('remote directory RPCs list and create on the host without touching apiProxy', async () => {
+  const { ctx, connection, credentials, settings, apiProxy } = makeHost()
+  await ctx.plugin(plugin).await()
+  const configure = connection.registrations.get(CONFIG_RPC_CHANNEL).handler
+  const remote = connection.registrations.get(REMOTE_CONTROL_RPC_CHANNEL).handler
+  // 先落密钥再开开关：一次改一个字段，避免两次 patch 互相覆盖。
+  assert.equal((await configure('setSecret', { secret: 'remote-test' })).ok, true)
+  assert.equal((await configure('setEnabled', { enabled: true })).ok, true)
+  const statusResult = await remote('status', { token: 'remote-test' })
+  assert.equal(statusResult.value.authenticated, true, '目录 RPC 测试需要先建立可信认证')
+
+  const parent = mkdtempSync(join(tmpdir(), 'dsh-remote-rpc-'))
+  try {
+    // 列举：payload 省略 path 时落在调用方主目录，给 path 时列举该目录。
+    const home = await remote('call', { token: 'remote-test', method: 'directory.list', payload: {} })
+    assert.equal(home.ok, true)
+    assert.equal(typeof home.value.path, 'string')
+    assert.equal(Array.isArray(home.value.entries), true)
+
+    const listed = await remote('call', { token: 'remote-test', method: 'directory.list', payload: { path: parent } })
+    assert.equal(listed.ok, true)
+    assert.equal(listed.value.path, parent)
+    assert.deepEqual(listed.value.entries, [])
+
+    const created = await remote('call', {
+      token: 'remote-test', method: 'directory.create', payload: { path: parent, name: 'made-remotely' },
+    })
+    assert.equal(created.ok, true)
+    assert.equal(created.value, join(parent, 'made-remotely'))
+    const after = await remote('call', { token: 'remote-test', method: 'directory.list', payload: { path: parent } })
+    assert.deepEqual(after.value.entries.map((entry) => entry.name), ['made-remotely'])
+
+    // 失败码必须翻译成宿主的 directory-picker/* 词汇，客户端按码分支。
+    const duplicate = await remote('call', {
+      token: 'remote-test', method: 'directory.create', payload: { path: parent, name: 'made-remotely' },
+    })
+    assert.equal(duplicate.ok, false)
+    assert.equal(duplicate.error.code, 'directory-picker/exists')
+    assert.deepEqual(duplicate.error.details, { path: join(parent, 'made-remotely') })
+
+    const unreadable = await remote('call', {
+      token: 'remote-test', method: 'directory.list', payload: { path: join(parent, 'nope') },
+    })
+    assert.equal(unreadable.ok, false)
+    assert.equal(unreadable.error.code, 'directory-picker/unreadable')
+
+    const badName = await remote('call', {
+      token: 'remote-test', method: 'directory.create', payload: { path: parent, name: '../escape' },
+    })
+    assert.equal(badName.ok, false)
+    assert.equal(badName.error.code, 'directory-picker/create-failed')
+
+    // 认证仍然先于方法分派：没有 token 的目录调用不会读到任何路径。
+    assert.equal((await remote('call', { token: 'wrong', method: 'directory.list', payload: {} })).ok, false)
+
+    // 目录浏览是插件自己的原语，绝不能落到宿主 apiProxy 上。
+    assert.deepEqual(apiProxy.calls.filter((call) => call.domain === 'host'), [])
+  } finally {
+    rmSync(parent, { recursive: true, force: true })
+  }
+})
+
+test('directory primitives list the home directory and refuse unsafe targets', async () => {
+  const { listDirectory, createDirectory, DirectoryBrowseError } = await import('../lib/directory-browse.js')
+  const listing = await listDirectory(undefined, { home: tmpdir(), limit: 4 })
+  assert.equal(listing.path, tmpdir())
+  assert.equal(listing.home, tmpdir())
+  assert.equal(listing.crumbs.at(-1).path, tmpdir())
+  assert(Array.isArray(listing.entries))
+  assert.equal(listing.entries.length <= 4, true, 'limit caps the entry list')
+
+  // 相对路径没有「当前目录」可言：宿主 browse 后端同样只接受绝对路径。
+  await assert.rejects(() => listDirectory('relative/dir'), (error) => {
+    assert(error instanceof DirectoryBrowseError)
+    assert.equal(error.code, 'directory-unreadable')
+    return true
+  })
+  await assert.rejects(() => listDirectory(42), (error) => {
+    assert.equal(error.code, 'directory-unreadable')
+    return true
+  })
+
+  const parent = mkdtempSync(join(tmpdir(), 'dsh-dir-'))
+  try {
+    // 目录名必须是单一路径段：`a/b` 不能借父目录逃出去。
+    await assert.rejects(() => createDirectory(parent, 'a/b'), (error) => {
+      assert.equal(error.code, 'directory-create-failed')
+      return true
+    })
+    await assert.rejects(() => createDirectory(parent, '..'), (error) => {
+      assert.equal(error.code, 'directory-create-failed')
+      return true
+    })
+    // Windows 会在 API 层去掉路径部件末尾的空格与点，'.. ' 到不了文件系统
+    // 就已被折叠成 '..'。必须在进 OS 之前拒掉，不能指望 mkdir 报错。
+    if (process.platform === 'win32') {
+      for (const sneaky of ['.. ', 'a.', 'a ', '. ']) {
+        await assert.rejects(() => createDirectory(parent, sneaky), (error) => {
+          assert.equal(error.code, 'directory-create-failed', sneaky + ' 必须在进 OS 前被拒')
+          return true
+        })
+      }
+    }
+    const created = await createDirectory(parent, 'remote-control-target')
+    assert.equal(created, join(parent, 'remote-control-target'))
+    // 已存在必须报 exists，而不是让 mkdir 的 EEXIST 冒成 internal。
+    await assert.rejects(() => createDirectory(parent, 'remote-control-target'), (error) => {
+      assert(error instanceof DirectoryBrowseError)
+      assert.equal(error.code, 'directory-exists')
+      return true
+    })
+    const nested = await listDirectory(parent)
+    assert.deepEqual(nested.entries.map((entry) => entry.name), ['remote-control-target'])
+  } finally {
+    rmSync(parent, { recursive: true, force: true })
+  }
+})
+
+test('directory browsing stays off the apiProxy allowlist and reports host wire codes', async () => {
+  // 目录浏览由插件自己在宿主机上实现，绝不能退化成 apiProxy 上的一个方法：
+  // 宿主的那套后端在远程访问下根本没有被挂上。
+  for (const method of Object.keys(internals.LOCAL_METHODS)) {
+    assert.equal(Object.hasOwn(internals.LOCAL_METHODS, method), true)
+    assert.equal(method.startsWith('directory.'), true, method + ' 应留在 directory.* 命名空间')
+  }
+  assert.deepEqual(Object.keys(internals.DIRECTORY_BROWSE_WIRE_CODES).sort(), [
+    'directory-create-failed', 'directory-exists', 'directory-unreadable',
+  ])
+  // 失败码必须与宿主 directory-picker 一致，客户端的浏览对话框按码分支。
+  for (const wireCode of Object.values(internals.DIRECTORY_BROWSE_WIRE_CODES)) {
+    assert.equal(wireCode.startsWith('directory-picker/'), true, wireCode + ' 必须是宿主的失败码词汇')
+  }
+})
+
+test('a remote browser claims the three directory-flow holes instead of the host native picker', async () => {
+  const previousLocation = globalThis.location
+  globalThis.location = { protocol: 'http:', hostname: '192.168.1.20', host: '192.168.1.20:3080' }
+  storage.clear()
+  storage.set('dsh-remote-control.secret', 'remote-test')
+  resetBrowser()
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    const connection = new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+    const flows = slots.registrations.filter((item) => item.entry.name.endsWith('.directoryFlow'))
+    assert.deepEqual([...flows.map((item) => item.entry.name)].sort(), [
+      'conversation.hero.workspace.directoryFlow',
+      'sidebar.workspaces.directoryFlow',
+      'workspace.picker.directoryFlow',
+    ])
+    // single 孔洞只按 priority 升序排完取第一个，不声明即 0，与随包发布的
+    // native 占用者并列 —— 那时胜负取决于注册先后，不可控。必须显式给负值。
+    for (const flow of flows) {
+      assert.equal(typeof flow.entry.priority, 'number', flow.entry.name + ' 必须显式声明 priority')
+      assert(flow.entry.priority < 0, flow.entry.name + ' 的 priority 必须为负才能压过随包发布的占用者')
+    }
+
+    // 注入面必须走本插件通道，而不是宿主的 uiWorkspace：宿主若选到 native 后端，
+    // 它的 directoryPicker.list() 只会抛 `directory-picker/unavailable`。
+    const injected = flows[0].entry.inject()
+    await injected.listDirectory(undefined)
+    const listingCall = connection.calls.find((call) => call.payload?.method === 'directory.list')
+    assert(listingCall, 'listDirectory 必须经由本插件 RPC 通道')
+    assert.equal(listingCall.channel, REMOTE_CONTROL_RPC_CHANNEL)
+    assert.equal(listingCall.method, 'call')
+    assert.equal(listingCall.payload.token, 'remote-test')
+    assert.deepEqual(listingCall.payload.payload, {})
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('the remote directory dialog lists, navigates and commits the picked folder', async () => {
+  const previousLocation = globalThis.location
+  globalThis.location = { protocol: 'http:', hostname: '192.168.1.20', host: '192.168.1.20:3080' }
+  storage.clear()
+  storage.set('dsh-remote-control.secret', 'remote-test')
+  resetBrowser()
+
+  const listings = {
+    'C:\\Users\\me': {
+      path: 'C:\\Users\\me',
+      home: 'C:\\Users\\me',
+      crumbs: [{ name: 'C:\\', path: 'C:\\' }, { name: 'Users', path: 'C:\\Users' }, { name: 'me', path: 'C:\\Users\\me' }],
+      entries: [{ name: 'project', path: 'C:\\Users\\me\\project', hidden: false }],
+      truncated: false,
+    },
+    'C:\\Users\\me\\project': {
+      path: 'C:\\Users\\me\\project',
+      home: 'C:\\Users\\me',
+      crumbs: [
+        { name: 'C:\\', path: 'C:\\' },
+        { name: 'Users', path: 'C:\\Users' },
+        { name: 'me', path: 'C:\\Users\\me' },
+        { name: 'project', path: 'C:\\Users\\me\\project' },
+      ],
+      entries: [],
+      truncated: true,
+    },
+  }
+
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    const connection = new BrowserConnection(ctx)
+    // 真实宿主会在这里给出 directory.list / directory.create 的结果；桩只记录调用。
+    connection.rpc.call = async (channel, method, payload) => {
+      connection.calls.push({ channel, method, payload })
+      if (payload?.method === 'directory.list') {
+        return { ok: true, value: listings[payload.payload?.path ?? 'C:\\Users\\me'] }
+      }
+      return { ok: false, error: { code: 'internal', message: 'unexpected' } }
+    }
+    await ctx.plugin(clientPlugin).await()
+
+    const flow = slots.registrations.find((item) => item.entry.name === 'sidebar.workspaces.directoryFlow')
+    const picked = []
+    const props = {
+      open: true,
+      busy: false,
+      onPicked: (path) => { picked.push(path) },
+      onCancel: () => { picked.push(null) },
+      onError: (message) => { picked.push('error:' + message) },
+      ...flow.entry.inject(),
+    }
+
+    let tree = render(flow.component, props)
+    await new Promise((resolve) => setImmediate(resolve))
+    tree = render(flow.component, props)
+
+    // 打开即落在主目录：标题、当前路径与子文件夹都在树里。
+    assert(findElement(tree, (node) => node?.props?.children === '选择工作区目录'), '缺少对话框标题')
+    assert(findElement(tree, (node) => node?.props?.children === 'C:\\Users\\me'), '缺少当前路径')
+    const entryButton = findElement(tree, (node) => node?.props?.children === 'project')
+    assert(entryButton, '缺少子文件夹条目')
+    assert.equal(entryButton.props.type, 'button')
+
+    // 点进子文件夹：重新列举，面包屑与截断提示跟着更新。
+    entryButton.props.onClick()
+    await new Promise((resolve) => setImmediate(resolve))
+    tree = render(flow.component, props)
+    assert.equal(connection.calls.at(-1).payload.payload.path, 'C:\\Users\\me\\project')
+    assert(findElement(tree, (node) => node?.props?.children === '文件夹过多，仅显示开头部分。'), '缺少截断提示')
+
+    // 提交用的是「当前所在目录」，不是某条子条目。
+    const commit = findElement(tree, (node) => node?.props?.children === '选择此文件夹')
+    assert(commit, '缺少提交按钮')
+    commit.props.onClick()
+    assert.deepEqual(picked, ['C:\\Users\\me\\project'])
+
+    // 关闭态渲染空，且不再发起列举。
+    const callsBeforeClose = connection.calls.length
+    assert.equal(render(flow.component, { ...props, open: false }), null)
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(connection.calls.length, callsBeforeClose, '关闭的对话框不得继续列举目录')
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('the remote directory dialog creates a folder then stops in it', async () => {
+  const previousLocation = globalThis.location
+  globalThis.location = { protocol: 'http:', hostname: '192.168.1.20', host: '192.168.1.20:3080' }
+  storage.clear()
+  storage.set('dsh-remote-control.secret', 'remote-test')
+  resetBrowser()
+
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    const connection = new BrowserConnection(ctx)
+    let created = null
+    connection.rpc.call = async (channel, method, payload) => {
+      connection.calls.push({ channel, method, payload })
+      if (payload?.method === 'directory.create') {
+        created = payload.payload
+        return { ok: true, value: payload.payload.path + '\\' + payload.payload.name }
+      }
+      if (payload?.method === 'directory.list') {
+        const path = payload.payload?.path ?? 'C:\\Users\\me'
+        return {
+          ok: true,
+          value: {
+            path,
+            home: 'C:\\Users\\me',
+            crumbs: [{ name: 'C:\\', path: 'C:\\' }],
+            entries: created !== null && path === created.path + '\\' + created.name
+              ? []
+              : [{ name: 'notes', path: 'C:\\Users\\me\\notes', hidden: false }],
+            truncated: false,
+          },
+        }
+      }
+      return { ok: false, error: { code: 'internal', message: 'unexpected' } }
+    }
+    await ctx.plugin(clientPlugin).await()
+
+    const flow = slots.registrations.find((item) => item.entry.name === 'conversation.hero.workspace.directoryFlow')
+    const props = {
+      open: true,
+      busy: false,
+      onPicked: () => {},
+      onCancel: () => {},
+      onError: () => {},
+      ...flow.entry.inject(),
+    }
+
+    render(flow.component, props)
+    await new Promise((resolve) => setImmediate(resolve))
+    let tree = render(flow.component, props)
+
+    // 输入新目录名并创建：必须打到 directory.create，参数是「当前目录 + 名字」。
+    const input = findElement(tree, (node) => node?.props?.placeholder === '新建文件夹')
+    assert(input, '缺少新建文件夹输入框')
+    input.props.onChange({ target: { value: 'brand-new' } })
+    tree = render(flow.component, props)
+    const createButton = findElement(tree, (node) => node?.props?.children === '创建')
+    assert(createButton, '缺少创建按钮')
+    createButton.props.onClick()
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.deepEqual(created, { path: 'C:\\Users\\me', name: 'brand-new' })
+    const createCall = connection.calls.find((call) => call.payload?.method === 'directory.create')
+    assert.equal(createCall.channel, REMOTE_CONTROL_RPC_CHANNEL)
+    // 创建后停在新目录：下一次列举的路径就是刚建好的那个，而不是直接提交。
+    tree = render(flow.component, props)
+    assert.equal(findElement(tree, (node) => node?.props?.children === 'C:\\Users\\me\\brand-new')?.props?.children,
+      'C:\\Users\\me\\brand-new')
+    assert(findElement(tree, (node) => node?.props?.children === '这里没有子文件夹'), '新目录应为空')
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('a remote browser claims the holes even though uiWorkspace always exposes listDirectory', async () => {
+  // 回归守卫：**不能**用「ctx.uiWorkspace.listDirectory 是否存在」判断宿主有没有
+  // browse 后端。它是 UiWorkspaceService 的无条件实例方法，内部转发到
+  // directoryPicker.list()，native 后端下只是调用时抛
+  // `directory-picker/unavailable`，方法本身永远存在。
+  //
+  // 曾经按「方法存在 = 宿主是 browse」写过判据，结果在真实宿主上恒为真，插件
+  // 永不注册，用户报告的 bug（远程点添加工作区弹在宿主机屏幕）完全没修。这里让
+  // 桩模拟真实宿主形态：uiWorkspace 存在且 listDirectory 可调用，同时当前宿主
+  // 后端是 native（调用会抛 unavailable）—— 三个孔洞仍然必须被接管。
+  class NativeBackedUiWorkspace extends Service {
+    constructor(ctx) {
+      super(ctx, 'uiWorkspace')
+    }
+    async listDirectory() {
+      const error = new Error('the directory picker offers no browse capability')
+      error.code = 'directory-picker/unavailable'
+      throw error
+    }
+    async createDirectory() {
+      const error = new Error('the directory picker offers no browse capability')
+      error.code = 'directory-picker/unavailable'
+      throw error
+    }
+  }
+
+  const previousLocation = globalThis.location
+  globalThis.location = { protocol: 'http:', hostname: '192.168.1.20', host: '192.168.1.20:3080' }
+  storage.clear()
+  storage.set('dsh-remote-control.secret', 'remote-test')
+  resetBrowser()
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    new NativeBackedUiWorkspace(ctx)
+    await ctx.plugin(clientPlugin).await()
+    const flows = slots.registrations.filter((item) => item.entry.name.endsWith('.directoryFlow'))
+    assert.deepEqual([...flows.map((item) => item.entry.name)].sort(), [
+      'conversation.hero.workspace.directoryFlow',
+      'sidebar.workspaces.directoryFlow',
+      'workspace.picker.directoryFlow',
+    ], '宿主 uiWorkspace 存在时也必须在远程浏览器上接管三个孔洞')
+    for (const flow of flows) {
+      assert.equal(flow.entry.priority, -100, flow.entry.name + ' 必须以负 priority 压过 native 占用者')
+    }
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('a superseded listing cannot overwrite the newer level', async () => {
+  // 点两下目录时，慢的那个响应回来不能把界面拽回旧层级：用户以为停在 B，
+  // 点「选择此文件夹」提交的却是 A —— 会建出指向错误目录的 workspace。
+  const previousLocation = globalThis.location
+  globalThis.location = { protocol: 'http:', hostname: '192.168.1.20', host: '192.168.1.20:3080' }
+  storage.clear()
+  storage.set('dsh-remote-control.secret', 'remote-test')
+  resetBrowser()
+
+  const level = (path, names) => ({
+    path,
+    home: 'C:\\',
+    crumbs: [{ name: 'C:\\', path: 'C:\\' }],
+    entries: names.map((name) => ({ name, path: path + '\\' + name, hidden: false })),
+    truncated: false,
+  })
+
+  try {
+    const ctx = new Context()
+    const slots = new SlotsService(ctx)
+    new BrowserConnection(ctx)
+    await ctx.plugin(clientPlugin).await()
+
+    const flow = slots.registrations.find((item) => item.entry.name === 'sidebar.workspaces.directoryFlow')
+    const pending = []
+    const props = {
+      open: true,
+      busy: false,
+      onPicked: () => {},
+      onCancel: () => {},
+      onError: () => {},
+      ...flow.entry.inject(),
+      // 受控的列举：每次调用都挂起，由测试决定谁先回来。
+      listDirectory: (path) => new Promise((resolve) => { pending.push({ path, resolve }) }),
+    }
+
+    render(flow.component, props)
+    pending[0].resolve(level('C:\\', ['A', 'B']))
+    await new Promise((resolve) => setImmediate(resolve))
+    let tree = render(flow.component, props)
+
+    // 依次点 A、B：A 的请求先发出，但 B 先返回。
+    findElement(tree, (node) => node?.props?.children === 'A').props.onClick()
+    tree = render(flow.component, props)
+    findElement(tree, (node) => node?.props?.children === 'B').props.onClick()
+    render(flow.component, props)
+    assert.equal(pending.length, 3)
+
+    pending[2].resolve(level('C:\\B', []))
+    await new Promise((resolve) => setImmediate(resolve))
+    tree = render(flow.component, props)
+    assert(findElement(tree, (node) => node?.props?.children === 'C:\\B'), '应先停在 B')
+
+    // 慢一步的 A 迟到：不得把界面拽回 A。
+    pending[1].resolve(level('C:\\A', []))
+    await new Promise((resolve) => setImmediate(resolve))
+    tree = render(flow.component, props)
+    assert(findElement(tree, (node) => node?.props?.children === 'C:\\B'), '过期响应不得覆盖当前层级')
+    assert.equal(findElement(tree, (node) => node?.props?.children === 'C:\\A'), undefined)
+  } finally {
+    globalThis.location = previousLocation
+  }
+})
+
+test('truncation keeps the name-sorted head, and an aborted caller stops the scan', async () => {
+  const { listDirectory } = await import('../lib/directory-browse.js')
+  const parent = mkdtempSync(join(tmpdir(), 'dsh-trunc-'))
+  try {
+    // 宿主 browse 后端的契约是「略去的是名字排序后的尾部」（types.ts 的
+    // truncated 注释）。按文件系统遍历顺序截断会让每次刷新看到不同子集，
+    // 被略掉的也不一定是字典序尾部。
+    for (const name of ['m', 'b', 'z', 'a', 'y']) mkdirSync(join(parent, name))
+    const listed = await listDirectory(parent, { limit: 2 })
+    assert.deepEqual(listed.entries.map((entry) => entry.name), ['a', 'b'])
+    assert.equal(listed.truncated, true)
+
+    // 刚好等于上限时不算截断。
+    const exact = await listDirectory(parent, { limit: 5 })
+    assert.equal(exact.entries.length, 5)
+    assert.equal(exact.truncated, false)
+
+    // 调用方已断开：不要继续扫描，也不要报成「读不了」。
+    const controller = new AbortController()
+    controller.abort()
+    const aborted = await listDirectory(parent, { signal: controller.signal })
+    assert.deepEqual(aborted.entries, [])
+    assert.equal(aborted.truncated, false)
+  } finally {
+    rmSync(parent, { recursive: true, force: true })
+  }
+})
+
+test('local and desktop clients leave the host directory flow untouched', async () => {
+  for (const location of [
+    { protocol: 'http:', hostname: 'localhost', host: 'localhost:3080' },
+    { protocol: 'http:', hostname: '127.0.0.1', host: '127.0.0.1:49438' },
+    { protocol: 'dsh-app:', hostname: 'app', host: 'app' },
+  ]) {
+    const previousLocation = globalThis.location
+    globalThis.location = location
+    storage.clear()
+    resetBrowser()
+    try {
+      const ctx = new Context()
+      const slots = new SlotsService(ctx)
+      new BrowserConnection(ctx)
+      await ctx.plugin(clientPlugin).await()
+      assert.deepEqual(
+        slots.registrations.filter((item) => item.entry.name.endsWith('.directoryFlow')),
+        [],
+        location.hostname + ' 不得抢占宿主的 directory-flow 孔洞',
+      )
+    } finally {
+      globalThis.location = previousLocation
+    }
+  }
 })

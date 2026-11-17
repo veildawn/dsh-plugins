@@ -13,6 +13,7 @@ import { networkInterfaces } from 'node:os'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { DirectoryBrowseError, createDirectory, listDirectory } from './directory-browse.js'
 import { DEFAULT_LAN_GATEWAY_PORT, LAN_ORIGIN_HEADER, describeBindFailure, isPortTakenError, probePortAvailable, startLanGateways } from './lan-gateway.js'
 
 export const name = 'remote-control'
@@ -97,6 +98,48 @@ export function resolveOptions(raw = {}) {
   return { enabled, secret, lanGatewayPort }
 }
 
+/**
+ * 目录浏览结果的线上失败码：与宿主 directory-picker 的 `directory-picker/*`
+ * 词汇一一对应，客户端的浏览对话框按码分支。
+ */
+const DIRECTORY_BROWSE_WIRE_CODES = {
+  'directory-unreadable': 'directory-picker/unreadable',
+  'directory-exists': 'directory-picker/exists',
+  'directory-create-failed': 'directory-picker/create-failed',
+}
+
+/**
+ * 把一个目录浏览原语包成 Remote 响应。
+ *
+ * 宿主的 directory-picker 后端由 `dsh-host-directory-picker-auto` 在 boot 时
+ * 一次性选定：桌面端绑回环、无远程 authority，判定落到 `native` —— 也就是说
+ * 通过本插件接入的局域网浏览器点「添加工作区」，弹的是宿主机屏幕上的系统对话框。
+ * 插件不能改宿主的 composition，所以在自己的通道上提供等价的 browse 原语，
+ * 让远程页面在页面内完成列举与创建。
+ *
+ * @param {() => Promise<unknown>} run - 实际执行的目录原语。
+ * @param {string} rpcId - 调用标识，原样回填。
+ * @returns {Promise<{rpcId: string, result: object}>} Remote 响应。
+ */
+async function directoryBrowseResponse(run, rpcId) {
+  try {
+    return { rpcId, result: { ok: true, value: await run() } }
+  } catch (error) {
+    const known = error instanceof DirectoryBrowseError
+    return {
+      rpcId,
+      result: {
+        ok: false,
+        error: {
+          code: known ? DIRECTORY_BROWSE_WIRE_CODES[error.code] ?? error.code : 'internal',
+          message: error instanceof Error ? error.message : String(error),
+          details: known ? { path: error.path } : {},
+        },
+      },
+    }
+  }
+}
+
 const METHODS = {
   'agentPreset.read': (api, request) => api.agentPresets.read(request),
   'agentPreset.copy': (api, request) => api.agentPresets.copy(request),
@@ -115,6 +158,71 @@ const METHODS = {
   'llm.providers': (api, request) => api.llm.providers(request),
   'llm.models': (api, request) => api.llm.models(request),
   'llm.discoverModels': (api, request) => api.llm.discoverModels(request),
+}
+
+/**
+ * 不需要宿主 `apiProxy` 的本地方法：目录浏览由插件自己在宿主机上实现。
+ *
+ * 键是客户端可见的方法名，值是 `(ctx, request, signal) => Promise<Remote 响应>`；
+ * `request.payload` 是客户端传的参数，`request.rpcId` 原样回填，`signal` 在调用方
+ * 断开时中止正在进行的目录扫描。
+ */
+const LOCAL_METHODS = {
+  'directory.list': (ctx, request, signal) => directoryBrowseResponse(
+    () => listDirectory(directoryListPath(request.payload), { signal }),
+    request.rpcId,
+  ),
+  'directory.create': (ctx, request, signal) => directoryBrowseResponse(
+    () => createDirectory(directoryCreatePath(request.payload), directoryCreateName(request.payload), { signal }),
+    request.rpcId,
+  ),
+}
+
+/**
+ * 取 `directory.list` 的目录参数。
+ *
+ * 省略、`null` 或空串都表示「用宿主机主目录」（界面首次打开就是这个形态）；
+ * 其余非字符串值原样透传，由原语的路径校验统一拒成 `unreadable`。
+ * @param {unknown} payload - 客户端参数。
+ * @returns {string|undefined} 目录路径。
+ */
+function directoryListPath(payload) {
+  const path = readDirectoryPayload(payload, 'path', true)
+  return path === '' || path === null ? undefined : path
+}
+
+/**
+ * 取 `directory.create` 的父目录：必填，且必须是字符串。
+ * @param {unknown} payload - 客户端参数。
+ * @returns {unknown} 父目录参数，交给原语做路径校验。
+ */
+function directoryCreatePath(payload) {
+  return readDirectoryPayload(payload, 'path', false)
+}
+
+/**
+ * 取 `directory.create` 的新目录名。
+ * @param {unknown} payload - 客户端参数。
+ * @returns {unknown} 目录名参数，交给原语做路径段校验。
+ */
+function directoryCreateName(payload) {
+  return readDirectoryPayload(payload, 'name', false)
+}
+
+/**
+ * 读一个目录方法的字符串字段。
+ * @param {unknown} payload - 客户端参数。
+ * @param {string} field - 字段名。
+ * @param {boolean} optional - 是否允许省略（省略时返回空串）。
+ * @returns {unknown} 字段值，或非法值（由原语的校验统一拒绝）。
+ */
+function readDirectoryPayload(payload, field, optional) {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    return optional ? '' : undefined
+  }
+  const value = payload[field]
+  if (value === undefined) return optional ? '' : undefined
+  return value
 }
 
 function errorResult(message, code = 'bad-request') {
@@ -663,8 +771,21 @@ export async function handleRemoteControlRpc(ctx, options, method, payload, sign
     if (method !== 'call' || keys.length !== 3 || !Object.hasOwn(payload, 'method') || !Object.hasOwn(payload, 'payload')) {
       return errorResult('Remote Control requests must be status or a token-authenticated call')
     }
-    if (typeof payload.method !== 'string' || !Object.hasOwn(METHODS, payload.method)) {
+    if (typeof payload.method !== 'string'
+      || (!Object.hasOwn(METHODS, payload.method) && !Object.hasOwn(LOCAL_METHODS, payload.method))) {
       return errorResult('Remote Control method is not allowed: ' + String(payload.method))
+    }
+    // 目录浏览不经过宿主 apiProxy：宿主的 directory-picker 后端由它在 boot 时
+    // 一次性选定，桌面端会落到「在宿主屏幕弹系统对话框」，远程浏览器用不了。
+    // `directoryBrowseResponse` 与 METHODS 的处理器同形（`{rpcId, result}`），
+    // 所以这里和下面一样只把 `result` 交回调用方。
+    if (Object.hasOwn(LOCAL_METHODS, payload.method)) {
+      const response = await LOCAL_METHODS[payload.method](
+        ctx,
+        { rpcId: randomUUID(), payload: payload.payload },
+        signal,
+      )
+      return response.result
     }
     const api = ctx.get('apiProxy')
     if (api === undefined) return errorResult('Remote Control API is unavailable')
@@ -1070,6 +1191,8 @@ export const internals = {
   DEFAULT_SERVER_PORT,
   handleConfigRpc,
   handleRemoteControlRpc,
+  LOCAL_METHODS,
+  DIRECTORY_BROWSE_WIRE_CODES,
   captureSessionCookie,
   handleSessionRequest,
   serveSessionRoute,

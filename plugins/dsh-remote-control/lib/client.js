@@ -156,6 +156,32 @@ window.__ModuleLoader__.load({
       .dsh-remote-host-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.08));border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
       .dsh-remote-host-btn:disabled{opacity:.75;border-color:var(--dsw-alias-border-l1);cursor:not-allowed}
       @keyframes dsh-remote-gate-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.dsh-remote-gate-card{animation:none}}@media(max-width:520px){.dsh-remote-gate{padding:16px}.dsh-remote-gate-card{padding:20px;border-radius:var(--dsw-radius-l,12px)}}
+
+      /* 远程浏览器的站内目录选择框：宿主在远程访问下没有可用的 browse 后端，
+         这里自带一个，样式与宿主对话框同族但独立命名，避免被设置面板样式污染。
+
+         关于桌面端标题栏：这份遮罩**故意不**避让 Windows 原生标题栏。它只在
+         远程浏览器上挂载（isRemoteBrowser() 排除了 dsh-app: 与 file: 协议），
+         Electron 桌面端永远不会渲染它，而远程设备（手机/平板/别的电脑）没有那排
+         按钮 —— 加 --dsh-windows-titlebar-height 偏移反而会在顶部留一条死区。 */
+      .dsh-remote-dir-scrim{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:var(--dsw-alias-background-overlay,rgba(0,0,0,.45));pointer-events:auto}
+      .dsh-remote-dir-card{display:flex;flex-direction:column;width:min(100%,560px);max-height:min(80vh,620px);max-height:min(80dvh,620px);padding:20px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-l,12px);background:var(--dsw-alias-background-surface,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);box-shadow:var(--dsw-shadow-lv3);pointer-events:auto}
+      .dsh-remote-dir-title{margin:0;font:var(--dsw-font-l-20);font-weight:600}
+      .dsh-remote-dir-sub{margin:6px 0 0;color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-s-14);word-break:break-all}
+      .dsh-remote-dir-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:14px 0 0;padding:0;list-style:none;font-size:12px}
+      .dsh-remote-dir-crumb{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 8px;border:1px solid transparent;border-radius:6px;background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform));color:var(--dsw-alias-label-secondary);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;cursor:pointer}
+      .dsh-remote-dir-crumb:hover{border-color:var(--dsw-alias-border-default,var(--dsw-alias-border-l2));color:var(--dsw-alias-label-primary)}
+      .dsh-remote-dir-crumb[data-current=true]{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-brand-primary,#4d6bfe)}
+      .dsh-remote-dir-sep{color:var(--dsw-alias-label-quaternary,var(--dsw-alias-label-caption))}
+      .dsh-remote-dir-list{flex:1 1 auto;min-height:120px;margin:12px 0 0;padding:4px;overflow:auto;overscroll-behavior:contain;list-style:none;border:1px solid var(--dsw-alias-border-subtle,var(--dsw-alias-border-l1));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-module-platform))}
+      .dsh-remote-dir-entry{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14);text-align:left;cursor:pointer}
+      .dsh-remote-dir-entry:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(125,125,125,0.1))}
+      .dsh-remote-dir-empty{display:grid;place-items:center;min-height:120px;color:var(--dsw-alias-label-tertiary);font-size:13px}
+      .dsh-remote-dir-note{margin:8px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px}
+      .dsh-remote-dir-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:16px}
+      .dsh-remote-dir-create{display:flex;align-items:center;gap:8px;flex:1 1 240px}
+      .dsh-remote-dir-create input{flex:1 1 auto;min-width:0;height:32px;padding:0 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-default,var(--dsw-alias-border-l2));border-radius:var(--dsw-radius-m,8px);background:var(--dsw-alias-background-base,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);font:var(--dsw-font-s-14)}
+      .dsh-remote-dir-actions{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto}
     `;
 
     /**
@@ -186,6 +212,199 @@ window.__ModuleLoader__.load({
         else globalThis.localStorage?.removeItem(STORAGE_KEY);
         globalThis.localStorage?.removeItem(LEGACY_STORAGE_KEY);
       } catch {}
+    }
+
+    /**
+     * 目录流程槽位：宿主 ui-workspace 为「添加工作区」声明了三个 single 洞，
+     * 由当前 composition 挂载的 directory-picker 后端配套的客户端占用者填充。
+     */
+    const DIRECTORY_FLOW_SLOTS = [
+      "conversation.hero.workspace.directoryFlow",
+      "sidebar.workspaces.directoryFlow",
+      "workspace.picker.directoryFlow",
+    ];
+    /**
+     * 远程浏览器占用者的优先级。
+     *
+     * `single` 孔洞只渲染排序后的第一个条目。宿主本就会让动态注册的条目前排，
+     * 但这个值显式钉死顺序：不依赖宿主未文档化的默认优先级，也不必猜测随包
+     * 发布的 native/browse 占用者用了什么值。
+     */
+    const REMOTE_DIRECTORY_PRIORITY = -100;
+
+    /**
+     * 把目录原语的失败码翻译成给操作者看的话。
+     *
+     * 宿主机侧已经把插件内部的失败码投影成宿主的 `directory-picker/*` 词汇
+     * （见 lib/index.js 的 DIRECTORY_BROWSE_WIRE_CODES），所以这里按码措辞，
+     * 而不是把「cannot list C:\foo: EACCES」这种后端句子原样丢给用户。
+     * @param error - 注入面抛出的错误，可能带 code。
+     * @returns 展示文本。
+     */
+    function directoryFailureText(error) {
+      const code = error?.code;
+      if (code === "directory-picker/exists") return "同名文件夹已存在，请换一个名字。";
+      if (code === "directory-picker/unreadable") return "这个文件夹读不了：可能没有权限，或它已经被删除。";
+      if (code === "directory-picker/create-failed") return "新建文件夹失败：名字可能不合法，或该位置不可写。";
+      return error instanceof Error ? error.message : String(error);
+    }
+
+    /**
+     * 站内目录选择对话框。
+     *
+     * 远程浏览器的「添加工作区」必须落在页面里：宿主的 directory-picker 后端在
+     * boot 时一次性确定（桌面端落到 native，即在宿主屏幕上弹系统对话框），
+     * 远程客户端点下去只会让宿主机弹窗。这个组件替代那个占用者，通过注入的
+     * 目录原语在宿主机上列举/创建目录，交互完全在浏览器里完成。
+     *
+     * @param props - 槽位 owner 的会话（open/busy/onPicked/onCancel/onError）加上注入的目录原语。
+     */
+    function RemoteDirectoryFlow(props) {
+      const { open, busy, onPicked, onCancel, listDirectory, createDirectory } = props;
+      const [listing, setListing] = react.useState(null);
+      const [failure, setFailure] = react.useState("");
+      const [draft, setDraft] = react.useState("");
+      const [creating, setCreating] = react.useState(false);
+      // 卸载后不再回写状态：关掉对话框时可能还有列举请求在飞。
+      // 挂载时**同时**置回 true —— 只置 false 的话，StrictMode 的双挂载
+      // （mount → unmount → mount）会让它永久停在 false，对话框卡在「加载中…」。
+      const alive = react.useRef(true);
+      react.useEffect(() => {
+        alive.current = true;
+        return () => { alive.current = false; };
+      }, []);
+      // 请求序号：只认最后一次列举的结果。点两下目录时，慢的那个回来后不能
+      // 把界面拽回旧层级 —— 否则用户以为停在 B，点「选择此文件夹」提交的却是 A。
+      const seq = react.useRef(0);
+
+      const load = async (path) => {
+        const mine = (seq.current += 1);
+        if (alive.current) setFailure("");
+        try {
+          const next = await listDirectory(path);
+          if (alive.current && seq.current === mine) setListing(next);
+        } catch (error) {
+          if (!alive.current || seq.current !== mine) return;
+          // 失败就地展示，不调 owner 的 onError：宿主官方的 browse 占用者同样
+          // 把「读不了 / 建不了」留在对话框自己的提示里，owner 的错误面留给
+          // 「选择器根本不存在」这类流程级故障。这里对话框本身还能继续导航。
+          setFailure(directoryFailureText(error));
+        }
+      };
+
+      // 只挂在 `open` 的上升沿上：注入面每次渲染都是新函数，把 load 放进依赖会
+      // 让失败后 listing 仍为 null 的那一帧再次触发 effect —— 一次读不到的目录
+      // 会变成无休止的重试。层级导航全部由点击驱动，不需要 effect 参与。
+      react.useEffect(() => {
+        if (!open) {
+          // 作废所有在飞请求：关掉再打开时，上一次的响应不能落到新的层级上。
+          seq.current += 1;
+          setListing(null);
+          setFailure("");
+          setDraft("");
+          return;
+        }
+        void load(undefined);
+      }, [open]);
+
+      // Escape 关闭。用 ref 拿最新的 onCancel：owner 每次渲染可能给新函数，
+      // 直接放进依赖会让监听器每渲染一次就重绑一遍。
+      const cancelRef = react.useRef(onCancel);
+      cancelRef.current = onCancel;
+      react.useEffect(() => {
+        if (!open) return;
+        if (typeof globalThis.addEventListener !== "function") return;
+        const onKeyDown = (event) => {
+          if (event.key === "Escape") cancelRef.current();
+        };
+        globalThis.addEventListener("keydown", onKeyDown);
+        return () => globalThis.removeEventListener("keydown", onKeyDown);
+      }, [open]);
+
+      const create = async () => {
+        const name = draft.trim();
+        if (!name || listing === null) return;
+        setCreating(true);
+        setFailure("");
+        try {
+          // 创建后不自动提交：用户可能还要再看一眼层级，宿主原生对话框同样是
+          // 「建好 → 停在新目录」而不是直接选定。
+          const created = await createDirectory(listing.path, name);
+          if (!alive.current) return;
+          setDraft("");
+          await load(created);
+        } catch (error) {
+          if (!alive.current) return;
+          setFailure(directoryFailureText(error));
+        } finally {
+          if (alive.current) setCreating(false);
+        }
+      };
+
+      if (!open) return null;
+
+      const crumbs = listing?.crumbs ?? [];
+      const entries = listing?.entries ?? [];
+      const rows = entries.length === 0
+        ? [react.createElement("li", { key: "__empty", className: "dsh-remote-dir-empty" },
+            listing === null ? "加载中…" : "这里没有子文件夹")]
+        : entries.map((entry) => react.createElement("li", { key: entry.path },
+            react.createElement("button", {
+              type: "button",
+              className: "dsh-remote-dir-entry",
+              onClick: () => { void load(entry.path); },
+            }, entry.name)));
+
+      return react.createElement("div", {
+        className: "dsh-remote-dir-scrim",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": "选择工作区目录",
+        onMouseDown: (event) => { if (event.target === event.currentTarget) onCancel(); },
+      }, react.createElement("div", { className: "dsh-remote-dir-card" },
+        react.createElement("h2", { className: "dsh-remote-dir-title" }, "选择工作区目录"),
+        react.createElement("p", { className: "dsh-remote-dir-sub" }, listing?.path ?? "读取中…"),
+        react.createElement("ul", { className: "dsh-remote-dir-crumbs" },
+          crumbs.map((crumb, index) => react.createElement("li", { key: crumb.path },
+            index > 0 ? react.createElement("span", { className: "dsh-remote-dir-sep" }, "›") : null,
+            react.createElement("button", {
+              type: "button",
+              className: "dsh-remote-dir-crumb",
+              "data-current": crumb.path === listing?.path ? "true" : "false",
+              title: crumb.path,
+              onClick: () => { void load(crumb.path); },
+            }, crumb.name)))),
+        react.createElement("ul", { className: "dsh-remote-dir-list" }, rows),
+        listing?.truncated === true
+          ? react.createElement("p", { className: "dsh-remote-dir-note" }, "文件夹过多，仅显示开头部分。")
+          : null,
+        failure ? react.createElement("p", { className: "dsh-remote-error" }, failure) : null,
+        react.createElement("div", { className: "dsh-remote-dir-footer" },
+          react.createElement("div", { className: "dsh-remote-dir-create" },
+            react.createElement("input", {
+              className: "dsh-remote-input",
+              placeholder: "新建文件夹",
+              value: draft,
+              disabled: creating || listing === null,
+              onChange: (event) => setDraft(event.target.value),
+              onKeyDown: (event) => { if (event.key === "Enter") void create(); },
+            }),
+            react.createElement("button", {
+              type: "button",
+              className: "dsh-remote-button",
+              disabled: creating || listing === null || draft.trim() === "",
+              onClick: () => { void create(); },
+            }, creating ? "创建中…" : "创建")),
+          react.createElement("div", { className: "dsh-remote-dir-actions" },
+            react.createElement("button", {
+              type: "button", className: "dsh-remote-button", onClick: onCancel,
+            }, "取消"),
+            react.createElement("button", {
+              type: "button",
+              className: "dsh-remote-button dsh-remote-button-primary",
+              disabled: busy || listing === null,
+              onClick: () => { if (listing !== null) onPicked(listing.path); },
+            }, busy ? "处理中…" : "选择此文件夹")))));
     }
 
     function apply(ctx) {
@@ -730,6 +949,39 @@ window.__ModuleLoader__.load({
         );
       }
 
+      /**
+       * 通过本插件的 RPC 通道跑一个目录原语。
+       *
+       * `rpc.call` 会把宿主 `handleRemoteControlRpc` 的返回值原样交回：成功是
+       * `{ok:true,value}`，失败是 `{ok:false,error:{code,message}}`。失败折叠成
+       * 一个带 code 的 Error，供 `directoryFailureText` 按码措辞。
+       * @param method - `directory.list` 或 `directory.create`。
+       * @param payload - 原语参数。
+       */
+      const directoryCall = async (method, payload) => {
+        // 用内存里的 currentSecret 而不是 storedSecret()：后者依赖 localStorage
+        // 写入成功，而在无痕/受限 WebView 里 saveSecret 会静默失败 —— 那时设置页
+        // 一切正常，只有「添加工作区」恒定报认证失败，极难排查。
+        const result = await ctx.connection.rpc.call(REMOTE_CONTROL_RPC_CHANNEL, "call", {
+          token: currentSecret,
+          method,
+          payload,
+        })
+        if (result?.ok === true) return result.value;
+        const error = new Error(result?.error?.message || "目录操作失败");
+        error.code = result?.error?.code;
+        throw error;
+      };
+
+      /**
+       * 目录流程的注入面：官方 browse 后端从 `ctx.uiWorkspace` 取同样的两个原语，
+       * 远程浏览器在拿不到宿主 browse 后端时改走本插件的 RPC。
+       */
+      const directoryInjected = () => ({
+        listDirectory: (path) => directoryCall("directory.list", path === undefined ? {} : { path }),
+        createDirectory: (path, name) => directoryCall("directory.create", { path, name }),
+      });
+
       // 图标走宿主的 settings.section.icon 槽位，label 只放文本：外壳（0.2.x）
       // 把默认图标包进 span.navIcon，旧写法「label 内嵌图标 + CSS 隐藏外壳的
       // 直接子 svg」不再匹配，默认图标与自绘图标同时出现（双图标）。
@@ -746,6 +998,43 @@ window.__ModuleLoader__.load({
         id: "remote-control",
         order: 26,
       }, ({ size }) => react.createElement(IconGlobeOutline14, { size: size ?? 16 })));
+
+      /*
+       * 远程浏览器接管「添加工作区」的目录选择。
+       *
+       * 宿主的 directory-picker 后端由 `dsh-host-directory-picker-auto` 在 boot 时
+       * 一次性选定（桌面端绑回环 + win32 → native，web profile 绑非回环 → browse），
+       * 这个决定对所有客户端共用，且不考虑「本插件已开远程访问」。落到 native 时，
+       * 远程浏览器点「添加工作区」，真正弹出来的是**宿主机屏幕**上的系统对话框，
+       * 远程页面看起来毫无反应 —— 这就是要修的问题。
+       *
+       * 这里只在远程浏览器上注册；本机 Web 与 Electron 桌面端不进这个分支，
+       * 宿主原生行为原样保留。
+       *
+       * 注意：**不能**用「ctx.uiWorkspace.listDirectory 是否存在」来判断宿主有没有
+       * browse 后端。它是 UiWorkspaceService 的无条件实例方法，内部转发到
+       * `directoryPicker.list()`，native 后端下只是调用时抛
+       * `directory-picker/unavailable`，方法本身永远存在 —— 拿它做判据会恒为真，
+       * 导致这里永不注册，bug 依旧。
+       */
+      if (remoteBrowser) {
+        // `single` 孔洞取排序后的第一个（宿主 SlotCore.entriesOfSlot）。宿主会给
+        // 动态注册的条目前排（其 root 槽位注释原话：dynamically registered entry
+        // is assigned a lower priority than the shipped one），但那是内部行为；
+        // 这里显式声明一个足够小的值，无论宿主是否这么做都能稳定排在 native
+        // 占用者之前 —— 不依赖未文档化的默认值。
+        ctx.slots.inject(DIRECTORY_FLOW_SLOTS[0], () =>
+          ctx.slots.inject(DIRECTORY_FLOW_SLOTS[1], () =>
+            ctx.slots.inject(DIRECTORY_FLOW_SLOTS[2], function* () {
+              for (const slot of DIRECTORY_FLOW_SLOTS) {
+                yield ctx.slots.register({
+                  name: slot,
+                  priority: REMOTE_DIRECTORY_PRIORITY,
+                  inject: directoryInjected,
+                }, RemoteDirectoryFlow);
+              }
+            })));
+      }
     }
 
     exports.apply = apply;

@@ -18,6 +18,9 @@ DSH 特权 API。
 - 官方 `/api/*` 仍走 Connection 的浏览器会话校验；本插件不绕过它，而是按需**签发**会话（见下节）。远程特权调用只经过本插件的固定白名单。
 - **桌面版（Desktop Profile）与 Web 版网络体验对齐**：在设置页实时展示服务端监听的真实端口（如桌面端默认 `19387`，Web 默认 `3080`）及所有可用的局域网 IPv4 访问地址；当开启远程控制时，自动将合法局域网来源纳入免 403 围栏，让移动端/其他局域网设备在桌面端也能顺畅访问并输入 Token 解锁。
 - `localhost`、`127.0.0.1` 和 IPv6 回环地址不显示锁屏。
+- **远程浏览器的「添加工作区」在页面内选目录**：宿主的目录选择后端在 boot 时一次性选定，桌面端
+  恒为 `native`，会让远程点击在**宿主机屏幕**上弹系统对话框。插件在远程浏览器上用站内对话框
+  接管该交互（详见「远程浏览器的『添加工作区』为什么不弹在宿主机上」），本机与桌面端不受影响。
 
 ## 安装
 
@@ -279,9 +282,55 @@ curl -s -X POST http://127.0.0.1:<port>/dsh-remote-control-config \
 - `agentPreset.read/copy/openDocument/remove`
 - `host.pickDirectory/openPath`
 - `llm.providers/models/discoverModels`
+- `directory.list/create`
 
-浏览器端会将对应的 `connection.api` 方法重定向到认证通道。远程页面总是走该通道；本机
-页面优先走官方直连，仅在直连返回 HTTP 403 时回退。
+除 `directory.*` 之外（见下节），浏览器端会将对应的 `connection.api` 方法重定向到认证通道。
+远程页面总是走该通道；本机页面优先走官方直连，仅在直连返回 HTTP 403 时回退。
+
+### `directory.list` / `directory.create`
+
+这两个方法**不经过宿主 `apiProxy`**，由本插件在宿主机上直接实现（失败码与宿主
+`directory-picker` 后端一致）：
+
+| 方法 | 参数 | 返回 |
+| --- | --- | --- |
+| `directory.list` | `{ path? }`，省略即宿主机主目录 | `{ path, home, crumbs, entries, truncated }` |
+| `directory.create` | `{ path, name }` | 新建目录的绝对路径 |
+
+失败码为 `directory-picker/unreadable`、`directory-picker/exists`、
+`directory-picker/create-failed`，与宿主同名。
+
+## 远程浏览器的「添加工作区」为什么不弹在宿主机上
+
+宿主的目录选择后端由 `dsh-host-directory-picker-auto` 在 **boot 时一次性选定**，之后所有
+客户端共用同一个决定，其中**没有「本插件已开启远程访问」这一考量项**。桌面端固定绑回环
+且是 `win32`，因此永远判成 `native`：通过本插件接进来的局域网浏览器点「添加工作区」，真正
+弹出来的是**宿主机屏幕上的系统文件对话框**，远程页面看起来毫无反应 —— 这就是「选择框跑到
+本地去了」。
+
+插件不能改宿主的 composition，所以在自己这一侧补上等价能力：
+
+- **宿主机**：`directory.list` / `directory.create` 在本机文件系统上列举与建目录。
+- **远程浏览器**：注册进 `conversation.hero.workspace.directoryFlow`、
+  `sidebar.workspaces.directoryFlow`、`workspace.picker.directoryFlow` 三个孔洞，用站内
+  对话框替换宿主的占用者，交互完全落在页面里。
+
+判据只有「是不是远程浏览器」。**不能**用 `ctx.uiWorkspace.listDirectory` 是否存在来判断
+宿主有没有 browse 后端——它是 `UiWorkspaceService` 的无条件实例方法，内部转发到
+`directoryPicker.list()`，`native` 后端下只是调用时抛 `directory-picker/unavailable`，
+方法本身永远存在。拿它做判据会恒为真，导致插件永不接管，本页描述的 bug 原样复现。
+
+三端行为：
+
+| 场景 | 目录选择行为 |
+| --- | --- |
+| 远程浏览器（局域网 / 公网访问） | **页面内**对话框，经本插件 RPC 操作宿主机目录 |
+| 本机 Web（`localhost` / `127.0.0.1` / `[::1]`） | 不动宿主，沿用官方后端 |
+| Windows / macOS 桌面端（`dsh-app:` / `file:`） | 不动宿主，沿用官方原生对话框 |
+
+三个孔洞都是 `single`，宿主只渲染排序后的第一个条目，因此远程占用者显式声明负
+priority，稳定排在随包发布的占用者之前。
+
 
 ## 安全边界
 
@@ -292,6 +341,10 @@ curl -s -X POST http://127.0.0.1:<port>/dsh-remote-control-config \
   `dsh web` 打印的 `?token=` 链接，二者等价于完全访问这台 Harness。
 - 解锁后远程浏览器持有**官方会话**，其权限不再局限于 RPC 白名单；共享密钥即完整访问凭据，
   请按 HTTPS 反向代理的强度保护它（建议高强度随机值，并定期更换）。
+- **`directory.list` / `directory.create` 把宿主机文件系统的目录列举与创建开放给已认证的
+  远程调用方**，能力范围与宿主自带 browse 后端相同：整个文件系统可读、已存在目录下可建子目录。
+  它包含 UNC 路径（`\\server\share`），因此在桌面端 `native` 组合下，这等于让**宿主机**向
+  调用方指定的 SMB 主机发起连接与认证协商。仅在信任所有持有共享密钥的设备时启用远程访问。
 - 「锁定远程会话 / 清除本地凭证」会同时清除浏览器 `localStorage` 密钥与官方会话 Cookie；
   若该请求失败（例如网络中断），官方会话会保留到其过期时间（默认 30 天），此时可在浏览器
   设置里手动删除本站 Cookie。
