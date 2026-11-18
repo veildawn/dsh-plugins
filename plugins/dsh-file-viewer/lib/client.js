@@ -2801,12 +2801,50 @@ window.__ModuleLoader__.load({
       // more useful than "failed" for the cases a reader can act on.
       "cannot-delete-root": "工作区根目录本身不能被删除。",
       "delete-failed": "删除失败，文件可能正被其他程序占用或没有写入权限。",
+      // Revealing. The host spawns the platform's own file manager, so the only
+      // two ways this fails are "that machine has no file manager to call" and
+      // "calling it failed"; both are reported instead of silently doing
+      // nothing, because the click already happened.
+      "reveal-unsupported": "当前系统没有可用的文件浏览器。",
+      "reveal-failed": "打开文件浏览器失败。",
     };
 
     function messageOf(error) {
       const code = error && error.code;
       if (code && Object.hasOwn(ERROR_COPY, code)) return ERROR_COPY[code];
       return (error && error.message) || "操作失败。";
+    }
+
+    /**
+     * Show a path in the host machine's own file browser.
+     *
+     * One implementation for both entry points — the tree's context menu and
+     * the toolbar's 操作 menu — so the two can never drift: each hands the host
+     * a root plus a root-relative path, the host resolves it against the same
+     * fences every read uses and spawns the platform's file manager. The drawer
+     * never touches the disk itself, and never invents an absolute path for a
+     * root it does not own.
+     *
+     * A file reveals its containing folder, because a folder is what a file
+     * manager shows; a directory reveals itself. Failure is reported rather
+     * than swallowed: the click already happened, so silence would read as
+     * "this button does nothing".
+     *
+     * @param {Function|null} request - the RPC caller, possibly not published yet.
+     * @param {{root: string, path: string}} payload - what to reveal.
+     * @param {(text: string) => void} [onToast] - how to report the outcome.
+     * @returns {Promise<boolean>} whether the host opened it.
+     */
+    function revealInHostBrowser(request, payload, onToast) {
+      const say = (text) => { if (typeof onToast === "function") onToast(text); };
+      if (typeof request !== "function") {
+        say("连接服务尚未就绪");
+        return Promise.resolve(false);
+      }
+      return request("reveal", payload).then(
+        () => { say("已在文件浏览器中打开"); return true; },
+        (error) => { say(messageOf(error)); return false; },
+      );
     }
 
     /**
@@ -4672,6 +4710,21 @@ window.__ModuleLoader__.load({
         });
       };
 
+      // Same behaviour as the tree's context-menu entry, through the same
+      // helper: this menu shows one file, so a file reveals its parent folder.
+      const handleReveal = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setOpen(false);
+        if (!root) {
+          // Without a root the host cannot tell which deployment the path
+          // belongs to, and guessing one could reveal an unrelated folder.
+          if (onToast) onToast("尚未确定工作区根目录");
+          return;
+        }
+        revealInHostBrowser(liveRequest, { root: root, path: relPath }, onToast);
+      };
+
       return react.createElement("div", {
         ref: containerRef,
         className: "fv-path-copy-wrap",
@@ -4680,21 +4733,21 @@ window.__ModuleLoader__.load({
           type: "button",
           className: "fv-tab fv-tab-copy-path",
           "aria-expanded": open ? "true" : "false",
-          "aria-label": "路径复制",
-          title: "点击选择复制相对路径或绝对路径",
+          "aria-label": "操作",
+          title: "复制路径，或在文件浏览器中打开",
           onClick: (e) => {
             e.stopPropagation();
             setOpen((curr) => !curr);
           },
         },
           react.createElement(SvgIconCopy, { size: 12 }),
-          react.createElement("span", { className: "fv-tab-text" }, "复制路径"),
+          react.createElement("span", { className: "fv-tab-text" }, "操作"),
           react.createElement("span", { className: "fv-tab-arrow" }, open ? "▴" : "▾")),
         open
           ? react.createElement("div", {
             className: "fv-path-copy-menu",
             role: "menu",
-            "aria-label": "路径复制选项",
+            "aria-label": "操作选项",
           },
             react.createElement("button", {
               type: "button",
@@ -4718,7 +4771,23 @@ window.__ModuleLoader__.load({
               react.createElement("div", { className: "fv-path-copy-item-head" },
                 react.createElement("span", { className: "fv-path-copy-item-icon" }, "📁"),
                 react.createElement("span", { className: "fv-path-copy-item-label" }, "复制绝对路径")),
-              react.createElement("span", { className: "fv-path-copy-item-preview" }, absPath)))
+              react.createElement("span", { className: "fv-path-copy-item-preview" }, absPath)),
+            react.createElement("div", { className: "fv-context-divider" }),
+            // The reason this menu is called 操作 rather than 复制路径: it
+            // carries the reveal action the tree's context menu offers, so a
+            // reader who is looking at the file does not have to find it in
+            // the tree first.
+            react.createElement("button", {
+              type: "button",
+              className: "fv-path-copy-item fv-path-copy-item-reveal",
+              role: "menuitem",
+              title: "在系统文件浏览器中打开所在目录",
+              onClick: handleReveal,
+            },
+              react.createElement("div", { className: "fv-path-copy-item-head" },
+                react.createElement("span", { className: "fv-path-copy-item-icon" }, "📂"),
+                react.createElement("span", { className: "fv-path-copy-item-label" }, "文件浏览器中打开")),
+              react.createElement("span", { className: "fv-path-copy-item-preview" }, relPath || absPath)))
           : null);
     }
 
@@ -6947,7 +7016,7 @@ window.__ModuleLoader__.load({
 
 
       /** Right-click context menu for file and directory items. */
-      function ContextMenu({ menu, rootPath, onClose, onMention, onToast, onDownload, onDelete, onRefresh }) {
+      function ContextMenu({ menu, rootPath, onClose, onMention, onToast, onDownload, onDelete, onRefresh, onReveal }) {
         const ref = react.useRef(null);
         const mountTimeRef = react.useRef(Date.now());
         react.useEffect(() => {
@@ -7024,13 +7093,23 @@ window.__ModuleLoader__.load({
           onClose();
           if (onRefresh) onRefresh(entry);
         };
+
+        // Revealing is handed to the host, which is the only side that knows
+        // the real absolute path behind a root; the menu only says which row
+        // was right-clicked. A file opens its containing folder.
+        const handleReveal = (e) => {
+          e.stopPropagation();
+          onClose();
+          if (onReveal) onReveal(entry);
+        };
         const isDirectoryEntry = entry.type === "directory" || entry.isDirectory === true;
 
         const winW = typeof window !== "undefined" ? window.innerWidth : 1000;
         const winH = typeof window !== "undefined" ? window.innerHeight : 800;
-        // The menu grew by one row; the old bound clipped the delete item off
-        // the bottom of the viewport when right-clicking near the lower edge.
-        const top = Math.max(8, Math.min(y, winH - 220)) + "px";
+        // The menu grew by one row again; each fixed bound has to keep the
+        // bottom items (delete, the last one) inside the viewport when the
+        // reader right-clicks near the lower edge.
+        const top = Math.max(8, Math.min(y, winH - 262)) + "px";
         const left = Math.max(8, Math.min(x, winW - 190)) + "px";
 
         return react.createElement(react.Fragment, null,
@@ -7091,6 +7170,19 @@ window.__ModuleLoader__.load({
             },
               react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "📁"),
               react.createElement("span", { className: "fv-context-item-label" }, "复制绝对路径")),
+            // Sits with the copy items because it answers the same question —
+            // "where is this on disk" — but hands the answer to the platform's
+            // file manager instead of the clipboard. A file opens its parent
+            // folder, so the label names the folder rather than the file.
+            react.createElement("button", {
+              type: "button",
+              className: "fv-context-item fv-context-item-reveal",
+              role: "menuitem",
+              title: isDirectoryEntry ? "在系统文件浏览器中打开此目录" : "在系统文件浏览器中打开所在目录",
+              onClick: handleReveal,
+            },
+              react.createElement("span", { className: "fv-context-item-icon", "aria-hidden": "true" }, "📂"),
+              react.createElement("span", { className: "fv-context-item-label" }, "文件浏览器中打开")),
             react.createElement("div", { className: "fv-context-divider", "aria-hidden": "true" }),
             react.createElement("button", {
               type: "button",
@@ -9010,6 +9102,20 @@ window.__ModuleLoader__.load({
           performDownload(request, root, targetPath, targetName, showToast);
         };
 
+        /**
+         * Reveal one tree row in the host's own file browser.
+         *
+         * The row's `path` is already root-relative — every listing answers in
+         * those terms — so the host can resolve it against the same fence a
+         * read uses. `displayPath` is deliberately not used here: it is for
+         * showing, and handing a host-side absolute path back to the host would
+         * be a second, weaker way in. A file reveals its parent folder.
+         */
+        const revealEntry = (entry) => {
+          if (!entry || typeof entry.path !== "string" || entry.path === "") return;
+          revealInHostBrowser(request, { root: root, path: entry.path }, showToast);
+        };
+
         const originKind = previewOrigin === null || previewOrigin === undefined ? null : previewOrigin.kind;
         const backTarget = originKind === "commit"
           ? "返回变更文件列表"
@@ -9392,6 +9498,7 @@ window.__ModuleLoader__.load({
                 onDownload: handleDownloadItem,
                 onDelete: requestDelete,
                 onRefresh: refreshEntry,
+                onReveal: revealEntry,
               })
               : null,
             // The tab menu is a separate component with a separate subject; it
@@ -9732,6 +9839,10 @@ window.__ModuleLoader__.load({
       MARKDOWN_LABELS, MARKDOWN_CODE_LABELS, READ_BLOCK_LABELS, JSON_TREE_LABELS, DIFF_BLOCK_LABELS, ErrorBoundary,
       openViewerForPath, openViewerForPlan, wrapWorkspaceOpenPath, wrapConnectionRpc, wrapChangesOpenFetch, wrapSidebarRight, parseFileResource, parsePlanResource, setupGlobalFileClickInterceptor, extractClickedPath, normalizeClickedPath, looksLikeFilePath, isFileOpenControl, isDisclosureToggle, isFileMentionCode, renderRootOptions,
       triggerDownload, performDownload, isDesktopShell, SvgIconDownload, SvgIconCopy, PathCopyDropdown, resolveAbsPath, extractRelativeAndAbsolutePaths, isAbsolutePath, SvgIconBranch, SvgIconCommit, SvgIconOpenFile,
+      // Revealing a path in the host's own file browser: the shared helper the
+      // context menu and the toolbar's 操作 menu both go through, so the two
+      // entry points cannot drift into two behaviours.
+      revealInHostBrowser,
       FONT_SIZE_KEY, DEFAULT_FONT_SIZE, MIN_FONT_SIZE, MAX_FONT_SIZE, FONT_SIZE_STEP, readFontSize, writeFontSize, clampFontSize, FontSizeControl,
       // Git panel: controller, views and the small formatters they share.
       GIT_PAGE_SIZE, createGitController, GitSidebar, CommitDetail, WorkspaceChangeDetail, DiffView, kindOfPath,

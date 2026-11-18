@@ -163,6 +163,15 @@ export const PLANS_DIR_NAME = '.dsh-plans'
  */
 export const DOWNLOAD_ROUTE = '/api/file-viewer/download'
 
+/**
+ * How long a "reveal in the file browser" may take to be handed off.
+ *
+ * The spawn itself is instant — the file manager is a separate process that
+ * outlives this call — so this only bounds the handoff. A machine whose shell
+ * integration hangs should fail visibly rather than leave the button spinning.
+ */
+const REVEAL_TIMEOUT_MS = 5000
+
 const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
 
 export function liveField(schema) {
@@ -598,6 +607,118 @@ export async function deleteEntry(ctx, options, payload, signal) {
     throw new ViewerError('delete-failed', 'the file could not be deleted', { reason: error?.code ?? 'unknown' })
   }
   return { root: root.id, path: vetted, type, recursive: false }
+}
+
+/**
+ * The command that shows one path in this platform's own file browser.
+ *
+ * A file is never "opened" by its file manager — what the reader wants is its
+ * containing folder, with the file itself highlighted where the platform can
+ * do that. So every branch below resolves to a directory window:
+ *
+ *   - Windows: `explorer /select,<file>` opens the parent and selects the row;
+ *     a bare path opens the folder itself.
+ *   - macOS: `open -R` reveals in Finder; without `-R` it opens the folder.
+ *   - Linux: there is no portable "select" flag, so `xdg-open` opens the
+ *     parent directory. Guessing a specific file manager would fail on machines
+ *     that do not have it.
+ *
+ * `explorer.exe` reports a non-zero exit status even when it succeeded, which
+ * is why the returned plan carries `ignoreExitCode`: the caller must not turn a
+ * successful reveal into an error banner.
+ *
+ * @param {string} absolutePath - absolute host path to reveal.
+ * @param {boolean} isDirectory - whether the path is a directory.
+ * @returns {{command: string, args: string[], opened: 'directory'|'parent', ignoreExitCode: boolean} | null} the plan, or null for an unusable path.
+ */
+export function revealCommand(absolutePath, isDirectory) {
+  if (typeof absolutePath !== 'string' || absolutePath === '') return null
+  if (process.platform === 'win32') {
+    return {
+      command: 'explorer.exe',
+      args: isDirectory ? [absolutePath] : [`/select,${absolutePath}`],
+      opened: isDirectory ? 'directory' : 'parent',
+      ignoreExitCode: true,
+    }
+  }
+  if (process.platform === 'darwin') {
+    return {
+      command: 'open',
+      args: isDirectory ? [absolutePath] : ['-R', absolutePath],
+      opened: isDirectory ? 'directory' : 'parent',
+      ignoreExitCode: false,
+    }
+  }
+  // Every other platform opens the folder, because only the folder is a
+  // portable thing to hand a file manager.
+  return {
+    command: 'xdg-open',
+    args: [isDirectory ? absolutePath : path.dirname(absolutePath)],
+    opened: isDirectory ? 'directory' : 'parent',
+    ignoreExitCode: false,
+  }
+}
+
+/**
+ * Show one path in the host machine's own file browser.
+ *
+ * This is the one method on the channel that hands a path to an outside
+ * program, so it is fenced exactly like a read: `resolveInRoot` refuses
+ * absolute paths, `..` segments and symlink escapes before anything is
+ * spawned, and only a path that exists is revealed. The command is spawned with
+ * `execFile` — never a shell — so a filename containing `&`, `|` or quotes is
+ * an argument, not a second command.
+ *
+ * Opening a file names its parent directory (see `revealCommand`): a file
+ * manager has no notion of previewing a file, and the reader's question is
+ * "where is this on disk".
+ *
+ * The absolute path never appears in an error message: the same rule the rest
+ * of this file follows, because these strings reach the browser.
+ *
+ * @param {import('@deepseek-ai/cordis').Context} ctx - host context.
+ * @param {() => object} options - resolved config reader.
+ * @param {{root?: string, path?: string}} payload - what to reveal.
+ * @param {AbortSignal} [signal] - caller cancellation.
+ * @returns {Promise<{root: string, path: string, type: 'directory'|'file', opened: 'directory'|'parent'}>} what was revealed and where.
+ */
+export async function revealInFileManager(ctx, options, payload, signal) {
+  const { root, target, relative } = await resolveInRoot(ctx, options, payload, signal)
+  const info = await ctx.fs.stat(target, signal)
+  if (info === undefined) throw new ViewerError('not-found', 'the requested path does not exist')
+
+  const isDirectory = info.type === 'directory'
+  const absolute = ctx.fs.processPath?.(target) ?? target.displayPath
+  const plan = revealCommand(absolute, isDirectory)
+  if (plan === null) {
+    throw new ViewerError('reveal-unsupported', 'no file browser is available on this host')
+  }
+
+  try {
+    await execFileAsync(plan.command, plan.args, { timeout: REVEAL_TIMEOUT_MS })
+  } catch (error) {
+    // "the command is not installed" is a different answer from "the command
+    // ran and failed", and only the first one is worth a distinct code: the
+    // client turns it into "this system has no file browser".
+    if (error?.code === 'ENOENT' || error?.code === 'EACCES') {
+      throw new ViewerError('reveal-unsupported', 'no file browser is available on this host')
+    }
+    // A reveal that took too long is still a failed reveal, whatever the
+    // platform's exit codes mean.
+    if (error?.killed === true) {
+      throw new ViewerError('reveal-failed', 'the file browser did not open in time', { reason: 'timeout' })
+    }
+    if (plan.ignoreExitCode !== true) {
+      throw new ViewerError('reveal-failed', 'the file browser could not be opened', { reason: error?.code ?? 'unknown' })
+    }
+  }
+
+  return {
+    root: root.id,
+    path: relative,
+    type: isDirectory ? 'directory' : 'file',
+    opened: plan.opened,
+  }
 }
 
 /**
@@ -2848,6 +2969,9 @@ const METHODS = Object.freeze({
   // The only destructive method on this channel. Its payload is vetted exactly
   // like a read (`resolveInRoot`), and the root itself is refused.
   delete: deleteEntry,
+  // The only method that hands a path to a program outside this process. Vetted
+  // like a read, and it opens the containing folder for a file.
+  reveal: revealInFileManager,
   meta: describeFile,
   read: readText,
   diff: getFileDiff,

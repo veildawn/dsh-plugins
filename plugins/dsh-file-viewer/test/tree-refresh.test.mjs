@@ -63,7 +63,7 @@ test('a whole-tree refresh re-reads the root and every expanded directory', () =
 })
 
 test('a directory refresh is offered from the context menu', () => {
-  assert.match(clientSource, /function ContextMenu\(\{ menu, rootPath, onClose, onMention, onToast, onDownload, onDelete, onRefresh \}\)/)
+  assert.match(clientSource, /function ContextMenu\(\{ menu, rootPath, onClose, onMention, onToast, onDownload, onDelete, onRefresh, onReveal \}\)/)
   assert.match(clientSource, /const handleRefresh = \(e\) => \{/)
   assert.match(clientSource, /const isDirectoryEntry = entry\.type === "directory" \|\| entry\.isDirectory === true/)
   // Only a directory has a listing to re-read.

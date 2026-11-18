@@ -1231,9 +1231,10 @@ test('the tree offers deletion behind a confirmation that names the target', () 
   assert.match(performDelete[1], /showToast\("删除失败：" \+ messageOf\(problem\)\)/)
   assert.match(performDelete[1], /setDeleteTarget\(null\)/)
 
-  // The menu grew a row, so its viewport clamp had to grow with it or the new
-  // item would sit below the fold when right-clicking near the bottom edge.
-  assert.match(source, /winH - 220/)
+  // The menu grew a row (reveal in the file browser), so its viewport clamp had
+  // to grow with it or the new item would sit below the fold when right-clicking
+  // near the bottom edge.
+  assert.match(source, /winH - 262/)
 })
 
 test('the drawer scrim ignores the gesture that opened it', () => {
